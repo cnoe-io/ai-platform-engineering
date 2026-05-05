@@ -480,4 +480,94 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(within(dialog).getByText(/^10 skills$/i)).toBeInTheDocument();
     expect(within(dialog).queryByText(/skills from catalog/i)).toBeNull();
   });
+
+  // ---------------------------------------------------------------------
+  // Overwrite-policy checkboxes (--upgrade / --force).
+  //
+  // The modal exposes two checkboxes that flip the rendered one-liner
+  // between three modes:
+  //
+  //   * neither        → `curl … | bash`              (safe default)
+  //   * --upgrade only → `curl … | bash -s -- --upgrade`
+  //   * --force only   → `curl … | bash -s -- --force`
+  //
+  // The two checkboxes are mutually exclusive (install.sh treats
+  // upgrade+force as force-wins, and exposing both as independent
+  // toggles would let the UI ask for an illegal combination). These
+  // tests pin (a) the default state, (b) each mode's effect on the
+  // snippet, and (c) the mutual-exclusion rule.
+  // ---------------------------------------------------------------------
+
+  it("overwrite-policy: defaults to no flag and renders a clean curl | bash", async () => {
+    await renderAndOpenModal();
+    const dialog = getDialog();
+
+    const upgrade = within(dialog).getByTestId(
+      "quick-install-upgrade",
+    ) as HTMLInputElement;
+    const force = within(dialog).getByTestId(
+      "quick-install-force",
+    ) as HTMLInputElement;
+    expect(upgrade.checked).toBe(false);
+    expect(force.checked).toBe(false);
+
+    // The snippet block is the only `<pre>` in the dialog.
+    const snippet = dialog.querySelector("pre");
+    expect(snippet).not.toBeNull();
+    expect(snippet!.textContent || "").toMatch(/\| bash$/);
+    expect(snippet!.textContent || "").not.toContain("bash -s --");
+  });
+
+  it("overwrite-policy: ticking --upgrade rewrites snippet to use bash -s -- --upgrade", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    await user.click(within(dialog).getByTestId("quick-install-upgrade"));
+
+    const snippet = dialog.querySelector("pre");
+    expect(snippet!.textContent || "").toMatch(
+      /\| bash -s -- --upgrade$/,
+    );
+  });
+
+  it("overwrite-policy: ticking --force rewrites snippet to use bash -s -- --force", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    await user.click(within(dialog).getByTestId("quick-install-force"));
+
+    const snippet = dialog.querySelector("pre");
+    expect(snippet!.textContent || "").toMatch(/\| bash -s -- --force$/);
+  });
+
+  it("overwrite-policy: --upgrade and --force are mutually exclusive", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    const upgrade = within(dialog).getByTestId(
+      "quick-install-upgrade",
+    ) as HTMLInputElement;
+    const force = within(dialog).getByTestId(
+      "quick-install-force",
+    ) as HTMLInputElement;
+
+    await user.click(upgrade);
+    expect(upgrade.checked).toBe(true);
+    expect(force.checked).toBe(false);
+
+    // Picking force flips upgrade off — install.sh treats them as
+    // a precedence chain, so two independent toggles would let the
+    // UI claim a state the script silently ignores.
+    await user.click(force);
+    expect(force.checked).toBe(true);
+    expect(upgrade.checked).toBe(false);
+
+    // Unticking the active one returns to the safe default (clean
+    // `| bash` with no flag).
+    await user.click(force);
+    expect(upgrade.checked).toBe(false);
+    expect(force.checked).toBe(false);
+    const snippet = dialog.querySelector("pre");
+    expect(snippet!.textContent || "").not.toContain("bash -s --");
+  });
 });

@@ -40,6 +40,15 @@ export function TrySkillsGateway() {
   const [copiedBulkUpgrade, setCopiedBulkUpgrade] = useState(false);
   const [copiedQuickInstall, setCopiedQuickInstall] = useState(false);
   const [quickInstallOpen, setQuickInstallOpen] = useState(false);
+  // Quick-install mode picker: pass nothing (default), `--upgrade`, or
+  // `--force` to the install.sh script. Modeled as a single string with
+  // three values so the radio-style UI can't end up in an illegal state
+  // (both upgrade AND force) — install.sh's flag handling treats those
+  // two as mutually exclusive (force always wins) and exposing both as
+  // independent checkboxes would surface a footgun the script ignores.
+  const [quickInstallMode, setQuickInstallMode] = useState<
+    "default" | "upgrade" | "force"
+  >("default");
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
@@ -1845,7 +1854,22 @@ EOF`}
                 // copy-pasteable, and makes the "API key cannot be
                 // recovered" message in the key card actually true — we
                 // never echo the key into examples after minting it.
-                const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
+                //
+                // The optional `--upgrade` / `--force` flag is appended via
+                // `bash -s --` (the standard way of forwarding args to a
+                // piped script). With no flag, install.sh's safe-default
+                // refuses to overwrite existing files; `--upgrade` only
+                // overwrites files we previously wrote (manifest-tracked);
+                // `--force` clobbers anything in the target paths.
+                const installFlag =
+                  quickInstallMode === "upgrade"
+                    ? "--upgrade"
+                    : quickInstallMode === "force"
+                      ? "--force"
+                      : "";
+                const oneLiner = installFlag
+                  ? `curl -fsSL ${shellQuote(installShUrl)} | bash -s -- ${installFlag}`
+                  : `curl -fsSL ${shellQuote(installShUrl)} | bash`;
                 return (
                   <div className="space-y-3">
                     {/* Summary chips: tell the user *what* will happen
@@ -1921,6 +1945,71 @@ EOF`}
                       </div>
                     )}
 
+                    {/* Install-mode toggles. Modeled as two checkboxes
+                        (matching the include_content pattern in the Live
+                        URL builder above) but mutually exclusive — picking
+                        one unchecks the other. install.sh treats
+                        --upgrade and --force as a precedence chain (force
+                        wins), so two independent toggles would let the UI
+                        ask for "upgrade AND force" while the script
+                        silently ignored upgrade. The radio-in-checkbox-
+                        clothing keeps the visual affordance the user
+                        asked for without the footgun. */}
+                    <div
+                      className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1.5"
+                      data-testid="quick-install-mode-toggles"
+                    >
+                      <p className="text-[11px] font-medium text-foreground">
+                        Overwrite policy
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={quickInstallMode === "upgrade"}
+                            onChange={(e) =>
+                              setQuickInstallMode(
+                                e.target.checked ? "upgrade" : "default",
+                              )
+                            }
+                            className="rounded border-border"
+                            data-testid="quick-install-upgrade"
+                          />
+                          <span className="font-mono text-[11px]">
+                            --upgrade
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            (refresh files this installer wrote before)
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={quickInstallMode === "force"}
+                            onChange={(e) =>
+                              setQuickInstallMode(
+                                e.target.checked ? "force" : "default",
+                              )
+                            }
+                            className="rounded border-border"
+                            data-testid="quick-install-force"
+                          />
+                          <span className="font-mono text-[11px]">
+                            --force
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            (clobber any existing files at the target
+                            paths)
+                          </span>
+                        </label>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Mutually exclusive — picking one clears the
+                        other. Leave both off for the safe default
+                        (existing files untouched).
+                      </p>
+                    </div>
+
                     {/* The actual one-liner. Multi-line + monospace so the
                         long install.sh URL is readable. Big, full-width
                         copy button so it's the primary action. */}
@@ -1965,10 +2054,30 @@ EOF`}
                         {oneLiner}
                       </pre>
                       <p className="text-[11px] text-muted-foreground">
-                        Idempotent and safe to re-run. Existing skill files
-                        are skipped — pass{" "}
-                        <code className="font-mono">--upgrade</code> to
-                        overwrite.
+                        {quickInstallMode === "force" ? (
+                          <>
+                            <code className="font-mono">--force</code>{" "}
+                            mode: every target file at the install paths
+                            will be overwritten, including files this
+                            installer didn&rsquo;t create.
+                          </>
+                        ) : quickInstallMode === "upgrade" ? (
+                          <>
+                            <code className="font-mono">--upgrade</code>{" "}
+                            mode: only files this installer previously
+                            wrote (tracked in the manifest) will be
+                            refreshed. Other files are left alone.
+                          </>
+                        ) : (
+                          <>
+                            Idempotent and safe to re-run. Existing skill
+                            files are skipped — toggle{" "}
+                            <code className="font-mono">--upgrade</code>{" "}
+                            or{" "}
+                            <code className="font-mono">--force</code>{" "}
+                            above to overwrite.
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>
