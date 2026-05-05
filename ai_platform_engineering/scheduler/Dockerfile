@@ -40,7 +40,7 @@ ENV PATH="/app/scheduler/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080
 
-USER app
+USER 1001
 
 EXPOSE 8080
 

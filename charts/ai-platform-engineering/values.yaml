@@ -812,6 +812,8 @@ scheduler:
     # tag defaults to global.image.tag or the chart appVersion when not specified
     tag: ""
     pullPolicy: "IfNotPresent"
+  command: []
+  args: []
   cronRunner:
     image:
       repository: "ghcr.io/cnoe-io/caipe-cron-runner"
@@ -836,6 +838,7 @@ standaloneMcpServers:
       # tag defaults to global.image.tag or the parent chart appVersion when not specified
       tag: ""
       pullPolicy: "IfNotPresent"
+    command: ["mcp-server-webex-meetings"]
     service:
       port: 8000
     env:
@@ -850,6 +853,7 @@ standaloneMcpServers:
       # tag defaults to global.image.tag or the parent chart appVersion when not specified
       tag: ""
       pullPolicy: "IfNotPresent"
+    command: ["mcp-server-pod-meeting"]
     service:
       port: 8000
     env:
@@ -873,6 +877,7 @@ standaloneMcpServers:
       # tag defaults to global.image.tag or the parent chart appVersion when not specified
       tag: ""
       pullPolicy: "IfNotPresent"
+    command: ["mcp-server-scheduler"]
     service:
       port: 8000
     env:

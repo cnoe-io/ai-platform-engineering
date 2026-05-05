@@ -180,6 +180,8 @@ class CronJobOps:
                                             "allowPrivilegeEscalation": False,
                                             "readOnlyRootFilesystem": True,
                                             "runAsNonRoot": True,
+                                            "runAsUser": 1001,
+                                            "runAsGroup": 1001,
                                             "capabilities": {"drop": ["ALL"]},
                                             "seccompProfile": {"type": "RuntimeDefault"},
                                         },

@@ -43,7 +43,7 @@ ENV PATH="/app/cron-runner/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-USER app
+USER 1001
 
 # No EXPOSE — the runner makes outbound HTTPS calls and exits.
 # No HEALTHCHECK — Kubernetes treats Job completion as success/failure.

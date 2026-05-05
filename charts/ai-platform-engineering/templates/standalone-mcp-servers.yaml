@@ -71,6 +71,14 @@ spec:
           {{- end }}
           image: "{{ $image.repository }}:{{ $image.tag | default (include "ai-platform-engineering.appVersion" $) }}"
           imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          {{- with $server.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $server.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ $port }}

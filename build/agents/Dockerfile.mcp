@@ -81,5 +81,6 @@ USER appuser
 
 EXPOSE 8000
 
-# Run the HTTP/SSE MCP server
-CMD ["sh", "-c", "exec python -m mcp_${AGENT_NAME}"]
+# Run the HTTP/SSE MCP server. Docker build args use agent directory names
+# like "pod-meeting", while Python modules use underscores.
+CMD ["sh", "-c", "exec python -m mcp_$(printf '%s' \"$AGENT_NAME\" | tr '-' '_')"]
