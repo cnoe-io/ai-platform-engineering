@@ -1973,10 +1973,10 @@ create_namespace_and_secrets() {
       ;;
     *)
       secret_args+=(
-        --from-literal=OPENAI_API_KEY="$OPENAI_API_KEY"
-        --from-literal=OPENAI_ENDPOINT="$OPENAI_ENDPOINT"
-        --from-literal=OPENAI_BASE_URL="$OPENAI_ENDPOINT"
-        --from-literal=OPENAI_MODEL_NAME="$OPENAI_MODEL_NAME"
+        --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+        --from-literal=OPENAI_ENDPOINT="${OPENAI_ENDPOINT:-}"
+        --from-literal=OPENAI_BASE_URL="${OPENAI_ENDPOINT:-}"
+        --from-literal=OPENAI_MODEL_NAME="${OPENAI_MODEL_NAME:-}"
       )
       ;;
   esac
@@ -2003,6 +2003,10 @@ create_namespace_and_secrets() {
   # not expose envFrom as a configurable value, so merging the Azure keys here
   # is the only approach that survives helm upgrades without a post-deploy patch.
   if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+    if [[ -z "${AZURE_OPENAI_API_KEY:-}" || -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+      err "Azure OpenAI embeddings require AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT — re-run and select Azure OpenAI embeddings to be prompted for them"
+      exit 1
+    fi
     secret_args+=(
       --from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}"
       --from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}"
