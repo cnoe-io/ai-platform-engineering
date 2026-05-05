@@ -9,7 +9,6 @@ import {
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 import type { HubSkillDoc } from "@/lib/hub-crawl";
 import {
@@ -225,59 +224,30 @@ async function runBulkScan(
       // Persist onto the skill so the gallery shield reflects the
       // new state without a manual save.
       const now = new Date();
-      // Same auto-revert logic as ``configs/[id]/scan/route.ts``:
-      // a clean rescan ("passed") on an admin-overridden skill
-      // drops the override and writes a system-attributed audit
-      // row. See that file for the full rationale; we duplicate
-      // the small block here rather than extracting a helper
-      // because both writers need to perform the action inside
-      // a single ``updateOne`` to avoid a window where the doc
-      // is "passed but still has scan_override".
-      const wasOverridden =
-        skill.scan_status === "admin_overridden" && !!skill.scan_override;
-      const shouldAutoRevertOverride =
-        wasOverridden && scanResult.scan_status === "passed";
+      // Write the raw scanner verdict only — never touch the
+      // ``scan_override`` sub-doc here. Bulk rescans are the
+      // most likely path to a "wait, where did my overrides go?"
+      // surprise, so honouring the user's "keep override across
+      // rescans" requirement matters most here. Admins clear
+      // overrides explicitly via the override DELETE route.
+      // (Splitting status from override also means this update
+      // path can no longer accidentally nuke an override by
+      // writing the wrong status string — that whole class of
+      // bug is structurally impossible now.)
       try {
-        if (shouldAutoRevertOverride) {
-          await col.updateOne(
-            { id: skill.id },
-            {
-              $set: {
-                scan_status: scanResult.scan_status,
-                ...(persistedSummary !== undefined
-                  ? { scan_summary: persistedSummary }
-                  : {}),
-                scan_updated_at: now,
-                updated_at: now,
-              },
-              $unset: { scan_override: "" },
+        await col.updateOne(
+          { id: skill.id },
+          {
+            $set: {
+              scan_status: scanResult.scan_status,
+              ...(persistedSummary !== undefined
+                ? { scan_summary: persistedSummary }
+                : {}),
+              scan_updated_at: now,
+              updated_at: now,
             },
-          );
-          await recordScanOverrideEvent({
-            action: "clear",
-            skill_id: skill.id,
-            skill_name: skill.name,
-            source: skill.is_system ? "default" : "agent_skills",
-            actor: "system:scanner",
-            reason: "Scanner returned passed",
-            prior_scan_status: "admin_overridden",
-            prior_scan_summary: skill.scan_summary,
-          });
-        } else {
-          await col.updateOne(
-            { id: skill.id },
-            {
-              $set: {
-                scan_status: scanResult.scan_status,
-                ...(persistedSummary !== undefined
-                  ? { scan_summary: persistedSummary }
-                  : {}),
-                scan_updated_at: now,
-                updated_at: now,
-              },
-            },
-          );
-        }
+          },
+        );
       } catch (err) {
         console.warn(
           `[scan-all] Failed to persist scan for agent_skills/${skill.id}:`,
@@ -372,49 +342,30 @@ async function runBulkScan(
         scanResult.scan_summary ?? scanResult.unscanned_reason;
 
       const now = new Date();
-      // Auto-revert an active admin override on this hub skill if
-      // the bulk rescan now returns a clean ("passed") verdict.
-      // Same semantics as the per-skill hub rescan and the
-      // agent_skills loop above — see scan/route.ts for the
-      // detailed rationale. Catalog-wide rescans surface the
-      // most-likely path to "all overrides on now-clean skills
-      // get cleared in one go", so it's important parity.
-      const wasOverridden =
-        doc.scan_status === "admin_overridden" && !!doc.scan_override;
-      const shouldAutoRevertOverride =
-        wasOverridden && scanResult.scan_status === "passed";
-
-      const setUpdate: Record<string, unknown> = {
-        scan_status: scanResult.scan_status,
-        ...(persistedSummary !== undefined
-          ? { scan_summary: persistedSummary }
-          : {}),
-        scan_updated_at: now,
-      };
-
+      // Write the raw scanner verdict to ``scan_status`` /
+      // ``scan_summary`` only. We deliberately do NOT touch the
+      // ``scan_override`` sub-doc here — admins clear overrides
+      // explicitly via the override DELETE route. Bulk rescans
+      // are the most likely path to a "wait, where did my
+      // overrides go?" surprise, so honouring the user's "keep
+      // override across rescans" requirement matters most here.
+      // (Splitting status from override also means this update
+      // path can no longer accidentally nuke an override by
+      // writing the wrong status string — that whole class of
+      // bug is structurally impossible now.)
       try {
-        if (shouldAutoRevertOverride) {
-          await col.updateOne(
-            { hub_id: doc.hub_id, skill_id: doc.skill_id },
-            { $set: setUpdate, $unset: { scan_override: "" } },
-          );
-          await recordScanOverrideEvent({
-            action: "clear",
-            skill_id: doc.skill_id,
-            skill_name: doc.name,
-            source: "hub",
-            hub_id: doc.hub_id,
-            actor: "system:scanner",
-            reason: "Scanner returned passed",
-            prior_scan_status: "admin_overridden",
-            prior_scan_summary: doc.scan_summary,
-          });
-        } else {
-          await col.updateOne(
-            { hub_id: doc.hub_id, skill_id: doc.skill_id },
-            { $set: setUpdate },
-          );
-        }
+        await col.updateOne(
+          { hub_id: doc.hub_id, skill_id: doc.skill_id },
+          {
+            $set: {
+              scan_status: scanResult.scan_status,
+              ...(persistedSummary !== undefined
+                ? { scan_summary: persistedSummary }
+                : {}),
+              scan_updated_at: now,
+            },
+          },
+        );
       } catch (err) {
         console.warn(
           `[scan-all] Failed to persist scan for hub_skills/${doc.hub_id}/${doc.skill_id}:`,

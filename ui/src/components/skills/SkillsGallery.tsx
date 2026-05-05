@@ -159,15 +159,40 @@ function isHubSkill(config: AgentSkill): boolean {
 }
 
 /**
- * A skill the security scanner has marked unsafe — must not be runnable.
+ * A skill the security scanner has marked unsafe AND no admin has
+ * green-lit — must not be runnable.
  *
  * The supervisor + dynamic agents enforce the same rule independently
- * (Python ``scan_gate`` module). This helper is the UI mirror so the
- * gallery can render flagged skills as disabled cards (admins still
- * see them, can re-scan, but can't launch / install).
+ * (Python ``scan_gate.is_skill_blocked``) and the catalog API tier
+ * stamps ``runnable: false`` (``applyRunnableGate`` in
+ * ``app/api/skills/route.ts``). All three layers agree on the same
+ * predicate: flagged-without-override is blocked; flagged-with-
+ * override is runnable when ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on.
+ *
+ * Why this checks ``scan_override`` directly rather than reading
+ * ``runnable``: the gallery sometimes renders skills constructed
+ * client-side (drag/drop, optimistic edits) where ``runnable``
+ * hasn't been stamped yet. The persisted fields are always
+ * present, so deriving from them keeps the rule consistent in
+ * those edge cases too.
+ *
+ * The earlier implementation here looked at ``scan_status ===
+ * "flagged"`` alone — that worked when overrides set
+ * ``scan_status = "admin_overridden"``, but that magic value was
+ * removed because it collided with every scanner write path. The
+ * override now lives in its own sub-doc, so this predicate has to
+ * combine both signals.
  */
 function isFlaggedSkill(config: AgentSkill): boolean {
-  return config.scan_status === "flagged";
+  if (config.scan_status !== "flagged") return false;
+  // Active admin override → not blocked. We don't gate on
+  // ``ADMIN_SCAN_OVERRIDE_ENABLED`` here because that env var is
+  // server-side; if it's off, the catalog response will already
+  // have ``runnable: false`` from ``applyRunnableGate`` and the
+  // launch path will reject. This predicate's job is the UI
+  // affordance, which should optimistically trust the override.
+  if (config.scan_override) return false;
+  return true;
 }
 
 function FlaggedDisabledBadge() {

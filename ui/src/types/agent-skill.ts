@@ -122,11 +122,10 @@ export interface AgentSkillMetadata {
 /**
  * Scan status produced by the skill-scanner service (FR-027).
  *
- * Kept narrow on purpose: the scanner only ever emits one of these
- * three values. The widened ``PersistedScanStatus`` below adds the
- * ``"admin_overridden"`` case that an admin can set via the per-skill
- * override route — that value is never produced by the scanner, so
- * the scanner-input/output types must not include it.
+ * The scanner only ever emits one of these three values, and that
+ * is also the only value persisted on the doc — the admin override
+ * is a SEPARATE field (``scan_override`` sub-doc), not a magic
+ * status. See ``ScanOverride`` below for why.
  */
 export type ScanStatus = "passed" | "flagged" | "unscanned";
 
@@ -134,10 +133,21 @@ export type ScanStatus = "passed" | "flagged" | "unscanned";
  * Audit record for an admin scan override.
  *
  * Set by ``POST /api/admin/skills/:source/:source_id/scan-override``
- * and persisted on the ``agent_skills`` doc alongside
- * ``scan_status: "admin_overridden"``. Surfaced in the catalog
- * response so the scan-status report dialog can render the audit
- * trail (who / when / why) and offer "Remove override" to admins.
+ * and persisted on the ``agent_skills`` (or ``hub_skills``) doc as a
+ * separate field alongside the scanner-owned ``scan_status``. The
+ * runtime gate (Python ``scan_gate.is_skill_blocked`` and Node
+ * ``applyRunnableGate``) treats a flagged skill with this sub-doc
+ * present as runnable iff ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on;
+ * otherwise it collapses back to blocked so a single env flip
+ * removes the escape hatch in lockstep across both tiers.
+ *
+ * Why a separate field instead of ``scan_status: "admin_overridden"``:
+ * the previous design encoded the override into the status string
+ * itself, which collided with every scanner write path — any rescan
+ * would blindly overwrite ``scan_status: "flagged"`` and silently
+ * nuke the override. Splitting the signals lets scan routes write
+ * status freely while the override stays stable until an admin
+ * explicitly clears it.
  *
  * ``prior_scan_status`` is intentionally restricted to ``"flagged"``
  * because that is the only state from which an override can be
@@ -160,16 +170,14 @@ export interface ScanOverride {
 }
 
 /**
- * Status as persisted on a skill document.
- *
- * Includes the admin escape hatch ``"admin_overridden"``. Loaders
- * (Python ``scan_gate.is_status_blocked`` and Node
- * ``applyRunnableGate``) treat this as runnable iff
- * ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on; otherwise it collapses
- * back to "blocked" so a single env flip removes the escape hatch
- * in lockstep across both tiers.
+ * @deprecated Kept as an alias for backwards source compatibility
+ * during the migration away from the magic ``"admin_overridden"``
+ * status. Now identical to ``ScanStatus`` — every callsite that
+ * gated on ``scan_status === "admin_overridden"`` should be
+ * rewritten to gate on ``!!scan_override`` instead. Will be removed
+ * after the next release cuts.
  */
-export type PersistedScanStatus = ScanStatus | "admin_overridden";
+export type PersistedScanStatus = ScanStatus;
 
 /**
  * Main agent skill interface

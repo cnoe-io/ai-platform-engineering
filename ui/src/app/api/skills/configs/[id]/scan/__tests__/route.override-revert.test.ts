@@ -2,26 +2,27 @@
  * @jest-environment node
  */
 /**
- * Tests the auto-revert-on-clean-rescan behaviour for the per-skill
- * scan route (``POST /api/skills/configs/[id]/scan``).
+ * Tests the rescan-vs-override interaction for the per-skill scan
+ * route (``POST /api/skills/configs/[id]/scan``).
  *
- * The user-selected policy on rescans:
- *   - When a rescan returns ``"passed"`` on a skill currently in
- *     ``scan_status: "admin_overridden"``, the route auto-clears
- *     the override (``$unset scan_override``) and writes a
- *     ``clear`` audit row attributed to ``"system:scanner"``. The
- *     skill is now plain-passing; the override is no longer needed.
- *   - When a rescan still flags (or comes back unscanned), the
- *     override is kept untouched. The admin's assertion still
- *     applies, no audit churn.
+ * Design pivot (2026-05): the old "auto-revert-on-clean" policy was
+ * removed. ``scan_status`` and ``scan_override`` are now independent
+ * fields:
  *
- * This is the rescan-side counterpart to the explicit clear path
- * tested in ``admin-scan-override.test.ts``. It pins the cleanup
- * invariant so a future refactor of the rescan path can't silently
- * leave a "passed" skill with a stale override sub-doc — that
- * combination would confuse audit reviewers ("why is there an
- * override on a passing skill?") and would make the override
- * count unbounded over time.
+ *   - ``scan_status`` is the scanner's verdict (``passed`` /
+ *     ``flagged`` / ``unscanned``). Only scan code paths write it.
+ *   - ``scan_override`` is the admin's "trust me, run it anyway"
+ *     assertion. Only the ``/admin/scan-override`` routes write it.
+ *
+ * The runnable gate is now ``scan_status === "flagged" && !scan_override``.
+ *
+ * This suite pins the post-pivot invariant: the scan route MUST
+ * NEVER touch ``scan_override`` (neither in ``$set`` nor in
+ * ``$unset``) and MUST NEVER write an override audit row, regardless
+ * of the verdict and regardless of whether the skill currently has
+ * an override. If a future refactor reintroduces auto-revert it
+ * would race the override route under concurrent admin actions, so
+ * we keep the policy single-writer-per-field.
  *
  * assisted-by Cursor Composer-Sonnet-4.7
  */
@@ -58,10 +59,6 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...(args as [string])),
 }));
 
-// The visibility helper: we mock to return whatever findOne would
-// have returned, with full modify access. The route's "owner check"
-// isn't what this test cares about — we're focused on the post-scan
-// override cleanup.
 const mockGetSkillVisible = jest.fn();
 jest.mock("@/lib/agent-skill-visibility", () => ({
   getAgentSkillVisibleToUser: (...args: unknown[]) =>
@@ -69,9 +66,6 @@ jest.mock("@/lib/agent-skill-visibility", () => ({
   userCanModifyAgentSkill: () => true,
 }));
 
-// Stub the scanner: we choose its verdict per test to drive the
-// auto-revert decision branch directly, without standing up a real
-// service.
 const mockScan = jest.fn();
 jest.mock("@/lib/skill-scan", () => ({
   scanSkillContent: (...args: unknown[]) => mockScan(...args),
@@ -83,8 +77,8 @@ jest.mock("@/lib/skill-scan-history", () => ({
   recordScanEvent: (event: unknown) => mockRecordScanEvent(event),
 }));
 
-// THE call we're asserting on: the override audit row written
-// when a passing rescan auto-clears an existing override.
+// The regression assertion the rest of the suite hangs off of: the
+// override audit MUST NOT be written by this route under any verdict.
 const mockRecordOverrideEvent = jest.fn().mockResolvedValue(undefined);
 jest.mock("@/lib/skill-scan-override-history", () => ({
   recordScanOverrideEvent: (event: unknown) =>
@@ -117,13 +111,16 @@ function makeRequest(): NextRequest {
   );
 }
 
+// A flagged skill with an active admin override. The post-pivot
+// shape: scan_status stays at the scanner's verdict (``flagged``),
+// the override sub-doc lives next to it.
 const OVERRIDDEN_SKILL = {
   id: "skill-123",
   name: "Risky Skill",
   description: "Test",
   is_system: false,
   owner_id: "owner@example.com",
-  scan_status: "admin_overridden" as const,
+  scan_status: "flagged" as const,
   scan_summary: "Flagged before override",
   scan_override: {
     set_by: "alice@example.com",
@@ -149,7 +146,7 @@ beforeEach(() => {
 // Test cases
 // ----------------------------------------------------------------------------
 
-describe("POST /api/skills/configs/[id]/scan — override auto-revert", () => {
+describe("POST /api/skills/configs/[id]/scan — does not touch scan_override", () => {
   let POST: (
     req: NextRequest,
     ctx: { params: Promise<{ id: string }> },
@@ -163,12 +160,13 @@ describe("POST /api/skills/configs/[id]/scan — override auto-revert", () => {
 
   const ctx = { params: Promise.resolve({ id: "skill-123" }) };
 
-  it("clears override + writes system audit row when rescan returns passed", async () => {
-    // The whole point of "auto-revert-on-clean": the override was
-    // the admin's "trust me even though the scanner doesn't"
-    // assertion. Once the scanner agrees, the assertion is moot
-    // and we drop it so audit reviewers don't see "override on a
-    // passing skill" forever.
+  it("does NOT clear override on a passing rescan", async () => {
+    // Pre-pivot this auto-cleared the override. Now the override
+    // is the admin's standing assertion and stays put: the runnable
+    // gate flips to ``true`` anyway because scan_status == passed.
+    // Keeping the override avoids audit churn (no spurious clear
+    // on every passing rescan) and keeps the rescan path
+    // single-purpose.
     mockGetServerSession.mockResolvedValue(adminSession());
     mockGetSkillVisible.mockResolvedValue(OVERRIDDEN_SKILL);
     const skillsCol = createMockCollection();
@@ -183,40 +181,26 @@ describe("POST /api/skills/configs/[id]/scan — override auto-revert", () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.data.scan_status).toBe("passed");
-    expect(body.data.override_auto_cleared).toBe(true);
+    // override_auto_cleared was a pre-pivot field. The route no
+    // longer emits it under any branch; pin it absent so a
+    // refactor that reintroduces auto-revert fails this test.
+    expect(body.data.override_auto_cleared).toBeUndefined();
 
-    // Mongo write: $unset removes the override sub-doc atomically
-    // with the new status. Doing both in one updateOne is
-    // important — a separate update would leave a window where
-    // the doc was "passed but still has override".
     expect(skillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [, update] = skillsCol.updateOne.mock.calls[0];
     expect(update.$set).toEqual(
       expect.objectContaining({ scan_status: "passed" }),
     );
-    expect(update.$unset).toEqual({ scan_override: "" });
+    // The two single-writer invariants — the scan route must not
+    // $set or $unset scan_override under any verdict.
+    expect(update.$set.scan_override).toBeUndefined();
+    expect(update.$unset).toBeUndefined();
 
-    // Audit row: action=clear, actor=system:scanner, reason
-    // hard-coded so future log readers can grep for the auto-
-    // revert events specifically.
-    expect(mockRecordOverrideEvent).toHaveBeenCalledTimes(1);
-    expect(mockRecordOverrideEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "clear",
-        skill_id: "skill-123",
-        actor: "system:scanner",
-        reason: "Scanner returned passed",
-        prior_scan_status: "admin_overridden",
-      }),
-    );
+    // And it must not write to the override audit log.
+    expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("keeps override untouched when rescan still flags", async () => {
-    // The other half of the policy: a still-flagged rescan must
-    // NOT clear the override. Otherwise an admin-overridden skill
-    // would oscillate every time a rescan happened — an admin
-    // that keeps overriding it would have an unbounded number of
-    // set/clear pairs in the audit log for no operator benefit.
+  it("does not touch override on a still-flagged rescan", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     mockGetSkillVisible.mockResolvedValue(OVERRIDDEN_SKILL);
     const skillsCol = createMockCollection();
@@ -232,17 +216,16 @@ describe("POST /api/skills/configs/[id]/scan — override auto-revert", () => {
     expect(body.data.scan_status).toBe("flagged");
     expect(body.data.override_auto_cleared).toBeUndefined();
 
-    // No $unset, no audit row.
     expect(skillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [, update] = skillsCol.updateOne.mock.calls[0];
+    expect(update.$set.scan_override).toBeUndefined();
     expect(update.$unset).toBeUndefined();
     expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("keeps override untouched when rescan returns unscanned (scanner unreachable)", async () => {
-    // A scanner that 503s shouldn't undo the admin's assertion.
-    // We treat unscanned the same as flagged-still: keep the
-    // override, don't audit.
+  it("does not touch override when rescan returns unscanned", async () => {
+    // A scanner that 503s should be treated the same as the other
+    // verdicts: leave the override alone.
     mockGetServerSession.mockResolvedValue(adminSession());
     mockGetSkillVisible.mockResolvedValue(OVERRIDDEN_SKILL);
     const skillsCol = createMockCollection();
@@ -260,15 +243,15 @@ describe("POST /api/skills/configs/[id]/scan — override auto-revert", () => {
 
     expect(skillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [, update] = skillsCol.updateOne.mock.calls[0];
+    expect(update.$set.scan_override).toBeUndefined();
     expect(update.$unset).toBeUndefined();
     expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("does not auto-clear when the skill was not overridden in the first place", async () => {
-    // A passing rescan on a flagged-but-not-overridden skill is
-    // the regular happy path: just persist the new status, no
-    // override action needed. Pinning this prevents an accidental
-    // future refactor that audits a clear for every passing rescan.
+  it("never writes an override audit row on a rescan of a non-overridden skill", async () => {
+    // The "no override in the first place" baseline. Pinning this
+    // guarantees the scan route never accidentally audits a clear
+    // when there was nothing to clear.
     mockGetServerSession.mockResolvedValue(adminSession());
     mockGetSkillVisible.mockResolvedValue({
       ...OVERRIDDEN_SKILL,

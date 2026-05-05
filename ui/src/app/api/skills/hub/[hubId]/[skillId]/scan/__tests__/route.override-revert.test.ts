@@ -5,22 +5,15 @@
  * Hub-source counterpart to
  * ``app/api/skills/configs/[id]/scan/__tests__/route.override-revert.test.ts``.
  *
- * Pins the auto-revert-on-clean-rescan policy for hub-cached skills:
- *
- *   - Rescan returns ``"passed"`` on an ``admin_overridden`` hub skill →
- *     atomic ``$unset scan_override`` + status flip to passed, plus a
- *     ``clear`` audit row attributed to ``"system:scanner"`` carrying
- *     the ``hub_id`` (so a reviewer joining override-history with
- *     hub_skills can disambiguate the same skill_id across multiple
- *     hubs).
- *   - Rescan still flags / unscanned → keep the override untouched.
- *   - Skill was not overridden in the first place → never write an
- *     override audit row.
+ * Same post-pivot policy: ``scan_status`` and ``scan_override`` are
+ * single-writer-per-field. The scan route writes ``scan_status``
+ * only and MUST never touch ``scan_override`` — under any verdict,
+ * for hub-cached skills the same as for ``agent_skills``.
  *
  * The drift surface this protects is the hub branch of bulk
  * ``scan-all`` plus this per-skill route — both must apply the same
- * policy or you'd get auto-revert via one path and not the other,
- * which would confuse audit reviewers.
+ * "don't touch the override" policy or the override sub-doc would
+ * race the override route under concurrent admin actions.
  *
  * assisted-by Cursor Composer-Sonnet-4.7
  */
@@ -111,6 +104,8 @@ const HUB_DOC = {
   enabled: true,
 };
 
+// Post-pivot: scan_status reflects the scanner's verdict ("flagged"),
+// the override sub-doc lives next to it.
 const OVERRIDDEN_HUB_SKILL = {
   hub_id: "hub-1",
   skill_id: "gitlab-pipeline-watch",
@@ -120,7 +115,7 @@ const OVERRIDDEN_HUB_SKILL = {
   metadata: {},
   path: "skills/gitlab-pipeline-watch/SKILL.md",
   cached_at: new Date("2026-05-01T00:00:00Z"),
-  scan_status: "admin_overridden" as const,
+  scan_status: "flagged" as const,
   scan_summary: "Flagged before override",
   scan_override: {
     set_by: "alice@example.com",
@@ -159,7 +154,7 @@ function seedOverriddenHubSkill(): {
 // Test cases
 // ----------------------------------------------------------------------------
 
-describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert", () => {
+describe("POST /api/skills/hub/[hubId]/[skillId]/scan — does not touch scan_override", () => {
   let POST: (
     req: NextRequest,
     ctx: { params: Promise<{ hubId: string; skillId: string }> },
@@ -180,7 +175,7 @@ describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert",
     }),
   };
 
-  it("clears override + writes hub-tagged system audit row when rescan returns passed", async () => {
+  it("does NOT clear override on a passing rescan", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const { hubSkillsCol } = seedOverriddenHubSkill();
     mockScan.mockResolvedValue({
@@ -193,12 +188,9 @@ describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert",
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.data.scan_status).toBe("passed");
-    expect(body.data.override_auto_cleared).toBe(true);
+    // Pre-pivot field; route no longer emits it.
+    expect(body.data.override_auto_cleared).toBeUndefined();
 
-    // Atomic update: status flip + override removal in a single
-    // updateOne. Same invariant as the agent_skills route — a
-    // separate update would create a "passed but still has
-    // override" window the audit reviewer would have to explain.
     expect(hubSkillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [filter, update] = hubSkillsCol.updateOne.mock.calls[0];
     expect(filter).toEqual({
@@ -208,27 +200,15 @@ describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert",
     expect(update.$set).toEqual(
       expect.objectContaining({ scan_status: "passed" }),
     );
-    expect(update.$unset).toEqual({ scan_override: "" });
+    // Single-writer invariant: the scan route must not touch
+    // scan_override under any verdict, hub edition.
+    expect(update.$set.scan_override).toBeUndefined();
+    expect(update.$unset).toBeUndefined();
 
-    // Audit row carries hub_id so override-history joins to
-    // hub_skills cleanly. Without hub_id a reviewer couldn't tell
-    // which hub a "gitlab-pipeline-watch" override belonged to
-    // when the same skill_id appears across multiple hubs.
-    expect(mockRecordOverrideEvent).toHaveBeenCalledTimes(1);
-    expect(mockRecordOverrideEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "clear",
-        skill_id: "gitlab-pipeline-watch",
-        source: "hub",
-        hub_id: "hub-1",
-        actor: "system:scanner",
-        reason: "Scanner returned passed",
-        prior_scan_status: "admin_overridden",
-      }),
-    );
+    expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("keeps override untouched when rescan still flags", async () => {
+  it("does not touch override on a still-flagged rescan", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const { hubSkillsCol } = seedOverriddenHubSkill();
     mockScan.mockResolvedValue({
@@ -244,11 +224,12 @@ describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert",
 
     expect(hubSkillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [, update] = hubSkillsCol.updateOne.mock.calls[0];
+    expect(update.$set.scan_override).toBeUndefined();
     expect(update.$unset).toBeUndefined();
     expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("keeps override untouched when rescan returns unscanned (scanner unreachable)", async () => {
+  it("does not touch override when rescan returns unscanned", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const { hubSkillsCol } = seedOverriddenHubSkill();
     mockScan.mockResolvedValue({
@@ -264,14 +245,12 @@ describe("POST /api/skills/hub/[hubId]/[skillId]/scan — override auto-revert",
 
     expect(hubSkillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [, update] = hubSkillsCol.updateOne.mock.calls[0];
+    expect(update.$set.scan_override).toBeUndefined();
     expect(update.$unset).toBeUndefined();
     expect(mockRecordOverrideEvent).not.toHaveBeenCalled();
   });
 
-  it("does not auto-clear when the hub skill was not overridden in the first place", async () => {
-    // A passing rescan on a flagged-but-not-overridden hub skill
-    // is the regular happy path. Pinned to prevent an accidental
-    // refactor that audits a clear for every passing rescan.
+  it("never writes an override audit row on a rescan of a non-overridden hub skill", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const hubsCol = createMockCollection();
     hubsCol.findOne.mockResolvedValue(HUB_DOC);

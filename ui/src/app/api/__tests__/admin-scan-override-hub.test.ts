@@ -324,12 +324,16 @@ describe("POST /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     expect(body.error).toContain("Only \"flagged\" skills");
   });
 
-  it("flips status to admin_overridden, persists override on hub_skills, writes audit row with hub_id", async () => {
-    // Happy path. The audit row MUST carry hub_id so a reviewer
-    // joining override-history with hub_skills can disambiguate the
-    // same skill_id appearing across multiple hubs. Pinned because
-    // the agent_skills route doesn't write hub_id and copy/paste
-    // drift could easily drop it here too.
+  it("persists scan_override on hub_skills WITHOUT touching scan_status, writes audit row with hub_id", async () => {
+    // Happy path. Critical assertions:
+    //   1. scan_status is NOT touched (stays "flagged") — same
+    //      regression invariant as the agent_skills route. Hub
+    //      auto-scan-after-recrawl writes scan_status freely; if
+    //      this route also wrote it, every recrawl would race the
+    //      override and we'd be back to the original bug.
+    //   2. The audit row carries hub_id so a reviewer joining
+    //      override-history with hub_skills can disambiguate the
+    //      same skill_id appearing across multiple hubs.
     mockGetServerSession.mockResolvedValue(adminSession());
     const { hubSkillsCol } = seedFlaggedHubSkill();
 
@@ -345,7 +349,8 @@ describe("POST /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     const body = await res.json();
     const data = body.data;
 
-    expect(data.scan_status).toBe("admin_overridden");
+    // scan_status echoed unchanged.
+    expect(data.scan_status).toBe("flagged");
     expect(data.id).toBe("hub-hub-1-gitlab-pipeline-watch");
     expect(data.hub_id).toBe("hub-1");
     expect(data.skill_id).toBe("gitlab-pipeline-watch");
@@ -358,9 +363,10 @@ describe("POST /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
       }),
     );
 
-    // The Mongo write keys on the composite (hub_id, skill_id),
-    // not the catalog-projected id — pinned because the catalog
-    // id and the hub_skills filter shape are independent.
+    // The Mongo write keys on the composite (hub_id, skill_id).
+    // Critically scan_status MUST NOT be in $set — the override
+    // route only writes the override field; the scanner write
+    // paths can keep writing scan_status without coordination.
     expect(hubSkillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [filter, update] = hubSkillsCol.updateOne.mock.calls[0];
     expect(filter).toEqual({
@@ -369,12 +375,12 @@ describe("POST /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     });
     expect(update.$set).toEqual(
       expect.objectContaining({
-        scan_status: "admin_overridden",
         scan_override: expect.objectContaining({
           reason: "Reviewed loop, has timeout. Per ticket SEC-123.",
         }),
       }),
     );
+    expect(update.$set.scan_status).toBeUndefined();
 
     expect(recordOverrideEventMock).toHaveBeenCalledTimes(1);
     expect(recordOverrideEventMock).toHaveBeenCalledWith(
@@ -444,7 +450,7 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     const hubSkillsCol = createMockCollection();
     hubSkillsCol.findOne.mockResolvedValue({
       ...FLAGGED_HUB_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
       scan_override: {
         set_by: "admin@example.com",
         set_at: "2026-05-01T00:00:00Z",
@@ -463,6 +469,7 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.cleared).toBe(true);
+    // scan_status echoed unchanged (route only $unsets the override).
     expect(body.data.scan_status).toBe("flagged");
   });
 
@@ -489,12 +496,12 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     expect(recordOverrideEventMock).not.toHaveBeenCalled();
   });
 
-  it("flips status back to flagged, unsets override, writes audit row with hub_id", async () => {
+  it("unsets scan_override WITHOUT touching scan_status, writes audit row with hub_id", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const hubSkillsCol = createMockCollection();
     hubSkillsCol.findOne.mockResolvedValue({
       ...FLAGGED_HUB_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
       scan_override: {
         set_by: "alice@example.com",
         set_at: "2026-05-01T00:00:00Z",
@@ -513,8 +520,13 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.cleared).toBe(true);
+    // scan_status echoed unchanged (route only $unsets the override).
     expect(body.data.scan_status).toBe("flagged");
 
+    // updateOne wrote the right shape: scan_summary restored from
+    // the override snapshot, override sub-doc removed via $unset.
+    // scan_status MUST NOT be in $set — same regression invariant
+    // as the agent_skills route.
     expect(hubSkillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [filter, update] = hubSkillsCol.updateOne.mock.calls[0];
     expect(filter).toEqual({
@@ -523,10 +535,10 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
     });
     expect(update.$set).toEqual(
       expect.objectContaining({
-        scan_status: "flagged",
         scan_summary: "Original summary",
       }),
     );
+    expect(update.$set.scan_status).toBeUndefined();
     expect(update.$unset).toEqual({ scan_override: "" });
 
     expect(recordOverrideEventMock).toHaveBeenCalledTimes(1);
@@ -538,7 +550,10 @@ describe("DELETE /api/admin/skills/hub/:hubId/:skillId/scan-override", () => {
         hub_id: "hub-1",
         actor: "admin@example.com",
         reason: "Skill rewritten upstream",
-        prior_scan_status: "admin_overridden",
+        // Prior status reported in the audit is the actual scanner
+        // verdict ("flagged"). The synthetic "admin_overridden"
+        // string is no longer written by this codebase.
+        prior_scan_status: "flagged",
         prior_scan_summary: "Original summary",
       }),
     );

@@ -80,13 +80,15 @@ export interface SkillScanOverrideHistoryDoc {
    */
   reason?: string;
   /**
-   * Snapshot of ``scan_status`` at the moment of action. For ``set``
-   * this is always ``"flagged"`` (the only state from which an
-   * override is valid). For ``clear`` it's whatever the doc held
-   * at clear time — usually ``"admin_overridden"`` for a manual
-   * clear, or the new ``"passed"`` value the rescan wrote for the
-   * auto-revert. Stored as the broader persisted union so future
-   * statuses won't break this audit chain.
+   * Snapshot of ``scan_status`` at the moment of action. For
+   * ``set`` this is always ``"flagged"`` (the only state from
+   * which an override is valid). For ``clear`` it's whatever the
+   * scanner had on file at clear time — typically still
+   * ``"flagged"`` since rescans no longer mutate ``scan_status``
+   * to a synthetic ``"admin_overridden"`` value (that earlier
+   * design collided with every scanner write path). The broader
+   * union is retained for backwards compatibility with audit rows
+   * that pre-date the redesign.
    */
   prior_scan_status?: "flagged" | "admin_overridden" | "passed" | "unscanned";
   /**

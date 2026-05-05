@@ -8,10 +8,7 @@
 import { getCollection } from "@/lib/mongodb";
 import { validateCredentialsRef } from "@/lib/api-middleware";
 import { scanHubSkillsAsync, type HubSkillScanRef } from "@/lib/skill-scan";
-import type {
-  PersistedScanStatus,
-  ScanOverride,
-} from "@/types/agent-skill";
+import type { ScanStatus, ScanOverride } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,23 +56,28 @@ export interface HubSkillDoc {
   /**
    * Latest persisted scan status for this hub skill.
    *
-   * The scanner itself only ever writes ``"passed" | "flagged" | "unscanned"``
-   * (see ``app/api/skills/hub/[hubId]/[skillId]/scan/route.ts``). The
-   * ``"admin_overridden"`` value is set exclusively by
-   * ``POST /api/admin/skills/hub/[hubId]/[skillId]/scan-override`` when an
-   * admin explicitly green-lights a flagged hub skill. Mirrors the
-   * widened ``AgentSkill.scan_status`` semantics so the runnable gate
-   * (``applyRunnableGate`` in ``app/api/skills/route.ts``) treats both
-   * sources the same.
+   * The scanner only ever writes ``"passed" | "flagged" | "unscanned"``.
+   * Admin overrides live in the ``scan_override`` sub-doc below as a
+   * SEPARATE field — never as a magic ``scan_status`` value. That
+   * earlier design collided with every scanner write path: hub
+   * recrawl auto-scan and per-skill rescan would blindly overwrite
+   * ``scan_status="flagged"`` and silently nuke the override.
+   * Splitting the signals lets the scanner write status freely
+   * while overrides stay stable.
    */
-  scan_status?: PersistedScanStatus;
+  scan_status?: ScanStatus;
   scan_summary?: string;
   scan_updated_at?: Date;
   /**
    * Audit metadata for an active admin override on this hub skill.
-   * Present iff ``scan_status === "admin_overridden"``. Cleared when
-   * the override is removed or the skill auto-reverts after a clean
-   * rescan.
+   * Set by ``POST /api/admin/skills/hub/[hubId]/[skillId]/scan-override``;
+   * cleared by the matching DELETE handler. Scanner write paths
+   * (``scanHubSkillsAsync`` after recrawl, per-skill rescan,
+   * scan-all) intentionally do NOT touch this field, so an override
+   * survives any number of rescans until an admin explicitly clears
+   * it. The runtime gate (``applyRunnableGate`` here, Python
+   * ``scan_gate.is_skill_blocked`` upstream) honours the override
+   * iff ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on.
    */
   scan_override?: ScanOverride;
   /** Sibling files captured during crawl (UTF-8 text only). */
@@ -196,6 +198,24 @@ export interface CatalogSkill {
   scan_status?: "passed" | "flagged" | "unscanned";
   scan_summary?: string;
   scan_updated_at?: string;
+  /**
+   * Admin scan-override audit metadata, projected from the hub_skills
+   * cache when an admin has green-lit a flagged hub skill. Lives in a
+   * separate field from ``scan_status`` (post-pivot, two-field design)
+   * so scanner write paths can keep updating ``scan_status`` without
+   * racing the override. The supervisor's Python ``scan_gate`` checks
+   * the same field; the runtime gate is
+   *   ``scan_status === "flagged" && !scan_override``.
+   * Surfaced through the catalog so the UI's report dialog can render
+   * the audit panel + Remove-override button on hub-projected rows.
+   */
+  scan_override?: {
+    set_by: string;
+    set_at: string;
+    reason: string;
+    prior_scan_status: "flagged";
+    prior_scan_summary?: string;
+  };
   /**
    * Sibling files (paths relative to the skill folder) — populated only
    * when callers request `include_content=true`. Mirrors the same field on

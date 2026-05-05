@@ -8,7 +8,6 @@ import {
 } from "@/lib/api-middleware";
 import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { HubSkillDoc, SkillHubDoc } from "@/lib/hub-crawl";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -102,69 +101,44 @@ export const POST = withErrorHandler(
         duration_ms: Date.now() - t0,
       });
 
-      // Auto-revert an active admin override when the rescan now
-      // returns a clean ("passed") verdict. Same pattern as the
-      // agent_skills rescan route (see configs/[id]/scan for the
-      // full rationale): the override was the admin's "I trust
-      // this even though the scanner doesn't" assertion; once the
-      // scanner agrees, the assertion is moot. We clear the
-      // override sub-doc atomically with the status update so
-      // the doc never lingers in a "passed but still has override"
-      // state, and write a ``clear`` audit row attributed to
-      // ``system:scanner`` to complete the audit chain.
-      const wasOverridden =
-        doc.scan_status === "admin_overridden" && doc.scan_override;
-      const shouldAutoRevertOverride =
-        Boolean(wasOverridden) && scanResult.scan_status === "passed";
-
-      const setUpdate: Record<string, unknown> = {
-        scan_status: scanResult.scan_status,
-        ...(persistedSummary !== undefined
-          ? { scan_summary: persistedSummary }
-          : {}),
-        scan_updated_at: now,
-      };
-
-      if (shouldAutoRevertOverride) {
-        await hubSkillsCol.updateOne(
-          { hub_id: hubId, skill_id: skillId },
-          {
-            $set: setUpdate,
-            $unset: { scan_override: "" },
+      // Write the raw scanner verdict to ``scan_status`` /
+      // ``scan_summary`` only. We deliberately do NOT touch the
+      // ``scan_override`` sub-doc here — same rationale as the
+      // agent_skills rescan route (configs/[id]/scan):
+      //
+      //   * The override was the admin's "I trust this regardless
+      //     of the scanner" assertion. A subsequent rescan that
+      //     still flags doesn't change that intent — and a
+      //     passing rescan doesn't either (the user explicitly
+      //     asked: "keep override across rescans, admins clear it
+      //     manually"). Auto-reverting on clean was tried earlier;
+      //     it created surprising "wait, I just set this and it
+      //     disappeared" UX during scanner flakiness and was
+      //     removed.
+      //
+      //   * Splitting status from override means the previous
+      //     ``scan_status="admin_overridden"`` encoding is gone,
+      //     so this update path can no longer accidentally nuke
+      //     an override by writing the wrong status string. That
+      //     class of bug is structurally impossible now.
+      await hubSkillsCol.updateOne(
+        { hub_id: hubId, skill_id: skillId },
+        {
+          $set: {
+            scan_status: scanResult.scan_status,
+            ...(persistedSummary !== undefined
+              ? { scan_summary: persistedSummary }
+              : {}),
+            scan_updated_at: now,
           },
-        );
-        // Best-effort audit row. Helper swallows write failures so
-        // a Mongo blip can't block the rescan response.
-        await recordScanOverrideEvent({
-          action: "clear",
-          skill_id: skillId,
-          skill_name: doc.name,
-          source: "hub",
-          hub_id: hubId,
-          actor: "system:scanner",
-          reason: "Scanner returned passed",
-          prior_scan_status: "admin_overridden",
-          prior_scan_summary: doc.scan_summary,
-        });
-      } else {
-        await hubSkillsCol.updateOne(
-          { hub_id: hubId, skill_id: skillId },
-          { $set: setUpdate },
-        );
-      }
+        },
+      );
 
       return successResponse({
         id: `hub-${hubId}-${skillId}`,
         scan_status: scanResult.scan_status,
         scan_summary: persistedSummary,
         scan_updated_at: now.toISOString(),
-        // The UI's SkillScanStatusIndicator looks at
-        // ``override_auto_cleared`` to decide whether to drop the
-        // local ``scan_override`` cache; mirror the agent_skills
-        // shape so the same client logic works for hub rescans.
-        ...(shouldAutoRevertOverride
-          ? { override_auto_cleared: true as const }
-          : {}),
       });
     });
   },

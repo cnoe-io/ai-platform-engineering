@@ -7,23 +7,27 @@
  *   POST   /api/admin/skills/:source/:source_id/scan-override
  *   DELETE /api/admin/skills/:source/:source_id/scan-override
  *
- * The route is the only place in the codebase that can flip a skill
- * to ``scan_status: "admin_overridden"`` and the only writer of
- * ``skill_scan_override_history``. Both responsibilities are
- * security-sensitive — the override removes a hard block on a
+ * The route is the only place in the codebase that can stamp the
+ * ``scan_override`` audit sub-doc on an agent skill, and the only
+ * writer of ``skill_scan_override_history``. Both responsibilities
+ * are security-sensitive — the override removes a hard block on a
  * scanner-flagged skill, and the audit log is the only record
  * that says who did it and why. So this suite pins:
  *
  *   - the auth gate (401 / 403),
  *   - the env-flag gate (``ADMIN_SCAN_OVERRIDE_ENABLED``),
  *   - the precondition that only flagged skills can be overridden,
+ *   - the **regression invariant** that scan_status is NEVER
+ *     written by this route — that field is owned by the scanner
+ *     write paths, and the override lives in its own sub-doc,
+ *     so any rescan can write status without nuking the override,
  *   - the audit-row write (set + clear),
  *   - the idempotent clear behaviour.
  *
  * If a future refactor weakens any of these (e.g. forgets to
- * require a reason, or stops recording the history row), one of
- * these tests fails loudly. The Python counterpart is in
- * ``tests/test_scan_gate.py::TestIsStatusBlockedForAdminOverride``.
+ * require a reason, or accidentally re-writes scan_status),
+ * one of these tests fails loudly. The Python counterpart is in
+ * ``tests/test_scan_gate.py::TestIsStatusBlockedWithOverride``.
  *
  * assisted-by Cursor Composer-Sonnet-4.7
  */
@@ -279,9 +283,8 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
   it("returns 409 when the skill is not currently flagged", async () => {
     // Only "flagged" is overridable. Pinning this prevents a future
     // accidental change that would let admins pre-emptively
-    // override passed/unscanned skills (would create
-    // "admin_overridden" rows whose prior_scan_status doesn't
-    // match the type, breaking the audit invariant).
+    // override passed/unscanned skills (no value, since those
+    // aren't blocked anyway, and would muddy the audit chain).
     mockGetServerSession.mockResolvedValue(adminSession());
     const skillsCol = createMockCollection();
     skillsCol.findOne.mockResolvedValue({
@@ -300,14 +303,23 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
     expect(body.error).toContain("Only \"flagged\" skills");
   });
 
-  it("returns 409 when the skill is already overridden", async () => {
+  it("returns 409 when the skill already has an scan_override", async () => {
     // Idempotency rule: re-overriding requires clearing first, so
     // each (skill, override) pair has a single canonical reason.
+    // Detection now keys off the presence of the scan_override
+    // sub-doc, NOT the magic scan_status="admin_overridden" value
+    // (which is no longer written by the codebase).
     mockGetServerSession.mockResolvedValue(adminSession());
     const skillsCol = createMockCollection();
     skillsCol.findOne.mockResolvedValue({
       ...FLAGGED_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
+      scan_override: {
+        set_by: "alice@example.com",
+        set_at: "2026-05-01T00:00:00Z",
+        reason: "Already overridden",
+        prior_scan_status: "flagged",
+      },
     });
     mockCollections.agent_skills = skillsCol;
 
@@ -317,12 +329,16 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
     );
     const res = await POST(req, makeCtx("agent_skills", "skill-123"));
     expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain("already has an active admin override");
   });
 
-  it("flips status to admin_overridden, persists override, writes audit row", async () => {
+  it("persists scan_override sub-doc WITHOUT touching scan_status, writes audit row", async () => {
     // The happy path. Critical assertions:
-    //   1. updateOne sets scan_status: admin_overridden
-    //   2. updateOne sets a complete scan_override sub-doc
+    //   1. scan_status is NOT touched (stays "flagged") — splitting
+    //      status from override is the load-bearing change that
+    //      makes overrides survive scanner rescans.
+    //   2. updateOne sets a complete scan_override sub-doc.
     //   3. recordScanOverrideEvent receives action: "set" with the
     //      same reason and the prior status snapshot.
     mockGetServerSession.mockResolvedValue(adminSession());
@@ -343,7 +359,8 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
     expect(body.success).toBe(true);
     const data = body.data;
 
-    expect(data.scan_status).toBe("admin_overridden");
+    // Status echoed unchanged ("flagged").
+    expect(data.scan_status).toBe("flagged");
     expect(data.scan_override).toEqual(
       expect.objectContaining({
         set_by: "admin@example.com",
@@ -354,13 +371,12 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
     );
     expect(data.scan_override.set_at).toEqual(expect.any(String));
 
-    // Mongo write
+    // Mongo write — must NOT include scan_status.
     expect(skillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [filter, update] = skillsCol.updateOne.mock.calls[0];
     expect(filter).toEqual({ id: "skill-123" });
     expect(update.$set).toEqual(
       expect.objectContaining({
-        scan_status: "admin_overridden",
         scan_override: expect.objectContaining({
           reason: "Reviewed shell-out, all paths use allow-list.",
           set_by: "admin@example.com",
@@ -368,6 +384,12 @@ describe("POST /api/admin/skills/:source/:source_id/scan-override", () => {
         }),
       }),
     );
+    // Critical regression test: scan_status MUST NOT be in $set.
+    // The whole point of the redesign is that the override route
+    // writes only the override field — scanner write paths can
+    // continue to write scan_status freely without nuking the
+    // override.
+    expect(update.$set.scan_status).toBeUndefined();
 
     // Audit row
     expect(recordOverrideEventMock).toHaveBeenCalledTimes(1);
@@ -457,7 +479,7 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
     const skillsCol = createMockCollection();
     skillsCol.findOne.mockResolvedValue({
       ...FLAGGED_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
       scan_override: {
         set_by: "admin@example.com",
         set_at: "2026-05-01T00:00:00Z",
@@ -476,6 +498,7 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.cleared).toBe(true);
+    // scan_status echoed unchanged (the route never touches it).
     expect(body.data.scan_status).toBe("flagged");
   });
 
@@ -505,12 +528,12 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
     expect(recordOverrideEventMock).not.toHaveBeenCalled();
   });
 
-  it("flips status back to flagged, unsets override, writes audit row", async () => {
+  it("unsets scan_override WITHOUT touching scan_status, writes audit row", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const skillsCol = createMockCollection();
     skillsCol.findOne.mockResolvedValue({
       ...FLAGGED_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
       scan_override: {
         set_by: "alice@example.com",
         set_at: "2026-05-01T00:00:00Z",
@@ -529,23 +552,31 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.cleared).toBe(true);
+    // scan_status echoed unchanged — the route only $unsets the
+    // override sub-doc; the scanner verdict stays whatever it was
+    // ("flagged" here, since that's the only state from which an
+    // override can be created).
     expect(body.data.scan_status).toBe("flagged");
 
-    // updateOne wrote the right shape: status reset, override
-    // sub-doc removed via $unset.
+    // updateOne wrote the right shape: scan_summary restored from
+    // the override snapshot, override sub-doc removed via $unset.
+    // Critically scan_status MUST NOT be in $set — that's the
+    // whole point of the redesign.
     expect(skillsCol.updateOne).toHaveBeenCalledTimes(1);
     const [filter, update] = skillsCol.updateOne.mock.calls[0];
     expect(filter).toEqual({ id: "skill-123" });
     expect(update.$set).toEqual(
       expect.objectContaining({
-        scan_status: "flagged",
         scan_summary: "Original summary",
       }),
     );
+    expect(update.$set.scan_status).toBeUndefined();
     expect(update.$unset).toEqual({ scan_override: "" });
 
     // Audit row carries the optional clear-reason and the prior
-    // status snapshot, so a reviewer can reconstruct the lifecycle.
+    // status snapshot. The synthetic "admin_overridden" string is
+    // no longer written by the codebase, so the prior status here
+    // is the actual scanner verdict ("flagged").
     expect(recordOverrideEventMock).toHaveBeenCalledTimes(1);
     expect(recordOverrideEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -553,7 +584,7 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
         skill_id: "skill-123",
         actor: "admin@example.com",
         reason: "Skill rewritten",
-        prior_scan_status: "admin_overridden",
+        prior_scan_status: "flagged",
         prior_scan_summary: "Original summary",
       }),
     );
@@ -564,7 +595,7 @@ describe("DELETE /api/admin/skills/:source/:source_id/scan-override", () => {
     const skillsCol = createMockCollection();
     skillsCol.findOne.mockResolvedValue({
       ...FLAGGED_SKILL,
-      scan_status: "admin_overridden",
+      scan_status: "flagged",
       scan_override: {
         set_by: "alice@example.com",
         set_at: "2026-05-01T00:00:00Z",

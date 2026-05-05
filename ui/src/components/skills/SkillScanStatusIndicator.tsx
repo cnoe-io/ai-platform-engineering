@@ -26,23 +26,39 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { cn } from "@/lib/utils";
-import type {
-  AgentSkill,
-  PersistedScanStatus,
-  ScanOverride,
-} from "@/types/agent-skill";
+import type { AgentSkill, ScanOverride, ScanStatus } from "@/types/agent-skill";
 
 /**
- * Status copy + tooltip hint per persisted status.
+ * The status the *UI* displays — distinct from the persisted
+ * ``scan_status`` field. The scanner only ever writes one of three
+ * values (``passed`` / ``flagged`` / ``unscanned``); the
+ * ``admin_overridden`` row below is a synthetic display state we
+ * compute from "scanner says flagged AND this row carries an
+ * ``scan_override`` sub-doc". Splitting the persisted scanner
+ * verdict from the displayed override makes badges, dialog copy,
+ * and audit panels keep working without rewiring each one — they
+ * all branch off ``displayStatus`` and the override semantics
+ * propagate automatically.
  *
- * ``admin_overridden`` is the only status that the scanner does NOT
- * produce on its own — it's set by the per-skill override route when
- * an admin explicitly green-lights a previously-flagged skill. The
- * copy is intentionally distinct ("scanner had flagged…") so it's
- * obvious that a human action is in play, not a clean scanner verdict.
+ * Why this isn't a persisted enum value anymore: the old design
+ * stored ``scan_status: "admin_overridden"`` on the doc, which
+ * collided with every scanner write path (rescan, scan-all, hub
+ * auto-scan after recrawl). Any subsequent rescan would blindly
+ * overwrite the status with the scanner's raw verdict ("flagged")
+ * and silently nuke the override. Splitting the signals fixes
+ * that whole class of bug.
+ */
+type DisplayScanStatus = ScanStatus | "admin_overridden";
+
+/**
+ * Status copy + tooltip hint per displayed status (see
+ * ``DisplayScanStatus`` above). ``admin_overridden`` lives here
+ * even though it's not a persisted enum value — it's what we
+ * render whenever the scanner verdict is ``flagged`` AND an
+ * ``scan_override`` sub-doc is present on the skill.
  */
 const STATUS_COPY: Record<
-  PersistedScanStatus,
+  DisplayScanStatus,
   { title: string; hint: string }
 > = {
   passed: {
@@ -65,10 +81,25 @@ const STATUS_COPY: Record<
   },
 };
 
+/**
+ * Resolve the *display* status from the persisted skill doc.
+ *
+ * The persisted ``scan_status`` is whatever the scanner last
+ * wrote (passed/flagged/unscanned). We synthesize the
+ * ``admin_overridden`` display state when the scanner verdict is
+ * ``flagged`` and the row carries an ``scan_override`` sub-doc —
+ * mirrors ``applyRunnableGate`` (Node) and
+ * ``scan_gate.is_skill_blocked`` (Python) so all three layers
+ * agree on what counts as overridden.
+ */
 function resolveStatus(
-  config: Pick<AgentSkill, "scan_status">,
-): PersistedScanStatus {
-  return (config.scan_status as PersistedScanStatus | undefined) ?? "unscanned";
+  config: Pick<AgentSkill, "scan_status" | "scan_override">,
+): DisplayScanStatus {
+  const persisted = (config.scan_status as ScanStatus | undefined) ?? "unscanned";
+  if (persisted === "flagged" && config.scan_override) {
+    return "admin_overridden";
+  }
+  return persisted;
 }
 
 function formatScanTime(value: Date | string | undefined): string | null {
@@ -153,7 +184,12 @@ export function SkillScanStatusIndicator({
     busy: boolean;
   }>({ open: false, reason: "", busy: false });
   const [localScan, setLocalScan] = useState<{
-    scan_status?: PersistedScanStatus;
+    // The scanner-written status only — the override is tracked
+    // via ``scan_override`` below. Display logic synthesizes the
+    // ``admin_overridden`` UI state in ``resolveStatus`` from
+    // (status + override) so this field doesn't need the
+    // synthetic enum value.
+    scan_status?: ScanStatus;
     scan_summary?: string;
     scan_updated_at?: string;
     scan_override?: ScanOverride | null;
@@ -391,11 +427,14 @@ export function SkillScanStatusIndicator({
         scan_status: payload.scan_status,
         scan_summary: payload.scan_summary,
         scan_updated_at: payload.scan_updated_at,
-        // The rescan route auto-clears overrides on a clean verdict
-        // (see route.override-revert tests). Mirror that here so the
-        // dialog re-renders with the override gone immediately,
-        // without waiting for the parent's onScanComplete refresh.
-        scan_override: payload.override_auto_cleared ? null : undefined,
+        // The rescan route never touches ``scan_override`` —
+        // overrides survive any number of rescans (admins clear
+        // them explicitly via the override DELETE route). Leave
+        // ``scan_override`` as ``undefined`` so the merge keeps
+        // whatever the parent has on record; auto-revert was
+        // tried earlier and pulled at the request of the user
+        // because it surprised admins during scanner flakiness.
+        scan_override: undefined,
       });
       toast("Scan finished", "success");
       await onScanComplete?.();
@@ -475,9 +514,13 @@ export function SkillScanStatusIndicator({
       }
       const payload = data?.data ?? data;
       setLocalScan({
-        // After clear the route flips status back to flagged. Echo
-        // that so the indicator immediately shows the red shield
-        // again (and the gallery row, when its parent refreshes).
+        // After clear, ``scan_status`` stays whatever the scanner
+        // last wrote (typically "flagged" — the only state from
+        // which an override can be set). Dropping the
+        // ``scan_override`` sub-doc makes ``resolveStatus``
+        // synthesize the "flagged" display state again, so the
+        // gallery shows the red shield without the indicator
+        // having to mutate ``scan_status`` itself.
         scan_status: payload.scan_status,
         scan_summary: merged.scan_summary,
         scan_updated_at: payload.scan_updated_at,

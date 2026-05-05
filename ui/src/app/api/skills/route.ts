@@ -63,29 +63,35 @@ export interface CatalogSkill {
    *   - `agent_skills` doc directly (already projected here)
    *   - `builtin_skill_scans` keyed by template id (joined below)
    *   - hub crawler returns these on its own
-   * Absent when the skill has never been scanned.
-   *
-   * ``"admin_overridden"`` is set by the per-skill scan-override admin
-   * route when an operator explicitly green-lights a previously
-   * ``"flagged"`` skill with a written reason. Treated as runnable
-   * here AND on the Python loader side (``scan_gate.is_status_blocked``)
-   * — the admin override is the runtime source of truth, not just a
-   * UI badge. ``ADMIN_SCAN_OVERRIDE_ENABLED=false`` collapses
-   * ``admin_overridden`` back to ``flagged`` (blocked) on both sides
-   * for regulated environments.
+   * Absent when the skill has never been scanned. The scanner only
+   * ever writes one of the three values; the admin override is a
+   * SEPARATE field (``scan_override`` below), not a magic status.
    */
-  scan_status?: "passed" | "flagged" | "unscanned" | "admin_overridden";
+  scan_status?: "passed" | "flagged" | "unscanned";
   scan_summary?: string;
   scan_updated_at?: string;
   /**
-   * Operator-facing audit metadata for an ``"admin_overridden"`` skill.
-   * Populated by the override route, returned to the UI so the
-   * scan-status report dialog can show who/when/why and offer
-   * "Remove override" to admins. ``prior_scan_status`` is the value
-   * the override replaced — usually ``"flagged"`` — so we can render
-   * "Override active. Scanner had returned: flagged" without keeping
-   * a stale copy of the verdict in two fields. Absent unless
-   * ``scan_status === "admin_overridden"``.
+   * Admin override sub-doc — the audit record AND the runtime gate
+   * signal for a flagged skill.
+   *
+   * Populated by ``POST /api/admin/skills/:source/:source_id/scan-override``
+   * (and the hub variant) when an operator explicitly green-lights
+   * a flagged skill with a written reason. Cleared by the matching
+   * DELETE handler. Scanner write paths (per-skill rescan, scan-all,
+   * hub auto-scan) never touch this field, so an override survives
+   * any number of rescans until an admin explicitly clears it.
+   *
+   * Treated as runnable HERE (``applyRunnableGate``) AND on the
+   * Python loader side (``scan_gate.is_skill_blocked``) when
+   * present + ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on (default).
+   * Setting the env to ``false`` removes the escape hatch in
+   * lockstep across both tiers — flagged becomes unconditional
+   * regardless of override.
+   *
+   * ``prior_scan_status`` is the verdict the override replaced
+   * (always ``"flagged"`` — there's no reason to override a passed
+   * or unscanned skill) so the report dialog can render "Override
+   * active. Scanner had returned: flagged" without a second lookup.
    */
   scan_override?: {
     set_by: string;
@@ -96,16 +102,16 @@ export interface CatalogSkill {
   };
   /**
    * Whether the skill is runnable / installable / ingestible. Set to
-   * `false` whenever the security scanner has flagged the skill — the
-   * UI surfaces this as a disabled card with a "Disabled — flagged"
-   * badge so admins can still see and re-scan it. Defaults to `true`
-   * when omitted.
+   * `false` whenever the security scanner has flagged the skill AND
+   * there is no active admin override — the UI surfaces this as a
+   * disabled card with a "Disabled — flagged" badge so admins can
+   * still see and re-scan it. Defaults to `true` when omitted.
    *
    * The supervisor + dynamic agents enforce the same rule
    * independently (Python ``scan_gate`` module) so a stale UI badge
-   * cannot make a flagged skill executable. ``"admin_overridden"``
-   * skills are runnable on both sides (UI here, Python there) when
-   * the admin-override feature is enabled.
+   * cannot make a flagged skill executable. A flagged skill with an
+   * active ``scan_override`` is runnable on both sides (UI here,
+   * Python there) when the admin-override feature is enabled.
    */
   runnable?: boolean;
   /** Operator-visible reason for ``runnable=false``. */
@@ -322,16 +328,14 @@ async function aggregateLocally(
     // shows fresh badges immediately after a sweep / per-template scan.
     // If Mongo is down we just leave scan_status undefined → "Unscanned".
     // Built-in skills can never be admin-overridden today (templates
-    // live on disk and have no per-skill admin UI), but the type
-    // includes ``"admin_overridden"`` for symmetry with the
-    // CatalogSkill union — if an operator hand-edits the
-    // builtin_skill_scans collection, the projection must round-trip
-    // it instead of crashing on the union narrowing. The override
-    // metadata sub-doc is intentionally not projected here for the
-    // same reason: there is no admin UI to populate it for built-ins.
+    // live on disk and have no per-skill admin UI). The override
+    // sub-doc is still projected for symmetry with the catalog
+    // shape — a hand-edited row in builtin_skill_scans should round-
+    // trip cleanly rather than crash the union narrowing — but no
+    // UI flow writes it.
     type BuiltinScanDoc = {
       id: string;
-      scan_status: "passed" | "flagged" | "unscanned" | "admin_overridden";
+      scan_status: "passed" | "flagged" | "unscanned";
       scan_summary?: string;
       scan_updated_at?: Date;
       scan_override?: CatalogSkill["scan_override"];
@@ -467,8 +471,7 @@ async function aggregateLocally(
                 scan_status: doc.scan_status as
                   | "passed"
                   | "flagged"
-                  | "unscanned"
-                  | "admin_overridden",
+                  | "unscanned",
               }
             : {}),
           ...(doc.scan_summary !== undefined
@@ -595,19 +598,30 @@ export function isAdminOverrideEnabled(): boolean {
 
 /**
  * Stamp ``runnable`` / ``blocked_reason`` on every skill based on its
- * cached scan status. Default is ``runnable: true``.
+ * cached scan status AND any active admin override. Default is
+ * ``runnable: true``.
  *
  * Flagging rules (mirror ``scan_gate.is_status_blocked`` in Python):
- *   - ``flagged``  ⇒ always not-runnable.
- *   - ``admin_overridden`` ⇒ runnable when ``ADMIN_SCAN_OVERRIDE_ENABLED``
- *     is on (default); otherwise treated like ``flagged`` so a single
- *     env flip on the Node tier matches the Python tier and removes
- *     the escape hatch in lockstep.
+ *   - ``flagged`` WITHOUT an active ``scan_override`` ⇒ not-runnable.
+ *   - ``flagged`` WITH ``scan_override`` AND
+ *     ``ADMIN_SCAN_OVERRIDE_ENABLED`` on (default) ⇒ runnable. The
+ *     admin's audit-logged "I trust this" assertion is honoured.
+ *   - ``flagged`` WITH ``scan_override`` AND the env flag flipped to
+ *     false ⇒ not-runnable. A single env flip removes the escape
+ *     hatch in lockstep with the Python tier.
  *   - everything else (including ``unscanned``) ⇒ runnable here. The
  *     Python loader applies stricter ``SKILL_SCANNER_GATE=strict`` rules
  *     for the runtime; this UI gate is intentionally permissive so the
  *     gallery still shows skills the runtime would refuse, with the
  *     scan-status badge explaining why.
+ *
+ * Why the override is a separate field, not a magic ``scan_status``
+ * value: the previous implementation set ``scan_status =
+ * "admin_overridden"``, which collided with every scanner write
+ * path — any rescan would blindly overwrite ``scan_status =
+ * "flagged"`` and silently nuke the override. Splitting the signals
+ * means scan routes only ever touch ``scan_status``/``scan_summary``
+ * and the override stays stable until an admin clears it.
  *
  * This is the single UI-facing enforcement point so the gallery,
  * runner, and downstream consumers (Skills API gateway, install.sh)
@@ -618,16 +632,14 @@ export function isAdminOverrideEnabled(): boolean {
  */
 export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
   if (skill.scan_status === "flagged") {
-    return { ...skill, runnable: false, blocked_reason: "scan_flagged" };
-  }
-  if (
-    skill.scan_status === "admin_overridden" &&
-    !isAdminOverrideEnabled()
-  ) {
-    // Override feature disabled ⇒ collapse back to flagged. We keep
-    // the scan_status field as-is so the UI can still render the
-    // override metadata (set_by/reason) and explain *why* the skill
-    // is now blocked despite the override.
+    const hasOverride = !!skill.scan_override;
+    if (hasOverride && isAdminOverrideEnabled()) {
+      // Admin override honoured — runnable despite scanner verdict.
+      // Leave ``scan_status`` and ``scan_override`` as-is so the
+      // gallery can render the amber "Admin override active" badge
+      // alongside the audit metadata.
+      return { ...skill, runnable: true };
+    }
     return { ...skill, runnable: false, blocked_reason: "scan_flagged" };
   }
   return { ...skill, runnable: skill.runnable ?? true };

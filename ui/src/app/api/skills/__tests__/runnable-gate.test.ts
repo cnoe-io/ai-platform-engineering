@@ -78,12 +78,23 @@ describe("applyRunnableGate", () => {
 // gate stamps `runnable` for the UI; the Python gate enforces it on
 // the actual loader path. They have to agree on every cell of the
 // table or the gallery and the runtime will disagree about whether
-// a skill is launchable, which is exactly the kind of drift the
-// scan_status field was introduced to prevent.
-describe("applyRunnableGate — admin_overridden", () => {
-  const overriddenSkill: CatalogSkill = {
+// a skill is launchable.
+//
+// IMPORTANT: the override is stored in a SEPARATE field
+// (`scan_override` sub-doc), NOT a magic `scan_status =
+// "admin_overridden"` value. The earlier design overloaded
+// `scan_status` and was removed because every scanner write path
+// (rescan, scan-all, hub auto-scan) would blindly overwrite the
+// synthetic value with the scanner's raw verdict ("flagged") and
+// silently nuke the override. These tests pin the new two-field
+// contract so the bug can't regress.
+describe("applyRunnableGate — admin scan_override", () => {
+  // The persisted shape after an admin sets an override: scan_status
+  // stays whatever the scanner last wrote ("flagged"), and the
+  // separate scan_override sub-doc carries the audit metadata.
+  const flaggedWithOverride: CatalogSkill = {
     ...baseSkill,
-    scan_status: "admin_overridden",
+    scan_status: "flagged",
     scan_override: {
       set_by: "alice@example.com",
       set_at: "2026-05-05T12:00:00Z",
@@ -101,47 +112,49 @@ describe("applyRunnableGate — admin_overridden", () => {
     delete process.env.ADMIN_SCAN_OVERRIDE_ENABLED;
   });
 
-  it("treats admin_overridden as runnable when feature is on (default)", () => {
+  it("treats flagged+override as runnable when feature is on (default)", () => {
     // ADMIN_SCAN_OVERRIDE_ENABLED unset ⇒ default-on. This is the
     // happy path: an admin has explicitly green-lit a flagged skill
     // and the runtime serves it.
-    const out = applyRunnableGate(overriddenSkill);
+    const out = applyRunnableGate(flaggedWithOverride);
     expect(out.runnable).toBe(true);
     expect(out.blocked_reason).toBeUndefined();
     // The override metadata must round-trip so the report dialog can
     // render set_by / reason / prior_scan_status.
-    expect(out.scan_override).toEqual(overriddenSkill.scan_override);
+    expect(out.scan_override).toEqual(flaggedWithOverride.scan_override);
+    // scan_status stays "flagged" — the gate doesn't mutate the
+    // scanner verdict, only the runnable bit.
+    expect(out.scan_status).toBe("flagged");
   });
 
-  it("treats admin_overridden as runnable when feature is explicitly true", () => {
+  it("treats flagged+override as runnable when feature is explicitly true", () => {
     process.env.ADMIN_SCAN_OVERRIDE_ENABLED = "true";
-    const out = applyRunnableGate(overriddenSkill);
+    const out = applyRunnableGate(flaggedWithOverride);
     expect(out.runnable).toBe(true);
   });
 
   it.each(["false", "0", "no", "off"])(
-    "collapses admin_overridden back to flagged when feature is off (%s)",
+    "collapses flagged+override back to blocked when feature is off (%s)",
     (value) => {
       // Flipping the env disables the escape hatch on both tiers.
-      // The UI must collapse to runnable=false even though the doc
-      // still says admin_overridden, so the runner refuses to
-      // launch and the gallery shows the disabled badge again.
+      // The UI must mark runnable=false even though the override
+      // sub-doc is present, so the runner refuses to launch and
+      // the gallery shows the disabled badge again. The override
+      // sub-doc is preserved on the row so the dialog can still
+      // explain "an override exists but the feature is off."
       process.env.ADMIN_SCAN_OVERRIDE_ENABLED = value;
-      const out = applyRunnableGate(overriddenSkill);
+      const out = applyRunnableGate(flaggedWithOverride);
       expect(out.runnable).toBe(false);
       expect(out.blocked_reason).toBe("scan_flagged");
-      // We deliberately keep scan_status === "admin_overridden" so
-      // the UI can still render override metadata and explain why
-      // the skill is blocked despite the override existing.
-      expect(out.scan_status).toBe("admin_overridden");
+      expect(out.scan_status).toBe("flagged");
+      expect(out.scan_override).toEqual(flaggedWithOverride.scan_override);
     },
   );
 
-  it("flagged skills stay blocked regardless of override env", () => {
-    // Toggling the override flag has nothing to do with plain
-    // flagged. This pins the invariant from
-    // TestIsStatusBlockedForAdminOverride.test_flagged_invariant_unaffected_by_override_flag
-    // on the Python side.
+  it("flagged-without-override stays blocked regardless of override env", () => {
+    // Toggling the override flag has nothing to do with a plain
+    // flagged skill that has no override sub-doc. Both states of
+    // the env must keep an unprotected flagged skill non-runnable.
     for (const value of ["true", "false"]) {
       process.env.ADMIN_SCAN_OVERRIDE_ENABLED = value;
       const out = applyRunnableGate({
@@ -151,5 +164,19 @@ describe("applyRunnableGate — admin_overridden", () => {
       expect(out.runnable).toBe(false);
       expect(out.blocked_reason).toBe("scan_flagged");
     }
+  });
+
+  it("override on a non-flagged skill is a no-op", () => {
+    // The override field only rescues "flagged". An override sitting
+    // on a passed/unscanned row (shouldn't happen in normal flow but
+    // could appear during edge transitions) doesn't grant any extra
+    // privilege beyond what scan_status already does.
+    const out = applyRunnableGate({
+      ...baseSkill,
+      scan_status: "passed",
+      scan_override: flaggedWithOverride.scan_override,
+    });
+    expect(out.runnable).toBe(true);
+    expect(out.blocked_reason).toBeUndefined();
   });
 });

@@ -45,16 +45,25 @@ single-sided change will fail CI.
 
 POLICY (matches the source-of-truth file)
 =========================================
-* ``scan_status == "flagged"`` is **always** blocked, regardless of
-  the ``SKILL_SCANNER_GATE`` env var. This is the hard security
-  invariant: a skill the scanner has marked unsafe must never be
-  served to any runtime path.
+* ``scan_status == "flagged"`` is blocked **unless** the doc carries
+  an ``scan_override`` sub-doc (set by an admin via the per-skill
+  override route, with set_by/set_at/reason for audit). The override
+  is the admin's "I trust this skill even though the scanner doesn't"
+  assertion; both this policy and the Node-side ``applyRunnableGate``
+  honour it iff ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on (default). Set
+  the env to ``false`` to remove the escape hatch entirely.
 * ``scan_status == "unscanned"`` (and missing-status legacy rows)
   are blocked only under ``SKILL_SCANNER_GATE=strict``. The default
   is ``"warn"`` so deployments without the optional skill-scanner
   service still load skills; operators who run the scanner can flip
   to strict to refuse anything the scanner hasn't explicitly cleared.
 * Anything else (``"passed"`` etc.) is allowed.
+* The override is a separate sub-doc, NOT a magic
+  ``scan_status="admin_overridden"`` value. That earlier design
+  collided with every scanner write path: any rescan would blindly
+  overwrite ``scan_status="flagged"`` and silently nuke the override.
+  Splitting the signals lets scan routes write status freely and
+  keeps the override stable.
 """
 
 from __future__ import annotations
@@ -65,9 +74,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default is "warn": flagged skills are always blocked (the actual
-# security invariant), but unscanned/missing-status rows are allowed
-# so deployments without the optional skill-scanner sidecar still
+# Default is "warn": flagged skills are blocked (unless an override
+# is present), but unscanned/missing-status rows are allowed so
+# deployments without the optional skill-scanner sidecar still
 # function. Operators who run the scanner can opt into "strict" to
 # refuse anything not explicitly cleared.
 #
@@ -93,42 +102,69 @@ def get_scan_gate() -> str:
 
 
 def is_admin_override_enabled() -> bool:
-    """Whether ``scan_status == "admin_overridden"`` rescues a skill.
+    """Whether an admin ``scan_override`` rescues a flagged skill.
 
     Defaults to True so the admin override feature is on by default
     (matches the UI default in the Skills admin panel). Operators in
     regulated environments can flip ``ADMIN_SCAN_OVERRIDE_ENABLED=false``
-    to remove the escape hatch entirely — overridden skills then fall
-    back to being treated as ``flagged`` (blocked).
+    to remove the escape hatch entirely — the override sub-doc is
+    then ignored and ``flagged`` becomes unconditional regardless of
+    the scanner gate.
     """
     raw = os.getenv("ADMIN_SCAN_OVERRIDE_ENABLED", "true").strip().lower()
     return raw not in {"false", "0", "no", "off"}
 
 
-def is_status_blocked(scan_status: str | None) -> bool:
-    """Decide whether a skill with the given ``scan_status`` is blocked.
+def is_status_blocked(
+    scan_status: str | None,
+    *,
+    has_override: bool = False,
+) -> bool:
+    """Decide whether a skill with the given status/override is blocked.
 
-    ``flagged`` is unconditional. ``admin_overridden`` is allowed iff
-    the override feature is on AND we're not in strict mode (strict
-    means "scanner-clean only"). ``unscanned`` (or missing status) is
-    blocked only under strict. Everything else is allowed.
+    Args:
+        scan_status: The latest scanner verdict on the doc.
+        has_override: Whether the doc carries an ``scan_override``
+            sub-doc set by an admin. When True and the override
+            feature is enabled, ``flagged`` rows are allowed.
+
+    ``flagged`` is allowed iff (a) the doc has an admin override
+    AND (b) the override feature is on AND (c) we're not in strict
+    mode (strict means "scanner-clean only" and ignores overrides).
+    ``unscanned`` (or missing status) is blocked only under strict.
+    Everything else is allowed.
+
+    The ``has_override`` keyword is positional-keyword on purpose so
+    callers can't accidentally pass it as a positional arg and shift
+    the meaning of an existing call site silently.
     """
     if scan_status == "flagged":
-        return True
-    if scan_status == "admin_overridden":
-        # Strict mode trusts only the scanner — overrides ignored.
         if get_scan_gate() == "strict":
+            # Strict trusts only the scanner verdict — overrides ignored.
             return True
-        # Otherwise the env-flag governs; off ⇒ treat as flagged.
-        return not is_admin_override_enabled()
+        if has_override and is_admin_override_enabled():
+            return False
+        return True
     if scan_status in (None, "", "unscanned"):
         return get_scan_gate() == "strict"
     return False
 
 
 def is_skill_blocked(skill: dict[str, Any]) -> bool:
-    """Convenience over ``is_status_blocked`` for skill dicts."""
-    return is_status_blocked(skill.get("scan_status"))
+    """Convenience over ``is_status_blocked`` for skill dicts.
+
+    Reads both ``scan_status`` and the presence of ``scan_override``
+    from the doc so callers don't have to remember to pass them
+    separately. A truthy ``scan_override`` (any non-empty value)
+    counts as an active override; the audit metadata inside the
+    sub-doc isn't validated here — it's set by a single trusted
+    writer (the override route) and consumed for display elsewhere.
+    """
+    has_override = bool(skill.get("scan_override"))
+    return is_status_blocked(
+        skill.get("scan_status"),
+        has_override=has_override,
+    )
 
 
 def mongo_scan_filter() -> dict[str, Any]:
@@ -139,29 +175,37 @@ def mongo_scan_filter() -> dict[str, Any]:
 
         query = {"$and": [user_filter, mongo_scan_filter()]}
 
-    The fragment always excludes ``flagged``. Under the strict gate it
-    additionally excludes ``unscanned`` and missing-status docs (which
-    is the same thing semantically). Under non-strict gates only
-    ``flagged`` is excluded so legacy callers don't suddenly lose
-    rows; an ``admin_overridden`` skill is included iff the override
-    feature is enabled (default).
+    Behaviour by gate:
+
+    * ``strict``: only ``scan_status == "passed"`` matches; overrides
+      are intentionally ignored (regulated-env mode).
+    * ``warn`` / ``off`` with overrides enabled (default): match
+      anything except ``flagged``, plus flagged docs that carry an
+      ``scan_override`` sub-doc (the admin escape hatch).
+    * ``warn`` / ``off`` with ``ADMIN_SCAN_OVERRIDE_ENABLED=false``:
+      block all flagged docs unconditionally; override sub-doc is
+      ignored — keeps the predicate in sync with ``is_status_blocked``
+      so callers that use the predicate alone can't accidentally
+      serve overridden skills when the feature is disabled.
     """
     if get_scan_gate() == "strict":
-        # Allow only docs that have explicitly passed scanning. Mongo
-        # treats missing fields as not-equal, so we pin via $in for
-        # clarity. Overrides intentionally ignored under strict.
         return {"scan_status": {"$in": ["passed"]}}
-    # Non-strict: block flagged. Block admin_overridden too iff the
-    # override feature has been turned off — keeps the predicate in
-    # sync with is_status_blocked() so callers that use the predicate
-    # alone can't accidentally serve overridden skills when overrides
-    # are disabled.
-    blocked = ["flagged"]
+
     if not is_admin_override_enabled():
-        blocked.append("admin_overridden")
-    if len(blocked) == 1:
-        return {"scan_status": {"$ne": blocked[0]}}
-    return {"scan_status": {"$nin": blocked}}
+        # Override feature off: flagged is unconditional.
+        return {"scan_status": {"$ne": "flagged"}}
+
+    # Default path: allow non-flagged OR (flagged AND has override).
+    # ``$exists: true`` matches any present field including ``null``;
+    # the override route always writes a non-null sub-doc and the
+    # DELETE handler ``$unset``s it, so this maps cleanly to "set vs
+    # cleared" without needing to inspect the sub-doc shape.
+    return {
+        "$or": [
+            {"scan_status": {"$ne": "flagged"}},
+            {"scan_status": "flagged", "scan_override": {"$exists": True}},
+        ]
+    }
 
 
 __all__ = [

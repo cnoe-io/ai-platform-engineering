@@ -15,9 +15,12 @@
  *   - source gate (override path is agent_skills only — buttons
  *     hidden for hub / built-in catalog rows),
  *   - happy-path round-trip: open dialog → click Override → fill
- *     reason → submit → status flips to admin_overridden, audit
- *     panel renders.
- *   - clear path: click Remove override → status flips back to
+ *     reason → submit → display flips to "Admin override active",
+ *     audit panel renders. Note: the server keeps ``scan_status`` at
+ *     ``"flagged"`` and writes the override into a separate
+ *     ``scan_override`` sub-doc; the UI computes the
+ *     ``"admin_overridden"`` display state via ``resolveStatus``.
+ *   - clear path: click Remove override → display flips back to
  *     flagged, audit panel disappears.
  *
  * The API-side assertions live in
@@ -91,9 +94,13 @@ const FLAGGED_CONFIG = {
   metadata: {},
 };
 
+// Post-pivot persisted shape: scan_status stays at the scanner's
+// verdict ("flagged"); the override lives in a separate sub-doc.
+// The UI's resolveStatus() helper synthesises the "admin_overridden"
+// display state from the combination.
 const OVERRIDDEN_CONFIG = {
   ...FLAGGED_CONFIG,
-  scan_status: "admin_overridden" as const,
+  scan_status: "flagged" as const,
   scan_override: {
     set_by: "alice@example.com",
     set_at: "2026-05-02T15:30:00Z",
@@ -168,6 +175,10 @@ describe("SkillScanStatusIndicator — admin override (admin)", () => {
     // metadata.hub_id / metadata.hub_skill_id, so the resolver
     // prefers those over re-parsing the legacy
     // ``catalog-hub-<hubId>-<skillId>`` id format.
+    // Server response shape under the new design: scan_status stays
+    // "flagged" (the scanner verdict), scan_override carries the
+    // override metadata. The UI flips to the "admin_overridden"
+    // display state via resolveStatus().
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -176,7 +187,7 @@ describe("SkillScanStatusIndicator — admin override (admin)", () => {
           id: "hub-h1-skill-x",
           hub_id: "h1",
           skill_id: "skill-x",
-          scan_status: "admin_overridden",
+          scan_status: "flagged",
           scan_override: {
             set_by: "admin@example.com",
             set_at: "2026-05-05T10:00:00Z",
@@ -242,7 +253,9 @@ describe("SkillScanStatusIndicator — admin override (admin)", () => {
           id: "hub-h2-legacy-skill",
           hub_id: "h2",
           skill_id: "legacy-skill",
-          scan_status: "admin_overridden",
+          // Same post-pivot shape: scan_status stays "flagged",
+          // override sub-doc is the gate signal.
+          scan_status: "flagged",
           scan_override: {
             set_by: "admin@example.com",
             set_at: "2026-05-05T10:00:00Z",
@@ -310,7 +323,9 @@ describe("SkillScanStatusIndicator — admin override (admin)", () => {
         success: true,
         data: {
           id: "skill-123",
-          scan_status: "admin_overridden",
+          // Server keeps scan_status at the scanner verdict; the
+          // override sub-doc carries the audit metadata.
+          scan_status: "flagged",
           scan_override: {
             set_by: "admin@example.com",
             set_at: "2026-05-03T10:00:00Z",

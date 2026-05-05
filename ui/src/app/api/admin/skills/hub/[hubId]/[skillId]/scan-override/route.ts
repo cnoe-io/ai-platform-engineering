@@ -198,8 +198,16 @@ export const POST = withErrorHandler(
         throw new ApiError(
           `Cannot override a hub skill with scan_status="${current}". ` +
             `Only "flagged" skills can be overridden — passed and ` +
-            `unscanned skills are not blocked, and an already-` +
-            `overridden skill must be cleared (or rescanned) first.`,
+            `unscanned skills are not blocked.`,
+          409,
+        );
+      }
+      if (existing.scan_override) {
+        throw new ApiError(
+          `Hub skill "${skillId}" in hub "${hubId}" already has an ` +
+            `active admin override (set by ${existing.scan_override.set_by} ` +
+            `at ${existing.scan_override.set_at}). Clear it first via ` +
+            `DELETE before stamping a new one.`,
           409,
         );
       }
@@ -215,11 +223,19 @@ export const POST = withErrorHandler(
           : {}),
       };
 
+      // We deliberately do NOT touch ``scan_status`` here — the
+      // scanner verdict stays "flagged" and ``scan_override``
+      // alone signals "admin allowed this" to the runtime gates.
+      // Previously this route wrote ``scan_status =
+      // "admin_overridden"`` which collided with every scanner
+      // write path (recrawl auto-scan via ``scanHubSkillsAsync``,
+      // per-skill rescan, scan-all) and silently nuked the
+      // override on the next scan. Splitting the signals fixes
+      // that class of bug entirely.
       await hubSkillsCol.updateOne(
         { hub_id: hubId, skill_id: skillId },
         {
           $set: {
-            scan_status: "admin_overridden",
             scan_override: override,
             // Bump scan_updated_at so the gallery's "Last scan"
             // pill reflects the admin action rather than the
@@ -256,7 +272,9 @@ export const POST = withErrorHandler(
         id: `hub-${hubId}-${skillId}`,
         hub_id: hubId,
         skill_id: skillId,
-        scan_status: "admin_overridden" as const,
+        // ``scan_status`` is unchanged ("flagged"); the override
+        // sub-doc is what signals "runnable" to the gates.
+        scan_status: existing.scan_status,
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
@@ -330,10 +348,7 @@ export const DELETE = withErrorHandler(
         );
       }
 
-      if (
-        existing.scan_status !== "admin_overridden" ||
-        !existing.scan_override
-      ) {
+      if (!existing.scan_override) {
         // Idempotent no-op.
         return successResponse({
           id: `hub-${hubId}-${skillId}`,
@@ -349,14 +364,16 @@ export const DELETE = withErrorHandler(
       const priorScanSummary =
         priorOverride?.prior_scan_summary ?? existing.scan_summary;
 
-      // Restore to the original "flagged" verdict — same semantics
-      // as the agent_skills route. Admins can hit "Scan now" to
-      // re-evaluate.
+      // Drop the override sub-doc only — ``scan_status`` is whatever
+      // the scanner last wrote (typically still "flagged"). Restore
+      // ``scan_summary`` from the snapshot captured at override
+      // time so the UI's "why was this flagged?" panel doesn't go
+      // blank if a later scanner write happened to overwrite it.
+      // Same semantics as the agent_skills DELETE handler.
       await hubSkillsCol.updateOne(
         { hub_id: hubId, skill_id: skillId },
         {
           $set: {
-            scan_status: "flagged" as const,
             ...(priorScanSummary !== undefined
               ? { scan_summary: priorScanSummary }
               : {}),
@@ -374,7 +391,11 @@ export const DELETE = withErrorHandler(
         hub_id: hubId,
         actor: user.email,
         reason,
-        prior_scan_status: "admin_overridden",
+        // The prior status is whatever the scanner had on file
+        // (almost always "flagged"). The synthetic
+        // "admin_overridden" string is no longer written by this
+        // codebase.
+        prior_scan_status: existing.scan_status ?? "flagged",
         prior_scan_summary: priorScanSummary,
       });
 
@@ -390,7 +411,7 @@ export const DELETE = withErrorHandler(
         hub_id: hubId,
         skill_id: skillId,
         cleared: true,
-        scan_status: "flagged" as const,
+        scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
     });

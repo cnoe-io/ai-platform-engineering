@@ -2,10 +2,20 @@
  * Admin scan-override route.
  *
  * Lets a platform admin explicitly green-light a skill that the
- * security scanner has marked ``"flagged"``. The override flips the
- * persisted ``scan_status`` to ``"admin_overridden"`` and stamps an
- * audit record (``scan_override`` sub-doc on the skill, plus a row
- * in ``skill_scan_override_history``).
+ * security scanner has marked ``"flagged"``. The override stamps a
+ * ``scan_override`` audit sub-doc on the skill (set_by/set_at/
+ * reason/prior_scan_status) and writes a row to
+ * ``skill_scan_override_history``. ``scan_status`` is intentionally
+ * NOT touched — the scanner's verdict is preserved as-is.
+ *
+ * Why the override is a separate field instead of ``scan_status =
+ * "admin_overridden"``: the previous design encoded the override
+ * into the status string itself, which collided with every scanner
+ * write path. Any rescan (per-skill, scan-all, hub auto-scan after
+ * recrawl) would blindly write ``scan_status = "flagged"`` and
+ * silently nuke the override. Splitting the signals lets scan
+ * routes write status freely while the override stays stable until
+ * an admin explicitly clears it.
  *
  * Two methods, mirror-image:
  *
@@ -24,10 +34,9 @@
  * Why the route is admin-only via env, not group membership alone:
  * regulated environments need a way to remove the escape hatch
  * entirely. ``ADMIN_SCAN_OVERRIDE_ENABLED=false`` blocks writes here
- * AND collapses ``"admin_overridden"`` back to ``flagged`` at the
- * Python loader (``scan_gate.is_status_blocked``) and Node UI gate
- * (``applyRunnableGate``). Both tiers must agree, hence both read
- * the same env var.
+ * AND makes the runtime gate ignore any existing ``scan_override``
+ * sub-doc (Python ``scan_gate.is_skill_blocked`` and Node
+ * ``applyRunnableGate``). Both tiers read the same env var.
  *
  * Why ``:source`` is in the URL even though only ``agent_skills`` is
  * supported today: future per-skill overrides for hub-sourced skills
@@ -213,16 +222,26 @@ export const POST = withErrorHandler(
       }
       // Hard-guard: only flagged skills are overridable. Passed /
       // unscanned skills don't need an override (they aren't
-      // blocked); an already-overridden skill should be rescanned
-      // or cleared first to avoid a "double override" with
-      // mismatched reasons.
+      // blocked); a skill that already carries an override must be
+      // cleared first to avoid a "double override" with mismatched
+      // reasons (and to preserve a clean audit chain — a single
+      // override can't be silently re-stamped over the previous
+      // admin's reason).
       if (existing.scan_status !== "flagged") {
         const current = existing.scan_status ?? "unscanned";
         throw new ApiError(
           `Cannot override a skill with scan_status="${current}". ` +
             `Only "flagged" skills can be overridden — passed and ` +
-            `unscanned skills are not blocked, and an already-` +
-            `overridden skill must be cleared (or rescanned) first.`,
+            `unscanned skills are not blocked.`,
+          409,
+        );
+      }
+      if (existing.scan_override) {
+        throw new ApiError(
+          `Skill "${source_id}" already has an active admin override ` +
+            `(set by ${existing.scan_override.set_by} at ` +
+            `${existing.scan_override.set_at}). Clear it first via ` +
+            `DELETE before stamping a new one.`,
           409,
         );
       }
@@ -238,11 +257,17 @@ export const POST = withErrorHandler(
           : {}),
       };
 
+      // We deliberately do NOT touch ``scan_status`` here — the
+      // scanner verdict stays "flagged" and ``scan_override``
+      // alone signals "admin allowed this" to the runtime gates.
+      // This is the load-bearing change: the previous code wrote
+      // ``scan_status = "admin_overridden"`` which collided with
+      // every scanner write path (rescan, scan-all, hub auto-scan)
+      // and silently nuked the override on the next scan.
       await collection.updateOne(
         { id: source_id },
         {
           $set: {
-            scan_status: "admin_overridden",
             scan_override: override,
             // Bump scan_updated_at so the gallery sort-by-recently-
             // scanned reflects the override action; the original
@@ -278,7 +303,10 @@ export const POST = withErrorHandler(
 
       return successResponse({
         id: source_id,
-        scan_status: "admin_overridden" as const,
+        // ``scan_status`` is unchanged ("flagged"); the override
+        // sub-doc is what signals "runnable" to the gates. Returning
+        // it here keeps the UI in sync without an extra GET.
+        scan_status: existing.scan_status,
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
@@ -357,7 +385,7 @@ export const DELETE = withErrorHandler(
         );
       }
 
-      if (existing.scan_status !== "admin_overridden" || !existing.scan_override) {
+      if (!existing.scan_override) {
         // Idempotent no-op: nothing to clear. Return current state
         // so the UI can sync without a follow-up GET.
         return successResponse({
@@ -372,19 +400,18 @@ export const DELETE = withErrorHandler(
       const priorScanSummary =
         priorOverride?.prior_scan_summary ?? existing.scan_summary;
 
-      // Restore to "flagged" — the state the override originally
-      // rescued. We deliberately do NOT auto-rerun the scanner here
-      // because (a) the override was set on a verdict that may now
-      // be stale; (b) the admin clearing the override may want to
-      // schedule a rescan separately and review the new verdict
-      // before the skill is re-served. The UI will show the
-      // disabled "Disabled — flagged" badge again immediately;
-      // admins can hit "Scan now" to re-evaluate.
+      // Drop the override sub-doc only — ``scan_status`` is already
+      // whatever the scanner last wrote (typically "flagged", which
+      // is exactly what the override was rescuing). Restore
+      // ``scan_summary`` from the snapshot captured at override
+      // time so the UI's "why was this flagged?" panel doesn't go
+      // blank if a later scanner write happened to overwrite it.
+      // The UI will show the disabled "Disabled — flagged" badge
+      // again immediately; admins can hit "Scan now" to re-evaluate.
       await collection.updateOne(
         { id: source_id },
         {
           $set: {
-            scan_status: "flagged" as const,
             ...(priorScanSummary !== undefined
               ? { scan_summary: priorScanSummary }
               : {}),
@@ -402,7 +429,14 @@ export const DELETE = withErrorHandler(
         source: "agent_skills",
         actor: user.email,
         reason,
-        prior_scan_status: "admin_overridden",
+        // The prior status reported in the audit is whatever the
+        // scanner had on file (almost always "flagged" since that's
+        // the only state from which an override can be created).
+        // We no longer report the synthetic "admin_overridden"
+        // string — the override is now tracked on its own field,
+        // so audit consumers should treat its presence/absence as
+        // the override signal, not the status.
+        prior_scan_status: existing.scan_status ?? "flagged",
         prior_scan_summary: priorScanSummary,
       });
 
@@ -416,7 +450,7 @@ export const DELETE = withErrorHandler(
       return successResponse({
         id: source_id,
         cleared: true,
-        scan_status: "flagged" as const,
+        scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
     });
