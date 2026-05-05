@@ -496,7 +496,31 @@ check_prerequisites() {
   if ! command -v kind &>/dev/null; then
     warn "kind not found — Kind cluster options will be unavailable"
   fi
-  log "Prerequisites checked (docker, kubectl, helm, openssl, curl, jq)"
+
+  # k9s — optional but strongly recommended; auto-install if missing
+  if ! command -v k9s &>/dev/null; then
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      log "Installing k9s (Kubernetes TUI)..."
+      local _k9s_url
+      _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
+        | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
+      if [[ -n "$_k9s_url" ]]; then
+        curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
+          && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
+          || warn "k9s install failed — you can install it manually from https://k9scli.io"
+      else
+        warn "Could not fetch k9s release URL — skipping k9s install"
+      fi
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      if command -v brew &>/dev/null; then
+        brew install derailed/k9s/k9s &>/dev/null && log "k9s installed via Homebrew" || true
+      else
+        warn "k9s not found — install it with: brew install derailed/k9s/k9s"
+      fi
+    fi
+  fi
+
+  log "Prerequisites checked (docker, kubectl, helm, openssl, curl, jq, k9s)"
 }
 
 choose_cluster() {
@@ -1540,30 +1564,41 @@ install_nginx_ingress() {
         -j DNAT --to-destination "${ingress_ip}:80" 2>/dev/null || true
     fi
 
-    # Docker adds a blanket DROP in its DOCKER chain for all non-kind-bridge
-    # traffic destined to the kind bridge. Without an explicit ACCEPT, the
-    # DNAT'd packets are dropped in the FORWARD chain before reaching nginx.
-    # Add the ACCEPT to DOCKER-USER (Docker never resets this chain).
-    local kind_bridge
-    kind_bridge=$(docker network inspect kind --format '{{.Options.com\.docker\.network\.bridge\.name}}' 2>/dev/null || true)
-    if [[ -n "$kind_bridge" ]]; then
-      local ext_iface
-      ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
-      if ! sudo iptables -C DOCKER-USER \
-           -i "${ext_iface:-eth0}" -o "$kind_bridge" \
-           -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
-           -j ACCEPT 2>/dev/null; then
-        sudo iptables -I DOCKER-USER 1 \
-          -i "${ext_iface:-eth0}" -o "$kind_bridge" \
-          -d "$ingress_ip" -p tcp -m multiport --dports 80,443 \
-          -j ACCEPT 2>/dev/null \
-          || warn "Could not add DOCKER-USER forward rule — traffic from outside may be blocked"
+    # Docker's DOCKER chain contains a blanket DROP for all traffic to the kind
+    # bridge that wasn't initiated from inside the container network. DNAT'd
+    # packets from the host (external → ingress IP) hit this DROP before they
+    # reach nginx. Fix: insert ACCEPT rules for ports 80/443 to the ingress IP
+    # at the top of the DOCKER chain, before the DROP catch-all.
+    #
+    # We target the DOCKER chain directly (not DOCKER-USER) because the
+    # DOCKER-USER approach requires knowing the exact bridge interface name,
+    # which is not always exposed via docker network inspect on kind clusters.
+    _fix_docker_chain_drop() {
+      local _ip="$1"
+      if ! sudo iptables -L DOCKER -n &>/dev/null 2>&1; then
+        return 0  # DOCKER chain doesn't exist — not a Docker-managed host
       fi
-      # Also allow return traffic from the ingress IP back to external clients.
-      if ! sudo iptables -C DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null; then
-        sudo iptables -A DOCKER-USER -s "$ingress_ip" -j ACCEPT 2>/dev/null || true
+      # Check if the DOCKER chain has any DROP rules at all; skip if clean.
+      if ! sudo iptables -L DOCKER -n 2>/dev/null | grep -q "^DROP"; then
+        return 0
       fi
-    fi
+      log "Detected DROP catch-all in DOCKER chain — inserting ACCEPT rules for ingress IP"
+      for _port in 443 80; do
+        if ! sudo iptables -C DOCKER -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null; then
+          sudo iptables -I DOCKER 1 -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null \
+            || warn "Could not insert DOCKER chain ACCEPT for port ${_port} — external traffic may be blocked"
+        fi
+      done
+      # Also add to DOCKER-USER (Docker never resets this chain) so the rules
+      # survive a 'docker restart' which rebuilds the DOCKER chain from scratch.
+      for _port in 443 80; do
+        if ! sudo iptables -C DOCKER-USER -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null; then
+          sudo iptables -I DOCKER-USER 1 -p tcp -d "$_ip" --dport "$_port" -j ACCEPT 2>/dev/null || true
+        fi
+      done
+      log "DOCKER chain: ACCEPT rules added for ${_ip}:80,443"
+    }
+    _fix_docker_chain_drop "$ingress_ip"
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
