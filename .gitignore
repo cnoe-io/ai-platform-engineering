@@ -285,3 +285,10 @@ docker-compose/*
 
 # Local-only CAIPE / Slack YAML overrides (see CAIPE_APP_CONFIG_FILE / CAIPE_SLACK_BOT_CONFIG_FILE)
 config/*.local.yaml
+
+# Scratch files commonly created by coding agents when drafting PR descriptions.
+# These should be passed to `gh pr edit --body-file` and then deleted, never committed.
+PR_BODY.md
+PR_BODY.txt
+.pr-body.md
+COMMIT_BODY.md
