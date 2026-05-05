@@ -1032,7 +1032,13 @@ def may_write(path):
 data = json.load(open(src))
 skills = data.get("skills", []) or []
 new_entries = []  # one entry per (skill name) — paths is multi-target
+# Counters for the trailing summary line. "skipped" is the legacy name
+# used by the summary print and the test fixtures; it counts file
+# targets that already exist and were refused by may_write (no
+# --upgrade / --force). "skills_installed" / "skills_up_to_date" track
+# skill-granularity outcomes for the per-skill log lines we now emit.
 wrote = 0; skipped = 0; reserved = 0; total = 0; flagged_count = 0
+skills_installed = 0; skills_up_to_date = 0
 now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 for s in skills:
@@ -1041,10 +1047,15 @@ for s in skills:
         continue
     total += 1
     if is_flagged(s):
+        # Existing per-skill print kept verbatim — log scrapers already
+        # rely on the "(flagged by security scanner)" suffix.
         print(f"==> skipped {name} (flagged by security scanner)")
         flagged_count += 1
         continue
     if name in RESERVED:
+        # Reserved names collide with the meta /skills + /update-skills
+        # commands the helper installs; we never overwrite those.
+        print(f"==> skipped {name} (reserved name)")
         reserved += 1
         continue
     safe_name = NAME_RE.sub("_", name)
@@ -1052,7 +1063,12 @@ for s in skills:
 
     # Build the per-root file map. SKILL.md goes at root/<name>/SKILL.md;
     # ancillary files preserve their relative paths under root/<name>/.
+    # We also track per-skill targets/skips so we can print one line
+    # per skill at the end of its loop ("installed N files" vs
+    # "up-to-date" vs "would overwrite — pass --upgrade or --force").
     written_paths_for_skill = []
+    targets_for_skill = 0
+    skipped_existing_for_skill = 0
     for root in roots:
         # SKILL.md
         targets = [(os.path.join(root, safe_name, "SKILL.md"), body)]
@@ -1066,8 +1082,10 @@ for s in skills:
                     continue
                 targets.append((os.path.join(root, safe_name, sp), content))
         for path, content in targets:
+            targets_for_skill += 1
             if not may_write(path):
                 skipped += 1
+                skipped_existing_for_skill += 1
                 continue
             os.makedirs(os.path.dirname(path), exist_ok=True)
             fd, tmp = tempfile.mkstemp(prefix=".caipe-install-", dir=os.path.dirname(path))
@@ -1077,6 +1095,30 @@ for s in skills:
             os.chmod(path, 0o644)
             written_paths_for_skill.append(path)
             wrote += 1
+    # Per-skill outcome line. Three cases:
+    #   * Wrote >=1 file        → "installed" (counts all written files
+    #                              across both ~/.claude and ~/.agents
+    #                              roots, which is what the user cares
+    #                              about: "did this skill land?").
+    #   * Wrote 0, refused some → "up-to-date (pass --upgrade or
+    #                              --force to overwrite)" so the user
+    #                              knows why nothing changed.
+    #   * Wrote 0, no targets   → "no files" (degenerate; should be
+    #                              vanishingly rare since SKILL.md is
+    #                              always emitted).
+    n_written = len(written_paths_for_skill)
+    if n_written:
+        print(f"==> installed {name} ({n_written} file{'s' if n_written != 1 else ''})")
+        skills_installed += 1
+    elif skipped_existing_for_skill:
+        print(
+            f"==> up-to-date {name} "
+            f"({skipped_existing_for_skill} existing file{'s' if skipped_existing_for_skill != 1 else ''}; "
+            f"pass --upgrade or --force to overwrite)"
+        )
+        skills_up_to_date += 1
+    else:
+        print(f"==> {name} produced no files")
     if written_paths_for_skill:
         new_entries.append({
             "agent": agent, "scope": scope, "name": name,
@@ -1117,9 +1159,16 @@ if new_entries:
     os.chmod(manifest_path, 0o600)
 
 eligible = total - reserved - flagged_count
+# Summary line — kept compatible with the legacy format that operators
+# (and any log scrapers) already grep for, but extended with the
+# per-skill counts we now also print one-per-line above.
+#   wrote / skipped         → file-granularity (existing semantics)
+#   installed / up-to-date  → skill-granularity (new, derived from
+#                              the per-skill prints above)
 print(
     f"==> bulk: wrote {wrote} files for {eligible}/{total} skills "
-    f"(skipped {skipped}, reserved {reserved}, flagged {flagged_count})"
+    f"(installed {skills_installed}, up-to-date {skills_up_to_date}, "
+    f"skipped {skipped}, reserved {reserved}, flagged {flagged_count})"
 )
 PY
 }
