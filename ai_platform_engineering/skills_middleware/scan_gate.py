@@ -11,14 +11,26 @@ can't drift between callers.
 Policy
 ------
 * ``scan_status == "flagged"`` is **always** blocked, regardless of
-  the ``SKILL_SCANNER_GATE`` env var. This is a hard security
-  invariant: a flagged skill has been explicitly marked unsafe by the
-  scanner and must not be served to any runtime path.
-* ``scan_status == "unscanned"`` is blocked only when
-  ``SKILL_SCANNER_GATE=strict``. The default gate is ``"strict"`` so
-  unscanned content is excluded by default; operators can opt back in
-  via ``SKILL_SCANNER_GATE=warn`` (logged) or ``=off`` (silent).
-* Anything else (``"passed"`` or missing ``scan_status``) is allowed.
+  the ``SKILL_SCANNER_GATE`` env var. This is the hard security
+  invariant: a skill the scanner has marked unsafe must never be
+  served to any runtime path.
+* ``scan_status == "unscanned"`` (and missing-status legacy rows)
+  are blocked only under ``SKILL_SCANNER_GATE=strict``. The default
+  is ``"warn"`` so deployments without the optional skill-scanner
+  service still load skills; operators who run the scanner can flip
+  to strict to refuse anything the scanner hasn't explicitly cleared.
+* Anything else (``"passed"`` etc.) is allowed.
+
+Why warn is the default
+-----------------------
+The skill-scanner is an optional sidecar (``SKILL_SCANNER_URL`` lives
+in the UI tier). When it's absent, every skill is created with
+``scan_status: "unscanned"`` (or no field at all for legacy/imported
+rows). Strict-by-default in that environment makes every catalog
+entry invisible to the runtime even though the picker can still see
+them — i.e. "skill failed to load" with no obvious cause. Warn-by-
+default makes the feature work out of the box and still gives
+security-conscious operators a single env flip to lock down.
 
 Why this lives in its own module
 --------------------------------
@@ -40,11 +52,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default changed from "warn" to "strict" in the same change that
-# introduced this module. Strict by default means an operator who
-# stands the supervisor up without configuring the scanner gets safe
-# behaviour (unscanned skills excluded) instead of a silent gap.
-_DEFAULT_GATE = "strict"
+# Default is "warn": flagged skills are always blocked (the actual
+# security invariant), but unscanned/missing-status rows are allowed
+# so deployments without the optional skill-scanner sidecar still
+# function. Operators who run the scanner can opt into "strict" to
+# refuse anything not explicitly cleared.
+#
+# History: this briefly defaulted to "strict", which silently broke
+# every dynamic-agent skill in deployments without SKILL_SCANNER_URL
+# configured ("N skill(s) failed to load"). The value-of-strict trade
+# was a fresh deploy excluding unscanned content; the cost-of-strict
+# was the feature being broken by default. Cost won.
+_DEFAULT_GATE = "warn"
 
 
 def get_scan_gate() -> str:
