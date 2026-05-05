@@ -758,6 +758,16 @@ choose_deployment_mode() {
     return
   fi
 
+  # Already known from detect_deployed_features — confirm and skip
+  if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    log "Detected existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+    if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
+      CAIPE_DEPLOYMENT_MODE=""  # fall through to prompt
+    else
+      return
+    fi
+  fi
+
   echo ""
   echo -e "  ${BOLD}How would you like to deploy CAIPE?${NC}"
   echo ""
@@ -790,6 +800,24 @@ choose_deployment_mode() {
 
 collect_credentials() {
   step "LLM credentials"
+
+  # Already loaded from existing llm-secret by detect_deployed_features — skip
+  if [[ -n "${LLM_PROVIDER:-}" ]] && ! $NON_INTERACTIVE; then
+    local _cred_ok=false
+    case "$LLM_PROVIDER" in
+      anthropic-claude) [[ -n "${ANTHROPIC_API_KEY:-}" ]] && _cred_ok=true ;;
+      aws-bedrock)      [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]] && _cred_ok=true ;;
+      *)                [[ -n "${OPENAI_API_KEY:-}" ]] && _cred_ok=true ;;
+    esac
+    if $_cred_ok; then
+      log "Using existing LLM credentials from cluster (provider: ${LLM_PROVIDER})"
+      if ! ask_yn "Keep existing LLM provider (${LLM_PROVIDER})?" "y"; then
+        LLM_PROVIDER=""  # fall through to full prompt
+      else
+        return
+      fi
+    fi
+  fi
 
   # ── Provider selection loop — user can go back to re-pick provider ────
   while true; do
@@ -1609,6 +1637,16 @@ _choose_agents() {
     "Webex         — video meetings & messaging"
     "AI Gateway    — multi-model LLM routing"
   )
+
+  # Already detected from cluster — confirm and skip
+  if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
+    log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
+    if ask_yn "Keep existing agent selection?" "y"; then
+      return
+    fi
+    SELECTED_AGENTS=()
+    HELM_AGENT_ARGS=()
+  fi
 
   echo ""
   echo -e "  ${BOLD}Select agents to install${NC} ${DIM}(all enabled by default)${NC}"
@@ -5278,6 +5316,10 @@ detect_deployed_features() {
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
   fi
+  if kubectl get deployment caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
+    ENABLE_DYNAMIC_AGENTS=true
+  fi
+
   # Detect chart version from Helm; ignore "unknown" (local chart installs)
   if [[ -z "$CAIPE_CHART_VERSION" ]]; then
     local _detected_version
@@ -5285,7 +5327,85 @@ detect_deployed_features() {
       | jq -r '.version // empty' 2>/dev/null || true)
     if [[ -n "$_detected_version" && "$_detected_version" != "unknown" ]]; then
       CAIPE_CHART_VERSION="$_detected_version"
+      log "Detected deployed chart version: ${CAIPE_CHART_VERSION}"
     fi
+  fi
+
+  # ── Read LLM provider + credentials from the existing llm-secret ──────────
+  # This lets the upgrade path skip all credential prompts when secrets are
+  # already in the cluster — the user only needs to change what differs.
+  local _llm_secret_data
+  _llm_secret_data=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+  if [[ -n "$_llm_secret_data" ]]; then
+    _secret_val() { echo "$_llm_secret_data" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+
+    local _detected_provider; _detected_provider=$(_secret_val LLM_PROVIDER)
+    [[ -n "$_detected_provider" && -z "$LLM_PROVIDER" ]] && LLM_PROVIDER="$_detected_provider"
+
+    case "${LLM_PROVIDER:-}" in
+      anthropic-claude)
+        [[ -z "${ANTHROPIC_API_KEY:-}" ]]   && ANTHROPIC_API_KEY=$(_secret_val ANTHROPIC_API_KEY)
+        [[ -z "${ANTHROPIC_MODEL_NAME:-}" ]] && ANTHROPIC_MODEL_NAME=$(_secret_val ANTHROPIC_MODEL_NAME)
+        ;;
+      aws-bedrock)
+        [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_secret_val AWS_ACCESS_KEY_ID)
+        [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_secret_val AWS_SECRET_ACCESS_KEY)
+        [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_secret_val AWS_REGION)
+        [[ -z "${AWS_BEDROCK_MODEL_ID:-}" ]]  && AWS_BEDROCK_MODEL_ID=$(_secret_val AWS_BEDROCK_MODEL_ID)
+        [[ -z "${AWS_BEDROCK_PROVIDER:-}" ]]  && AWS_BEDROCK_PROVIDER=$(_secret_val AWS_BEDROCK_PROVIDER)
+        ;;
+      openai|*)
+        [[ -z "${OPENAI_API_KEY:-}" ]]    && OPENAI_API_KEY=$(_secret_val OPENAI_API_KEY)
+        [[ -z "${OPENAI_ENDPOINT:-}" ]]   && OPENAI_ENDPOINT=$(_secret_val OPENAI_ENDPOINT)
+        [[ -z "${OPENAI_MODEL_NAME:-}" ]] && OPENAI_MODEL_NAME=$(_secret_val OPENAI_MODEL_NAME)
+        ;;
+    esac
+    log "Loaded LLM config from existing llm-secret (provider: ${LLM_PROVIDER:-unknown})"
+  fi
+
+  # ── Read deployment mode from Helm values ─────────────────────────────────
+  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    local _helm_mode
+    _helm_mode=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
+    case "$_helm_mode" in
+      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
+    esac
+    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+  fi
+
+  # ── Read selected agents from Helm values ─────────────────────────────────
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    local _helm_agents
+    _helm_agents=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      2>/dev/null || true)
+    if [[ -n "$_helm_agents" ]]; then
+      while IFS= read -r _a; do
+        [[ -n "$_a" ]] && SELECTED_AGENTS+=("$_a")
+      done <<< "$_helm_agents"
+      log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
+    fi
+  fi
+
+  # ── Re-populate HELM_AGENT_ARGS from detected agent selection ─────────────
+  if [[ ${#SELECTED_AGENTS[@]} -gt 0 && ${#HELM_AGENT_ARGS[@]} -eq 0 ]]; then
+    local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+    for _a in "${_all_agents[@]}"; do
+      local _on=false
+      for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
+      if $_on; then
+        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=true")
+        # Wire existing agent secret if present
+        local _sec="caipe-${_a}-secret"
+        if kubectl get secret "$_sec" -n caipe &>/dev/null 2>&1; then
+          HELM_AGENT_ARGS+=(--set "agent-${_a}.agentSecrets.secretName=${_sec}")
+        fi
+      else
+        HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_a}=false")
+      fi
+    done
   fi
 }
 
