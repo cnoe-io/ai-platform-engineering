@@ -237,18 +237,54 @@ async function importFromGitLab(
       signal: AbortSignal.timeout(30_000),
     });
     if (!treeResp.ok) {
-      // GitLab returns 404 for unauthenticated reads of private projects,
-      // which is misleading. Surface a friendlier hint when no token is set.
+      // GitLab returns 404 for unauthenticated reads of private
+      // projects, which is misleading — bucket 401/403/404 into the
+      // same diagnostic cluster ("can't see this project") and
+      // tailor the hint based on whether a token was configured.
+      // Mirrors ``formatGitLabFetchError`` in lib/hub-crawl.ts so
+      // the two GitLab-tree call sites give consistent operator
+      // guidance.
+      const apiHost = (() => {
+        try {
+          return new URL(apiBase).host;
+        } catch {
+          return apiBase;
+        }
+      })();
       if (
-        (treeResp.status === 404 || treeResp.status === 401 || treeResp.status === 403) &&
-        !token
+        treeResp.status === 401 ||
+        treeResp.status === 403 ||
+        treeResp.status === 404
       ) {
+        if (!token) {
+          throw new ApiError(
+            `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost}). ` +
+              `No GitLab token is configured. For private or self-hosted projects, ` +
+              `set GITLAB_TOKEN to a personal access token with the "read_repository" scope ` +
+              `that's valid for ${apiHost}, or pass credentials_ref.`,
+            502,
+          );
+        }
         throw new ApiError(
-          `GitLab tree fetch failed: ${treeResp.status} (set GITLAB_TOKEN or pass credentials_ref for private projects)`,
+          `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost}). ` +
+            `A GitLab token is set, but it does not grant access to this project on ${apiHost}. ` +
+            `Verify the token belongs to the same GitLab instance as GITLAB_API_URL, has the ` +
+            `"read_repository" scope, and that the user owning it can see the project. For ` +
+            `self-hosted GitLab the gitlab.com token will not work — generate one on ${apiHost}.`,
           502,
         );
       }
-      throw new ApiError(`GitLab tree fetch failed: ${treeResp.status}`, 502);
+      if (treeResp.status === 429) {
+        throw new ApiError(
+          `GitLab tree fetch failed: 429 (project: ${projectPath}, API: ${apiHost}). ` +
+            `Rate limited by GitLab. Wait and retry, or use an authenticated token to raise the rate limit.`,
+          502,
+        );
+      }
+      throw new ApiError(
+        `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost})`,
+        502,
+      );
     }
     // Defensive: if GitLab (or a proxy in front of it) returns a non-JSON
     // body — e.g. an SSO HTML redirect — surface a useful 502 instead of

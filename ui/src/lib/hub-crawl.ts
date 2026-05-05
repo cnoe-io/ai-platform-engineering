@@ -627,6 +627,79 @@ interface GitLabTreeEntry {
   mode: string;
 }
 
+/**
+ * Translate a non-2xx GitLab tree response into an actionable error
+ * message.
+ *
+ * The bare ``GitLab API error: 403 Forbidden`` we used to surface
+ * told the admin nothing about WHY: was the token missing, did it
+ * lack ``read_repository`` scope, was the API URL pointing at the
+ * wrong instance, or did the project just not exist? The hints
+ * below cover the four diagnoses we can derive from the code's
+ * own state (status + token presence + configured base URL).
+ *
+ * Specifically reproduces the user-reported failure mode where a
+ * self-hosted GitLab project (``https://cd.splunkdev.com/...``)
+ * either:
+ *   - has ``GITLAB_API_URL`` correctly pointed at the self-hosted
+ *     instance but no matching ``GITLAB_TOKEN`` set, or
+ *   - has a token from a different instance (``gitlab.com`` token
+ *     against ``cd.splunkdev.com``), which GitLab rejects with 403.
+ *
+ * Both diagnoses surface the same actionable line: "set
+ * ``GITLAB_TOKEN`` to a token valid for ``<host>`` with
+ * ``read_repository`` scope."
+ *
+ * GitLab's API uses 404 (not 403) for unauthenticated reads of a
+ * private project — that's the same auth-shaped failure dressed up
+ * to avoid leaking project existence — so we treat 401/403/404 as
+ * the same diagnostic cluster.
+ */
+function formatGitLabFetchError(
+  res: Response,
+  baseUrl: string,
+  hasToken: boolean,
+  projectPath: string,
+): string {
+  const host = (() => {
+    try {
+      return new URL(baseUrl).host;
+    } catch {
+      return baseUrl;
+    }
+  })();
+  const base = `GitLab API error: ${res.status} ${res.statusText} (project: ${projectPath}, API: ${host})`;
+
+  // 401/403/404 are the auth/visibility cluster. GitLab returns 404
+  // for unauth'd private reads, 403 for valid-but-insufficient
+  // tokens, and 401 only when the token is malformed. All three
+  // benefit from the same operator action.
+  if (res.status === 401 || res.status === 403 || res.status === 404) {
+    if (!hasToken) {
+      return (
+        `${base}. No GitLab token is configured. ` +
+        `For private or self-hosted projects, set GITLAB_TOKEN to ` +
+        `a personal access token with the "read_repository" scope ` +
+        `that's valid for ${host}.`
+      );
+    }
+    return (
+      `${base}. A GitLab token is set, but it does not grant access ` +
+      `to this project on ${host}. Verify (a) the token belongs to ` +
+      `the same GitLab instance as GITLAB_API_URL, (b) the token has ` +
+      `the "read_repository" scope, and (c) the user owning the token ` +
+      `can see the project. For self-hosted GitLab, the gitlab.com ` +
+      `token will not work — generate one on ${host} instead.`
+    );
+  }
+
+  if (res.status === 429) {
+    return `${base}. Rate limited by GitLab. Wait and retry, or use an authenticated token to raise the rate limit.`;
+  }
+
+  return base;
+}
+
 export async function crawlGitLabRepo(
   projectPath: string,
   token?: string,
@@ -709,9 +782,7 @@ export async function crawlGitLabRepo(
       { headers, signal: AbortSignal.timeout(15000) },
     );
     if (!treeRes.ok) {
-      throw new Error(
-        `GitLab API error: ${treeRes.status} ${treeRes.statusText}`,
-      );
+      throw new Error(formatGitLabFetchError(treeRes, baseUrl, !!token, trimmed));
     }
     const pageEntries = (await treeRes.json()) as GitLabTreeEntry[];
     entries.push(...pageEntries);

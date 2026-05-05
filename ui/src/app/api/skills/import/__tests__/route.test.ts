@@ -280,6 +280,42 @@ describe("runImport — GitLab branch", () => {
     ).rejects.toThrow(/set GITLAB_TOKEN/);
   });
 
+  it("returns a 'token does not grant access' hint when 403 fires with a token set", async () => {
+    // Regression for the user-reported failure mode where a
+    // self-hosted GitLab project (e.g.
+    // https://cd.splunkdev.com/ai-productivity/skills-marketplace)
+    // returns 403 because the configured GITLAB_TOKEN is for the
+    // wrong instance or lacks scope. The previous error simply
+    // surfaced "GitLab tree fetch failed: 403" with no path to
+    // resolution. The new hint must tell the operator to check
+    // instance/scope/visibility AND specifically call out that
+    // the gitlab.com token won't work against self-hosted.
+    process.env.GITLAB_API_URL = "https://cd.splunkdev.com/api/v4";
+    process.env.GITLAB_TOKEN = "glpat-WRONG-INSTANCE";
+    installFetchMock(() => fakeResponse({ message: "Forbidden" }, 403));
+
+    let captured: Error | undefined;
+    try {
+      await runImport({
+        source: "gitlab",
+        repo: "ai-productivity/skills-marketplace",
+        paths: ["skills/x"],
+      });
+    } catch (err) {
+      captured = err as Error;
+    }
+    expect(captured).toBeDefined();
+    expect(captured!.message).toContain("403");
+    expect(captured!.message).toContain("project: ai-productivity/skills-marketplace");
+    expect(captured!.message).toContain("API: cd.splunkdev.com");
+    expect(captured!.message).toContain("does not grant access");
+    expect(captured!.message).toContain("read_repository");
+    // The "self-hosted vs gitlab.com token" callout is the
+    // fix-finding sentence for this scenario; pin it so a future
+    // refactor doesn't drop it.
+    expect(captured!.message).toContain("gitlab.com token will not work");
+  });
+
   // -------------------------------------------------------------------------
   // Regression: prior to this fix the GitLab tree fetch only requested
   // page 1 (per_page=100, no `page=` loop), so a project with more than
