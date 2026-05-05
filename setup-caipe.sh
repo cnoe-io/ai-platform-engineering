@@ -1786,85 +1786,127 @@ choose_features() {
 
   echo ""
 
-  if ask_yn "Enable RAG (knowledge base retrieval)?" "n"; then
+  # ── RAG: detect from cluster if not already known ────────────────────────────
+  local _rag_from_cluster=false
+  if ! $ENABLE_RAG && kubectl get svc rag-server -n caipe &>/dev/null 2>&1; then
     ENABLE_RAG=true
-    log "RAG enabled"
+    _rag_from_cluster=true
+    # Read embeddings config from live Helm values
+    local _helm_vals_json
+    _helm_vals_json=$(helm get values caipe -n caipe -o json 2>/dev/null || true)
+    local _ep _em
+    _ep=$(echo "$_helm_vals_json" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_PROVIDER // empty' 2>/dev/null || true)
+    _em=$(echo "$_helm_vals_json" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_MODEL // empty' 2>/dev/null || true)
+    [[ -n "$_ep" ]] && EMBEDDINGS_PROVIDER="$_ep"
+    [[ -n "$_em" ]] && EMBEDDINGS_MODEL="$_em"
+    # Read Azure embeddings creds from llm-secret (they are merged in there)
+    if [[ "${EMBEDDINGS_PROVIDER:-}" == "azure-openai" ]]; then
+      local _ls
+      _ls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+      if [[ -n "$_ls" ]]; then
+        local _sv2; _sv2() { echo "$_ls" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+        [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_sv2 AZURE_OPENAI_API_KEY)
+        [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_sv2 AZURE_OPENAI_ENDPOINT)
+        [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_sv2 AZURE_OPENAI_API_VERSION)
+      fi
+    fi
+  fi
 
-    echo ""
-    echo -e "  ${DIM}Embeddings provider:${NC}"
-    echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
-    echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
-    echo -e "    ${BOLD}3)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible embeddings endpoint)${NC}"
-    echo -e "    ${BOLD}4)${NC} Ollama             ${DIM}(local embeddings)${NC}"
-    echo ""
-    prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
-    tty_read -r emb_provider_choice
-    emb_provider_choice="${emb_provider_choice:-1}"
-    case "$emb_provider_choice" in
-      1) EMBEDDINGS_PROVIDER="openai" ;;
-      2) EMBEDDINGS_PROVIDER="azure-openai" ;;
-      3) EMBEDDINGS_PROVIDER="litellm" ;;
-      4) EMBEDDINGS_PROVIDER="ollama" ;;
-      *) err "Invalid choice"; exit 1 ;;
-    esac
+  if $ENABLE_RAG && $_rag_from_cluster; then
+    log "Detected RAG is enabled (embeddings: ${EMBEDDINGS_PROVIDER:-openai}/${EMBEDDINGS_MODEL:-text-embedding-3-large})"
+    local _keep_rag=true
+    if ! ask_yn "Keep existing RAG configuration (${EMBEDDINGS_PROVIDER:-openai})?" "y"; then
+      ENABLE_RAG=false
+      EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"  # reset to default for re-prompt below
+      _keep_rag=false
+    fi
+    if $_keep_rag; then
+      log "RAG kept"
+      # Fall through — Graph RAG and agent prompts still need to run below
+    fi
+  fi
 
-    echo ""
-    echo -e "  ${DIM}Embeddings model:${NC}"
-    echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
-    echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
-    echo -e "    ${BOLD}3)${NC} Custom"
-    echo ""
-    prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-    tty_read -r emb_choice
-    emb_choice="${emb_choice:-1}"
-    case "$emb_choice" in
-      1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
-      2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
-      3)
-        prompt "Enter custom embeddings model name: "
-        tty_read -r EMBEDDINGS_MODEL
-        if [[ -z "$EMBEDDINGS_MODEL" ]]; then
-          err "Model name is required"
-          exit 1
-        fi
-        ;;
-      *) err "Invalid choice"; exit 1 ;;
-    esac
-    log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
+  if ! $ENABLE_RAG; then
+    if ask_yn "Enable RAG (knowledge base retrieval)?" "n"; then
+      ENABLE_RAG=true
+      log "RAG enabled"
 
-    # Collect any extra credentials the chosen embeddings provider needs
-    if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
-      _collect_openai_embeddings_key
-    elif [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
       echo ""
-      echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
-      if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
-        prompt "Azure OpenAI API key: "
-        tty_read -rs AZURE_OPENAI_API_KEY; echo ""
-        [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
-      fi
-      if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
-        prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
-        tty_read -r AZURE_OPENAI_ENDPOINT
-        [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
-      fi
-      if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
-        prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
-        tty_read -r input
-        AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
-      fi
-      log "Azure OpenAI embeddings credentials collected"
-    fi
+      echo -e "  ${DIM}Embeddings provider:${NC}"
+      echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
+      echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
+      echo -e "    ${BOLD}3)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible embeddings endpoint)${NC}"
+      echo -e "    ${BOLD}4)${NC} Ollama             ${DIM}(local embeddings)${NC}"
+      echo ""
+      prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r emb_provider_choice
+      emb_provider_choice="${emb_provider_choice:-1}"
+      case "$emb_provider_choice" in
+        1) EMBEDDINGS_PROVIDER="openai" ;;
+        2) EMBEDDINGS_PROVIDER="azure-openai" ;;
+        3) EMBEDDINGS_PROVIDER="litellm" ;;
+        4) EMBEDDINGS_PROVIDER="ollama" ;;
+        *) err "Invalid choice"; exit 1 ;;
+      esac
 
-    warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
-    if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
-      ENABLE_GRAPH_RAG=true
-      log "Graph RAG enabled"
+      echo ""
+      echo -e "  ${DIM}Embeddings model:${NC}"
+      echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
+      echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
+      echo -e "    ${BOLD}3)${NC} Custom"
+      echo ""
+      prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r emb_choice
+      emb_choice="${emb_choice:-1}"
+      case "$emb_choice" in
+        1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
+        2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
+        3)
+          prompt "Enter custom embeddings model name: "
+          tty_read -r EMBEDDINGS_MODEL
+          if [[ -z "$EMBEDDINGS_MODEL" ]]; then
+            err "Model name is required"
+            exit 1
+          fi
+          ;;
+        *) err "Invalid choice"; exit 1 ;;
+      esac
+      log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
+
+      # Collect any extra credentials the chosen embeddings provider needs
+      if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
+        _collect_openai_embeddings_key
+      elif [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+        echo ""
+        echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
+        if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+          prompt "Azure OpenAI API key: "
+          tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+          [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+          prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
+          tty_read -r AZURE_OPENAI_ENDPOINT
+          [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
+          prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
+          tty_read -r input
+          AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
+        fi
+        log "Azure OpenAI embeddings credentials collected"
+      fi
+
+      warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
+      if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
+        ENABLE_GRAPH_RAG=true
+        log "Graph RAG enabled"
+      else
+        log "Graph RAG disabled (vector-only RAG)"
+      fi
     else
-      log "Graph RAG disabled (vector-only RAG)"
+      log "RAG skipped"
     fi
-  else
-    log "RAG skipped"
   fi
 
   # ── Agent selection ───────────────────────────────────────────────────
@@ -1891,6 +1933,18 @@ choose_features() {
     local _secret_name="caipe-${_agent}-secret"
     local _secret_args=()
     local _skip=false
+
+    # If the secret already exists in the cluster, offer to keep it
+    if kubectl get secret "$_secret_name" -n caipe &>/dev/null 2>&1; then
+      log "Secret '${_secret_name}' already exists in cluster"
+      if ask_yn "Keep existing ${_agent} credentials?" "y"; then
+        HELM_AGENT_ARGS+=(
+          --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+          --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+        )
+        continue
+      fi
+    fi
 
     case "$_agent" in
       argocd)
@@ -1988,38 +2042,58 @@ choose_features() {
   done
 
   echo ""
-  if ask_yn "Enable dynamic agents (custom agent builder)?" "n"; then
-    ENABLE_DYNAMIC_AGENTS=true
-    log "Dynamic agents enabled"
+  if $ENABLE_DYNAMIC_AGENTS; then
+    log "Dynamic agents already enabled (detected from cluster)"
+    if ! ask_yn "Keep dynamic agents?" "y"; then ENABLE_DYNAMIC_AGENTS=false; fi
   else
-    log "Dynamic agents skipped"
+    if ask_yn "Enable dynamic agents (custom agent builder)?" "n"; then
+      ENABLE_DYNAMIC_AGENTS=true
+      log "Dynamic agents enabled"
+    else
+      log "Dynamic agents skipped"
+    fi
   fi
 
-  if ask_yn "Enable Langfuse tracing (observability)?" "n"; then
-    ENABLE_TRACING=true
-    log "Tracing enabled"
+  if $ENABLE_TRACING; then
+    log "Langfuse tracing already enabled (detected from cluster)"
+    if ! ask_yn "Keep Langfuse tracing?" "y"; then ENABLE_TRACING=false; fi
   else
-    log "Tracing skipped"
+    if ask_yn "Enable Langfuse tracing (observability)?" "n"; then
+      ENABLE_TRACING=true
+      log "Tracing enabled"
+    else
+      log "Tracing skipped"
+    fi
   fi
 
   echo ""
   echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
   echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
-  if ask_yn "Enable AgentGateway for MCP server access?" "n"; then
-    ENABLE_AGENTGATEWAY=true
-    log "AgentGateway enabled"
+  if $ENABLE_AGENTGATEWAY; then
+    log "AgentGateway already enabled (detected from cluster)"
+    if ! ask_yn "Keep AgentGateway?" "y"; then ENABLE_AGENTGATEWAY=false; fi
   else
-    log "AgentGateway skipped"
+    if ask_yn "Enable AgentGateway for MCP server access?" "n"; then
+      ENABLE_AGENTGATEWAY=true
+      log "AgentGateway enabled"
+    else
+      log "AgentGateway skipped"
+    fi
   fi
 
   echo ""
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
   echo -e "  ${DIM}in a dedicated Redis Stack pod, surviving pod restarts.${NC}"
-  if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
-    ENABLE_PERSISTENCE=true
-    log "Redis persistence enabled"
+  if $ENABLE_PERSISTENCE; then
+    log "Redis persistence already enabled (detected from cluster)"
+    if ! ask_yn "Keep Redis persistence?" "y"; then ENABLE_PERSISTENCE=false; fi
   else
-    log "Persistence skipped"
+    if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
+      ENABLE_PERSISTENCE=true
+      log "Redis persistence enabled"
+    else
+      log "Persistence skipped"
+    fi
   fi
 
   echo ""
