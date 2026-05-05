@@ -253,25 +253,70 @@ export function SkillScanStatusIndicator({
   /**
    * Override endpoint resolver.
    *
-   * v1 scope: only ``agent_skills`` skills can be overridden — built-
-   * in templates live on disk (no per-skill admin UI yet) and hub
-   * skills are crawled (no doc to write override metadata onto).
-   * Returns ``null`` for unsupported sources so the dialog can hide
-   * the buttons cleanly without a runtime branch in the JSX.
+   * Two source families are supported, each with its own URL shape:
    *
-   * The route the URL points at validates the source again on the
-   * server (``assertSupportedSource``) so a stale UI can't open a
-   * 500-style hole.
+   *   agent_skills (Mongo-backed user skills)
+   *     → POST /api/admin/skills/agent_skills/<id>/scan-override
+   *
+   *   hub (crawled into the hub_skills cache)
+   *     → POST /api/admin/skills/hub/<hubId>/<skillId>/scan-override
+   *       (separate route because hub skills have a composite
+   *       ``(hub_id, skill_id)`` key — see the route file's preamble
+   *       for the full design rationale.)
+   *
+   * Default/built-in templates remain unsupported for now: they live
+   * read-only on the filesystem and we don't have an overrides
+   * collection for them yet. Returns ``null`` so the dialog cleanly
+   * hides the buttons.
+   *
+   * Hub identity is read from ``metadata.hub_id`` / ``hub_skill_id``
+   * which the catalog projection writes (see ``docToCatalogSkill``).
+   * We fall back to parsing the ``catalog-hub-<hubId>-<skillId>`` id
+   * shape so older catalog payloads (rendered before this PR landed)
+   * still resolve cleanly without a hard reload.
+   *
+   * The route on the other end re-checks all of this server-side, so
+   * a stale UI can't open a 500-style hole.
    */
   const overrideEndpoint = (() => {
-    const hubMatch = config.id.match(/^catalog-hub-([^-]+)-(.+)$/);
-    if (hubMatch) return null;
     const catalogSource = (
-      config.metadata as { catalog_source?: string } | undefined
+      config.metadata as {
+        catalog_source?: string;
+        hub_id?: string;
+        hub_skill_id?: string;
+      } | undefined
     )?.catalog_source;
+
+    // Built-in/default templates: still v1.5-excluded. Same
+    // reasoning as before — no per-skill admin UI for filesystem
+    // templates and no overrides collection.
     if (catalogSource === "default") return null;
-    // catalog-* prefix on agent_skills rows is harmless — the override
-    // route uses ``id`` as written in the doc, so we pass through the
+
+    const meta = config.metadata as
+      | { hub_id?: string; hub_skill_id?: string }
+      | undefined;
+    const hubFromMeta =
+      typeof meta?.hub_id === "string" &&
+      meta.hub_id.length > 0 &&
+      typeof meta?.hub_skill_id === "string" &&
+      meta.hub_skill_id.length > 0
+        ? { hubId: meta.hub_id, skillId: meta.hub_skill_id }
+        : null;
+    // Legacy fallback: parse the ``catalog-hub-<hubId>-<skillId>`` id
+    // shape for catalog rows that were rendered before the metadata
+    // projection was added.
+    const hubFromId = (() => {
+      const m = config.id.match(/^catalog-hub-([^-]+)-(.+)$/);
+      return m ? { hubId: m[1], skillId: m[2] } : null;
+    })();
+    const hub = hubFromMeta ?? hubFromId;
+    if (hub) {
+      return `/api/admin/skills/hub/${encodeURIComponent(hub.hubId)}/${encodeURIComponent(hub.skillId)}/scan-override`;
+    }
+
+    // Default branch: agent_skills. ``catalog-`` prefix on
+    // agent_skills rows is harmless — the override route uses the
+    // raw ``id`` as written in the doc, so we pass through the
     // same id we'd use for scan.
     const skillId = config.id.startsWith("catalog-")
       ? config.id.slice("catalog-".length)
@@ -290,8 +335,11 @@ export function SkillScanStatusIndicator({
   // Dev-only diagnostic — logs exactly which gate is hiding the
   // override button when the dialog opens. Silent in production
   // builds and silent until the user actually opens the dialog.
-  // Useful when an admin sees a flagged skill but no override CTA
-  // (the v1 source-restriction is the most common cause).
+  // Useful when an admin sees a flagged skill but no override CTA;
+  // post-v1.5 the only legitimate sources of "no button" are:
+  //   - viewer is not admin
+  //   - the skill is a built-in/default template (no overrides
+  //     collection exists for filesystem templates)
   if (
     process.env.NODE_ENV !== "production" &&
     reportOpen &&
@@ -304,11 +352,10 @@ export function SkillScanStatusIndicator({
       const catalogSource = (
         config.metadata as { catalog_source?: string } | undefined
       )?.catalog_source;
-      const isHub = /^catalog-hub-([^-]+)-(.+)$/.test(config.id);
       reasons.push(
-        `unsupported source for v1 override (id=${config.id}, ` +
-          `metadata.catalog_source=${catalogSource ?? "<unset>"}, ` +
-          `is_hub_id=${isHub})`,
+        `unsupported source (id=${config.id}, ` +
+          `metadata.catalog_source=${catalogSource ?? "<unset>"}) — ` +
+          `built-in/default templates aren't overridable yet`,
       );
     }
     // eslint-disable-next-line no-console

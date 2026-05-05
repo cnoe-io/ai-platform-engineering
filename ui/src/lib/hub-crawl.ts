@@ -8,6 +8,10 @@
 import { getCollection } from "@/lib/mongodb";
 import { validateCredentialsRef } from "@/lib/api-middleware";
 import { scanHubSkillsAsync, type HubSkillScanRef } from "@/lib/skill-scan";
+import type {
+  PersistedScanStatus,
+  ScanOverride,
+} from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,10 +56,28 @@ export interface HubSkillDoc {
   metadata: Record<string, unknown>;
   path: string;
   cached_at: Date;
-  /** Latest skill-scanner outcome, persisted on manual scan. */
-  scan_status?: "passed" | "flagged" | "unscanned";
+  /**
+   * Latest persisted scan status for this hub skill.
+   *
+   * The scanner itself only ever writes ``"passed" | "flagged" | "unscanned"``
+   * (see ``app/api/skills/hub/[hubId]/[skillId]/scan/route.ts``). The
+   * ``"admin_overridden"`` value is set exclusively by
+   * ``POST /api/admin/skills/hub/[hubId]/[skillId]/scan-override`` when an
+   * admin explicitly green-lights a flagged hub skill. Mirrors the
+   * widened ``AgentSkill.scan_status`` semantics so the runnable gate
+   * (``applyRunnableGate`` in ``app/api/skills/route.ts``) treats both
+   * sources the same.
+   */
+  scan_status?: PersistedScanStatus;
   scan_summary?: string;
   scan_updated_at?: Date;
+  /**
+   * Audit metadata for an active admin override on this hub skill.
+   * Present iff ``scan_status === "admin_overridden"``. Cleared when
+   * the override is removed or the skill auto-reverts after a clean
+   * rescan.
+   */
+  scan_override?: ScanOverride;
   /** Sibling files captured during crawl (UTF-8 text only). */
   ancillary_files?: Record<string, string>;
   ancillary_summary?: AncillarySummary;
@@ -1097,11 +1119,25 @@ function docToCatalogSkill(hub: SkillHubDoc) {
       hub_location: hub.location,
       hub_type: hub.type,
       path: doc.path,
+      // Surface the hub composite identity to the UI so the override
+      // resolver in SkillScanStatusIndicator can build the correct
+      // /api/admin/skills/hub/<hubId>/<skillId>/scan-override URL
+      // without having to re-parse the legacy ``catalog-hub-…`` id.
+      // Existing readers (gallery row, scan dialog) ignore extra
+      // metadata keys.
+      hub_id: hub.id,
+      hub_skill_id: doc.skill_id,
       tags: [...(Array.isArray(doc.metadata?.tags) ? (doc.metadata.tags as string[]) : []), ...hubLabels],
     },
     scan_status: doc.scan_status,
     scan_summary: doc.scan_summary,
     scan_updated_at: doc.scan_updated_at?.toISOString(),
+    // Project the admin-override audit metadata so the report
+    // dialog can render the audit panel + Remove-override button on
+    // hub-projected rows. Always serialised through the catalog
+    // even when undefined so the UI's optional-chained access
+    // remains structurally identical between sources.
+    scan_override: doc.scan_override,
     ancillary_files: doc.ancillary_files,
     ancillary_summary: doc.ancillary_summary,
   });

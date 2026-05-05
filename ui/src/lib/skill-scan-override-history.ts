@@ -45,10 +45,22 @@ export interface SkillScanOverrideHistoryDoc {
    * Logical skill identity. Same conventions as
    * skill-scan-history.SkillScanHistoryDoc.skill_id so a future
    * admin UI can join the two collections by (source, skill_id).
+   *
+   * For ``source: "hub"`` rows the ``skill_id`` is the bare hub-side
+   * skill id (the file/folder identifier inside the hub repo); the
+   * matching ``hub_id`` below disambiguates the same skill name
+   * appearing in multiple hubs.
    */
   skill_id: string;
   skill_name?: string;
   source: SkillSourceKind;
+  /**
+   * Hub doc id for ``source: "hub"`` rows. Mirrors the field on
+   * ``SkillScanHistoryDoc`` so a join across the two collections
+   * works cleanly even when the same ``skill_id`` exists in multiple
+   * hubs. Omitted for ``agent_skills`` and ``default`` sources.
+   */
+  hub_id?: string;
   /**
    * Identity of the actor responsible for the action.
    *

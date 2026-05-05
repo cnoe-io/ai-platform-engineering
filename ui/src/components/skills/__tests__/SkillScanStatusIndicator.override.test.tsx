@@ -160,24 +160,131 @@ describe("SkillScanStatusIndicator — admin override (admin)", () => {
     ).toBeTruthy();
   });
 
-  it("hides Override flag button for hub-sourced skills (not supported in v1)", () => {
-    // Hub catalog rows have ids like "catalog-hub-<hubId>-<skillId>".
-    // The override route is agent_skills-only in v1; the UI must
-    // hide the button rather than letting an admin discover the
-    // 400-not-supported the hard way.
+  it("shows Override flag button for hub-sourced skills and targets the hub route", async () => {
+    // v1.5: hub-projected catalog rows now go to the dedicated
+    // ``/api/admin/skills/hub/<hubId>/<skillId>/scan-override`` route
+    // (the agent_skills route only knows the single-id shape).
+    // The catalog projection puts the composite identity in
+    // metadata.hub_id / metadata.hub_skill_id, so the resolver
+    // prefers those over re-parsing the legacy
+    // ``catalog-hub-<hubId>-<skillId>`` id format.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          id: "hub-h1-skill-x",
+          hub_id: "h1",
+          skill_id: "skill-x",
+          scan_status: "admin_overridden",
+          scan_override: {
+            set_by: "admin@example.com",
+            set_at: "2026-05-05T10:00:00Z",
+            reason: "Hub override.",
+            prior_scan_status: "flagged",
+          },
+          scan_updated_at: "2026-05-05T10:00:00Z",
+        },
+      }),
+    });
+
     render(
       <SkillScanStatusIndicator
         config={{
           ...FLAGGED_CONFIG,
           id: "catalog-hub-h1-skill-x",
+          metadata: {
+            catalog_source: "hub",
+            hub_id: "h1",
+            hub_skill_id: "skill-x",
+          },
+        }}
+      />,
+    );
+    openDialog();
+    expect(
+      screen.getByRole("button", { name: /Override flag/i }),
+    ).toBeTruthy();
+
+    // Drive a quick happy-path POST so we can pin the URL the
+    // resolver builds. Without this assertion an accidental
+    // refactor that left the button visible but pointed it at the
+    // wrong endpoint would silently regress production.
+    fireEvent.click(
+      screen.getByRole("button", { name: /Override flag/i }),
+    );
+    fireEvent.change(screen.getByLabelText(/Override reason/i), {
+      target: { value: "Hub override." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm override/i }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/skills/hub/h1/skill-x/scan-override",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+  });
+
+  it("falls back to parsing the catalog-hub id when metadata is missing", async () => {
+    // Older catalog payloads (rendered before docToCatalogSkill
+    // started projecting hub_id / hub_skill_id) still need to work
+    // without a hard reload — pin the legacy regex fallback so a
+    // future cleanup doesn't accidentally drop it while assuming
+    // every hub row carries the new metadata fields.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          id: "hub-h2-legacy-skill",
+          hub_id: "h2",
+          skill_id: "legacy-skill",
+          scan_status: "admin_overridden",
+          scan_override: {
+            set_by: "admin@example.com",
+            set_at: "2026-05-05T10:00:00Z",
+            reason: "Legacy override path.",
+            prior_scan_status: "flagged",
+          },
+          scan_updated_at: "2026-05-05T10:00:00Z",
+        },
+      }),
+    });
+
+    render(
+      <SkillScanStatusIndicator
+        config={{
+          ...FLAGGED_CONFIG,
+          id: "catalog-hub-h2-legacy-skill",
+          // No hub_id / hub_skill_id — exercise the fallback regex.
           metadata: { catalog_source: "hub" },
         }}
       />,
     );
     openDialog();
     expect(
-      screen.queryByRole("button", { name: /Override flag/i }),
-    ).toBeNull();
+      screen.getByRole("button", { name: /Override flag/i }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Override flag/i }),
+    );
+    fireEvent.change(screen.getByLabelText(/Override reason/i), {
+      target: { value: "Legacy override path." },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm override/i }),
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/skills/hub/h2/legacy-skill/scan-override",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   it("hides Override flag button for built-in template skills", () => {
