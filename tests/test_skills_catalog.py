@@ -520,68 +520,6 @@ class TestCatalog:
 
 
 # ---------------------------------------------------------------------------
-# Test hub_github (structure only, no real HTTP)
-# ---------------------------------------------------------------------------
-
-
-class TestHubGitHub:
-    """Tests for ai_platform_engineering.skills_middleware.loaders.hub_github."""
-
-    def test_parse_frontmatter_valid(self):
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            _parse_frontmatter,
-        )
-
-        content = "---\nname: test\ndescription: A test\ntags:\n  - a\n  - b\n---\n\n# Body"
-        fm = _parse_frontmatter(content)
-        assert fm["name"] == "test"
-        assert fm["description"] == "A test"
-        assert fm["tags"] == ["a", "b"]
-
-    def test_parse_frontmatter_invalid(self):
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            _parse_frontmatter,
-        )
-
-        content = "No frontmatter here"
-        fm = _parse_frontmatter(content)
-        assert fm == {}
-
-    def test_build_skill_dict_valid(self):
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            _build_skill_dict,
-        )
-
-        content = "---\nname: my-hub-skill\ndescription: From hub\n---\n\n# Hub Skill"
-        result = _build_skill_dict("my-hub-skill", content, "org/repo", True)
-
-        assert result is not None
-        assert result["name"] == "my-hub-skill"
-        assert result["source"] == "hub"
-        assert result["source_id"] == "org/repo"
-        assert result["content"] == content
-
-    def test_build_skill_dict_missing_description(self):
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            _build_skill_dict,
-        )
-
-        content = "---\nname: no-desc\n---\n\n# No Desc"
-        result = _build_skill_dict("no-desc", content, "org/repo", True)
-
-        assert result is None
-
-    def test_empty_location_returns_empty(self):
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            fetch_github_hub_skills,
-        )
-
-        hub = {"id": "test", "location": "", "type": "github"}
-        result = fetch_github_hub_skills(hub)
-        assert result == []
-
-
-# ---------------------------------------------------------------------------
 # Entitlement (FR-020)
 # ---------------------------------------------------------------------------
 

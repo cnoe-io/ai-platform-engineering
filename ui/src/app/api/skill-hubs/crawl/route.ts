@@ -13,10 +13,14 @@ import {
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
- * Proxies to Python when NEXT_PUBLIC_A2A_BASE_URL is set; otherwise crawls from Next server.
- * Admin only.
+ *
+ * Crawls GitHub and GitLab directly from the Next.js process via
+ * `crawlGitHubRepo` / `crawlGitLabRepo`. The Python `skills_middleware`
+ * intentionally does **not** reach out to GitHub/GitLab — its catalog
+ * read path is Mongo-only (`hub_skills` collection populated by this
+ * route's bulk siblings + the hub admin scans). Admin only.
  */
-export const POST = withErrorHandler(async (request: NextRequest) => {
+export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   return await withAuth(request, async (_req, _user, session) => {
     requireAdmin(session);
 
@@ -33,12 +37,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Backstop guard: if the caller passes a URL whose host clearly
     // identifies a provider that disagrees with the declared `type`,
-    // reject with an actionable error BEFORE we forward to Python or
-    // attempt a local crawl. This catches the
-    // "GitHub selected + gitlab.com URL pasted" pitfall where the
-    // legacy GitHub URL parser silently truncates the URL path to its
-    // first two segments and produces a real GitHub API call against
-    // a foreign group name (e.g.
+    // reject with an actionable error BEFORE we attempt a local crawl.
+    // Catches the "GitHub selected + gitlab.com URL pasted" pitfall
+    // where the GitHub URL parser would silently truncate the URL
+    // path to its first two segments and fire a real GitHub API call
+    // against a foreign group name (e.g.
     // `https://gitlab.com/gitlab-org/ai/skills` → owner=`gitlab-org`,
     // repo=`ai` → 404 from `api.github.com/repos/gitlab-org/ai/...`).
     // The form already auto-switches when the user pastes a URL, so
@@ -59,41 +62,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    // Forward GitHub previews to the Python skills service when configured —
-    // it lives co-located with the supervisor and shares its outbound rate
-    // budget, which keeps GitHub API quota out of the Next.js process.
-    //
-    // GitLab previews are intentionally NOT forwarded: the Python endpoint
-    // returns 501 for gitlab (see ai_platform_engineering/skills_middleware
-    // /router.py — GitLab support lives only in the UI's `crawlGitLabRepo`
-    // because subgroup-aware path handling and PRIVATE-TOKEN headers are
-    // already implemented here). Falling through to the local crawler keeps
-    // the preview button working end-to-end without touching Python.
-    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    if (backendUrl && type === "github") {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (session.accessToken) {
-        headers["Authorization"] = `Bearer ${session.accessToken}`;
-      }
-      const url = new URL("/skill-hubs/crawl", backendUrl).toString();
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          type,
-          location: location.trim(),
-          credentials_ref: credentialsRef,
-        }),
-        signal: AbortSignal.timeout(60_000),
-      });
-      const data = await res.json().catch(() => ({}));
-      return NextResponse.json(data, { status: res.status });
-    }
-
-    // Local fallback (Python service not configured, OR type === "gitlab").
-    //
     // The preview button accepts whatever the admin types — typically a
     // full URL (`https://gitlab.com/group/sub/project`) rather than the
     // canonical `group/sub/project`. The shared `normalizeHubLocation`

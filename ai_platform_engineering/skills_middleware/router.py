@@ -77,13 +77,14 @@ def detect_hub_provider_from_url(location: str) -> str | None:
     """Return ``"github"`` / ``"gitlab"`` / ``None`` based on the URL host.
 
     The Python twin of ``detectHubProviderFromUrl`` in
-    ``ui/src/app/api/skill-hubs/_lib/normalize.ts``. Used by
-    ``skill_hub_crawl`` to reject a host/type mismatch *before* the
-    GitHub URL parser silently truncates the path and makes a
-    confusingly-targeted ``api.github.com`` call (the screenshot bug
-    that motivated this guard: a ``gitlab.com/gitlab-org/ai/skills``
-    URL submitted with ``type=github`` produced a real 404 from
-    ``api.github.com/repos/gitlab-org/ai/git/trees/HEAD``).
+    ``ui/src/app/api/skill-hubs/_lib/normalize.ts``. Kept as a
+    reusable helper for any Python caller that needs to tell GitHub
+    from GitLab from a URL — the original in-process consumer (the
+    ``POST /skill-hubs/crawl`` preview endpoint) has been removed
+    because the Python middleware no longer crawls GitHub/GitLab
+    itself; that work moved to the Next.js UI's
+    ``ui/src/lib/hub-crawl.ts`` and writes into the ``hub_skills``
+    Mongo collection that this service reads.
 
     Returns ``None`` for non-URL inputs, unparseable URLs, schemes
     other than http/https, and hosts not on either provider's
@@ -110,14 +111,6 @@ def detect_hub_provider_from_url(location: str) -> str | None:
     if _is_gitlab_host(host, _gitlab_api_host()):
         return "gitlab"
     return None
-
-
-class SkillHubCrawlBody(BaseModel):
-    """Request body for GitHub hub crawl preview (no persistence)."""
-
-    type: str = Field(default="github", description="Hub type; only github supported for crawl.")
-    location: str = Field(..., description="owner/repo")
-    credentials_ref: str | None = Field(default=None, description="Env var name for GitHub token.")
 
 
 class CatalogAuthContext(BaseModel):
@@ -490,97 +483,6 @@ async def delete_catalog_api_key(
         raise HTTPException(status_code=403, detail="Forbidden")
     ok = revoke_catalog_api_key(key_id)
     return {"revoked": ok}
-
-
-@router.post("/skill-hubs/crawl")
-async def skill_hub_crawl(
-    body: SkillHubCrawlBody,
-    _auth: CatalogAuthContext = Depends(get_catalog_auth),
-) -> dict[str, Any]:
-    """Preview SKILL.md paths for a repo without registering a hub (FR-017).
-
-    GitHub previews are handled in-process via ``preview_github_hub_skills``.
-
-    GitLab previews are intentionally *not* implemented in Python — the
-    Next.js UI ships a feature-complete GitLab crawler in
-    ``ui/src/lib/hub-crawl.ts`` (subgroup support, ancillary capture,
-    private-token resolution) and ``ui/src/app/api/skill-hubs/crawl``
-    short-circuits to it before forwarding here. If a GitLab preview
-    reaches this endpoint it means the UI route was bypassed (e.g. a
-    third-party caller hitting the Python service directly); we return
-    a 501 with an actionable hint rather than silently swallowing the
-    request.
-    """
-    from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-        preview_github_hub_skills,
-    )
-
-    hub_type = body.type.lower()
-    if hub_type == "gitlab":
-        raise HTTPException(
-            status_code=501,
-            detail={
-                "error": "gitlab_crawl_not_implemented",
-                "message": (
-                    "GitLab crawls are handled by the Next.js UI "
-                    "(/api/skill-hubs/crawl) — call that route or add "
-                    "the hub via /api/skill-hubs to trigger the UI "
-                    "crawler instead of calling this Python endpoint "
-                    "directly."
-                ),
-            },
-        )
-    if hub_type != "github":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "unsupported_type", "message": f"Crawl not supported for type: {body.type}"},
-        )
-
-    # Backstop: reject host/type mismatches like a ``gitlab.com`` URL
-    # submitted with ``type=github``. Without this, the GitHub URL
-    # parser in ``preview_github_hub_skills`` truncates the path to its
-    # first two segments without checking the host, then hits
-    # ``api.github.com/repos/<gitlab-group>/<sub>/git/trees/HEAD`` which
-    # 404s with a misleading "GitHub repo not found" error. The Next.js
-    # UI form also auto-switches the source pill on URL paste, but we
-    # mirror the guard here so direct API consumers (curl, tests,
-    # third-party callers) get the same protection. See
-    # ``detect_hub_provider_from_url`` for the host-allow-list rules
-    # this delegates to (no substring matching).
-    detected = detect_hub_provider_from_url(body.location)
-    if detected is not None and detected != hub_type:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "type_location_mismatch",
-                "message": (
-                    f"The location URL is a "
-                    f"{'GitHub' if detected == 'github' else 'GitLab'} URL "
-                    f'but the request type is "{body.type}". Either change '
-                    f"the type to {detected} or pass a "
-                    f"{'github.com' if hub_type == 'github' else 'gitlab.com'} "
-                    f"URL."
-                ),
-            },
-        )
-
-    result = preview_github_hub_skills(
-        body.location.strip(),
-        body.credentials_ref,
-        max_paths=200,
-    )
-    err = result.get("error")
-    if err == "invalid_location":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_location", "message": "Expected owner/repo location."},
-        )
-    if err:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "crawl_failed", "message": err},
-        )
-    return result
 
 
 class ScanContentBody(BaseModel):

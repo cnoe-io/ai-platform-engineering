@@ -11,9 +11,11 @@ These tests validate:
 
 Run with: PYTHONPATH=. uv run pytest tests/test_skills_hubs_api.py -v
 
-NOTE: These test the Python catalog/hub_github layer, NOT the Next.js API routes
-(which require a running Next.js server). For the FastAPI /skills endpoint tests,
-see test_skills_router below.
+NOTE: These test the Python catalog + hubs admin API, NOT the Next.js API
+routes (which require a running Next.js server). The Python middleware no
+longer crawls GitHub/GitLab itself — that lives in the Next.js UI; the
+catalog read path here is Mongo-only. For the FastAPI /skills endpoint
+tests, see test_skills_router below.
 """
 
 import os
@@ -216,130 +218,14 @@ class TestSkillsRouter:
             )
         assert resp.status_code == 401
 
-    def test_skill_hubs_crawl_gitlab_returns_501(self, client):
-        """GitLab previews bounce back to the UI (501) — Python is GitHub-only."""
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={"type": "gitlab", "location": "mycorp/devops/skills"},
-            )
-
-        # 501 Not Implemented is the contract: it's not a 400 (bad request)
-        # because the request is well-formed, and it's not a 200 because
-        # the Python service deliberately doesn't implement GitLab. The
-        # detail body must be machine-readable so the UI route can
-        # branch on it without parsing free-text.
-        assert resp.status_code == 501
-        body = resp.json()
-        assert body["detail"]["error"] == "gitlab_crawl_not_implemented"
-        assert "/api/skill-hubs/crawl" in body["detail"]["message"]
-
-    def test_skill_hubs_crawl_unknown_type_returns_400(self, client):
-        """Unknown hub types still 400 (the legacy contract for non-gitlab)."""
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={"type": "bitbucket", "location": "x/y"},
-            )
-
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "unsupported_type"
-
-    def test_skill_hubs_crawl_rejects_gitlab_url_with_github_type(self, client):
-        """type=github + gitlab.com URL → 400 type_location_mismatch.
-
-        This is the screenshot regression: the admin form submitted
-        ``{type: "github", location: "https://gitlab.com/gitlab-org/ai/skills"}``
-        and the legacy GitHub URL parser silently truncated the URL
-        path to ``gitlab-org/ai`` and made a real
-        ``api.github.com/repos/gitlab-org/ai/git/trees/HEAD`` call,
-        which 404s. The new backstop catches the host/type mismatch
-        before any GitHub API call happens.
-        """
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={
-                    "type": "github",
-                    "location": "https://gitlab.com/gitlab-org/ai/skills",
-                },
-            )
-
-        assert resp.status_code == 400
-        body = resp.json()
-        assert body["detail"]["error"] == "type_location_mismatch"
-        # Message should name BOTH sides so the caller can fix either.
-        assert "GitLab" in body["detail"]["message"]
-        assert "github" in body["detail"]["message"]
-
-    def test_skill_hubs_crawl_rejects_gitlab_subgroup_url_with_github_type(self, client):
-        """Same regression but with a deeply-nested subgroup URL.
-
-        Pinning this case explicitly because subgroups are exactly the
-        shape that motivated GitLab support — they're easy to paste
-        accidentally while the GitHub pill is still selected.
-        """
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={
-                    "type": "github",
-                    "location": "https://gitlab.com/mycorp/devops/platform",
-                },
-            )
-
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error"] == "type_location_mismatch"
-
-    def test_skill_hubs_crawl_does_not_normalize_evil_github(self, client):
-        """A look-alike host like ``evil-github.com`` does NOT count as github.
-
-        Returns ``None`` from ``detect_hub_provider_from_url`` (unknown
-        host), so the request is allowed through to the regular GitHub
-        URL parser — which is fine because the URL parser will then
-        produce its own (correct) failure when GitHub doesn't recognize
-        the path. Critically, we don't *bypass* the host check by
-        substring-matching ``github`` inside the hostname.
-        """
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={
-                    "type": "github",
-                    "location": "https://evil-github.com/owner/repo",
-                },
-            )
-
-        # The response must NOT be the type_location_mismatch 400
-        # (that would mean we accidentally classified the look-alike
-        # host as a real provider). Whatever else happens (502 from
-        # the GitHub crawler hitting api.github.com with a fake
-        # owner/repo, or success if GitHub happens to have one) is
-        # fine — what we're guarding here is the host classifier.
-        if resp.status_code == 400:
-            assert resp.json()["detail"]["error"] != "type_location_mismatch"
-
-    def test_skill_hubs_crawl_accepts_canonical_github_owner_repo(self, client):
-        """Bare ``owner/repo`` (no URL) does NOT trip the host guard.
-
-        Detection returns ``None`` for non-URL inputs, so the request
-        proceeds normally. Asserting the absence of the mismatch error
-        is sufficient — the actual crawl will hit the network and is
-        covered by other tests.
-        """
-        with patch.dict(os.environ, {"OIDC_ISSUER": ""}, clear=False):
-            resp = client.post(
-                "/skill-hubs/crawl",
-                json={"type": "github", "location": "owner/repo"},
-            )
-
-        if resp.status_code == 400:
-            assert resp.json()["detail"]["error"] != "type_location_mismatch"
-
     # -------------------------------------------------------------------
     # ``detect_hub_provider_from_url`` unit tests — pin the host
-    # allow-list rules independently of the route handler so future
-    # refactors of the route can't silently weaken the classifier.
+    # allow-list rules. The Python router used to call this helper from
+    # the now-deleted ``POST /skill-hubs/crawl`` endpoint; the helper
+    # itself is kept (and tested) because it gives Python parity with
+    # the JS twin in ``ui/src/app/api/skill-hubs/_lib/normalize.ts``
+    # and is reusable by any future Python caller that needs to tell
+    # GitHub from GitLab from a URL.
     # -------------------------------------------------------------------
 
     def test_detect_provider_recognizes_github_com(self):
@@ -469,10 +355,10 @@ class TestSkillsRouter:
 # ---------------------------------------------------------------------------
 #
 # These cover the Mongo-backed ``_load_hub_skills`` implementation that
-# replaced the GitHub round-trip in ``catalog.py``. The legacy
-# ``fetch_github_hub_skills`` loader still exists for the
-# ``/skill-hubs/crawl`` preview path but is no longer reached by the
-# supervisor catalog refresh.
+# replaced the GitHub round-trip in ``catalog.py``. The Python middleware
+# no longer ships a GitHub crawler at all — the Next.js UI's
+# ``ui/src/lib/hub-crawl.ts`` is the single source of truth and writes
+# results into the ``hub_skills`` collection that this reader consumes.
 
 
 def _make_mongo_stub(hubs, hub_skills_rows):
@@ -666,62 +552,6 @@ class TestLoadHubSkillsFromMongo:
             skills = _load_hub_skills(include_content=True)
 
         assert [s["name"] for s in skills] == ["ok"]
-
-
-# ---------------------------------------------------------------------------
-# Legacy GitHub fetcher (now only used by the /skill-hubs/crawl preview
-# route). Smoke-test that the helper still tolerates empty trees / network
-# errors so the preview UI degrades cleanly.
-# ---------------------------------------------------------------------------
-
-
-class TestHubFetcherEdgeCases:
-    """Smoke tests for the legacy ``fetch_github_hub_skills`` preview helper."""
-
-    def test_fetch_with_no_token(self):
-        """Fetcher works without token (public repos)."""
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            fetch_github_hub_skills,
-        )
-
-        hub = {"id": "pub-hub", "location": "public/repo", "type": "github"}
-
-        # Mock httpx to return empty tree
-        with patch("httpx.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"tree": []}
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.get.return_value = mock_resp
-            mock_client_cls.return_value = mock_client
-
-            with patch.dict("os.environ", {}, clear=False):
-                result = fetch_github_hub_skills(hub)
-
-        assert result == []
-
-    def test_fetch_handles_api_error(self):
-        """Fetcher returns empty list on API error."""
-        import httpx
-
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            fetch_github_hub_skills,
-        )
-
-        hub = {"id": "err-hub", "location": "org/repo", "type": "github"}
-
-        with patch("httpx.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client_cls.return_value = mock_client
-
-            result = fetch_github_hub_skills(hub)
-
-        assert result == []
 
 
 # ---------------------------------------------------------------------------

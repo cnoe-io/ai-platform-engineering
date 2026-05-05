@@ -9,10 +9,13 @@
  * truncated the path to `gitlab-org/ai`, producing a confusing
  * `api.github.com/repos/gitlab-org/ai/...` 404 toast on the admin UI.
  *
- * The route now rejects host/type mismatches with a structured 400
- * BEFORE any forwarding to Python or local crawler call happens. We
- * pin that behavior here, plus the happy path (canonical owner/repo,
- * matching URLs) to make sure the guard isn't over-aggressive.
+ * The route rejects host/type mismatches with a structured 400 before
+ * any local crawler call happens. We pin that behavior here, plus the
+ * happy path (canonical owner/repo, matching URLs) to make sure the
+ * guard isn't over-aggressive. The route used to forward GitHub
+ * previews to a Python proxy when `NEXT_PUBLIC_A2A_BASE_URL` was
+ * set; that path was removed because the Python middleware no longer
+ * has its own GitHub crawler. The env var is now ignored here.
  */
 
 const mockNextResponseJson = jest.fn(
@@ -102,11 +105,12 @@ describe("POST /api/skill-hubs/crawl — host/type mismatch backstop", () => {
     expect(crawlGitLabMock).not.toHaveBeenCalled();
   });
 
-  it("rejects the same gitlab.com URL even when forwarding to Python is configured", async () => {
-    // The bug originally surfaced because the Next.js route forwarded
-    // to Python when NEXT_PUBLIC_A2A_BASE_URL is set; the guard must
-    // run BEFORE the forward decision so we don't ship a doomed
-    // request across the wire.
+  it("rejects the same gitlab.com URL even with NEXT_PUBLIC_A2A_BASE_URL set (env var is ignored now)", async () => {
+    // The route used to honor NEXT_PUBLIC_A2A_BASE_URL by forwarding
+    // GitHub previews to a Python proxy. That proxy is gone (Python
+    // catalog reads are Mongo-only), but we still defend against
+    // anyone wiring this env back up by mistake — the guard fires
+    // regardless of what's in the env.
     process.env.NEXT_PUBLIC_A2A_BASE_URL = "http://supervisor:8000";
     const res = await POST(
       makeRequest({
