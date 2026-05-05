@@ -79,6 +79,8 @@ TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
 ENABLE_DYNAMIC_AGENTS=false
+# Agents selected interactively; empty means all defaults are used (non-interactive path)
+SELECTED_AGENTS=()
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 
 # When run via "curl | bash", stdin is the script content — bash reads it
@@ -1589,10 +1591,74 @@ setup_tls() {
   log "TLS secret 'caipe-tls' created in namespace caipe"
 }
 
+_choose_agents() {
+  # All available agents with display labels
+  local -a _agent_keys=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _agent_labels=(
+    "ArgoCD        — GitOps / CD pipelines"
+    "AWS           — cloud resources & infrastructure"
+    "Backstage     — developer portal & catalog"
+    "Confluence    — wiki & knowledge base"
+    "GitHub        — repos, PRs, issues, Actions"
+    "Jira          — tickets & project tracking"
+    "Komodor       — Kubernetes health & incidents"
+    "NetUtils      — network diagnostics"
+    "PagerDuty     — on-call & incident response"
+    "Slack         — messaging & notifications"
+    "Splunk        — log search & SIEM"
+    "Webex         — video meetings & messaging"
+    "AI Gateway    — multi-model LLM routing"
+  )
+
+  echo ""
+  echo -e "  ${BOLD}Select agents to install${NC} ${DIM}(all enabled by default)${NC}"
+  echo -e "  ${DIM}Enter comma-separated numbers, 'all', or press Enter for all:${NC}"
+  echo ""
+
+  local i=1
+  for label in "${_agent_labels[@]}"; do
+    printf "    ${BOLD}%2d)${NC} %s\n" "$i" "$label"
+    i=$((i + 1))
+  done
+  echo ""
+  prompt "Select agents ${CYAN}[all]${NC}${BOLD}: "
+  tty_read -r _input
+  _input="${_input:-all}"
+
+  SELECTED_AGENTS=()
+  if [[ "${_input,,}" == "all" || -z "$_input" ]]; then
+    SELECTED_AGENTS=("${_agent_keys[@]}")
+    log "All agents selected"
+    return
+  fi
+
+  # Parse comma-separated numbers
+  local _invalid=()
+  IFS=',' read -ra _picks <<< "$_input"
+  for _pick in "${_picks[@]}"; do
+    _pick="${_pick// /}"  # trim spaces
+    if [[ "$_pick" =~ ^[0-9]+$ ]] && [[ "$_pick" -ge 1 && "$_pick" -le "${#_agent_keys[@]}" ]]; then
+      SELECTED_AGENTS+=("${_agent_keys[$((_pick - 1))]}")
+    else
+      _invalid+=("$_pick")
+    fi
+  done
+
+  if [[ ${#_invalid[@]} -gt 0 ]]; then
+    warn "Ignored invalid selections: ${_invalid[*]}"
+  fi
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    warn "No valid agents selected — falling back to all agents"
+    SELECTED_AGENTS=("${_agent_keys[@]}")
+  fi
+
+  log "Selected agents: ${SELECTED_AGENTS[*]}"
+}
+
 choose_features() {
   step "Feature selection"
 
-  echo -e "  ${DIM}Base setup always includes: supervisor, weather, and NetUtils agents${NC}"
+  echo -e "  ${DIM}Base setup always includes: supervisor and NetUtils agents${NC}"
 
   if $NON_INTERACTIVE; then
     if $ENABLE_RAG; then
@@ -1703,6 +1769,134 @@ choose_features() {
     fi
   else
     log "RAG skipped"
+  fi
+
+  # ── Agent selection ───────────────────────────────────────────────────
+  _choose_agents
+
+  # ── Per-agent credentials ─────────────────────────────────────────────
+  echo ""
+  echo -e "  ${BOLD}Agent credentials${NC}"
+  echo -e "  ${DIM}Enter credentials for each selected agent. Leave blank to skip (agent will be disabled).${NC}"
+
+  # Agents that need no credentials
+  local _no_creds_agents=(netutils aigateway)
+
+  for _agent in "${SELECTED_AGENTS[@]}"; do
+    # Skip agents that don't need creds
+    local _needs_creds=true
+    for _nc in "${_no_creds_agents[@]}"; do
+      [[ "$_agent" == "$_nc" ]] && { _needs_creds=false; break; }
+    done
+    $_needs_creds || continue
+
+    echo ""
+    echo -e "  ${CYAN}${BOLD}── ${_agent} ──${NC}"
+    local _secret_name="caipe-${_agent}-secret"
+    local _secret_args=()
+    local _skip=false
+
+    case "$_agent" in
+      argocd)
+        prompt "ArgoCD API URL (e.g. https://argocd.example.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping argocd"; _skip=true; } || _secret_args+=(--from-literal=ARGOCD_API_URL="$_v")
+        if ! $_skip; then
+          prompt "ArgoCD token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=ARGOCD_TOKEN="$_v")
+          prompt "Verify SSL? ${CYAN}[true]${NC}${BOLD}: "; tty_read -r _v; _secret_args+=(--from-literal=ARGOCD_VERIFY_SSL="${_v:-true}")
+        fi ;;
+      aws)
+        prompt "AWS Access Key ID (blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping aws"; _skip=true; } || _secret_args+=(--from-literal=AWS_ACCESS_KEY_ID="$_v")
+        if ! $_skip; then
+          prompt "AWS Secret Access Key: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=AWS_SECRET_ACCESS_KEY="$_v")
+          prompt "AWS Region ${CYAN}[${AWS_REGION:-us-east-1}]${NC}${BOLD}: "; tty_read -r _v; _v="${_v:-${AWS_REGION:-us-east-1}}"
+          _secret_args+=(--from-literal=AWS_REGION="$_v" --from-literal=AWS_DEFAULT_REGION="$_v")
+        fi ;;
+      backstage)
+        prompt "Backstage URL (e.g. https://backstage.example.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping backstage"; _skip=true; } || _secret_args+=(--from-literal=BACKSTAGE_URL="$_v")
+        if ! $_skip; then
+          prompt "Backstage API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=BACKSTAGE_API_TOKEN="$_v")
+        fi ;;
+      confluence)
+        prompt "Confluence URL (e.g. https://company.atlassian.net/wiki, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping confluence"; _skip=true; } || _secret_args+=(--from-literal=CONFLUENCE_URL="$_v" --from-literal=CONFLUENCE_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Atlassian email: "; tty_read -r _v; _secret_args+=(--from-literal=CONFLUENCE_USERNAME="$_v" --from-literal=ATLASSIAN_EMAIL="$_v")
+          prompt "Atlassian API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=CONFLUENCE_API_TOKEN="$_v" --from-literal=CONFLUENCE_TOKEN="$_v" --from-literal=ATLASSIAN_TOKEN="$_v")
+        fi ;;
+      github)
+        prompt "GitHub Personal Access Token (blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping github"; _skip=true; } || _secret_args+=(--from-literal=GITHUB_PERSONAL_ACCESS_TOKEN="$_v" --from-literal=GITHUB_TOKEN="$_v")
+        ;;
+      jira)
+        prompt "Jira/Atlassian API URL (e.g. https://company.atlassian.net, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping jira"; _skip=true; } || _secret_args+=(--from-literal=ATLASSIAN_API_URL="$_v" --from-literal=JIRA_URL="$_v")
+        if ! $_skip; then
+          prompt "Atlassian email: "; tty_read -r _v; _secret_args+=(--from-literal=ATLASSIAN_EMAIL="$_v" --from-literal=JIRA_USERNAME="$_v")
+          prompt "Atlassian API token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=ATLASSIAN_TOKEN="$_v" --from-literal=JIRA_API_TOKEN="$_v")
+        fi ;;
+      komodor)
+        prompt "Komodor API URL (e.g. https://app.komodor.com, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping komodor"; _skip=true; } || _secret_args+=(--from-literal=KOMODOR_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Komodor token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=KOMODOR_TOKEN="$_v")
+        fi ;;
+      pagerduty)
+        prompt "PagerDuty API URL ${CYAN}[https://api.pagerduty.com]${NC}${BOLD}: "
+        tty_read -r _v; _secret_args+=(--from-literal=PAGERDUTY_API_URL="${_v:-https://api.pagerduty.com}")
+        prompt "PagerDuty API key (blank to skip): "; tty_read -rs _v; echo ""
+        [[ -z "$_v" ]] && { warn "Skipping pagerduty"; _skip=true; } || _secret_args+=(--from-literal=PAGERDUTY_API_KEY="$_v") ;;
+      slack)
+        prompt "Slack Bot Token (xoxb-..., blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping slack"; _skip=true; } || _secret_args+=(--from-literal=SLACK_BOT_TOKEN="$_v")
+        if ! $_skip; then
+          prompt "Slack App Token (xapp-..., optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_APP_TOKEN="$_v")
+          prompt "Slack Signing Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_SIGNING_SECRET="$_v")
+          prompt "Slack Team ID (optional): "; tty_read -r _v; [[ -n "$_v" ]] && _secret_args+=(--from-literal=SLACK_TEAM_ID="$_v")
+        fi ;;
+      splunk)
+        prompt "Splunk API URL (e.g. https://splunk.example.com:8089, blank to skip): "
+        tty_read -r _v; [[ -z "$_v" ]] && { warn "Skipping splunk"; _skip=true; } || _secret_args+=(--from-literal=SPLUNK_API_URL="$_v")
+        if ! $_skip; then
+          prompt "Splunk token: "; tty_read -rs _v; echo ""; _secret_args+=(--from-literal=SPLUNK_TOKEN="$_v")
+        fi ;;
+      webex)
+        prompt "Webex Bot Token (blank to skip): "
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_BOT_TOKEN="$_v" --from-literal=WEBEX_TOKEN="$_v")
+        if ! $_skip; then
+          prompt "Webex Webhook Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=WEBEX_WEBHOOK_SECRET="$_v")
+        fi ;;
+    esac
+
+    if ! $_skip && [[ ${#_secret_args[@]} -gt 0 ]]; then
+      kubectl create secret generic "$_secret_name" \
+        -n caipe "${_secret_args[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      HELM_AGENT_ARGS+=(
+        --set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=true"
+        --set "agent-${_agent}.agentSecrets.secretName=${_secret_name}"
+      )
+      log "${_agent}: secret created"
+    else
+      $_skip && HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+    fi
+  done
+
+  # Disable all agents NOT in SELECTED_AGENTS
+  local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  for _agent in "${_all_agents[@]}"; do
+    local _selected=false
+    for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
+    $_selected || HELM_AGENT_ARGS+=(--set "supervisor-agent.singleNode.enabledSubAgents.${_agent}=false")
+  done
+
+  echo ""
+  if ask_yn "Enable dynamic agents (custom agent builder)?" "n"; then
+    ENABLE_DYNAMIC_AGENTS=true
+    log "Dynamic agents enabled"
+  else
+    log "Dynamic agents skipped"
   fi
 
   if ask_yn "Enable Langfuse tracing (observability)?" "n"; then
@@ -3537,19 +3731,7 @@ deploy_caipe() {
       --set "global.deploymentMode=single-node"
       --set "supervisor-agent.image.args={platform-engineer-single}"
       --set "supervisor-agent.env.SKIP_AGENT_CONNECTIVITY_CHECK=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.argocd=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.aws=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.backstage=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.confluence=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.github=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.jira=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.komodor=true"
       --set "supervisor-agent.singleNode.enabledSubAgents.netutils=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.pagerduty=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.slack=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.splunk=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.webex=true"
-      --set "supervisor-agent.singleNode.enabledSubAgents.aigateway=true"
     )
     log "Deployment mode: All-in-One (single supervisor with embedded agents)"
   else
@@ -3557,6 +3739,12 @@ deploy_caipe() {
       --set "global.deploymentMode=multi-node"
     )
     log "Deployment mode: Distributed (each agent runs as its own service)"
+  fi
+
+  # Append per-agent enable/secret flags collected interactively
+  if [[ ${#HELM_AGENT_ARGS[@]} -gt 0 ]]; then
+    helm_args+=("${HELM_AGENT_ARGS[@]}")
+    log "Wiring ${#HELM_AGENT_ARGS[@]} agent Helm flags from interactive selection"
   fi
 
   # Dynamic agents (custom agent builder)
