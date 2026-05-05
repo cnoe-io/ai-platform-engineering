@@ -259,7 +259,7 @@ export function ToolsTab({ form }: ToolsTabProps) {
 
   return (
     <div className="space-y-5">
-      <header className="space-y-1">
+      <header className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold flex items-center gap-1.5">
             <Wrench className="h-4 w-4" />
@@ -275,15 +275,60 @@ export function ToolsTab({ form }: ToolsTabProps) {
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Pre-approves the listed tools while this skill is active so the
-          agent can use them without prompting. It does <em>not</em> hide
-          other tools — every tool stays callable, governed by your
-          permission settings. Saved into SKILL.md frontmatter as{" "}
-          <code>allowed-tools</code> (space-separated). Argument scoping
-          like <code>Bash(git add *)</code> is supported via custom strings
-          below.
+
+        {/*
+          Lead-in: the agentskills.io one-liner, in the user's own words.
+          Source: https://code.claude.com/docs/en/skills (frontmatter table).
+        */}
+        <p className="text-xs leading-relaxed">
+          <span className="font-medium text-foreground">
+            Tools the agent can use without asking for permission while this
+            skill is active.
+          </span>{" "}
+          <span className="text-muted-foreground">
+            Accepts a space-separated string or a YAML list — saved into the
+            SKILL.md frontmatter as <code>allowed-tools</code>.
+          </span>
         </p>
+
+        {/*
+          Three crisp facts that answer the most common author questions
+          without making them read the docs first.
+        */}
+        <ul className="rounded-md border border-border/60 bg-muted/30 p-2.5 space-y-1 text-[11px] text-muted-foreground">
+          <li className="flex items-start gap-2">
+            <Check className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+            <span>
+              <span className="text-foreground font-medium">
+                Pre-approves, never restricts.
+              </span>{" "}
+              Listed tools skip the permission prompt; every other tool
+              stays callable and just asks per call as usual.
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <Check className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+            <span>
+              <span className="text-foreground font-medium">
+                Argument scoping is supported.
+              </span>{" "}
+              Use patterns like <code>Bash(git add *)</code> or{" "}
+              <code>Bash(gh *)</code> in <em>Custom tool strings</em> below
+              to pre-approve only specific argument shapes.
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <Check className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+            <span>
+              <span className="text-foreground font-medium">
+                Honored by Claude Code today.
+              </span>{" "}
+              Cursor, Codex CLI, Gemini CLI, and opencode read SKILL.md
+              verbatim and prompt per call regardless — your list still
+              ships in the file as a hint to the model.
+            </span>
+          </li>
+        </ul>
       </header>
 
       <BuiltinToolsSection
@@ -844,17 +889,19 @@ function CustomToolsSection({
         Custom tool strings
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Free-form entries written verbatim into <code>allowed-tools</code> —
-        useful for argument-scoped pre-approvals (
-        <code>Bash(git add *)</code>, <code>Bash(gh *)</code>) or any tool
-        not in the catalog above. See the{" "}
+        Anything you type here lands verbatim in <code>allowed-tools</code>.
+        Use this for{" "}
+        <span className="text-foreground">argument-scoped pre-approvals</span>{" "}
+        like <code>Bash(git add *)</code> or <code>Bash(gh *)</code>, or
+        for any tool the catalog above doesn&rsquo;t know about. Format
+        reference:{" "}
         <a
           href="https://code.claude.com/docs/en/skills#pre-approve-tools-for-a-skill"
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary hover:underline"
         >
-          Claude allowed-tools reference
+          Claude allowed-tools docs
         </a>
         .
       </p>
@@ -918,32 +965,44 @@ function FooterSummary({
   allowedTools: string[];
   onClearAll: () => void;
 }) {
+  // The empty state is a safe, principle-of-least-privilege default --
+  // call it out as such instead of making it sound like the author
+  // forgot to do something.
+  if (allowedTools.length === 0) {
+    return (
+      <div className="rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">
+          No pre-approvals (safe default).
+        </span>{" "}
+        The agent will ask for permission on every tool call this skill
+        triggers. Toggle a built-in or pick MCP tools above to skip those
+        prompts while this skill is active.
+      </div>
+    );
+  }
   return (
-    <div className="rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-      {allowedTools.length === 0 ? (
-        <>
-          No pre-approvals — the agent will be prompted for permission on
-          every tool call. Toggle a built-in or pick MCP tools above to
-          pre-approve them while this skill is active.
-        </>
-      ) : (
-        <>
-          {allowedTools.length} tool{allowedTools.length === 1 ? "" : "s"}{" "}
-          pre-approved:{" "}
-          <span className="font-mono">{allowedTools.join(" ")}</span>
-        </>
-      )}
-      {allowedTools.length > 0 && (
+    <div className="rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span>
+          <span className="font-medium text-foreground">
+            {allowedTools.length} tool{allowedTools.length === 1 ? "" : "s"}{" "}
+            pre-approved
+          </span>{" "}
+          while this skill is active.
+        </span>
         <Button
           variant="link"
           size="sm"
-          className="ml-2 h-auto p-0 text-xs"
+          className="h-auto p-0 text-xs"
           onClick={onClearAll}
         >
           <Trash2 className="h-3 w-3 mr-1" />
           Clear all
         </Button>
-      )}
+      </div>
+      <div className="font-mono text-[11px] text-muted-foreground/90 break-all">
+        {allowedTools.join(" ")}
+      </div>
     </div>
   );
 }
