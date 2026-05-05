@@ -843,17 +843,12 @@ collect_credentials() {
     fi
   fi
 
-  # If credentials are already known (from env, detect_deployed_features, or above),
-  # confirm with user and skip the full prompt.
+  # If the provider is already known from the cluster (env, detect_deployed_features,
+  # or the inline read above) AND the llm-secret exists, offer to keep it.
+  # We don't require the API key to be in shell variables — the secret already has it.
   if [[ -n "${LLM_PROVIDER:-}" ]] && ! $NON_INTERACTIVE; then
-    local _cred_ok=false
-    case "$LLM_PROVIDER" in
-      anthropic-claude) [[ -n "${ANTHROPIC_API_KEY:-}" ]] && _cred_ok=true ;;
-      aws-bedrock)      [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]] && _cred_ok=true ;;
-      *)                [[ -n "${OPENAI_API_KEY:-}" ]] && _cred_ok=true ;;
-    esac
-    if $_cred_ok; then
-      log "Using existing LLM credentials (provider: ${LLM_PROVIDER})"
+    if kubectl get secret llm-secret -n caipe &>/dev/null 2>&1; then
+      log "Existing llm-secret found in cluster (provider: ${LLM_PROVIDER})"
       if ! ask_yn "Keep existing LLM provider (${LLM_PROVIDER})?" "y"; then
         LLM_PROVIDER=""  # fall through to full prompt
       else
