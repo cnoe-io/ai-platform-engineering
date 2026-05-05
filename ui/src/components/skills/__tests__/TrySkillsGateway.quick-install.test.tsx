@@ -351,12 +351,21 @@ describe("TrySkillsGateway → Quick install modal", () => {
       within(dialog).getByText(/cannot show it again/i),
     ).toBeInTheDocument();
 
-    // The install snippet must NOT embed the real key value — it's always
-    // a clean `curl … | bash` regardless of mint state.
+    // The key is shown in two places after mint:
+    //   * Option A — the bare key in its own CopyableBlock.
+    //   * Option B — embedded inside the bootstrap heredoc snippet
+    //     (so the `cat > config.json <<'EOF' … EOF` writes the right
+    //     value).
+    // Use getAllByText so this assertion is stable regardless of how
+    // many copies render — what we actually care about is "the key
+    // shows up somewhere" plus the *negative* assertion below that the
+    // bare-curl one-liner doesn't bake it in.
     expect(
-      within(dialog).queryByText(new RegExp(mintedKeyValue, "g")),
-    ).not.toBeNull(); // shown in CopyableBlock above
-    // But not in the snippet block (no `export CAIPE_CATALOG_KEY=…` line).
+      within(dialog).getAllByText(new RegExp(mintedKeyValue)).length,
+    ).toBeGreaterThanOrEqual(1);
+    // But never as `export CAIPE_CATALOG_KEY=…` — install.sh reads the
+    // key from ~/.config/caipe/config.json, not the env. (See the
+    // separate clipboard test below for the bare-curl one-liner.)
     expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
   });
 
@@ -373,33 +382,34 @@ describe("TrySkillsGateway → Quick install modal", () => {
     );
     await within(dialog).findByText(/API key minted/i);
 
-    // The minted-key block exposes its own Copy button (CopyableBlock),
-    // which may have already been clicked or auto-focused depending on
-    // implementation. Reset the mock so we only observe the snippet copy.
+    // After mint, three clipboard-writers exist in the dialog:
+    //   1) Option A — the bare API key (CopyableBlock, icon-only,
+    //      aria-label="Copy API key").
+    //   2) Option B — the bootstrap snippet (CopyableBlock with
+    //      visible text "Copy", inside the
+    //      `quick-install-bootstrap-snippet` panel).
+    //   3) The "Run this in your terminal" inline button (visible text
+    //      "Copy", `data-testid="quick-install-copy-bare-curl"`),
+    //      which is the one this test cares about — the clean
+    //      single-line `curl … | bash` that exists regardless of mint
+    //      state.
+    // Target #3 by testid so this test stays orthogonal to Options A/B.
     clipboardWriteTextMock.mockClear();
-
-    // The snippet's Copy button has visible text "Copy" — the
-    // CopyableBlock for the minted key uses an icon-only button with
-    // aria-label="Copy API key". Match the more specific name to avoid
-    // ambiguity, falling back to the broader regex if names change.
-    const copyButtons = within(dialog)
-      .getAllByRole("button")
-      .filter((b) => /^\s*copy\s*$/i.test(b.textContent ?? ""));
-    expect(copyButtons.length).toBeGreaterThan(0);
     // `userEvent.setup()` installs its own clipboard polyfill that
     // shadows our `Object.defineProperty` mock, so we spy on the live
     // `writeText` *just before* the click and inspect that.
     const liveWriteText = jest.spyOn(navigator.clipboard, "writeText");
-    await user.click(copyButtons[0]);
+    await user.click(
+      within(dialog).getByTestId("quick-install-copy-bare-curl"),
+    );
 
     await waitFor(() => {
       expect(liveWriteText).toHaveBeenCalled();
     });
-    // Find the call whose payload looks like the install snippet — the
-    // minted-key block also writes to clipboard, but its payload is just
-    // the bare key, not a curl invocation.
+    // The bare-curl button writes exactly one payload — the one-liner.
     const snippetCall = liveWriteText.mock.calls.find(
-      ([arg]) => typeof arg === "string" && arg.includes("curl -fsSL"),
+      ([arg]) =>
+        typeof arg === "string" && /^curl -fsSL/.test(arg),
     );
     expect(snippetCall).toBeDefined();
     const copied = snippetCall![0] as string;
@@ -587,6 +597,111 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const snippet = dialog.querySelector("pre");
     const text = snippet!.textContent || "";
     expect(text).toContain("mode=bulk-with-helpers");
+    expect(text).toMatch(/\| bash -s -- --force$/);
+  });
+
+  // ---------------------------------------------------------------------
+  // Option-4 bootstrap snippet (writes ~/.config/caipe/config.json with
+  // the minted key, then runs the install one-liner).
+  //
+  // Background: install.sh resolves the catalog API key from
+  // ~/.config/caipe/config.json on disk (Step 1 of the gateway flow).
+  // After a `--purge` uninstall the file is removed; on re-install the
+  // user has to recreate it before the curl works. Asking them to do
+  // that by hand is the most common stumble in the install flow, so
+  // when a key is freshly minted in this session the modal also shows
+  // a single-shot bootstrap that:
+  //   1) `mkdir -p ~/.config/caipe` so the dir exists.
+  //   2) `cat > ~/.config/caipe/config.json <<'CAIPE_BOOTSTRAP_EOF'`
+  //      using a *single-quoted* heredoc delimiter so bash doesn't try
+  //      to expand $-sequences or backticks inside the embedded key.
+  //   3) `chmod 600` the file (owner-readable only — the key is a
+  //      bearer credential).
+  //   4) Pipes into the same `curl … | bash` the bare snippet shows.
+  //
+  // These tests pin the *shape* of that snippet so a future refactor
+  // can't silently regress security (chmod 600), correctness (quoted
+  // heredoc), or completeness (must end with the install one-liner).
+  // ---------------------------------------------------------------------
+
+  it("bootstrap snippet: does NOT render until a key is minted", async () => {
+    await renderAndOpenModal();
+    const dialog = getDialog();
+
+    expect(
+      within(dialog).queryByTestId("quick-install-bootstrap-snippet"),
+    ).toBeNull();
+  });
+
+  it("bootstrap snippet: renders with quoted heredoc, chmod 600, and the embedded key after mint", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /generate api key/i }),
+    );
+    await within(dialog).findByText(/API key minted/i);
+
+    const panel = within(dialog).getByTestId(
+      "quick-install-bootstrap-snippet",
+    );
+    const pre = panel.querySelector("pre");
+    expect(pre).not.toBeNull();
+    const text = pre!.textContent || "";
+
+    // Step 1 — the dir is created before we try to `cat >` into it.
+    // First-time installers don't have ~/.config/caipe yet.
+    expect(text).toMatch(/^mkdir -p ~\/\.config\/caipe && \\$/m);
+
+    // Step 2 — quoted heredoc delimiter. This is the load-bearing
+    // bit: a bare `<<EOF` (or `<<"EOF"`) would let bash expand
+    // `$(...)`, `` `...` ``, and `${...}` inside the embedded key,
+    // which can corrupt the key or, worse, execute attacker-chosen
+    // code if a future key format ever contains `$(...)`. We
+    // single-quote the delimiter to disable all expansion.
+    expect(text).toContain("<<'CAIPE_BOOTSTRAP_EOF'");
+    // And the closing delimiter must match (no quotes on the closing
+    // line, per heredoc syntax).
+    expect(text).toMatch(/^CAIPE_BOOTSTRAP_EOF$/m);
+    expect(text).not.toContain("<<EOF");
+    expect(text).not.toContain('<<"CAIPE_BOOTSTRAP_EOF"');
+
+    // The minted key is embedded inside a JSON string literal — both
+    // the key and the base_url are JSON.stringify'd on the React side
+    // so any future key character (including `"` and `\`) is safe.
+    expect(text).toContain(`"api_key": "${FAKE_MINT_KEY}"`);
+    expect(text).toMatch(/"base_url":\s*"[^"]+"/);
+
+    // Step 3 — chmod 600 must come immediately after the heredoc and
+    // *before* the install runs. The `&& \` chain means a failed
+    // chmod aborts the install.
+    expect(text).toContain("chmod 600 ~/.config/caipe/config.json && \\");
+
+    // Step 4 — the snippet ends with the same install one-liner the
+    // bare-curl block shows. This guarantees that toggling Options
+    // A/B doesn't accidentally diverge the install URL between them.
+    expect(text).toMatch(/\ncurl -fsSL '[^']+' \| bash$/);
+    expect(text).toContain("/api/skills/install.sh?");
+  });
+
+  it("bootstrap snippet: install one-liner inside it tracks the --force toggle", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /generate api key/i }),
+    );
+    await within(dialog).findByText(/API key minted/i);
+
+    // Tick --force in the overwrite-policy panel — the bootstrap
+    // snippet's install line must pick up the same flag, otherwise
+    // the two snippets would silently diverge on overwrite policy.
+    await user.click(within(dialog).getByTestId("quick-install-force"));
+
+    const panel = within(dialog).getByTestId(
+      "quick-install-bootstrap-snippet",
+    );
+    const text = panel.querySelector("pre")!.textContent || "";
     expect(text).toMatch(/\| bash -s -- --force$/);
   });
 
