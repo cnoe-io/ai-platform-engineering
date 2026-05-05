@@ -39,6 +39,9 @@ from dynamic_agents.services import scan_gate
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
     monkeypatch.delenv("SKILL_SCANNER_GATE", raising=False)
+    # Also clear the admin-override env so each test starts from the
+    # documented default (override-on).
+    monkeypatch.delenv("ADMIN_SCAN_OVERRIDE_ENABLED", raising=False)
 
 
 # -- Policy table (mirrors skills_middleware/tests/test_scan_gate.py) -------
@@ -102,6 +105,60 @@ class TestMongoScanFilter:
         monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
         assert scan_gate.mongo_scan_filter() == {
             "scan_status": {"$ne": "flagged"}
+        }
+
+
+# -- Admin override (vendored side) ------------------------------------------
+#
+# Mirrors the supervisor-side suite. The vendored module is byte-
+# identical to the source-of-truth (the drift test below enforces it),
+# but we still re-pin the policy here so that if someone runs only the
+# dynamic-agents tests inside the container — where the source-of-
+# truth module is absent and the drift test self-skips — the admin-
+# override invariant is still verified end-to-end on the runtime path
+# that actually serves skills to dynamic agents.
+
+
+class TestIsAdminOverrideEnabled:
+    def test_default_is_enabled(self):
+        assert scan_gate.is_admin_override_enabled() is True
+
+    @pytest.mark.parametrize("value", ["false", "FALSE", "0", "no", "off"])
+    def test_falsy_values_disable(self, monkeypatch, value):
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", value)
+        assert scan_gate.is_admin_override_enabled() is False
+
+
+class TestIsStatusBlockedForAdminOverride:
+    def test_overridden_allowed_under_warn_when_feature_on(self, monkeypatch):
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        assert scan_gate.is_status_blocked("admin_overridden") is False
+
+    def test_overridden_blocked_under_strict_even_when_feature_on(
+        self, monkeypatch
+    ):
+        # Strict ignores admin overrides — escape hatch for regulated
+        # environments.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "strict")
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "true")
+        assert scan_gate.is_status_blocked("admin_overridden") is True
+
+    def test_overridden_blocked_when_feature_off(self, monkeypatch):
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "false")
+        for gate in ("strict", "warn", "off"):
+            monkeypatch.setenv("SKILL_SCANNER_GATE", gate)
+            assert scan_gate.is_status_blocked("admin_overridden") is True
+
+
+class TestMongoScanFilterForAdminOverride:
+    def test_warn_with_override_off_excludes_overridden_too(
+        self, monkeypatch
+    ):
+        # Confirms the predicate is kept in sync with is_status_blocked.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "false")
+        assert scan_gate.mongo_scan_filter() == {
+            "scan_status": {"$nin": ["flagged", "admin_overridden"]}
         }
 
 

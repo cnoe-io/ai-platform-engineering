@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-middleware";
 import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
+import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import {
   getAgentSkillVisibleToUser,
   userCanModifyAgentSkill,
@@ -149,19 +150,62 @@ export const POST = withErrorHandler(
       });
 
       const collection = await getCollection<AgentSkill>("agent_skills");
-      await collection.updateOne(
-        { id },
-        {
-          $set: {
-            scan_status: scanResult.scan_status,
-            ...(persistedSummary !== undefined
-              ? { scan_summary: persistedSummary }
-              : {}),
-            scan_updated_at: now,
-            updated_at: now,
+
+      // Auto-revert an existing admin override when the rescan now
+      // returns a clean ("passed") verdict. The override was the
+      // admin's "I trust this even though the scanner doesn't"
+      // assertion; once the scanner agrees, the assertion is
+      // moot — leaving the override in place would create stale
+      // audit records (an active override on a passing skill,
+      // confusing for reviewers). We clear the override sub-doc
+      // and record a `clear` audit row attributed to
+      // ``system:scanner`` so the audit chain is complete.
+      //
+      // If the rescan still flags or comes back unscanned, we
+      // intentionally do NOT touch the override: the admin's
+      // assertion still applies, and the catalog continues to serve
+      // the skill (subject to ``ADMIN_SCAN_OVERRIDE_ENABLED``).
+      const wasOverridden =
+        existing.scan_status === "admin_overridden" && existing.scan_override;
+      const shouldAutoRevertOverride =
+        wasOverridden && scanResult.scan_status === "passed";
+
+      const setUpdate: Record<string, unknown> = {
+        scan_status: scanResult.scan_status,
+        ...(persistedSummary !== undefined
+          ? { scan_summary: persistedSummary }
+          : {}),
+        scan_updated_at: now,
+        updated_at: now,
+      };
+
+      if (shouldAutoRevertOverride) {
+        // The single update both replaces the status with
+        // ``"passed"`` (above) AND drops the override sub-doc, so
+        // the doc never lingers in a "passed but still has
+        // override" state.
+        await collection.updateOne(
+          { id },
+          {
+            $set: setUpdate,
+            $unset: { scan_override: "" },
           },
-        },
-      );
+        );
+        // Best-effort audit row. Swallowed by the helper on
+        // failure — never blocks the rescan response.
+        await recordScanOverrideEvent({
+          action: "clear",
+          skill_id: id,
+          skill_name: existing.name,
+          source: existing.is_system ? "default" : "agent_skills",
+          actor: "system:scanner",
+          reason: "Scanner returned passed",
+          prior_scan_status: "admin_overridden",
+          prior_scan_summary: existing.scan_summary,
+        });
+      } else {
+        await collection.updateOne({ id }, { $set: setUpdate });
+      }
 
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -170,6 +214,9 @@ export const POST = withErrorHandler(
         scan_status: scanResult.scan_status,
         scan_summary: persistedSummary,
         scan_updated_at: now.toISOString(),
+        ...(shouldAutoRevertOverride
+          ? { override_auto_cleared: true as const }
+          : {}),
       });
     });
   },

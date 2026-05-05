@@ -14,6 +14,14 @@ Policy
   the ``SKILL_SCANNER_GATE`` env var. This is the hard security
   invariant: a skill the scanner has marked unsafe must never be
   served to any runtime path.
+* ``scan_status == "admin_overridden"`` is **allowed** when the admin
+  override feature is enabled (default) — represents a flagged skill
+  an admin has explicitly green-lit with a reason. The override
+  metadata (set_by/set_at/reason/prior_scan_status) lives on the same
+  doc and is exposed to the UI for audit. When the feature is
+  disabled (``ADMIN_SCAN_OVERRIDE_ENABLED=false``), an overridden
+  status is treated as if it were still ``flagged`` — strictly
+  blocked — so a single env flip fully removes the escape hatch.
 * ``scan_status == "unscanned"`` (and missing-status legacy rows)
   are blocked only under ``SKILL_SCANNER_GATE=strict``. The default
   is ``"warn"`` so deployments without the optional skill-scanner
@@ -42,6 +50,15 @@ inline ``$ne`` queries. Centralizing it means:
 2. Tests can pin the policy table without booting Mongo.
 3. Both Mongo query predicates (``mongo_scan_filter``) and Python-side
    dict checks (``is_skill_blocked``) share the same source of truth.
+
+Strict mode and overrides
+-------------------------
+Under ``SKILL_SCANNER_GATE=strict`` the only allowed status is
+``"passed"``. An ``"admin_overridden"`` skill is therefore blocked
+in strict mode regardless of ``ADMIN_SCAN_OVERRIDE_ENABLED`` —
+strict means "I trust only the scanner's clean verdict." This is the
+escape hatch for regulated environments: setting strict ignores
+admin assertions, by design.
 """
 
 from __future__ import annotations
@@ -79,14 +96,35 @@ def get_scan_gate() -> str:
     return raw
 
 
+def is_admin_override_enabled() -> bool:
+    """Whether ``scan_status == "admin_overridden"`` rescues a skill.
+
+    Defaults to True so the admin override feature is on by default
+    (matches the UI default in the Skills admin panel). Operators in
+    regulated environments can flip ``ADMIN_SCAN_OVERRIDE_ENABLED=false``
+    to remove the escape hatch entirely — overridden skills then fall
+    back to being treated as ``flagged`` (blocked).
+    """
+    raw = os.getenv("ADMIN_SCAN_OVERRIDE_ENABLED", "true").strip().lower()
+    return raw not in {"false", "0", "no", "off"}
+
+
 def is_status_blocked(scan_status: str | None) -> bool:
     """Decide whether a skill with the given ``scan_status`` is blocked.
 
-    ``flagged`` is unconditional. ``unscanned`` (or missing status) is
-    blocked only under the strict gate. Everything else is allowed.
+    ``flagged`` is unconditional. ``admin_overridden`` is allowed iff
+    the override feature is on AND we're not in strict mode (strict
+    means "scanner-clean only"). ``unscanned`` (or missing status) is
+    blocked only under strict. Everything else is allowed.
     """
     if scan_status == "flagged":
         return True
+    if scan_status == "admin_overridden":
+        # Strict mode trusts only the scanner — overrides ignored.
+        if get_scan_gate() == "strict":
+            return True
+        # Otherwise the env-flag governs; off ⇒ treat as flagged.
+        return not is_admin_override_enabled()
     if scan_status in (None, "", "unscanned"):
         return get_scan_gate() == "strict"
     return False
@@ -109,19 +147,30 @@ def mongo_scan_filter() -> dict[str, Any]:
     additionally excludes ``unscanned`` and missing-status docs (which
     is the same thing semantically). Under non-strict gates only
     ``flagged`` is excluded so legacy callers don't suddenly lose
-    rows.
+    rows; an ``admin_overridden`` skill is included iff the override
+    feature is enabled (default).
     """
     if get_scan_gate() == "strict":
         # Allow only docs that have explicitly passed scanning. Mongo
         # treats missing fields as not-equal, so we pin via $in for
-        # clarity.
+        # clarity. Overrides intentionally ignored under strict.
         return {"scan_status": {"$in": ["passed"]}}
-    # Non-strict: just block the explicit bad state.
-    return {"scan_status": {"$ne": "flagged"}}
+    # Non-strict: block flagged. Block admin_overridden too iff the
+    # override feature has been turned off — keeps the predicate in
+    # sync with is_status_blocked() so callers that use the predicate
+    # alone can't accidentally serve overridden skills when overrides
+    # are disabled.
+    blocked = ["flagged"]
+    if not is_admin_override_enabled():
+        blocked.append("admin_overridden")
+    if len(blocked) == 1:
+        return {"scan_status": {"$ne": blocked[0]}}
+    return {"scan_status": {"$nin": blocked}}
 
 
 __all__ = [
     "get_scan_gate",
+    "is_admin_override_enabled",
     "is_status_blocked",
     "is_skill_blocked",
     "mongo_scan_filter",

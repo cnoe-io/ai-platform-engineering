@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { ShieldCheck, ShieldAlert, Shield, Loader2, Info } from "lucide-react";
+import {
+  ShieldCheck,
+  ShieldAlert,
+  Shield,
+  Loader2,
+  Info,
+  ShieldOff,
+} from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -15,12 +22,27 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { cn } from "@/lib/utils";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+import type {
+  AgentSkill,
+  PersistedScanStatus,
+  ScanOverride,
+} from "@/types/agent-skill";
 
+/**
+ * Status copy + tooltip hint per persisted status.
+ *
+ * ``admin_overridden`` is the only status that the scanner does NOT
+ * produce on its own — it's set by the per-skill override route when
+ * an admin explicitly green-lights a previously-flagged skill. The
+ * copy is intentionally distinct ("scanner had flagged…") so it's
+ * obvious that a human action is in play, not a clean scanner verdict.
+ */
 const STATUS_COPY: Record<
-  ScanStatus,
+  PersistedScanStatus,
   { title: string; hint: string }
 > = {
   passed: {
@@ -35,10 +57,18 @@ const STATUS_COPY: Record<
     title: "Not scanned",
     hint: "No scan yet, or the supervisor was unreachable when you saved.",
   },
+  admin_overridden: {
+    title: "Admin override active",
+    hint:
+      "Scanner had flagged this skill; an admin has explicitly green-lit it. " +
+      "Open for the override reason and rescan options.",
+  },
 };
 
-function resolveStatus(config: Pick<AgentSkill, "scan_status">): ScanStatus {
-  return config.scan_status ?? "unscanned";
+function resolveStatus(
+  config: Pick<AgentSkill, "scan_status">,
+): PersistedScanStatus {
+  return (config.scan_status as PersistedScanStatus | undefined) ?? "unscanned";
 }
 
 function formatScanTime(value: Date | string | undefined): string | null {
@@ -61,6 +91,10 @@ export interface SkillScanStatusIndicatorProps {
     | "id"
     | "scan_updated_at"
     | "metadata"
+    // Optional override audit metadata. Surfaced inside the dialog
+    // when ``scan_status === "admin_overridden"`` so reviewers see
+    // who set it / when / why without leaving the gallery.
+    | "scan_override"
   >;
   /** Larger icon (e.g. builder header) */
   size?: "sm" | "md";
@@ -106,18 +140,34 @@ export function SkillScanStatusIndicator({
   const effectiveAllowManualScan =
     allowManualScan ?? defaultAllowManualScan();
   const { toast } = useToast();
+  const { isAdmin } = useAdminRole();
   const [reportOpen, setReportOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
+  // Override-form local state. Folded into a single object so the
+  // form open/close + reason + busy state stay in sync; using three
+  // separate hooks here invited a bug where Cancel left "submitting"
+  // true.
+  const [overrideForm, setOverrideForm] = useState<{
+    open: boolean;
+    reason: string;
+    busy: boolean;
+  }>({ open: false, reason: "", busy: false });
   const [localScan, setLocalScan] = useState<{
-    scan_status?: ScanStatus;
+    scan_status?: PersistedScanStatus;
     scan_summary?: string;
     scan_updated_at?: string;
+    scan_override?: ScanOverride | null;
   } | null>(null);
 
-  const merged = useMemo(
-    () => ({ ...config, ...localScan }),
-    [config, localScan],
-  );
+  const merged = useMemo(() => {
+    // localScan can explicitly null-out scan_override (clear path);
+    // we honour that by stripping the field rather than just merging.
+    const base = { ...config, ...localScan };
+    if (localScan?.scan_override === null) {
+      delete (base as { scan_override?: unknown }).scan_override;
+    }
+    return base;
+  }, [config, localScan]);
 
   const status = resolveStatus(merged);
   const copy = STATUS_COPY[status];
@@ -125,12 +175,18 @@ export function SkillScanStatusIndicator({
   const iconSize = size === "md" ? "h-4 w-4" : "h-3.5 w-3.5";
   const lastScanLabel = formatScanTime(merged.scan_updated_at);
 
+  // Icon palette — admin_overridden uses a distinct glyph
+  // (ShieldOff) and amber palette so a reviewer can tell at a
+  // glance "this isn't scanner-clean, it's admin-bypass". Sharing
+  // ShieldAlert + red with the flagged state would conflate the two.
   const Icon =
     status === "passed"
       ? ShieldCheck
       : status === "flagged"
         ? ShieldAlert
-        : Shield;
+        : status === "admin_overridden"
+          ? ShieldOff
+          : Shield;
 
   /** Subtle tinted glyph; muted neutral for unscanned so it doesn't compete with badges. */
   const iconColorClass =
@@ -138,7 +194,9 @@ export function SkillScanStatusIndicator({
       ? "text-emerald-500 dark:text-emerald-400"
       : status === "flagged"
         ? "text-red-500 dark:text-red-400"
-        : "text-muted-foreground/70";
+        : status === "admin_overridden"
+          ? "text-amber-500 dark:text-amber-400"
+          : "text-muted-foreground/70";
 
   /** Soft tinted pill used inside the report dialog header (no shadow / ring). */
   const dialogPillClass =
@@ -146,7 +204,9 @@ export function SkillScanStatusIndicator({
       ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
       : status === "flagged"
         ? "bg-red-500/15 text-red-600 dark:text-red-400"
-        : "bg-muted text-muted-foreground";
+        : status === "admin_overridden"
+          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          : "bg-muted text-muted-foreground";
 
   const preview =
     summary && summary.length > 220 ? `${summary.slice(0, 220)}…` : summary;
@@ -190,6 +250,48 @@ export function SkillScanStatusIndicator({
     return `/api/skills/configs/${encodeURIComponent(config.id)}/scan`;
   })();
 
+  /**
+   * Override endpoint resolver.
+   *
+   * v1 scope: only ``agent_skills`` skills can be overridden — built-
+   * in templates live on disk (no per-skill admin UI yet) and hub
+   * skills are crawled (no doc to write override metadata onto).
+   * Returns ``null`` for unsupported sources so the dialog can hide
+   * the buttons cleanly without a runtime branch in the JSX.
+   *
+   * The route the URL points at validates the source again on the
+   * server (``assertSupportedSource``) so a stale UI can't open a
+   * 500-style hole.
+   */
+  const overrideEndpoint = (() => {
+    const hubMatch = config.id.match(/^catalog-hub-([^-]+)-(.+)$/);
+    if (hubMatch) return null;
+    const catalogSource = (
+      config.metadata as { catalog_source?: string } | undefined
+    )?.catalog_source;
+    if (catalogSource === "default") return null;
+    // catalog-* prefix on agent_skills rows is harmless — the override
+    // route uses ``id`` as written in the doc, so we pass through the
+    // same id we'd use for scan.
+    const skillId = config.id.startsWith("catalog-")
+      ? config.id.slice("catalog-".length)
+      : config.id;
+    return `/api/admin/skills/agent_skills/${encodeURIComponent(skillId)}/scan-override`;
+  })();
+  // Admin gate on the buttons: must be admin role AND the source has
+  // to support overrides AND we have a flagged-or-overridden status.
+  // Other UI paths (e.g. SSO not configured / dev admin) flow through
+  // useAdminRole; we don't re-check here.
+  const adminCanOverride = isAdmin && overrideEndpoint !== null;
+  const showOverrideButton = adminCanOverride && status === "flagged";
+  const showClearOverrideButton =
+    adminCanOverride && status === "admin_overridden";
+
+  const overrideMeta = merged.scan_override;
+  const overrideSetAtLabel = overrideMeta
+    ? formatScanTime(overrideMeta.set_at)
+    : null;
+
   const runScan = async () => {
     setScanning(true);
     try {
@@ -211,6 +313,11 @@ export function SkillScanStatusIndicator({
         scan_status: payload.scan_status,
         scan_summary: payload.scan_summary,
         scan_updated_at: payload.scan_updated_at,
+        // The rescan route auto-clears overrides on a clean verdict
+        // (see route.override-revert tests). Mirror that here so the
+        // dialog re-renders with the override gone immediately,
+        // without waiting for the parent's onScanComplete refresh.
+        scan_override: payload.override_auto_cleared ? null : undefined,
       });
       toast("Scan finished", "success");
       await onScanComplete?.();
@@ -218,6 +325,97 @@ export function SkillScanStatusIndicator({
       toast(e instanceof Error ? e.message : "Scan request failed", "error");
     } finally {
       setScanning(false);
+    }
+  };
+
+  const submitOverride = async () => {
+    if (!overrideEndpoint) return; // Defensive — button hidden anyway.
+    const reason = overrideForm.reason.trim();
+    if (reason.length === 0) {
+      toast(
+        "Please enter a reason — overrides are audit-logged and " +
+          "require justification.",
+        "error",
+      );
+      return;
+    }
+    setOverrideForm((s) => ({ ...s, busy: true }));
+    try {
+      const res = await fetch(overrideEndpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof data?.error === "string"
+            ? data.error
+            : data?.message || `Override failed (${res.status})`;
+        toast(msg, "error", 8000);
+        return;
+      }
+      const payload = data?.data ?? data;
+      setLocalScan({
+        scan_status: payload.scan_status,
+        // Server may not echo summary on override; keep the existing
+        // value visible so the report shows what was overridden.
+        scan_summary: merged.scan_summary,
+        scan_updated_at: payload.scan_updated_at,
+        scan_override: payload.scan_override ?? undefined,
+      });
+      setOverrideForm({ open: false, reason: "", busy: false });
+      toast("Override applied", "success");
+      await onScanComplete?.();
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : "Override request failed",
+        "error",
+      );
+    } finally {
+      setOverrideForm((s) => ({ ...s, busy: false }));
+    }
+  };
+
+  const clearOverride = async () => {
+    if (!overrideEndpoint) return;
+    setOverrideForm((s) => ({ ...s, busy: true }));
+    try {
+      const res = await fetch(overrideEndpoint, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof data?.error === "string"
+            ? data.error
+            : data?.message || `Clear failed (${res.status})`;
+        toast(msg, "error", 8000);
+        return;
+      }
+      const payload = data?.data ?? data;
+      setLocalScan({
+        // After clear the route flips status back to flagged. Echo
+        // that so the indicator immediately shows the red shield
+        // again (and the gallery row, when its parent refreshes).
+        scan_status: payload.scan_status,
+        scan_summary: merged.scan_summary,
+        scan_updated_at: payload.scan_updated_at,
+        // Explicit null sentinel — see merged useMemo: null tells
+        // the merge to delete the field, not to spread an undefined.
+        scan_override: null,
+      });
+      toast("Override removed", "success");
+      await onScanComplete?.();
+    } catch (e) {
+      toast(
+        e instanceof Error ? e.message : "Clear request failed",
+        "error",
+      );
+    } finally {
+      setOverrideForm((s) => ({ ...s, busy: false }));
     }
   };
 
@@ -314,6 +512,117 @@ export function SkillScanStatusIndicator({
               </p>
             )}
 
+            {/*
+             * Admin override audit panel. Shown whenever the persisted
+             * status is admin_overridden, regardless of viewer role —
+             * non-admins still get to see "this skill is admin-bypass"
+             * with the reason, just without the buttons. Source of
+             * truth for the audit trail; the dialog action buttons
+             * only mutate; this panel is read-only.
+             */}
+            {status === "admin_overridden" && overrideMeta && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-1.5">
+                <p className="font-semibold text-amber-700 dark:text-amber-400">
+                  Admin override active
+                </p>
+                <p className="text-muted-foreground leading-relaxed">
+                  Scanner had returned{" "}
+                  <span className="font-mono text-foreground">
+                    {overrideMeta.prior_scan_status}
+                  </span>
+                  . An admin has explicitly green-lit this skill for
+                  runtime use; the override can be removed from this
+                  dialog (admin only).
+                </p>
+                <dl className="grid grid-cols-[max-content_1fr] gap-x-2 gap-y-1 text-muted-foreground">
+                  <dt className="font-medium text-foreground">Set by</dt>
+                  <dd className="font-mono break-all">{overrideMeta.set_by}</dd>
+                  {overrideSetAtLabel && (
+                    <>
+                      <dt className="font-medium text-foreground">Set at</dt>
+                      <dd>{overrideSetAtLabel}</dd>
+                    </>
+                  )}
+                  <dt className="font-medium text-foreground">Reason</dt>
+                  <dd className="whitespace-pre-wrap break-words">
+                    {overrideMeta.reason}
+                  </dd>
+                </dl>
+              </div>
+            )}
+
+            {/*
+             * Override-form inline panel. Visible only when the user
+             * is admin AND the skill is currently flagged AND the
+             * form has been opened via the "Override flag" button
+             * below. Lives inside the dialog (not a nested dialog)
+             * to avoid a double-modal that complicates focus
+             * management.
+             */}
+            {showOverrideButton && overrideForm.open && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-2">
+                <p className="font-semibold text-amber-700 dark:text-amber-400">
+                  Override scanner verdict
+                </p>
+                <p className="text-muted-foreground leading-snug">
+                  This will mark the skill as admin-overridden and
+                  allow the runtime to serve it despite the flagged
+                  scan. Your reason is persisted on the skill and
+                  written to the override audit log.
+                </p>
+                <Textarea
+                  value={overrideForm.reason}
+                  onChange={(e) =>
+                    setOverrideForm((s) => ({
+                      ...s,
+                      reason: e.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Reviewed the shell-out finding; all paths use a strict allow-list."
+                  rows={3}
+                  maxLength={4096}
+                  disabled={overrideForm.busy}
+                  aria-label="Override reason"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setOverrideForm({
+                        open: false,
+                        reason: "",
+                        busy: false,
+                      })
+                    }
+                    disabled={overrideForm.busy}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => void submitOverride()}
+                    disabled={
+                      overrideForm.busy ||
+                      overrideForm.reason.trim().length === 0
+                    }
+                  >
+                    {overrideForm.busy ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Submitting…
+                      </>
+                    ) : (
+                      "Confirm override"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-md border bg-muted/40 p-3">
               <pre className="text-xs whitespace-pre-wrap break-words font-mono leading-relaxed">
                 {summary ||
@@ -322,6 +631,40 @@ export function SkillScanStatusIndicator({
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+              {showOverrideButton && !overrideForm.open && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2 border-amber-500/60 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
+                  onClick={() =>
+                    setOverrideForm({ open: true, reason: "", busy: false })
+                  }
+                  title="Admin: explicitly green-light this flagged skill (audit-logged)"
+                >
+                  Override flag…
+                </Button>
+              )}
+              {showClearOverrideButton && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  disabled={overrideForm.busy}
+                  onClick={() => void clearOverride()}
+                  title="Admin: remove the override and let the scanner verdict take effect again"
+                >
+                  {overrideForm.busy ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Removing…
+                    </>
+                  ) : (
+                    "Remove override"
+                  )}
+                </Button>
+              )}
               {effectiveAllowManualScan && (
                 <Button
                   type="button"

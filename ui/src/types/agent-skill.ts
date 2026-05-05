@@ -119,8 +119,57 @@ export interface AgentSkillMetadata {
   import_kind?: string;
 }
 
-/** Scan status set by skill-scanner on save/publish (FR-027). */
+/**
+ * Scan status produced by the skill-scanner service (FR-027).
+ *
+ * Kept narrow on purpose: the scanner only ever emits one of these
+ * three values. The widened ``PersistedScanStatus`` below adds the
+ * ``"admin_overridden"`` case that an admin can set via the per-skill
+ * override route — that value is never produced by the scanner, so
+ * the scanner-input/output types must not include it.
+ */
 export type ScanStatus = "passed" | "flagged" | "unscanned";
+
+/**
+ * Audit record for an admin scan override.
+ *
+ * Set by ``POST /api/admin/skills/:source/:source_id/scan-override``
+ * and persisted on the ``agent_skills`` doc alongside
+ * ``scan_status: "admin_overridden"``. Surfaced in the catalog
+ * response so the scan-status report dialog can render the audit
+ * trail (who / when / why) and offer "Remove override" to admins.
+ *
+ * ``prior_scan_status`` is intentionally restricted to ``"flagged"``
+ * because that is the only state from which an override can be
+ * created — an admin can't pre-emptively override a passed or
+ * unscanned skill (no reason to). Captured here so the UI can
+ * render "Override active. Scanner had returned: flagged" without
+ * keeping a stale copy of the original verdict somewhere else.
+ */
+export interface ScanOverride {
+  /** Identity of the admin who set the override (email or user id). */
+  set_by: string;
+  /** ISO-8601 timestamp at which the override was set. */
+  set_at: string;
+  /** Free-form admin justification, persisted for audit. */
+  reason: string;
+  /** Scanner verdict at the moment of override (always ``"flagged"``). */
+  prior_scan_status: "flagged";
+  /** Snapshot of ``scan_summary`` at override time, if it existed. */
+  prior_scan_summary?: string;
+}
+
+/**
+ * Status as persisted on a skill document.
+ *
+ * Includes the admin escape hatch ``"admin_overridden"``. Loaders
+ * (Python ``scan_gate.is_status_blocked`` and Node
+ * ``applyRunnableGate``) treat this as runnable iff
+ * ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on; otherwise it collapses
+ * back to "blocked" so a single env flip removes the escape hatch
+ * in lockstep across both tiers.
+ */
+export type PersistedScanStatus = ScanStatus | "admin_overridden";
 
 /**
  * Main agent skill interface
@@ -163,12 +212,24 @@ export interface AgentSkill {
   visibility?: SkillVisibility;
   /** Team IDs this skill is shared with (when visibility is "team") */
   shared_with_teams?: string[];
-  /** Scan status from skill-scanner on save (FR-027) */
-  scan_status?: ScanStatus;
+  /**
+   * Persisted scan status: the scanner verdict, OR
+   * ``"admin_overridden"`` if an admin has explicitly green-lit a
+   * previously flagged skill via the per-skill override route.
+   * (FR-027.) The override is read from ``scan_override`` below.
+   */
+  scan_status?: PersistedScanStatus;
   /** Optional scanner output / summary text persisted for UI report */
   scan_summary?: string;
   /** When the last scan result was persisted (save or manual Scan now) */
   scan_updated_at?: Date | string;
+  /**
+   * Audit metadata for an active admin override. Present iff
+   * ``scan_status === "admin_overridden"``. Cleared (along with the
+   * status flip back to "passed") when a rescan now returns
+   * ``"passed"`` — at which point the override is no longer needed.
+   */
+  scan_override?: ScanOverride;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
 }

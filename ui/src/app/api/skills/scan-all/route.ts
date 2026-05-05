@@ -9,6 +9,7 @@ import {
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
+import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 import type { HubSkillDoc } from "@/lib/hub-crawl";
 import {
@@ -224,20 +225,59 @@ async function runBulkScan(
       // Persist onto the skill so the gallery shield reflects the
       // new state without a manual save.
       const now = new Date();
+      // Same auto-revert logic as ``configs/[id]/scan/route.ts``:
+      // a clean rescan ("passed") on an admin-overridden skill
+      // drops the override and writes a system-attributed audit
+      // row. See that file for the full rationale; we duplicate
+      // the small block here rather than extracting a helper
+      // because both writers need to perform the action inside
+      // a single ``updateOne`` to avoid a window where the doc
+      // is "passed but still has scan_override".
+      const wasOverridden =
+        skill.scan_status === "admin_overridden" && !!skill.scan_override;
+      const shouldAutoRevertOverride =
+        wasOverridden && scanResult.scan_status === "passed";
       try {
-        await col.updateOne(
-          { id: skill.id },
-          {
-            $set: {
-              scan_status: scanResult.scan_status,
-              ...(persistedSummary !== undefined
-                ? { scan_summary: persistedSummary }
-                : {}),
-              scan_updated_at: now,
-              updated_at: now,
+        if (shouldAutoRevertOverride) {
+          await col.updateOne(
+            { id: skill.id },
+            {
+              $set: {
+                scan_status: scanResult.scan_status,
+                ...(persistedSummary !== undefined
+                  ? { scan_summary: persistedSummary }
+                  : {}),
+                scan_updated_at: now,
+                updated_at: now,
+              },
+              $unset: { scan_override: "" },
             },
-          },
-        );
+          );
+          await recordScanOverrideEvent({
+            action: "clear",
+            skill_id: skill.id,
+            skill_name: skill.name,
+            source: skill.is_system ? "default" : "agent_skills",
+            actor: "system:scanner",
+            reason: "Scanner returned passed",
+            prior_scan_status: "admin_overridden",
+            prior_scan_summary: skill.scan_summary,
+          });
+        } else {
+          await col.updateOne(
+            { id: skill.id },
+            {
+              $set: {
+                scan_status: scanResult.scan_status,
+                ...(persistedSummary !== undefined
+                  ? { scan_summary: persistedSummary }
+                  : {}),
+                scan_updated_at: now,
+                updated_at: now,
+              },
+            },
+          );
+        }
       } catch (err) {
         console.warn(
           `[scan-all] Failed to persist scan for agent_skills/${skill.id}:`,

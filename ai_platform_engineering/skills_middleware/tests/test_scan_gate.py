@@ -20,6 +20,10 @@ from ai_platform_engineering.skills_middleware import scan_gate
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
     monkeypatch.delenv("SKILL_SCANNER_GATE", raising=False)
+    # Also clear the admin-override env so each test starts from the
+    # documented default (override-on). Tests that need it off set it
+    # explicitly via monkeypatch.
+    monkeypatch.delenv("ADMIN_SCAN_OVERRIDE_ENABLED", raising=False)
 
 
 class TestGetScanGate:
@@ -122,3 +126,133 @@ class TestDefaultGateAllowsUnscannedSkills:
         # warn-by-default does NOT mean we serve flagged content.
         assert scan_gate.is_status_blocked("flagged") is True
         assert scan_gate.is_skill_blocked({"scan_status": "flagged"}) is True
+
+
+# -- Admin override (scan_status == "admin_overridden") -------------------------
+#
+# `admin_overridden` represents a flagged skill an admin has explicitly
+# green-lit via the UI. The gate must allow it under non-strict modes
+# when ADMIN_SCAN_OVERRIDE_ENABLED is on (default), block it when the
+# operator turns the feature off, and *always* block it under strict
+# (strict means "scanner-clean only", overrides ignored). These tests
+# pin every cell of that policy table so a future refactor can't
+# silently weaken the override invariant in either direction.
+
+
+class TestIsAdminOverrideEnabled:
+    def test_default_is_enabled(self):
+        # Override is on by default — matches the UI default. Operators
+        # who want regulated behaviour flip the env to "false".
+        assert scan_gate.is_admin_override_enabled() is True
+
+    @pytest.mark.parametrize("value", ["false", "FALSE", "0", "no", "off"])
+    def test_falsy_values_disable(self, monkeypatch, value):
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", value)
+        assert scan_gate.is_admin_override_enabled() is False
+
+    @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on", ""])
+    def test_truthy_or_unknown_values_enable(self, monkeypatch, value):
+        # Permissive parsing: any non-explicit-false string keeps the
+        # feature on, so an accidental typo doesn't silently disable
+        # the admin escape hatch.
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", value)
+        assert scan_gate.is_admin_override_enabled() is True
+
+
+class TestIsStatusBlockedForAdminOverride:
+    def test_overridden_allowed_under_warn_when_feature_on(self, monkeypatch):
+        # The whole point: an admin-overridden skill loads in the
+        # default (warn) gate when the override feature is enabled.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        # ADMIN_SCAN_OVERRIDE_ENABLED unset ⇒ default-on.
+        assert scan_gate.is_status_blocked("admin_overridden") is False
+
+    def test_overridden_allowed_under_off_when_feature_on(self, monkeypatch):
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "off")
+        assert scan_gate.is_status_blocked("admin_overridden") is False
+
+    def test_overridden_blocked_under_strict_even_when_feature_on(
+        self, monkeypatch
+    ):
+        # Strict means "I trust only the scanner." Overrides are
+        # intentionally ignored — the regulated-environment escape
+        # hatch must remain. Flipping ADMIN_SCAN_OVERRIDE_ENABLED on
+        # cannot weaken strict.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "strict")
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "true")
+        assert scan_gate.is_status_blocked("admin_overridden") is True
+
+    def test_overridden_blocked_when_feature_off(self, monkeypatch):
+        # Operator turned the feature off ⇒ override falls back to
+        # being treated as flagged (blocked) regardless of gate.
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "false")
+        for gate in ("strict", "warn", "off"):
+            monkeypatch.setenv("SKILL_SCANNER_GATE", gate)
+            assert scan_gate.is_status_blocked("admin_overridden") is True, (
+                f"override-off under gate={gate} should block "
+                "admin_overridden"
+            )
+
+    def test_flagged_invariant_unaffected_by_override_flag(self, monkeypatch):
+        # The flagged-is-always-blocked invariant has nothing to do
+        # with admin_overridden. Toggling the override flag must not
+        # accidentally rescue plain flagged skills.
+        for override_state in ("true", "false"):
+            monkeypatch.setenv(
+                "ADMIN_SCAN_OVERRIDE_ENABLED", override_state
+            )
+            for gate in ("strict", "warn", "off"):
+                monkeypatch.setenv("SKILL_SCANNER_GATE", gate)
+                assert scan_gate.is_status_blocked("flagged") is True
+
+
+class TestMongoScanFilterForAdminOverride:
+    def test_warn_with_override_on_keeps_legacy_predicate(self, monkeypatch):
+        # When the override feature is on (default), the predicate
+        # excludes only "flagged" — `admin_overridden` is allowed
+        # alongside everything else. This is the same predicate the
+        # supervisor and dynamic-agents loaders have always used in
+        # warn mode, so existing callers see no behaviour change.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        assert scan_gate.mongo_scan_filter() == {
+            "scan_status": {"$ne": "flagged"}
+        }
+
+    def test_warn_with_override_off_excludes_overridden_too(
+        self, monkeypatch
+    ):
+        # Operator disabled the override feature ⇒ the predicate must
+        # also exclude `admin_overridden`. Without this, callers that
+        # use the predicate alone (without the per-doc Python check)
+        # would happily serve overridden skills even though the
+        # feature is off — defeating the env flag.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        monkeypatch.setenv("ADMIN_SCAN_OVERRIDE_ENABLED", "false")
+        assert scan_gate.mongo_scan_filter() == {
+            "scan_status": {"$nin": ["flagged", "admin_overridden"]}
+        }
+
+    def test_strict_unaffected_by_override_flag(self, monkeypatch):
+        # Strict = passed-only, regardless of the override feature.
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "strict")
+        for override_state in ("true", "false"):
+            monkeypatch.setenv(
+                "ADMIN_SCAN_OVERRIDE_ENABLED", override_state
+            )
+            assert scan_gate.mongo_scan_filter() == {
+                "scan_status": {"$in": ["passed"]}
+            }
+
+
+class TestIsSkillBlockedForAdminOverride:
+    def test_reads_admin_overridden_from_dict(self, monkeypatch):
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "warn")
+        assert scan_gate.is_skill_blocked(
+            {"scan_status": "admin_overridden"}
+        ) is False
+
+    def test_strict_blocks_admin_overridden_dict(self, monkeypatch):
+        monkeypatch.setenv("SKILL_SCANNER_GATE", "strict")
+        assert scan_gate.is_skill_blocked(
+            {"scan_status": "admin_overridden"}
+        ) is True
