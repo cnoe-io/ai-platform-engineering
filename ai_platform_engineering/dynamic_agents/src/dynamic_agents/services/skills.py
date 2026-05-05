@@ -54,10 +54,12 @@ def _load_agent_skills(
     """Query ``agent_skills`` collection. Returns ``(skills, found_ids)``.
 
     Skills with ``scan_status=="flagged"`` are unconditionally
-    excluded; ``unscanned`` skills are excluded under
-    ``SKILL_SCANNER_GATE=strict`` (default). This keeps dynamic
-    agents in lockstep with the supervisor catalog policy so a
-    flagged skill cannot be ingested via either path.
+    excluded; ``unscanned`` skills are excluded only under
+    ``SKILL_SCANNER_GATE=strict`` (the default is ``warn`` so
+    deployments without the optional skill-scanner sidecar still
+    load skills). This keeps dynamic agents in lockstep with the
+    supervisor catalog policy so a flagged skill cannot be ingested
+    via either path.
     """
     if not skill_ids:
         return [], set()

@@ -516,9 +516,11 @@ class TestLoadHubSkillsFromMongo:
             {"_id": "h1", "id": "h1", "type": "github", "location": "org/gh-repo", "labels": ["sec"]},
             {"_id": "h2", "id": "h2", "type": "gitlab", "location": "mycorp/gl-repo", "labels": []},
         ]
-        # ``scan_status: passed`` is required because the default
-        # SKILL_SCANNER_GATE is strict — that's the production posture
-        # and matches what the UI scanner stamps onto every cached row.
+        # ``scan_status: passed`` mirrors what the UI scanner stamps
+        # onto every cached row when the optional skill-scanner is
+        # configured. Under the default warn gate ``$ne: "flagged"``
+        # would already accept these rows, but pinning ``passed``
+        # exercises the strict-gate path too.
         rows = [
             {
                 "hub_id": "h1",

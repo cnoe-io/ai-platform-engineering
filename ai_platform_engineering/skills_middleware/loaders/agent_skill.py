@@ -43,7 +43,7 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
 
   database = os.getenv("MONGODB_DATABASE", "caipe")
   # Shared scan-gating policy: flagged is always blocked, unscanned
-  # is blocked under SKILL_SCANNER_GATE=strict (the default).
+  # is blocked only under SKILL_SCANNER_GATE=strict (default is warn).
   from ai_platform_engineering.skills_middleware.scan_gate import (
     is_skill_blocked,
     mongo_scan_filter,
