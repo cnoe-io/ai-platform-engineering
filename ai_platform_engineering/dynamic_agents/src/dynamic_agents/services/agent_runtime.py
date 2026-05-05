@@ -17,8 +17,6 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from botocore.config import Config as BotocoreConfig
-from cnoe_agent_utils import LLMFactory
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from deepagents.backends.state import StateBackend
@@ -55,6 +53,7 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
+from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.skills import build_skills_files, load_skills
 
 
@@ -154,7 +153,6 @@ class AgentRuntime:
         client_context: ClientContext | None = None,
         session_id: str | None = None,
         mongo_client: MongoClient | None = None,
-        llm_client: object | None = None,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -163,7 +161,6 @@ class AgentRuntime:
         self._user = user
         self._client_context = client_context
         self._session_id = session_id
-        self._llm_client = llm_client  # shared transport client (boto3/httpx)
         self._graph = None
         # Use shared MongoClient if provided; otherwise create our own
         self._owns_mongo_client = mongo_client is None
@@ -277,30 +274,7 @@ class AgentRuntime:
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
         # 5. Instantiate LLM
-        logger.info(
-            f"[llm] Instantiating LLM for agent '{self.config.name}': "
-            f"provider={self.config.model.provider}, model={self.config.model.id}"
-        )
-        # Build kwargs for LLMFactory. If a shared transport client is provided,
-        # pass it through so ChatBedrockConverse/ChatOpenAI reuse it instead of
-        # creating a new one (~20MB savings per runtime).
-        llm_kwargs: dict[str, Any] = {"model": self.config.model.id}
-        provider_lower = self.config.model.provider.lower().replace("-", "_")
-        if self._llm_client is not None:
-            if "bedrock" in provider_lower or "aws" in provider_lower:
-                # _llm_client is a tuple: (data_plane_client, control_plane_client)
-                runtime_client, control_client = self._llm_client
-                llm_kwargs["client"] = runtime_client
-                llm_kwargs["bedrock_client"] = control_client
-            elif "openai" in provider_lower or "azure" in provider_lower:
-                # ChatOpenAI/AzureChatOpenAI accept http_client=
-                llm_kwargs["http_client"] = self._llm_client
-        else:
-            # No shared client — pass botocore config for timeout handling
-            llm_kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
-
-        llm = LLMFactory(provider=self.config.model.provider).get_llm(**llm_kwargs)
-        logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
+        llm = get_llm(self.config.model.provider, self.config.model.id)
 
         # ─────────────────────────────────────────────────────────────────
         # Extensions
@@ -352,8 +326,8 @@ class AgentRuntime:
             model_id=self.config.model.id,
         )
         # Prepend skills middleware so it runs before other middleware
-        if skills_middleware_list:
-            middleware_stack = skills_middleware_list + middleware_stack
+        if skills_middleware:
+            middleware_stack = [skills_middleware] + middleware_stack
 
         # 10. Interrupt config
         interrupt_config = self._build_interrupt_config(tools, builtin_tool_names)
@@ -548,6 +522,9 @@ class AgentRuntime:
             # System prompt from subagent config
             subagent_prompt = subagent_config.system_prompt
 
+            # Instantiate subagent LLM (uses its own configured model)
+            subagent_llm = get_llm(subagent_config.model.provider, subagent_config.model.id)
+
             # Create SubAgent dict in deepagents format
             # Use agent_id as the name - this ensures namespace[0] from LangGraph
             # matches the MongoDB agent_id exactly
@@ -556,6 +533,7 @@ class AgentRuntime:
                 "description": ref.description,
                 "system_prompt": subagent_prompt,
                 "tools": subagent_tools,
+                "model": subagent_llm,
                 "middleware": build_middleware(
                     subagent_config.features,
                     self._session_id,
@@ -569,7 +547,10 @@ class AgentRuntime:
             # by passing the updated visited set.
 
             subagents.append(subagent_dict)
-            logger.info(f"Agent '{self.config.name}': Resolved subagent '{ref.name}' with {len(subagent_tools)} tools")
+            logger.info(
+                f"Agent '{self.config.name}': Resolved subagent '{ref.name}' with {len(subagent_tools)} tools, "
+                f"model={subagent_config.model.provider}/{subagent_config.model.id}"
+            )
 
         return subagents
 
@@ -767,12 +748,6 @@ class AgentRuntime:
             for frame in encoder.on_warning(
                 f"{len(self._failed_skills)} skill(s) failed to load and will not be available. "
                 f"{self._failed_skills_error}",
-            ):
-                yield frame
-
-        if self._failed_task_configs:
-            for frame in encoder.on_warning(
-                f"{len(self._failed_task_configs)} task config(s) failed to load. {self._failed_task_configs_error}",
             ):
                 yield frame
 

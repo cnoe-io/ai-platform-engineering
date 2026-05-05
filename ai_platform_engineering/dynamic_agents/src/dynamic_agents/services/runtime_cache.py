@@ -26,7 +26,6 @@ from dynamic_agents.models import (
 )
 from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.llm_clients import close_all as close_llm_clients
-from dynamic_agents.services.llm_clients import get_shared_llm_client
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -222,9 +221,6 @@ class AgentRuntimeCache:
             self._shared_mongo_client = MongoClient(settings.mongodb_uri, tz_aware=True)
             logger.info("Created shared MongoClient for runtime cache")
 
-        # Get shared LLM transport client for this provider (saves ~20MB/runtime)
-        llm_client = get_shared_llm_client(agent_config.model.provider)
-
         # Create new runtime
         runtime = AgentRuntime(
             agent_config,
@@ -234,7 +230,6 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             mongo_client=self._shared_mongo_client,
-            llm_client=llm_client,
         )
         try:
             await runtime.initialize()
