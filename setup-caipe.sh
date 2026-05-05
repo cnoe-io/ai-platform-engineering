@@ -1786,9 +1786,11 @@ choose_features() {
 
   echo ""
 
-  # ── RAG: detect from cluster if not already known ────────────────────────────
+  # ── RAG: detect from cluster ──────────────────────────────────────────────────
+  # Always check the cluster — detect_deployed_features may have already set
+  # ENABLE_RAG=true, but we still need to read embeddings config and confirm.
   local _rag_from_cluster=false
-  if ! $ENABLE_RAG && kubectl get svc rag-server -n caipe &>/dev/null 2>&1; then
+  if kubectl get svc rag-server -n caipe &>/dev/null 2>&1; then
     ENABLE_RAG=true
     _rag_from_cluster=true
     # Read embeddings config from live Helm values
@@ -1822,7 +1824,41 @@ choose_features() {
     fi
     if $_keep_rag; then
       log "RAG kept"
-      # Fall through — Graph RAG and agent prompts still need to run below
+      # Validate that the required embeddings credentials are available.
+      # They may be missing if the LLM provider changed and the old secret was wiped.
+      # Prompt now so provision_secrets can include them in the rebuilt llm-secret.
+      case "${EMBEDDINGS_PROVIDER:-openai}" in
+        openai)
+          if [[ "$LLM_PROVIDER" != "openai" && -z "${OPENAI_API_KEY:-}" ]]; then
+            # Try to rescue from the existing secret first
+            local _ols
+            _ols=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            [[ -n "$_ols" ]] && OPENAI_API_KEY=$(echo "$_ols" | jq -r '.data.OPENAI_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+              warn "OpenAI embeddings require OPENAI_API_KEY (not found in existing secret)"
+              _collect_openai_embeddings_key
+            fi
+          fi
+          ;;
+        azure-openai)
+          if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+            local _als
+            _als=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            if [[ -n "$_als" ]]; then
+              [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_ENDPOINT // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(echo "$_als" | jq -r '.data.AZURE_OPENAI_API_VERSION // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            fi
+            if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+              warn "Azure OpenAI embeddings credentials not found — please enter them now"
+              prompt "Azure OpenAI API key: "; tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+              prompt "Azure OpenAI endpoint: "; tty_read -r AZURE_OPENAI_ENDPOINT
+              prompt "API version [2025-04-01-preview]: "; tty_read -r _v; AZURE_OPENAI_API_VERSION="${_v:-2025-04-01-preview}"
+            fi
+          fi
+          ;;
+      esac
+      # Fall through — agent prompts still need to run below
     fi
   fi
 
@@ -2367,6 +2403,30 @@ create_namespace_and_secrets() {
 
   kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "Namespace 'caipe' ready"
+
+  # Rescue embeddings credentials from the existing llm-secret before we
+  # overwrite it, so a LLM-provider switch doesn't silently break RAG.
+  local _existing_lls
+  _existing_lls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+  if [[ -n "$_existing_lls" ]]; then
+    _elv() { echo "$_existing_lls" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+    if $ENABLE_RAG; then
+      case "${EMBEDDINGS_PROVIDER:-}" in
+        openai)
+          [[ -z "${OPENAI_API_KEY:-}" ]] && OPENAI_API_KEY=$(_elv OPENAI_API_KEY)
+          ;;
+        azure-openai)
+          [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_elv AZURE_OPENAI_API_KEY)
+          [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_elv AZURE_OPENAI_ENDPOINT)
+          [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_elv AZURE_OPENAI_API_VERSION)
+          ;;
+        litellm)
+          [[ -z "${LITELLM_ENDPOINT:-}" ]]  && LITELLM_ENDPOINT=$(_elv LITELLM_API_BASE)
+          [[ -z "${LITELLM_API_KEY:-}" ]]   && LITELLM_API_KEY=$(_elv LITELLM_API_KEY)
+          ;;
+      esac
+    fi
+  fi
 
   local secret_args=(
     --from-literal=LLM_PROVIDER="$LLM_PROVIDER"
