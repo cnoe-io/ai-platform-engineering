@@ -21,6 +21,7 @@ import {
   verifyState,
   WebexOauthError,
 } from '@/lib/webex-oauth';
+import { getRequestOrigin } from '@/lib/request-origin';
 import { upsertVendorConnection } from '@/lib/vendor-tokens';
 
 const SETTINGS_PAGE = '/settings/integrations';
@@ -30,7 +31,7 @@ function redirectWithStatus(
   outcome: 'success' | 'error',
   message?: string,
 ) {
-  const url = new URL(SETTINGS_PAGE, request.url);
+  const url = new URL(SETTINGS_PAGE, getRequestOrigin(request));
   url.searchParams.set('webex', outcome);
   if (message) url.searchParams.set('message', message);
   return NextResponse.redirect(url, 302);
