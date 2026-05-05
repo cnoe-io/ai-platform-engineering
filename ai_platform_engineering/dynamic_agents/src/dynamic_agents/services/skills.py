@@ -64,9 +64,14 @@ def _load_agent_skills(
     if not skill_ids:
         return [], set()
 
-    # Imported lazily to avoid a hard dep cycle when this service is
-    # used as a library in environments without the supervisor pkg.
-    from ai_platform_engineering.skills_middleware.scan_gate import (
+    # Vendored module — see scan_gate.py docstring. We previously
+    # imported from ai_platform_engineering.skills_middleware.scan_gate,
+    # which works in the dev monorepo but raises ModuleNotFoundError
+    # in the dynamic-agents container (only the dynamic_agents package
+    # is shipped). The exception was caught by load_skills' broad
+    # except, silently returning [] and making every dynamic agent's
+    # virtual filesystem appear empty to the LLM.
+    from dynamic_agents.services.scan_gate import (
         is_skill_blocked,
         mongo_scan_filter,
     )
@@ -171,8 +176,9 @@ def _load_hub_skills(
     if not hub_ids_map:
         return []
 
-    # Imported lazily for the same reason as ``_load_agent_skills``.
-    from ai_platform_engineering.skills_middleware.scan_gate import (
+    # Vendored — see scan_gate.py docstring (same reason as
+    # ``_load_agent_skills`` above).
+    from dynamic_agents.services.scan_gate import (
         is_skill_blocked,
         mongo_scan_filter,
     )
