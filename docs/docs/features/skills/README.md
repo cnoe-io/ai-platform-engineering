@@ -18,7 +18,7 @@ can be:
   Cursor, Codex CLI, Gemini CLI, or opencode (via the
   [`/api/skills/install.sh`](#install-on-your-laptop) one-liner), or
 - **fetched on demand by an external coding agent** through the
-  [Skills API Gateway](#skills-api-gateway) — the agent calls the catalog
+  [Skills API Gateway](#wire-your-coding-agent-to-the-live-catalog) — the agent calls the catalog
   REST API directly rather than copying anything to disk.
 
 This doc is the umbrella reference. For the exhaustive feature contracts,
