@@ -14,7 +14,8 @@ import JSZip from "jszip";
 import {
   parseSkillZip,
   buildConflictDecisions,
-  MAX_ZIP_ENTRIES,
+  getMaxZipEntries,
+  DEFAULT_MAX_ZIP_ENTRIES,
   MAX_TOTAL_UNCOMPRESSED_BYTES,
   MAX_ANCILLARY_FILE_BYTES,
   MAX_SKILLS_PER_ZIP,
@@ -228,17 +229,72 @@ describe("parseSkillZip — failure modes", () => {
   });
 
   it("returns too_many_entries when total entry count exceeds the cap", async () => {
-    const entries: Record<string, string> = {
-      "skills/foo/SKILL.md": FRONTMATTER("foo"),
-    };
-    for (let i = 0; i < MAX_ZIP_ENTRIES + 5; i++) {
-      entries[`skills/foo/file${i}.txt`] = `${i}`;
+    // Lower the cap via env override so the test doesn't have to
+    // build a 25k-entry zip just to trip the default. The default
+    // (DEFAULT_MAX_ZIP_ENTRIES = 25000) is sized for hub-style
+    // monorepos, which would make naive ``MAX + 5`` test
+    // construction prohibitively slow at suite time.
+    process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES = "10";
+    try {
+      const entries: Record<string, string> = {
+        "skills/foo/SKILL.md": FRONTMATTER("foo"),
+      };
+      for (let i = 0; i < 15; i++) {
+        entries[`skills/foo/file${i}.txt`] = `${i}`;
+      }
+      const buf = await makeZip(entries);
+      const result = await parseSkillZip(buf);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toBe("too_many_entries");
+      // Error message names the env var so the operator can find
+      // the override without spelunking through code.
+      expect(result.message).toContain("SKILL_IMPORT_MAX_ZIP_ENTRIES");
+    } finally {
+      delete process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES;
     }
-    const buf = await makeZip(entries);
-    const result = await parseSkillZip(buf);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("too_many_entries");
+  });
+
+  it("respects SKILL_IMPORT_MAX_ZIP_ENTRIES to raise the cap above the default", async () => {
+    // Pin the env-override path: a deployment that ingests larger
+    // archives can dial the cap up without a code change. We can't
+    // realistically prove the upper bound here (default = 25000),
+    // so we instead prove the same "too many" zip parses cleanly
+    // when the cap is raised above its entry count. This is the
+    // monorepo scenario the original 1000-cap rejected.
+    process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES = "100";
+    try {
+      const entries: Record<string, string> = {
+        "skills/foo/SKILL.md": FRONTMATTER("foo"),
+      };
+      // 20 ancillaries → 21 total entries, well within the raised
+      // cap. Deliberately picked to exceed the lowered cap from
+      // the previous test (10) so a regression in the env reader
+      // would surface here.
+      for (let i = 0; i < 20; i++) {
+        entries[`skills/foo/file${i}.txt`] = `${i}`;
+      }
+      const buf = await makeZip(entries);
+      const result = await parseSkillZip(buf);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.candidates).toHaveLength(1);
+      expect(result.totalEntries).toBeGreaterThanOrEqual(21);
+    } finally {
+      delete process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES;
+    }
+  });
+
+  it("falls back to the default cap when the env override is invalid", async () => {
+    // Defence-in-depth: a typo or accidental "" wiring shouldn't
+    // disable the cap. We assert via getMaxZipEntries because
+    // proving the parser default would require a 25k-entry zip.
+    for (const bad of ["", "abc", "0", "-5", "  "]) {
+      process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES = bad;
+      expect(getMaxZipEntries()).toBe(DEFAULT_MAX_ZIP_ENTRIES);
+    }
+    delete process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES;
+    expect(getMaxZipEntries()).toBe(DEFAULT_MAX_ZIP_ENTRIES);
   });
 });
 
