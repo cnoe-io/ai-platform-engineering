@@ -3765,7 +3765,7 @@ deploy_caipe() {
 
     # Auth + OIDC: enable when a public domain + OIDC issuer are configured.
     # Without AUTH_ENABLED the API is open to anyone who can reach the service.
-    local da_oidc_issuer da_oidc_client_id da_oidc_admin_group
+    local da_oidc_issuer="" da_oidc_client_id="" da_oidc_admin_group=""
     if [[ -n "$UI_ENV_FILE" ]]; then
       da_oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
       da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
