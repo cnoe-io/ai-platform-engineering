@@ -10,6 +10,7 @@ import {
 import {
   normalizeHubLocation,
   validateIncludePaths,
+  validateMaxTreePages,
 } from "../_lib/normalize";
 
 /**
@@ -67,6 +68,24 @@ export const PATCH = withErrorHandler(
           // Empty array or fully-empty input is treated as "unset" so the
           // crawler reverts to "walk the whole repo" behavior.
           unset.include_paths = "";
+        }
+      }
+      if (body.max_tree_pages !== undefined) {
+        // GitHub never paginates so silently ignoring would be a UX
+        // trap. Reject the field for GitHub hubs (mirror of POST).
+        if ((existing.type ?? "github") === "github") {
+          throw new ApiError(
+            "max_tree_pages applies to GitLab hubs only (GitHub fetches the tree in a single request).",
+            400,
+          );
+        }
+        const validated = validateMaxTreePages(body.max_tree_pages);
+        if (typeof validated === "number") {
+          update.max_tree_pages = validated;
+        } else {
+          // `null` or empty input clears the per-hub override so the
+          // crawler falls back to GITLAB_MAX_TREE_PAGES.
+          unset.max_tree_pages = "";
         }
       }
 

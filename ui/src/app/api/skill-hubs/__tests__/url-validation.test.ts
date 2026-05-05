@@ -13,7 +13,9 @@ import {
   detectHubProviderFromUrl,
   normalizeHubLocation,
   validateIncludePaths,
+  validateMaxTreePages,
 } from "../_lib/normalize";
+import { MAX_TREE_PAGES_HARD_LIMIT } from "@/lib/hub-crawl-constants";
 
 describe("skill-hubs URL hostname validation", () => {
 
@@ -308,5 +310,68 @@ describe("detectHubProviderFromUrl", () => {
       if (prev === undefined) delete process.env.GITLAB_API_URL;
       else process.env.GITLAB_API_URL = prev;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `validateMaxTreePages` — accepts a positive integer (the per-hub
+// override of the GitLab tree-page cap), `null` (caller-cleared), or
+// undefined (absent). Anything else throws ApiError(400) so the route
+// surfaces a clear toast instead of silently coercing.
+// ---------------------------------------------------------------------------
+
+describe("validateMaxTreePages", () => {
+  it("returns undefined when the field is absent", () => {
+    expect(validateMaxTreePages(undefined)).toBeUndefined();
+  });
+
+  it("returns null when the caller explicitly clears the override", () => {
+    // PATCH route uses null to delete `max_tree_pages` from the doc so
+    // the crawler reverts to the env-var default.
+    expect(validateMaxTreePages(null)).toBeNull();
+  });
+
+  it("treats an empty string as 'no override' (returns undefined)", () => {
+    expect(validateMaxTreePages("")).toBeUndefined();
+    expect(validateMaxTreePages("   ")).toBeUndefined();
+  });
+
+  it("accepts a positive integer", () => {
+    expect(validateMaxTreePages(50)).toBe(50);
+    expect(validateMaxTreePages(1)).toBe(1);
+    expect(validateMaxTreePages(MAX_TREE_PAGES_HARD_LIMIT)).toBe(MAX_TREE_PAGES_HARD_LIMIT);
+  });
+
+  it("accepts numeric strings (form input arrives as strings)", () => {
+    expect(validateMaxTreePages("100")).toBe(100);
+    expect(validateMaxTreePages("  42  ")).toBe(42);
+  });
+
+  it("floors fractional values (we want pages, not partial pages)", () => {
+    expect(validateMaxTreePages(50.9)).toBe(50);
+    expect(validateMaxTreePages("50.9")).toBe(50);
+  });
+
+  it("rejects zero, negatives, and non-finite numbers", () => {
+    expect(() => validateMaxTreePages(0)).toThrow(/positive integer/);
+    expect(() => validateMaxTreePages(-1)).toThrow(/positive integer/);
+    expect(() => validateMaxTreePages(Infinity)).toThrow(/positive integer/);
+    expect(() => validateMaxTreePages(NaN)).toThrow(/positive integer/);
+  });
+
+  it("rejects non-numeric strings and non-number/non-string types", () => {
+    expect(() => validateMaxTreePages("not a number")).toThrow(/positive integer/);
+    expect(() => validateMaxTreePages({})).toThrow(/positive integer/);
+    expect(() => validateMaxTreePages([])).toThrow(/positive integer/);
+    // Booleans coerce to NaN through Number() — we want them rejected
+    // up front rather than accidentally interpreted as 0/1.
+    expect(() => validateMaxTreePages(true)).toThrow(/positive integer/);
+  });
+
+  it("rejects values above the hard limit", () => {
+    expect(() => validateMaxTreePages(MAX_TREE_PAGES_HARD_LIMIT + 1)).toThrow(
+      new RegExp(`hard limit of ${MAX_TREE_PAGES_HARD_LIMIT}`),
+    );
+    expect(() => validateMaxTreePages("999999")).toThrow(/hard limit/);
   });
 });

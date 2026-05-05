@@ -42,7 +42,7 @@ const SOURCE_HINTS: Record<RepoImportSource, {
   },
   gitlab: {
     repoLabel: "Project (group/.../project)",
-    repoPlaceholder: "mycorp/platform",
+    repoPlaceholder: "gitlab-org/ai/skills",
     pathPlaceholder: "skills/example",
     credentialEnv: "GITLAB_TOKEN",
   },

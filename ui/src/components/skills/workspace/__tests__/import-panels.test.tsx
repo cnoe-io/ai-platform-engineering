@@ -229,7 +229,7 @@ describe("RepoImportPanel", () => {
     // Placeholder + label switch
     expect(
       (screen.getByLabelText(/Project/i) as HTMLInputElement).placeholder,
-    ).toBe("mycorp/platform");
+    ).toBe("gitlab-org/ai/skills");
 
     fireEvent.change(screen.getByLabelText(/Project/i), {
       target: { value: "mycorp/platform" },

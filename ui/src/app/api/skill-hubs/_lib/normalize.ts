@@ -15,6 +15,7 @@
  * module so the two surfaces can never drift.
  */
 import { ApiError } from "@/lib/api-error";
+import { MAX_TREE_PAGES_HARD_LIMIT } from "@/lib/hub-crawl-constants";
 
 /**
  * Resolve the configured GitLab API host (without scheme/port) so we can
@@ -210,4 +211,51 @@ export function validateIncludePaths(value: unknown): string[] | undefined {
   }
 
   return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Validate + clamp an admin-supplied `max_tree_pages` value for a
+ * GitLab hub. Each page returns up to 100 entries, so the cap directly
+ * shapes how much of a monorepo we walk.
+ *
+ *  - Accepts numbers and numeric strings; trims surrounding whitespace.
+ *  - Rejects negatives, zero, NaN, and non-finite values with a 400.
+ *  - Rejects values above {@link MAX_TREE_PAGES_HARD_LIMIT} (currently
+ *    500 → 50,000 entries) so a misconfigured admin entry can't make
+ *    the Node process walk an unbounded number of pages.
+ *  - Returns `undefined` for absent/empty input so callers can omit
+ *    the field on PATCH (existing docs untouched).
+ *  - Returns `null` only when the caller explicitly passes `null` — the
+ *    PATCH route uses that to clear a previously-set value.
+ */
+export function validateMaxTreePages(
+  value: unknown,
+): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    value = Number(trimmed);
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ApiError(
+      "max_tree_pages must be a positive integer",
+      400,
+    );
+  }
+  const intValue = Math.floor(value);
+  if (intValue <= 0) {
+    throw new ApiError(
+      "max_tree_pages must be a positive integer",
+      400,
+    );
+  }
+  if (intValue > MAX_TREE_PAGES_HARD_LIMIT) {
+    throw new ApiError(
+      `max_tree_pages exceeds the hard limit of ${MAX_TREE_PAGES_HARD_LIMIT} pages`,
+      400,
+    );
+  }
+  return intValue;
 }

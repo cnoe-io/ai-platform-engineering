@@ -31,12 +31,26 @@ type FetchInput = string | URL | Request;
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function fakeResponse(body: unknown, status = 200) {
+function fakeResponse(
+  body: unknown,
+  status = 200,
+  responseHeaders: Record<string, string> = {},
+) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
+  // Minimal Headers-like shim so callers using `res.headers.get(name)` work.
+  // The GitLab crawler reads `x-next-page` for pagination — tests can set
+  // it via `responseHeaders` to simulate multi-page tree responses.
+  const lower = Object.fromEntries(
+    Object.entries(responseHeaders).map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  const headers = {
+    get: (name: string) => lower[name.toLowerCase()] ?? null,
+  };
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? "OK" : "ERR",
+    headers,
     text: () => Promise.resolve(text),
     json: () => Promise.resolve(typeof body === "string" ? body : JSON.parse(text)),
   } as unknown as Response;
@@ -47,11 +61,21 @@ interface FakeGitHubRepo {
   files: Record<string, string>;
 }
 
-function installFakeGitHubFetch(repo: FakeGitHubRepo) {
+function installFakeGitHubFetch(
+  repo: FakeGitHubRepo,
+  options: { truncated?: boolean } = {},
+) {
   const mock = jest.fn(async (input: FetchInput) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/git/trees/HEAD?recursive=1")) {
-      return fakeResponse({ tree: repo.tree });
+      // GitHub's Git Trees API sets `truncated: true` when it had to drop
+      // entries from the response (>100k entries or >7MB). Tests opt in
+      // via `options.truncated` to exercise the crawler's overflow guard.
+      const body: { tree: typeof repo.tree; truncated?: boolean } = {
+        tree: repo.tree,
+      };
+      if (options.truncated) body.truncated = true;
+      return fakeResponse(body);
     }
     const m = url.match(/\/contents\/(.+)$/);
     if (m) {
@@ -74,11 +98,29 @@ interface FakeGitLabRepo {
   files: Record<string, string>;
 }
 
-function installFakeGitLabFetch(repo: FakeGitLabRepo) {
+function installFakeGitLabFetch(
+  repo: FakeGitLabRepo,
+  options: { pageSize?: number } = {},
+) {
+  // GitLab returns up to `per_page=100` tree entries per request and
+  // signals more pages via the `x-next-page` header. Mirror that here so
+  // pagination logic in `crawlGitLabRepo` is actually exercised; tests
+  // that don't care about pagination can leave repos under the page
+  // size and still get a single-page response.
+  const pageSize = options.pageSize ?? 100;
   const mock = jest.fn(async (input: FetchInput) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("/repository/tree?recursive=true")) {
-      return fakeResponse(repo.tree);
+      const pageMatch = url.match(/[?&]page=(\d+)/);
+      const page = pageMatch ? parseInt(pageMatch[1], 10) : 1;
+      const start = (page - 1) * pageSize;
+      const slice = repo.tree.slice(start, start + pageSize);
+      const totalPages = Math.max(1, Math.ceil(repo.tree.length / pageSize));
+      const headers: Record<string, string> = {};
+      if (page < totalPages) {
+        headers["x-next-page"] = String(page + 1);
+      }
+      return fakeResponse(slice, 200, headers);
     }
     const m = url.match(/\/repository\/files\/([^/]+)\/raw/);
     if (m) {
@@ -134,13 +176,13 @@ describe("crawlGitHubRepo includePaths filter", () => {
   });
 
   it("crawls every SKILL.md when includePaths is omitted", async () => {
-    const skills = await crawlGitHubRepo("o", "r");
+    const { skills } = await crawlGitHubRepo("o", "r");
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual(["bar", "baz", "foo", "old", "vendor"]);
   });
 
   it("crawls every SKILL.md when includePaths is empty (back-compat)", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, []);
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, []);
     expect(skills.map((s) => s.name).sort()).toEqual([
       "bar",
       "baz",
@@ -151,7 +193,7 @@ describe("crawlGitHubRepo includePaths filter", () => {
   });
 
   it("filters SKILL.md candidates to the configured prefixes", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, [
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, [
       "skills/",
       "agents/ops/skills/",
     ]);
@@ -159,21 +201,21 @@ describe("crawlGitHubRepo includePaths filter", () => {
   });
 
   it("normalizes prefixes without trailing slash so 'skills' does not match 'skills-archive/'", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, ["skills"]);
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, ["skills"]);
     const names = skills.map((s) => s.name).sort();
     expect(names).toEqual(["bar", "foo"]);
     expect(names).not.toContain("old"); // skills-archive/...
   });
 
   it("returns an empty list when no SKILL.md matches", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, [
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, [
       "no-such-prefix/",
     ]);
     expect(skills).toEqual([]);
   });
 
   it("preserves ancillary siblings of accepted SKILL.md files", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, ["skills/"]);
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, ["skills/"]);
     const foo = skills.find((s) => s.name === "foo");
     expect(foo).toBeDefined();
     expect(foo!.ancillary_files).toBeDefined();
@@ -214,7 +256,7 @@ describe("crawlGitHubRepo nested-skill invariant with includePaths", () => {
   });
 
   it("does not leak nested skill files into the parent's ancillaries (filter accepts both)", async () => {
-    const skills = await crawlGitHubRepo("o", "r", undefined, ["skills/"]);
+    const { skills } = await crawlGitHubRepo("o", "r", undefined, ["skills/"]);
     const parent = skills.find((s) => s.name === "parent");
     const child = skills.find((s) => s.name === "child");
     expect(parent).toBeDefined();
@@ -224,6 +266,52 @@ describe("crawlGitHubRepo nested-skill invariant with includePaths", () => {
     expect(Object.keys(parent!.ancillary_files ?? {})).toEqual(["parent-helper.py"]);
     // Child has its own helper
     expect(Object.keys(child!.ancillary_files ?? {})).toEqual(["child-helper.py"]);
+  });
+});
+
+describe("crawlGitHubRepo tree truncation", () => {
+  // Regression: GitHub's Git Trees API caps responses at ~100k entries / 7MB
+  // and signals overflow via `truncated: true`, silently dropping the rest.
+  // The crawler now surfaces the truncation via the `CrawlResult.truncation`
+  // discriminator (instead of throwing) so the admin UI can persist a
+  // yellow "skills past the API limit may be missing" warning on the hub
+  // doc and offer an "Add include_paths" CTA. Whatever entries DID come
+  // back are still returned — a partial set is more useful than nothing.
+  it("returns kind: 'platform' truncation when GitHub flags the tree as truncated", async () => {
+    const repo: FakeGitHubRepo = {
+      tree: [
+        { path: "skills/foo/SKILL.md", type: "blob", sha: "1", size: 100, url: "" },
+      ],
+      files: { "skills/foo/SKILL.md": SKILL_MD("foo") },
+    };
+    installFakeGitHubFetch(repo, { truncated: true });
+
+    const { skills, truncation } = await crawlGitHubRepo("o", "r");
+
+    // We still return whatever entries fit in the response.
+    expect(skills.map((s) => s.name)).toEqual(["foo"]);
+    expect(truncation.kind).toBe("platform");
+    if (truncation.kind === "platform") {
+      expect(truncation.pages_walked).toBe(1);
+      expect(truncation.reason).toMatch(/truncated/i);
+    }
+  });
+
+  it("returns kind: 'ok' when GitHub does not flag the response as truncated", async () => {
+    // Sanity: the default `truncated` flag is absent and the crawler
+    // returns a clean `kind: 'ok'` signal. Guards against accidentally
+    // making the truncation check fire on every crawl.
+    const repo: FakeGitHubRepo = {
+      tree: [
+        { path: "skills/foo/SKILL.md", type: "blob", sha: "1", size: 100, url: "" },
+      ],
+      files: { "skills/foo/SKILL.md": SKILL_MD("foo") },
+    };
+    installFakeGitHubFetch(repo);
+
+    const { skills, truncation } = await crawlGitHubRepo("o", "r");
+    expect(skills.map((s) => s.name)).toEqual(["foo"]);
+    expect(truncation.kind).toBe("ok");
   });
 });
 
@@ -256,24 +344,119 @@ describe("crawlGitLabRepo includePaths filter", () => {
   });
 
   it("crawls every SKILL.md when includePaths is omitted", async () => {
-    const skills = await crawlGitLabRepo("mycorp/platform");
+    const { skills, truncation } = await crawlGitLabRepo("mycorp/platform");
     expect(skills.map((s) => s.name).sort()).toEqual([
       "bar",
       "foo",
       "old",
       "vendor",
     ]);
+    expect(truncation.kind).toBe("ok");
   });
 
   it("filters SKILL.md candidates to the configured prefixes", async () => {
-    const skills = await crawlGitLabRepo("mycorp/platform", undefined, ["skills/"]);
+    const { skills } = await crawlGitLabRepo("mycorp/platform", undefined, ["skills/"]);
     expect(skills.map((s) => s.name).sort()).toEqual(["bar", "foo"]);
   });
 
   it("trailing-slash normalization prevents prefix bleed", async () => {
     // 'skills' (no trailing /) MUST behave the same as 'skills/' — i.e.
     // it does NOT match `skills-archive/`.
-    const skills = await crawlGitLabRepo("mycorp/platform", undefined, ["skills"]);
+    const { skills } = await crawlGitLabRepo("mycorp/platform", undefined, ["skills"]);
     expect(skills.map((s) => s.name).sort()).toEqual(["bar", "foo"]);
+  });
+});
+
+describe("crawlGitLabRepo tree pagination", () => {
+  // Regression: real-world repos like `gitlab-org/ai/skills` ship enough
+  // top-level files (e.g. `.claude-plugin/...`) to push every
+  // `skills/<name>/SKILL.md` past page 1 of GitLab's recursive tree
+  // endpoint. Without pagination the crawler returned 0 skills even
+  // though the repo had 10. The mock pageSize is set tiny so the test
+  // exercises the loop without needing a giant fixture.
+  it("walks every page of the recursive tree to discover skills past page 1", async () => {
+    const filler = Array.from({ length: 5 }, (_, i) => ({
+      id: `f${i}`,
+      name: "plugin.json",
+      type: "blob" as const,
+      path: `.claude-plugin/plugins/p${i}/plugin.json`,
+      mode: "100644",
+    }));
+    const skillEntries = [
+      { id: "s1", name: "SKILL.md", type: "blob" as const, path: "skills/foo/SKILL.md", mode: "100644" },
+      { id: "s2", name: "SKILL.md", type: "blob" as const, path: "skills/bar/SKILL.md", mode: "100644" },
+    ];
+    const repo: FakeGitLabRepo = {
+      // Filler entries first so they fill page 1 entirely; SKILL.md
+      // entries land on page 2 with pageSize=3.
+      tree: [...filler, ...skillEntries],
+      files: {
+        "skills/foo/SKILL.md": SKILL_MD("foo"),
+        "skills/bar/SKILL.md": SKILL_MD("bar"),
+      },
+    };
+    const fetchMock = installFakeGitLabFetch(repo, { pageSize: 3 });
+
+    const { skills, truncation } = await crawlGitLabRepo("mycorp/platform");
+
+    expect(skills.map((s) => s.name).sort()).toEqual(["bar", "foo"]);
+    expect(truncation.kind).toBe("ok");
+    if (truncation.kind === "ok") {
+      // 7-entry fixture at pageSize=3 → page 1 (3) + page 2 (3) + page 3 (1).
+      expect(truncation.pages_walked).toBe(3);
+    }
+
+    // Confirm both pages were actually requested — guards against a
+    // future regression where someone drops the loop.
+    const treeCalls = fetchMock.mock.calls
+      .map(([input]) => (typeof input === "string" ? input : (input as URL | Request).toString()))
+      .filter((u) => u.includes("/repository/tree?recursive=true"));
+    expect(treeCalls.length).toBeGreaterThanOrEqual(2);
+    expect(treeCalls.some((u) => /[?&]page=1\b/.test(u))).toBe(true);
+    expect(treeCalls.some((u) => /[?&]page=2\b/.test(u))).toBe(true);
+  });
+
+  it("stops at the per-hub maxTreePages cap and reports kind: 'cap' truncation", async () => {
+    // Build a repo with enough fillers to span 4 pages at pageSize=3,
+    // with the actual SKILL.md sitting on page 1 (so we can assert
+    // skills come back even though we stopped early). The crawler
+    // should walk exactly 2 pages before bailing.
+    const filler = Array.from({ length: 11 }, (_, i) => ({
+      id: `f${i}`,
+      name: "plugin.json",
+      type: "blob" as const,
+      path: `.claude-plugin/plugins/p${i.toString().padStart(2, "0")}/plugin.json`,
+      mode: "100644",
+    }));
+    const skillEntries = [
+      { id: "s1", name: "SKILL.md", type: "blob" as const, path: "skills/foo/SKILL.md", mode: "100644" },
+    ];
+    const repo: FakeGitLabRepo = {
+      // Skill on page 1 (pageSize=3, so page 1 = filler 0..1 + skill).
+      tree: [filler[0], filler[1], ...skillEntries, ...filler.slice(2)],
+      files: { "skills/foo/SKILL.md": SKILL_MD("foo") },
+    };
+    const fetchMock = installFakeGitLabFetch(repo, { pageSize: 3 });
+
+    const { skills, truncation } = await crawlGitLabRepo(
+      "mycorp/platform",
+      undefined,
+      undefined,
+      2, // cap at 2 pages — will leave page 3+ unread
+    );
+
+    expect(skills.map((s) => s.name)).toEqual(["foo"]);
+    expect(truncation.kind).toBe("cap");
+    if (truncation.kind === "cap") {
+      expect(truncation.pages_walked).toBe(2);
+      expect(truncation.cap).toBe(2);
+    }
+
+    const treeCalls = fetchMock.mock.calls
+      .map(([input]) => (typeof input === "string" ? input : (input as URL | Request).toString()))
+      .filter((u) => u.includes("/repository/tree?recursive=true"));
+    // Pages 1 + 2 only — page 3 must not have been requested.
+    expect(treeCalls.some((u) => /[?&]page=2\b/.test(u))).toBe(true);
+    expect(treeCalls.some((u) => /[?&]page=3\b/.test(u))).toBe(false);
   });
 });

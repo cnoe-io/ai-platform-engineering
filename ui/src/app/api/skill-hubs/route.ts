@@ -10,6 +10,7 @@ import {
 import {
   normalizeHubLocation,
   validateIncludePaths,
+  validateMaxTreePages,
 } from "./_lib/normalize";
 import { ObjectId } from "mongodb";
 
@@ -152,6 +153,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       : [];
 
     const includePaths = validateIncludePaths(body.include_paths);
+    // `max_tree_pages` only meaningfully changes GitLab behaviour — the
+    // GitHub crawler issues a single non-paginated tree request. Reject
+    // the value on a GitHub hub so admins don't paste it expecting it
+    // to do something.
+    const maxTreePagesRaw = validateMaxTreePages(body.max_tree_pages);
+    if (type === "github" && typeof maxTreePagesRaw === "number") {
+      throw new ApiError(
+        "max_tree_pages applies to GitLab hubs only (GitHub fetches the tree in a single request).",
+        400,
+      );
+    }
+    const maxTreePages = typeof maxTreePagesRaw === "number" ? maxTreePagesRaw : undefined;
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
@@ -179,6 +192,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now,
     };
     if (includePaths) hubDoc.include_paths = includePaths;
+    if (maxTreePages !== undefined) hubDoc.max_tree_pages = maxTreePages;
 
     await collection.insertOne(hubDoc as any);
 

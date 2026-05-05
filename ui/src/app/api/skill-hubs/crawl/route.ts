@@ -87,7 +87,11 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         const token = (credentialsRef ? process.env[credentialsRef] : undefined)
           || process.env.GITHUB_TOKEN;
 
-        const crawled = await crawlGitHubRepo(owner, repo, token);
+        const { skills: crawled, truncation } = await crawlGitHubRepo(
+          owner,
+          repo,
+          token,
+        );
         const sliced = crawled.slice(0, maxPreview);
         return NextResponse.json({
           paths: sliced.map((s) => s.path),
@@ -96,6 +100,7 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
             name: s.name,
             description: s.description,
           })),
+          truncation,
           error: null,
         });
       }
@@ -123,7 +128,21 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         const token = (credentialsRef ? process.env[credentialsRef] : undefined)
           || process.env.GITLAB_TOKEN;
 
-        const crawled = await crawlGitLabRepo(normalizedLocation, token);
+        // Preview honours an admin-supplied `max_tree_pages` if present
+        // so the operator can verify the cap is high enough before
+        // saving the hub.
+        const previewMaxTreePages =
+          typeof body.max_tree_pages === "number" &&
+          Number.isFinite(body.max_tree_pages) &&
+          body.max_tree_pages > 0
+            ? Math.floor(body.max_tree_pages)
+            : undefined;
+        const { skills: crawled, truncation } = await crawlGitLabRepo(
+          normalizedLocation,
+          token,
+          undefined,
+          previewMaxTreePages,
+        );
         const sliced = crawled.slice(0, maxPreview);
         return NextResponse.json({
           paths: sliced.map((s) => s.path),
@@ -132,6 +151,7 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
             name: s.name,
             description: s.description,
           })),
+          truncation,
           error: null,
         });
       }

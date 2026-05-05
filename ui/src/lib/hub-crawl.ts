@@ -61,6 +61,27 @@ export interface HubSkillDoc {
   ancillary_summary?: AncillarySummary;
 }
 
+/**
+ * Result of the most recent crawl's tree-listing step. Persisted on
+ * the hub doc so the admin UI can surface a yellow "skills may be
+ * missing" warning even after the recrawl toast has dismissed.
+ *
+ *  - `kind: "ok"` → tree fit within the platform/cap and was fully read.
+ *  - `kind: "platform"` → the upstream API itself reported truncation
+ *    (today only GitHub via `truncated: true` from the Git Trees API).
+ *    Operator action: scope the crawl with `include_paths` or split.
+ *  - `kind: "cap"` → our own `max_tree_pages` cap was hit (GitLab only,
+ *    since GitHub fetches the tree in a single request). Operator
+ *    action: raise the cap or scope with `include_paths`.
+ *
+ * `pages_walked` is informational: how many tree-listing pages the
+ * crawler walked. Always 1 for GitHub.
+ */
+export type HubLastCrawlTruncation =
+  | { kind: "ok"; pages_walked: number }
+  | { kind: "platform"; pages_walked: number; reason: string }
+  | { kind: "cap"; pages_walked: number; cap: number };
+
 export interface SkillHubDoc {
   id: string;
   type: "github" | "gitlab";
@@ -74,10 +95,33 @@ export interface SkillHubDoc {
    * begins with one of these prefixes. Empty/absent => crawl whole repo.
    */
   include_paths?: readonly string[];
+  /**
+   * GitLab only: per-hub override of the recursive-tree page cap.
+   * Each page returns up to 100 entries, so a cap of 50 walks at most
+   * 5,000 entries. When unset, falls back to the GITLAB_MAX_TREE_PAGES
+   * env-var (default 50). Capped at MAX_TREE_PAGES_HARD_LIMIT to bound
+   * memory/latency regardless of admin input.
+   */
+  max_tree_pages?: number;
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
+  /**
+   * Truncation summary from the most recent successful crawl. Set on
+   * every crawl so a previously-truncated hub clears the warning once
+   * the cap is raised (or include_paths are added) and the next crawl
+   * fits.
+   */
+  last_truncation?: HubLastCrawlTruncation;
 }
+
+// `MAX_TREE_PAGES_HARD_LIMIT` lives in a dependency-free constants
+// module so client-bundled / jsdom-test callers (e.g. the admin UI's
+// validator helpers) can import it without pulling in this file's
+// transitive `mongodb` dependency. Re-export here so server callers
+// keep their existing import path stable.
+export { MAX_TREE_PAGES_HARD_LIMIT } from "./hub-crawl-constants";
+import { MAX_TREE_PAGES_HARD_LIMIT } from "./hub-crawl-constants";
 
 /**
  * Normalize an `include_paths` array for use as path-prefix filters:
@@ -146,6 +190,17 @@ export interface CatalogSkill {
 const HUB_CACHE_TTL_MS = parseInt(
   process.env.HUB_CACHE_TTL_MS || "3600000",
   10,
+);
+
+// Hard cap on GitLab tree-listing pages per crawl. The tree endpoint
+// returns at most 100 entries per page; with the default cap of 50 we
+// will scan up to 5,000 entries before bailing — generous for any
+// single-repo skill hub but bounded so a runaway monorepo can't OOM
+// the Node process. Operators with legitimately huge repos can override
+// via env (e.g. set to "200" for up to 20,000 entries).
+const GITLAB_MAX_TREE_PAGES = Math.max(
+  1,
+  parseInt(process.env.GITLAB_MAX_TREE_PAGES || "50", 10) || 50,
 );
 
 // ENV_VAR_NAME_RE removed — use validateCredentialsRef from api-middleware instead
@@ -335,12 +390,22 @@ interface GitHubTreeEntry {
   size?: number;
 }
 
+/**
+ * Result of a hub crawl. `skills` is what callers care about most of
+ * the time; `truncation` is informational so the caller can persist
+ * the warning on the hub doc and the admin UI can surface it.
+ */
+export interface CrawlResult {
+  skills: CrawledSkill[];
+  truncation: HubLastCrawlTruncation;
+}
+
 export async function crawlGitHubRepo(
   owner: string,
   repo: string,
   token?: string,
   includePaths?: readonly string[],
-): Promise<CrawledSkill[]> {
+): Promise<CrawlResult> {
   const normalizedIncludes = normalizeIncludePaths(includePaths);
 
   const headers: Record<string, string> = {
@@ -360,6 +425,14 @@ export async function crawlGitHubRepo(
     );
   }
   const treeData = await treeRes.json();
+  // GitHub's Git Trees API caps responses at ~100k entries / 7MB and
+  // signals overflow with `truncated: true`, silently omitting the
+  // rest of the tree. Surface this via the structured `truncation`
+  // result so the admin UI can show a persistent warning and an
+  // "Add include_paths" CTA. We still ingest whatever did come back —
+  // a partial set of skills is more useful than no skills at all, and
+  // the warning makes it clear the result is incomplete.
+  const platformTruncated = treeData.truncated === true;
   const entries: GitHubTreeEntry[] = treeData.tree || [];
 
   // Find all SKILL.md files (optionally filtered to the configured prefixes
@@ -488,7 +561,16 @@ export async function crawlGitHubRepo(
     }
   }
 
-  return skills;
+  const truncation: HubLastCrawlTruncation = platformTruncated
+    ? {
+        kind: "platform",
+        pages_walked: 1,
+        reason:
+          `GitHub Git Trees API truncated the recursive tree (>100k entries ` +
+          `or >7MB). Skills outside the returned slice were silently omitted.`,
+      }
+    : { kind: "ok", pages_walked: 1 };
+  return { skills, truncation };
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +589,8 @@ export async function crawlGitLabRepo(
   projectPath: string,
   token?: string,
   includePaths?: readonly string[],
-): Promise<CrawledSkill[]> {
+  maxTreePages?: number,
+): Promise<CrawlResult> {
   // GitLab's API addresses projects by URL-encoded namespaced path
   // (`group/sub/project`), NOT by full URL. Callers MUST pass the
   // canonical path; if a URL slips through, `encodeURIComponent`
@@ -549,17 +632,62 @@ export async function crawlGitLabRepo(
   };
   if (token) headers["PRIVATE-TOKEN"] = token;
 
-  // Get recursive tree
-  const treeRes = await fetch(
-    `${baseUrl}/projects/${encodedProject}/repository/tree?recursive=true&per_page=100`,
-    { headers, signal: AbortSignal.timeout(15000) },
+  // Resolve the per-crawl page cap. Per-hub `maxTreePages` (admin UI,
+  // persisted on the hub doc) wins over the env-var default; both are
+  // floored at 1 and ceilinged at MAX_TREE_PAGES_HARD_LIMIT so a
+  // misconfigured hub can't OOM the Node process. We surface "we hit
+  // the cap" via the structured CrawlResult so the admin UI can
+  // display a yellow "skills past page N may be missing" warning.
+  const effectiveCap = Math.min(
+    MAX_TREE_PAGES_HARD_LIMIT,
+    Math.max(
+      1,
+      typeof maxTreePages === "number" && Number.isFinite(maxTreePages)
+        ? Math.floor(maxTreePages)
+        : GITLAB_MAX_TREE_PAGES,
+    ),
   );
-  if (!treeRes.ok) {
-    throw new Error(
-      `GitLab API error: ${treeRes.status} ${treeRes.statusText}`,
+
+  // Get recursive tree.
+  //
+  // GitLab's tree endpoint paginates at 100 entries per page; previously
+  // we only fetched page 1, which silently dropped any SKILL.md whose
+  // alphabetical position pushed it past the first 100 entries (e.g.
+  // `skills/<name>/SKILL.md` in a repo that also ships hundreds of
+  // `.claude-plugin/...` siblings). Walk pages until GitLab clears the
+  // `x-next-page` header, capped so a runaway monorepo can't exhaust
+  // Node's heap.
+  const entries: GitLabTreeEntry[] = [];
+  let page = 1;
+  let pagesWalked = 0;
+  let capHit = false;
+  while (true) {
+    const treeRes = await fetch(
+      `${baseUrl}/projects/${encodedProject}/repository/tree?recursive=true&per_page=100&page=${page}`,
+      { headers, signal: AbortSignal.timeout(15000) },
     );
+    if (!treeRes.ok) {
+      throw new Error(
+        `GitLab API error: ${treeRes.status} ${treeRes.statusText}`,
+      );
+    }
+    const pageEntries = (await treeRes.json()) as GitLabTreeEntry[];
+    entries.push(...pageEntries);
+    pagesWalked += 1;
+
+    const nextHeader = treeRes.headers.get("x-next-page");
+    const nextPage = nextHeader ? parseInt(nextHeader, 10) : NaN;
+    if (!nextHeader || !Number.isFinite(nextPage) || nextPage <= page) {
+      break;
+    }
+    if (pagesWalked >= effectiveCap) {
+      // GitLab still has more pages but our cap stops us here. Record
+      // it so the caller can persist the warning on the hub doc.
+      capHit = true;
+      break;
+    }
+    page = nextPage;
   }
-  const entries: GitLabTreeEntry[] = await treeRes.json();
 
   // Find SKILL.md files (optionally filtered to the configured prefixes
   // so monorepos don't blast the whole tree into Mongo).
@@ -676,7 +804,10 @@ export async function crawlGitLabRepo(
     }
   }
 
-  return skills;
+  const truncation: HubLastCrawlTruncation = capHit
+    ? { kind: "cap", pages_walked: pagesWalked, cap: effectiveCap }
+    : { kind: "ok", pages_walked: pagesWalked };
+  return { skills, truncation };
 }
 
 // ---------------------------------------------------------------------------
@@ -753,6 +884,7 @@ async function _crawlAndCache(
 ): Promise<CatalogSkill[]> {
   const token = resolveToken(hub);
   let crawled: CrawledSkill[];
+  let truncation: HubLastCrawlTruncation;
 
   try {
     if (hub.type === "github") {
@@ -769,14 +901,25 @@ async function _crawlAndCache(
       const owner = parts[0];
       const repo = parts[1];
       if (!owner || !repo) throw new Error(`Invalid GitHub location: ${hub.location}`);
-      crawled = await crawlGitHubRepo(owner, repo, token, hub.include_paths);
+      const result = await crawlGitHubRepo(owner, repo, token, hub.include_paths);
+      crawled = result.skills;
+      truncation = result.truncation;
     } else if (hub.type === "gitlab") {
-      crawled = await crawlGitLabRepo(hub.location, token, hub.include_paths);
+      const result = await crawlGitLabRepo(
+        hub.location,
+        token,
+        hub.include_paths,
+        hub.max_tree_pages,
+      );
+      crawled = result.skills;
+      truncation = result.truncation;
     } else {
       throw new Error(`Unsupported hub type: ${hub.type}`);
     }
 
-    // Update hub success status
+    // Update hub success status. `last_truncation` is always written so
+    // raising the cap / adding include_paths clears a stale warning on
+    // the next crawl.
     const hubsCol = await getCollection("skill_hubs");
     await hubsCol.updateOne(
       { id: hub.id },
@@ -785,6 +928,7 @@ async function _crawlAndCache(
           last_success_at: Math.floor(Date.now() / 1000),
           last_failure_at: null,
           last_failure_message: null,
+          last_truncation: truncation,
           updated_at: new Date().toISOString(),
         },
       },
