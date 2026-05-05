@@ -46,7 +46,7 @@ AWS_PROFILE="${AWS_PROFILE:-}"
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
-LLM_PROVIDER="${LLM_PROVIDER:-anthropic-claude}"
+LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
 ENABLE_GRAPH_RAG=false
@@ -897,6 +897,12 @@ collect_credentials() {
     if $ENABLE_OLLAMA; then
       LLM_PROVIDER="openai"
       _collect_ollama_config || continue
+    fi
+
+    # Non-interactive: apply default if still unset (env var not provided, no cluster secret)
+    if $NON_INTERACTIVE && [[ -z "${LLM_PROVIDER:-}" ]]; then
+      LLM_PROVIDER="anthropic-claude"
+      log "LLM_PROVIDER not set — defaulting to anthropic-claude"
     fi
 
     # ── Collect credentials per provider — return 1 loops back to provider menu
