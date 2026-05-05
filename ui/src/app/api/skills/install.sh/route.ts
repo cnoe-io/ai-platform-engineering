@@ -1357,6 +1357,17 @@ function buildUninstallScript(inputs: ScriptInputs): string {
   // is the bash expansion of the manifest path. When walkBothManifests
   // is false we honor the requested scope; otherwise we visit user
   // first, then project.
+  //
+  // CRITICAL: these paths contain ``${HOME:-.}`` which MUST be
+  // double-quoted in the rendered script so bash actually expands
+  // it. We previously single-quoted via shq(), which made the
+  // expansion literal and silently broke uninstall for user-scope
+  // (every run printed "==> nothing to do: no manifest at
+  // ${HOME:-.}/..." because [ -r '${HOME:-.}/...' ] tested a path
+  // that doesn't exist on any filesystem). These values are
+  // server-chosen literals — no user input flows in — so dropping
+  // shq() here costs no safety; both contain only path characters
+  // that are safe inside double quotes.
   const manifestExpansions = walkBothManifests
     ? [
         `\${HOME:-.}/.config/caipe/installed.json`,
@@ -1366,8 +1377,9 @@ function buildUninstallScript(inputs: ScriptInputs): string {
       ? [`./.caipe/installed.json`]
       : [`\${HOME:-.}/.config/caipe/installed.json`];
 
+  // Double-quoted, intentionally — see comment above.
   const manifestArrayLines = manifestExpansions
-    .map((p) => `  ${shq(p)}`)
+    .map((p) => `  "${p}"`)
     .join("\n");
 
   return `#!/usr/bin/env bash
