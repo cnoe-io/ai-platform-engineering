@@ -1547,7 +1547,20 @@ SVCEOF
 setup_tls() {
   step "Configuring TLS for ${CAIPE_DOMAIN}"
 
+  # Expand leading ~ manually — kubectl doesn't go through the shell so it
+  # receives the literal tilde and fails with "no such file or directory".
+  TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
+  TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
+
   if [[ -n "$TLS_CERT_FILE" && -n "$TLS_KEY_FILE" ]]; then
+    if [[ ! -f "$TLS_CERT_FILE" ]]; then
+      err "TLS cert file not found: ${TLS_CERT_FILE}"
+      exit 1
+    fi
+    if [[ ! -f "$TLS_KEY_FILE" ]]; then
+      err "TLS key file not found: ${TLS_KEY_FILE}"
+      exit 1
+    fi
     log "Using provided TLS cert: ${TLS_CERT_FILE}"
   else
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
