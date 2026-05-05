@@ -758,7 +758,19 @@ choose_deployment_mode() {
     return
   fi
 
-  # Already known from detect_deployed_features — confirm and skip
+  # If not already detected, try reading from the live Helm release
+  if [[ -z "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
+    local _hm
+    _hm=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '.global.deploymentMode // empty' 2>/dev/null || true)
+    case "$_hm" in
+      single-node) CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
+      multi-node)  CAIPE_DEPLOYMENT_MODE="distributed" ;;
+    esac
+    [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected existing deployment mode from cluster: ${CAIPE_DEPLOYMENT_MODE}"
+  fi
+
+  # Already known — confirm and skip
   if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
     log "Detected existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
     if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
@@ -801,7 +813,38 @@ choose_deployment_mode() {
 collect_credentials() {
   step "LLM credentials"
 
-  # Already loaded from existing llm-secret by detect_deployed_features — skip
+  # If detect_deployed_features wasn't called first (e.g. fresh wizard run after
+  # a partial install), try to read directly from the cluster secret now.
+  if ! $NON_INTERACTIVE && [[ -z "${LLM_PROVIDER:-}" ]]; then
+    local _raw
+    _raw=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+    if [[ -n "$_raw" ]]; then
+      local _sv; _sv() { echo "$_raw" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+      LLM_PROVIDER=$(_sv LLM_PROVIDER)
+      case "${LLM_PROVIDER:-}" in
+        anthropic-claude)
+          [[ -z "${ANTHROPIC_API_KEY:-}" ]]   && ANTHROPIC_API_KEY=$(_sv ANTHROPIC_API_KEY)
+          [[ -z "${ANTHROPIC_MODEL_NAME:-}" ]] && ANTHROPIC_MODEL_NAME=$(_sv ANTHROPIC_MODEL_NAME)
+          ;;
+        aws-bedrock)
+          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_sv AWS_ACCESS_KEY_ID)
+          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_sv AWS_SECRET_ACCESS_KEY)
+          [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_sv AWS_REGION)
+          [[ -z "${AWS_BEDROCK_MODEL_ID:-}" ]]  && AWS_BEDROCK_MODEL_ID=$(_sv AWS_BEDROCK_MODEL_ID)
+          [[ -z "${AWS_BEDROCK_PROVIDER:-}" ]]  && AWS_BEDROCK_PROVIDER=$(_sv AWS_BEDROCK_PROVIDER)
+          ;;
+        *)
+          [[ -z "${OPENAI_API_KEY:-}" ]]   && OPENAI_API_KEY=$(_sv OPENAI_API_KEY)
+          [[ -z "${OPENAI_ENDPOINT:-}" ]]  && OPENAI_ENDPOINT=$(_sv OPENAI_ENDPOINT)
+          [[ -z "${OPENAI_MODEL_NAME:-}" ]] && OPENAI_MODEL_NAME=$(_sv OPENAI_MODEL_NAME)
+          ;;
+      esac
+      [[ -n "${LLM_PROVIDER:-}" ]] && log "Loaded LLM config from existing cluster secret (provider: ${LLM_PROVIDER})"
+    fi
+  fi
+
+  # If credentials are already known (from env, detect_deployed_features, or above),
+  # confirm with user and skip the full prompt.
   if [[ -n "${LLM_PROVIDER:-}" ]] && ! $NON_INTERACTIVE; then
     local _cred_ok=false
     case "$LLM_PROVIDER" in
@@ -810,7 +853,7 @@ collect_credentials() {
       *)                [[ -n "${OPENAI_API_KEY:-}" ]] && _cred_ok=true ;;
     esac
     if $_cred_ok; then
-      log "Using existing LLM credentials from cluster (provider: ${LLM_PROVIDER})"
+      log "Using existing LLM credentials (provider: ${LLM_PROVIDER})"
       if ! ask_yn "Keep existing LLM provider (${LLM_PROVIDER})?" "y"; then
         LLM_PROVIDER=""  # fall through to full prompt
       else
@@ -1638,7 +1681,21 @@ _choose_agents() {
     "AI Gateway    — multi-model LLM routing"
   )
 
-  # Already detected from cluster — confirm and skip
+  # If not already populated, try reading from the live Helm release
+  if [[ ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    local _ha
+    _ha=$(helm get values caipe -n caipe -o json 2>/dev/null \
+      | jq -r '."supervisor-agent".singleNode.enabledSubAgents // {} | to_entries[] | select(.value==true) | .key' \
+      2>/dev/null || true)
+    if [[ -n "$_ha" ]]; then
+      while IFS= read -r _akey; do
+        [[ -n "$_akey" ]] && SELECTED_AGENTS+=("$_akey")
+      done <<< "$_ha"
+      log "Detected enabled agents from cluster: ${SELECTED_AGENTS[*]}"
+    fi
+  fi
+
+  # Already known — confirm and skip
   if [[ ${#SELECTED_AGENTS[@]} -gt 0 ]]; then
     log "Detected enabled agents: ${SELECTED_AGENTS[*]}"
     if ask_yn "Keep existing agent selection?" "y"; then
