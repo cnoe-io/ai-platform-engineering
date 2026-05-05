@@ -188,6 +188,11 @@ dependencies:
     tags:
       - dynamic-agents
       - scheduler
+  # Scheduler service for Dynamic Agents scheduled jobs
+  - name: scheduler
+    version: 0.4.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - scheduler
   # MongoDB for CAIPE UI persistence
   - name: caipe-ui-mongodb
     version: 0.4.6
