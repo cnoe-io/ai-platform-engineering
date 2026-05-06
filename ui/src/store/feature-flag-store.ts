@@ -3,7 +3,7 @@ import { apiClient } from "@/lib/api-client";
 
 const STORAGE_KEY = "caipe-feature-flags";
 
-export type FeatureFlagIcon = "Brain" | "Bug" | "Eye" | "ArrowDownToLine" | "Clock";
+export type FeatureFlagIcon = "Brain" | "Bug" | "Eye" | "ArrowDownToLine" | "Clock" | "Ship" | "MessagesSquare";
 export type FeatureFlagCategory = "ai" | "chat" | "developer";
 
 export const CATEGORY_LABELS: Record<FeatureFlagCategory, string> = {
@@ -83,6 +83,31 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     category: "developer",
     defaultValue: false,
     preferencesKey: "debug_mode_enabled",
+  },
+  // Ship Loop feature is gated by both SHIP_LOOP_ENABLED (server) AND this
+  // per-user flag (client). Server flag wins when off — see use-ship-loop-feature.
+  {
+    id: "shipLoop",
+    label: "Agentic SDLC Ship Loop",
+    description: "Live dashboard for agent-driven Epic/PR/deploy flow",
+    detail:
+      "Surfaces the Ship Loop tab where you can onboard a GitHub repo and watch agents take an Epic through sub-tasks, PRs, HITL reviews, and sandbox deploys in real time. Requires SHIP_LOOP_ENABLED=true on the server.",
+    icon: "Ship",
+    category: "developer",
+    defaultValue: false,
+    preferencesKey: "ship_loop_enabled",
+    docsUrl: "/docs/features/ship-loop",
+  },
+  {
+    id: "shipLoopAssistant",
+    label: "Talk to the Loop",
+    description: "AG-UI assistant side panel scoped to the current Epic",
+    detail:
+      "Adds a read-only chat panel inside the Ship Loop view, backed by a preconfigured CAIPE Dynamic Agent. The agent can explain blockers and surface context but cannot mutate state. Requires SHIP_LOOP_ENABLED and SHIP_LOOP_ASSISTANT_ENABLED on the server.",
+    icon: "MessagesSquare",
+    category: "developer",
+    defaultValue: false,
+    preferencesKey: "ship_loop_assistant_enabled",
   },
 ];
 

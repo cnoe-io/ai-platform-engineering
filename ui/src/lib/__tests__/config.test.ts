@@ -151,6 +151,7 @@ describe('getServerConfig', () => {
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
         'oidcRequiredGroup',
+        'shipLoopEnabled', 'shipLoopAssistantEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -925,6 +926,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
       'oidcRequiredGroup',
+      'shipLoopEnabled', 'shipLoopAssistantEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

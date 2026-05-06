@@ -167,6 +167,24 @@ export interface Config {
   ticketProvider: 'jira' | 'github' | null;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /**
+   * Whether the Agentic SDLC Ship Loop UI tab is available.
+   * When false (default), the entire feature is gated off — nav tab hidden,
+   * `/api/ship-loop/**` routes return 404, and `/ship-loop` pages call
+   * `notFound()`. Set SHIP_LOOP_ENABLED=true to enable.
+   *
+   * This is the **server-side** half of the two-layer toggle. A per-user
+   * feature flag (`shipLoop` in `feature-flag-store.ts`) provides the second
+   * layer of gating; both must be true for the feature to render.
+   */
+  shipLoopEnabled: boolean;
+  /**
+   * Whether the "Talk to the loop" AG-UI assistant side panel is enabled.
+   * Independent sub-toggle of the Ship Loop feature; allows shipping the
+   * dashboard without the assistant. Set SHIP_LOOP_ASSISTANT_ENABLED=true
+   * (default false) to enable. Has no effect when `shipLoopEnabled` is false.
+   */
+  shipLoopAssistantEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +256,8 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   oidcRequiredGroup: 'backstage-access',
+  shipLoopEnabled: false,
+  shipLoopAssistantEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -332,6 +352,8 @@ export function getServerConfig(): Config {
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
+  const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
+  const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -394,6 +416,8 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    shipLoopEnabled,
+    shipLoopAssistantEnabled,
   };
 }
 
