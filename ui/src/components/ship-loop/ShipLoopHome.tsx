@@ -81,15 +81,14 @@ export function ShipLoopHome() {
       </div>
 
       <div className="relative max-w-6xl mx-auto p-6 md:p-8 space-y-8">
-        {/* Hero -- two-column on md+: copy on the left, animation on
-            the right. Stacks below md so the animation never gets
-            compressed enough to lose its stage labels. Animation is
-            constrained to ~5/12 of the row AND capped at 420px wide
-            so on a very wide viewport the orbit doesn't grow back to
-            dominating the page -- the headline keeps top billing and
-            the orbit reads as a supporting visual. */}
+        {/* Hero -- two-column on md+. Copy + an inline stage-icon
+            row on the left, the animation on the right with NO
+            glass panel so it floats freely against the page's
+            ambient gradient mesh (the previous opaque rectangle
+            visually fenced the orbit off and made it look like a
+            placeholder). */}
         <section className="grid gap-6 md:grid-cols-12 md:items-center">
-          <div className="space-y-4 md:col-span-7">
+          <div className="space-y-5 md:col-span-6">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-primary/30 bg-primary/10 text-primary">
               <Sparkles className="h-3 w-3" aria-hidden />
               <span className="uppercase tracking-wider">Preview</span>
@@ -109,10 +108,52 @@ export function ShipLoopHome() {
                 webhook-fed.
               </p>
             </div>
+
+            {/* Inline stage rail -- gives the headline an immediate
+                visual anchor in the AI-native palette without
+                duplicating the full legend tiles below. Each pill
+                tints itself with the same per-stage color tokens the
+                animation and per-Epic views use, so the colors are a
+                contract, not decoration. */}
+            <ul
+              className="flex flex-wrap items-center gap-1.5 pt-1"
+              aria-label="Ship-loop stages"
+            >
+              {ORBIT_STAGES.map((stage, idx) => {
+                const visual = STAGE_VISUALS[stage];
+                const Icon = visual.icon;
+                return (
+                  <li key={stage} className="flex items-center gap-1.5">
+                    <span
+                      className={[
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                        visual.bgClass,
+                        visual.borderClass,
+                      ].join(" ")}
+                      title={visual.blurb}
+                    >
+                      <Icon
+                        className={["h-3 w-3", visual.fgClass].join(" ")}
+                        aria-hidden
+                      />
+                      <span className="text-foreground/90">{visual.label}</span>
+                    </span>
+                    {idx < ORBIT_STAGES.length - 1 ? (
+                      <span
+                        aria-hidden
+                        className="text-muted-foreground/40 text-[10px]"
+                      >
+                        →
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
 
-          <div className="md:col-span-5">
-            <div className="glass-panel rounded-2xl p-3 md:p-4 mx-auto md:ml-auto md:mr-0 max-w-[420px]">
+          <div className="md:col-span-6">
+            <div className="mx-auto md:ml-auto md:mr-0 max-w-[560px]">
               <ShipLoopAnimation />
             </div>
           </div>
@@ -133,12 +174,14 @@ export function ShipLoopHome() {
           <RepoGrid />
         </section>
 
-        {/* Stage tiles -- one per canonical stage, in order. Doubles as
-            a legend for the animation above. */}
+        {/* Stage legend -- richer per-stage blurbs (the inline rail
+            in the hero only shows label + icon). Acts as a glossary
+            tying the animation, the inline rail, and the eventual
+            per-Epic views to one shared vocabulary. */}
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
             <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              The eight stages
+              Stage glossary
             </h2>
             <span className="text-[11px] text-muted-foreground/70">
               Specify → Observe → back to spec
