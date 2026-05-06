@@ -233,6 +233,19 @@ export interface SkillHubDoc {
    * fits.
    */
   last_truncation?: HubLastCrawlTruncation;
+  /**
+   * Persisted log of the most recent ``forceFresh`` crawl, capped to
+   * ``MAX_PERSISTED_LOG_EVENTS`` events (see ``crawl-stream-response.ts``).
+   * Each entry is a ``CrawlEvent`` with redaction already applied at
+   * encode time, so reading this field via a Mongo direct query is
+   * safe — secrets never reach this collection unredacted. Only the
+   * ``/api/skill-hubs/[id]/refresh`` route writes this field; the
+   * preview route is ephemeral. Optional and may be absent for hubs
+   * that haven't been refreshed since the streaming feature shipped.
+   */
+  last_crawl_log?: import("@/lib/crawl-events").CrawlEvent[];
+  /** ISO timestamp of when ``last_crawl_log`` was written. */
+  last_crawl_log_at?: string;
 }
 
 // `MAX_TREE_PAGES_HARD_LIMIT` lives in a dependency-free constants

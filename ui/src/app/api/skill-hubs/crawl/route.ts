@@ -10,6 +10,11 @@ import {
   detectHubProviderFromUrl,
   normalizeHubLocation,
 } from "@/app/api/skill-hubs/_lib/normalize";
+import {
+  apiHostFromBaseUrl,
+  buildCrawlStreamResponse,
+  wantsNdjsonStream,
+} from "@/app/api/skill-hubs/_lib/crawl-stream-response";
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
@@ -75,6 +80,14 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
       location.trim(),
       type === "gitlab" ? "gitlab" : "github",
     );
+    // Content negotiation: clients that opt in via
+    // ``Accept: application/x-ndjson`` get the live streaming branch;
+    // everything else (curl probes, tests, the existing
+    // ``RepoImportPanel.tsx`` preview button) keeps getting the
+    // original JSON shape. This is deliberately additive so the
+    // legacy callsites don't have to change.
+    const wantStream = wantsNdjsonStream(request);
+
     try {
       if (type === "github") {
         const [owner, repo] = normalizedLocation.split("/").filter(Boolean);
@@ -86,6 +99,30 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         }
         const token = (credentialsRef ? process.env[credentialsRef] : undefined)
           || process.env.GITHUB_TOKEN;
+
+        if (wantStream) {
+          // Stream branch: hand control to the shared helper, which
+          // produces the started/...events.../done bookends and
+          // serializes the events through the redaction pipeline.
+          // Cast required because TypeScript can't unify Next's
+          // NextResponse return type with the streaming Response;
+          // ``Response`` is already what NextResponse extends.
+          return buildCrawlStreamResponse({
+            provider: "github",
+            project: `${owner}/${repo}`,
+            api_host: "api.github.com",
+            run: async (emitter) => {
+              const { skills: crawled, truncation } = await crawlGitHubRepo(
+                owner,
+                repo,
+                token,
+                undefined,
+                emitter,
+              );
+              return { skills: crawled.length, truncation };
+            },
+          }) as unknown as NextResponse;
+        }
 
         const { skills: crawled, truncation } = await crawlGitHubRepo(
           owner,
@@ -137,6 +174,27 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
           body.max_tree_pages > 0
             ? Math.floor(body.max_tree_pages)
             : undefined;
+        const baseUrl =
+          process.env.GITLAB_API_URL || "https://gitlab.com/api/v4";
+
+        if (wantStream) {
+          return buildCrawlStreamResponse({
+            provider: "gitlab",
+            project: normalizedLocation,
+            api_host: apiHostFromBaseUrl(baseUrl),
+            run: async (emitter) => {
+              const { skills: crawled, truncation } = await crawlGitLabRepo(
+                normalizedLocation,
+                token,
+                undefined,
+                previewMaxTreePages,
+                emitter,
+              );
+              return { skills: crawled.length, truncation };
+            },
+          }) as unknown as NextResponse;
+        }
+
         const { skills: crawled, truncation } = await crawlGitLabRepo(
           normalizedLocation,
           token,
