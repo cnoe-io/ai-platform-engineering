@@ -254,12 +254,12 @@ data/
 !.cursor/commands/
 !.cursor/rules/
 
-# Claude Code — track commands and skills symlink, ignore everything else
+# Claude Code — track commands and skills, ignore everything else
 .claude/*
 !.claude/commands/
+!.claude/commands/**
 !.claude/skills
-# ~/.agents/skills is the symlink target; contents are not tracked (git does not follow symlinks)
-.agents/skills/
+!.claude/skills/**
 
 # UI Core (local development)
 caipe-ui-core/
