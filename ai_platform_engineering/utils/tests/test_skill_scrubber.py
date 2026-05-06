@@ -24,7 +24,7 @@ from ai_platform_engineering.utils.tracing.skill_scrubber import (
     SkillContentScrubbingProcessor,
     _redact_value,
     _scrub_json,
-    _strip_skills_section,
+    _strip_known_sections,
     install_skill_content_scrubber,
 )
 
@@ -55,7 +55,7 @@ class _FakeSpan:
 # Section stripping
 # ---------------------------------------------------------------------------
 
-def test_strip_skills_section_removes_block_until_next_header() -> None:
+def test_strip_known_sections_removes_block_until_next_header() -> None:
     prompt = (
         "You are a helpful assistant.\n"
         "\n"
@@ -68,7 +68,7 @@ def test_strip_skills_section_removes_block_until_next_header() -> None:
         "## Other instructions\n"
         "Be concise.\n"
     )
-    out = _strip_skills_section(prompt)
+    out = _strip_known_sections(prompt)
     assert "Available Skills" not in out
     assert "/skills/user/foo/SKILL.md" not in out
     # Surrounding sections are preserved verbatim.
@@ -79,16 +79,16 @@ def test_strip_skills_section_removes_block_until_next_header() -> None:
     assert "[redacted from trace]" in out
 
 
-def test_strip_skills_section_handles_block_at_end_of_prompt() -> None:
+def test_strip_known_sections_handles_block_at_end_of_prompt() -> None:
     prompt = "Top.\n## Skills System\n- a\n- b\n"
-    out = _strip_skills_section(prompt)
+    out = _strip_known_sections(prompt)
     assert "- a" not in out
     assert "Top." in out
 
 
-def test_strip_skills_section_no_op_when_section_absent() -> None:
+def test_strip_known_sections_no_op_when_section_absent() -> None:
     prompt = "Plain prompt with no skills section.\n## Tools\nUse them."
-    assert _strip_skills_section(prompt) == prompt
+    assert _strip_known_sections(prompt) == prompt
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ def test_strip_known_sections_removes_workflow_definition_block() -> None:
         "Prompt:\n```\nUse github_create_repo with API token ABCD ...\n```\n"
         "## Other section\nstays\n"
     )
-    out = _strip_skills_section(rendered)  # back-compat alias
+    out = _strip_known_sections(rendered)  # back-compat alias
     assert "Ask the user for" not in out
     assert "github_create_repo" not in out
     assert "API token ABCD" not in out
@@ -385,7 +385,7 @@ def test_strip_workflow_section_removes_self_service_block_in_system_prompt() ->
         "blah blah every step llm_prompt here ...\n"
         "## Tools\nuse them.\n"
     )
-    out = _strip_skills_section(prompt)
+    out = _strip_known_sections(prompt)
     assert "every step llm_prompt" not in out
     assert "## Tools\nuse them." in out
 
