@@ -57,15 +57,15 @@ function formatInterval(seconds: number): string {
 }
 
 /**
- * Editor routes that own an in-page "Discard unsaved changes?" dialog.
+ * Editor routes that participate in the unsaved-changes guard.
  *
  * When a user is on one of these pages AND `hasUnsavedChanges` is set,
  * `GuardedLink` intercepts clicks on top-nav links and stores the
- * requested href in the global store. The editor component (TaskBuilder,
- * SkillWorkspace, …) reads `pendingNavigationHref` and surfaces its own
- * confirm dialog — keeping the discard UI consistent with each editor's
- * native "Back" button rather than duplicating a header-level modal per
- * editor.
+ * requested href in the global store. Each editor decides whether to
+ * render the confirm dialog itself (e.g. `/skills/workspace` owns its own
+ * in-page dialog so the discard UI matches its "Back" button) or to
+ * delegate it to the AppHeader (see `EDITOR_ROUTES_WITH_HEADER_DIALOG`
+ * below).
  *
  * Add new editor route prefixes here when they wire into the
  * unsaved-changes store.
@@ -73,6 +73,20 @@ function formatInterval(seconds: number): string {
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/task-builder",
   "/skills/workspace",
+  "/dynamic-agents",
+];
+
+/**
+ * Subset of guarded editor routes that ask the AppHeader to render the
+ * discard dialog for top-nav clicks. Editors in this list typically own
+ * an in-page dialog only for their own "Back" button (e.g. the Dynamic
+ * Agent editor) and rely on the header for cross-tab navigation, while
+ * editors not in this list (e.g. `/skills/workspace`) render their own
+ * dialog for both cases by reading `pendingNavigationHref` directly.
+ */
+const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
+  "/task-builder",
+  "/dynamic-agents",
 ];
 
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
@@ -80,6 +94,13 @@ function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
     pathname.startsWith(p),
   );
+}
+
+function isOnHeaderDialogEditor(
+  pathname: string | null | undefined,
+): boolean {
+  if (!pathname) return false;
+  return EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
 }
 
 function GuardedLink({
@@ -125,13 +146,13 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  // Only the Task Builder asks the AppHeader to render the discard
-  // dialog on its behalf. Other editors (e.g. /skills/workspace) own
-  // their own in-page dialog and consume `pendingNavigationHref`
-  // directly — that keeps the dialog visually consistent with each
-  // editor's "Back" button.
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Task Builder, Dynamic Agent
+  // editor) ask the AppHeader to render the discard dialog on their behalf
+  // for top-nav clicks. Other editors (e.g. /skills/workspace) own their own
+  // in-page dialog and consume `pendingNavigationHref` directly — that keeps
+  // the dialog visually consistent with each editor's "Back" button.
+  const shouldRenderHeaderDialog =
+    isOnHeaderDialogEditor(pathname) && hasUnsavedChanges;
 
   const handleDiscard = React.useCallback(() => {
     const href = confirmNavigation();
@@ -765,11 +786,13 @@ export function AppHeader() {
       </div>
     </header>
 
-    {isOnTaskBuilderEditor && pendingNavigationHref && (
+    {shouldRenderHeaderDialog && pendingNavigationHref && (
       <UnsavedChangesDialog
         open={!!pendingNavigationHref}
         onDiscard={handleDiscard}
         onCancel={handleCancel}
+        title="Unsaved changes"
+        description="You have unsaved changes. They will be lost if you leave now."
       />
     )}
     </>

@@ -1,3 +1,25 @@
+## 0.4.7 (2026-05-05)
+
+## 0.4.6-dev.2 (2026-05-05)
+
+### Feat
+
+- **ui**: warn user about unsaved changes in dynamic agent editor (#1328)
+
+## 0.4.6-dev.1 (2026-05-05)
+
+### BREAKING CHANGE
+
+- the live-skills and update-skills route responses no
+longer include layout/format/fragment fields and the agent catalog has
+5 entries (claude, cursor, codex, gemini, opencode) instead of 6.
+
+### Refactor
+
+- **skills**: end-to-end overhaul — Workspace, scanner microservice, installer rewrite, multi-source hubs, history, ZIP, AI Assist (#1327)
+
+## 0.4.6 (2026-05-05)
+
 ## 0.4.5-dev.2 (2026-05-05)
 
 ### Feat

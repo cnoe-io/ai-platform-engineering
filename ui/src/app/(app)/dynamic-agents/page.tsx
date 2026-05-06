@@ -12,6 +12,8 @@ import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
 import { LLMModelsTab } from "@/components/dynamic-agents/LLMModelsTab";
 import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 
 function DynamicAgentsPageContent() {
   const router = useRouter();
@@ -21,10 +23,37 @@ function DynamicAgentsPageContent() {
 
   const activeTab = searchParams.get("tab") ?? "agents";
 
-  function setActiveTab(tab: string) {
+  // When the embedded DynamicAgentEditor has unsaved changes, switching sibling
+  // tabs would unmount it and silently discard work. Intercept the switch and
+  // surface the in-app modal instead. The interception is local to this page;
+  // the global store's pendingNavigationHref is reserved for header-level
+  // navigation handled by AppHeader.
+  const [pendingTab, setPendingTab] = React.useState<string | null>(null);
+
+  function performTabSwitch(tab: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
     router.push(`${pathname}?${params.toString()}`);
+  }
+
+  function setActiveTab(tab: string) {
+    if (tab === activeTab) return;
+    if (useUnsavedChangesStore.getState().hasUnsavedChanges) {
+      setPendingTab(tab);
+      return;
+    }
+    performTabSwitch(tab);
+  }
+
+  function handleConfirmTabSwitch() {
+    const target = pendingTab;
+    setPendingTab(null);
+    useUnsavedChangesStore.getState().setUnsaved(false);
+    if (target) performTabSwitch(target);
+  }
+
+  function handleCancelTabSwitch() {
+    setPendingTab(null);
   }
 
   // Show loading state
@@ -109,6 +138,14 @@ function DynamicAgentsPageContent() {
           </Tabs>
         </div>
       </ScrollArea>
+
+      <UnsavedChangesDialog
+        open={pendingTab !== null}
+        onCancel={handleCancelTabSwitch}
+        onDiscard={handleConfirmTabSwitch}
+        title="Unsaved changes"
+        description="You have unsaved changes in the agent editor. They will be lost if you switch tabs."
+      />
     </div>
   );
 }
