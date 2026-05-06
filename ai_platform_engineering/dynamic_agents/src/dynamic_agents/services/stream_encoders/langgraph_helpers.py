@@ -56,7 +56,10 @@ class LangGraphStreamHelper:
 
     def __init__(self) -> None:
         self._namespace_mapping: dict[str, str] = {}
-        self._accumulated_content: list[str] = []
+        # LLM text tokens in stream order; used by invoke to extract final answer vs thinking.
+        # _last_tool_start_pos marks where the last tool_start boundary is in the array.
+        self._content_chunks: list[str] = []
+        self._last_tool_start_pos: int = 0
 
     # ── Stateful methods ──────────────────────────────────
 
@@ -140,12 +143,22 @@ class LangGraphStreamHelper:
             return ()
 
     def accumulate_content(self, content: str) -> None:
-        """Track accumulated content for later retrieval."""
-        self._accumulated_content.append(content)
+        """Append a content chunk to the buffer."""
+        self._content_chunks.append(content)
+
+    def reset_accumulated_content(self) -> None:
+        """Mark the current position as a tool boundary."""
+        self._last_tool_start_pos = len(self._content_chunks)
 
     def get_accumulated_content(self) -> str:
-        """Return all accumulated content joined as a single string."""
-        return "".join(self._accumulated_content)
+        """Return content after the last tool call (the final answer)."""
+        return "".join(self._content_chunks[self._last_tool_start_pos :])
+
+    def get_thinking_content(self) -> str:
+        """Return content before the last tool call (intermediate reasoning)."""
+        if self._last_tool_start_pos == 0:
+            return ""
+        return "".join(self._content_chunks[: self._last_tool_start_pos])
 
     # ── Static/stateless methods ──────────────────────────
 

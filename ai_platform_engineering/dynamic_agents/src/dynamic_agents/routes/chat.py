@@ -4,7 +4,7 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
@@ -288,39 +288,62 @@ async def chat_invoke(
     cache.set_mongo_service(mongo)
 
     try:
-        runtime = await cache.get_or_create(
+        async with cache.ephemeral(
             agent,
             mcp_servers,
             request.conversation_id,
             user=user,
             client_context=request.client_context,
-        )
+        ) as runtime:
+            # Use custom encoder for invoke — we just need accumulated content
+            encoder = get_encoder("custom")
 
-        # Use custom encoder for invoke — we just need accumulated content
-        encoder = get_encoder("custom")
+            async for _frame in runtime.stream(
+                request.message, request.conversation_id, user.email, request.trace_id, encoder
+            ):
+                pass  # Frames are SSE strings, we don't need them for invoke
 
-        async for _frame in runtime.stream(
-            request.message, request.conversation_id, user.email, request.trace_id, encoder
-        ):
-            pass  # Frames are SSE strings, we don't need them for invoke
+            # Check if the agent was interrupted (HITL: tool approval or user input form)
+            interrupt = await runtime.has_pending_interrupt(request.conversation_id)
+            if interrupt:
+                interrupt_type = interrupt.get("type", "unknown")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": (
+                            "Agent requires human interaction which is not supported via the invoke endpoint. "
+                            "Use the streaming chat endpoint or consider disabling tool approvals "
+                            "and the user input tool for this agent."
+                        ),
+                        "interrupt_type": interrupt_type,
+                        "agent_id": agent.id,
+                        "conversation_id": request.conversation_id,
+                        "trace_id": request.trace_id,
+                    },
+                )
 
-        return {
-            "success": True,
-            "content": encoder.get_accumulated_content(),
-            "agent_id": agent.id,
-            "conversation_id": request.conversation_id,
-            "trace_id": request.trace_id,
-        }
+            return {
+                "success": True,
+                "content": encoder.get_accumulated_content(),
+                "thinking": encoder.get_thinking_content() or None,
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            }
 
-    except Exception:
+    except Exception as e:
         logger.exception(f"Error invoking agent '{agent.name}'")
-        return {
-            "success": False,
-            "error": "An internal error occurred while invoking the agent.",
-            "agent_id": agent.id,
-            "conversation_id": request.conversation_id,
-            "trace_id": request.trace_id,
-        }
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
 
 
 @router.post("/restart-runtime")

@@ -93,7 +93,11 @@ class StreamEncoder(ABC):
 
     @abstractmethod
     def get_accumulated_content(self) -> str:
-        """Return all accumulated text content from the stream."""
+        """Return final answer content (after the last tool call)."""
+
+    @abstractmethod
+    def get_thinking_content(self) -> str:
+        """Return all content emitted during the run (thinking + final answer)."""
 
 
 # ═══════════════════════════════════════════════════════════════

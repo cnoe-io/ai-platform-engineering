@@ -231,6 +231,9 @@ class AGUIStreamEncoder(StreamEncoder):
     def get_accumulated_content(self) -> str:
         return self._helper.get_accumulated_content()
 
+    def get_thinking_content(self) -> str:
+        return self._helper.get_thinking_content()
+
     # ── Namespace tracking ────────────────────────────────
 
     def _emit_namespace_if_changed(self, namespace: tuple[str, ...]) -> list[str]:
@@ -402,6 +405,7 @@ class AGUIStreamEncoder(StreamEncoder):
                             continue
 
                         logger.debug(f"[sse:TOOL_CALL_START] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
+                        self._helper.reset_accumulated_content()
                         results.extend(self._emit_namespace_if_changed(namespace))
                         results.append(
                             _sse_frame(

@@ -23,6 +23,7 @@ from deepagents.backends.state import StateBackend
 from deepagents.middleware.skills import SkillsMiddleware
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
 from langgraph.types import Command
 from pymongo import MongoClient
@@ -153,6 +154,7 @@ class AgentRuntime:
         client_context: ClientContext | None = None,
         session_id: str | None = None,
         mongo_client: MongoClient | None = None,
+        ephemeral: bool = False,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -162,16 +164,23 @@ class AgentRuntime:
         self._client_context = client_context
         self._session_id = session_id
         self._graph = None
-        # Use shared MongoClient if provided; otherwise create our own
-        self._owns_mongo_client = mongo_client is None
-        self._mongo_client = mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
-        # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
-        self._checkpointer = MongoDBSaver(
-            self._mongo_client,
-            db_name=self.settings.mongodb_database,
-            checkpoint_collection_name="checkpoints_conversation",
-            writes_collection_name="checkpoint_writes_conversation",
-        )
+
+        if ephemeral:
+            # In-memory only — no MongoDB writes, GC'd with the runtime
+            self._owns_mongo_client = False
+            self._mongo_client = None
+            self._checkpointer = MemorySaver()
+        else:
+            # Use shared MongoClient if provided; otherwise create our own
+            self._owns_mongo_client = mongo_client is None
+            self._mongo_client = mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
+            # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
+            self._checkpointer = MongoDBSaver(
+                self._mongo_client,
+                db_name=self.settings.mongodb_database,
+                checkpoint_collection_name="checkpoints_conversation",
+                writes_collection_name="checkpoint_writes_conversation",
+            )
         self._initialized = False
         self._is_streaming = False  # guards LRU eviction — never evict mid-stream
         self._created_at = time.time()
