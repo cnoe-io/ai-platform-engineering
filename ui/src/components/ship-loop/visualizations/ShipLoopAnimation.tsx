@@ -52,20 +52,25 @@ interface ShipLoopAnimationProps {
 }
 
 // Pipeline geometry. Coordinates are SVG units; the rendered size is
-// driven by viewBox + responsive width on the wrapper. Tuned so that:
-//   - Stage spacing accommodates the longest label ("Implement") at
-//     12px text without crowding its neighbours.
-//   - The feedback arc has enough vertical headroom (FEEDBACK_DROP)
-//     that its curve reads as a deliberate U-turn rather than a
-//     near-straight line, even on small renders.
+// driven by viewBox + responsive width on the wrapper.
+//
+// The loop is laid out as a rectangle:
+//   - Top edge:   forward pipeline, Specify -> Observe (left to right)
+//   - Right edge: corner down to the return rail
+//   - Bottom edge: feedback rail, right to left
+//   - Left edge:  corner up returning to Specify
+//
+// Corners are rounded with CORNER_R so the path reads as one
+// continuous flow rather than four disconnected segments.
 const VIEWBOX_W = 880;
-const VIEWBOX_H = 280;
-const PIPELINE_Y = 110; // Y of the main pipeline rail.
+const VIEWBOX_H = 260;
+const PIPELINE_Y = 90; // Y of the top (forward) rail.
+const FEEDBACK_Y = 200; // Y of the bottom (feedback) rail.
 const STAGE_LEFT = 60;
 const STAGE_RIGHT = VIEWBOX_W - 60;
-const FEEDBACK_DROP = 110; // how far below the pipeline the feedback arc dips.
+const CORNER_R = 22; // corner radius for the rectangular path.
 
-/** Pipeline position (0..1) -> SVG coordinates on the horizontal rail. */
+/** Pipeline position (0..1) -> SVG coordinates on the top rail. */
 function pipelinePoint(t: number): { x: number; y: number } {
   return {
     x: STAGE_LEFT + (STAGE_RIGHT - STAGE_LEFT) * t,
@@ -127,13 +132,37 @@ export function ShipLoopAnimation({
             <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
           </radialGradient>
 
-          {/* Hidden full-loop path the agent tokens follow:
-              forward along the pipeline, U-turn at Observe, back
-              along the feedback arc, U-turn at Specify, repeat. */}
+          {/* Hidden full-loop path the agent tokens follow: top rail
+              forward, right corner + down, bottom rail right-to-left,
+              left corner + up. The path is one continuous rounded
+              rectangle so animateMotion gives a smooth flow with no
+              visible seam. */}
           <path id={flowPathId} d={describeFullLoop()} fill="none" />
+
+          {/* Reusable arrow marker for direction cues along the
+              non-stage edges (right, bottom, left). Defined as a
+              <marker> so each consumer line gets a clean head
+              without us hand-drawing rotated triangles. The marker
+              auto-orients to the line's tangent. */}
+          <marker
+            id={`${idPrefix}-arrow`}
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path
+              d="M 0 0 L 10 5 L 0 10 z"
+              fill="hsl(var(--gradient-mid))"
+              opacity="0.85"
+            />
+          </marker>
         </defs>
 
-        {/* Pipeline rail -- the spine of the diagram. */}
+        {/* Top rail -- the forward pipeline. The stage icon discs
+            sit on top of this. */}
         <line
           x1={STAGE_LEFT}
           y1={PIPELINE_Y}
@@ -145,40 +174,58 @@ export function ShipLoopAnimation({
           opacity="0.9"
         />
 
-        {/* Direction arrowhead on the right end so the pipeline reads
-            as flowing forward, not just a static bar. */}
+        {/* Right edge -- corner from the top rail down to the
+            feedback rail, with an arrow at the bottom indicating
+            "flow turns the corner here". The path uses a quadratic
+            bezier for the corner so the turn reads as continuous,
+            not pixelated. */}
         <path
-          d={`M ${STAGE_RIGHT} ${PIPELINE_Y} l -10 -6 l 0 12 z`}
-          fill="hsl(var(--gradient-end))"
-          opacity="0.9"
-        />
-
-        {/* Feedback arc -- Observe back to Specify, dipping below the
-            pipeline. The curve has enough vertical drop (FEEDBACK_DROP)
-            that the U-turn reads clearly. */}
-        <path
-          d={describeFeedbackArc()}
+          d={`M ${STAGE_RIGHT} ${PIPELINE_Y} Q ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y}, ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y + CORNER_R} L ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y - CORNER_R} Q ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y}, ${STAGE_RIGHT} ${FEEDBACK_Y}`}
           fill="none"
-          stroke={`url(#${trackGradId})`}
-          strokeWidth="2"
+          stroke="hsl(var(--gradient-end) / 0.6)"
+          strokeWidth="1.5"
           strokeLinecap="round"
-          strokeDasharray="6 8"
-          opacity="0.45"
+          markerEnd={`url(#${idPrefix}-arrow)`}
         />
 
-        {/* Animated dash flow on the feedback arc so "observed reality
-            feeds the next spec" is visible at a glance. Gated behind
-            motion-safe so reduced-motion users see only the static
-            dashed line. */}
-        <path
-          d={describeFeedbackArc()}
-          fill="none"
-          stroke="hsl(var(--primary))"
-          strokeWidth="2"
+        {/* Bottom rail -- the feedback line, right to left. Dashed
+            so it reads visually distinct from the solid forward
+            rail, and labelled below so the meaning is obvious
+            without leaning on tooltips. The dash-flow animation
+            (motion-safe only) creeps right-to-left to reinforce the
+            return direction. */}
+        <line
+          x1={STAGE_RIGHT}
+          y1={FEEDBACK_Y}
+          x2={STAGE_LEFT}
+          y2={FEEDBACK_Y}
+          stroke="hsl(var(--gradient-mid) / 0.55)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeDasharray="6 6"
+          markerEnd={`url(#${idPrefix}-arrow)`}
+        />
+        <line
+          x1={STAGE_RIGHT}
+          y1={FEEDBACK_Y}
+          x2={STAGE_LEFT}
+          y2={FEEDBACK_Y}
+          stroke="hsl(var(--primary) / 0.55)"
+          strokeWidth="1.5"
           strokeLinecap="round"
           strokeDasharray="2 14"
-          opacity="0.7"
           className="motion-safe:animate-ship-loop-dash"
+        />
+
+        {/* Left edge -- corner up from the feedback rail back to the
+            top rail. Mirror image of the right edge. */}
+        <path
+          d={`M ${STAGE_LEFT} ${FEEDBACK_Y} Q ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y}, ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y - CORNER_R} L ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y + CORNER_R} Q ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y}, ${STAGE_LEFT} ${PIPELINE_Y}`}
+          fill="none"
+          stroke="hsl(var(--gradient-start) / 0.6)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          markerEnd={`url(#${idPrefix}-arrow)`}
         />
 
         {/* Stage nodes -- each rendered as the canonical Lucide icon
@@ -190,12 +237,15 @@ export function ShipLoopAnimation({
           const Icon = visual.icon;
           return (
             <g key={stage} transform={`translate(${x} ${y})`}>
-              {/* Halo -- pulses to suggest live activity. */}
+              {/* Halo -- subtle, low-amplitude pulse to suggest live
+                  activity without competing with the main animation.
+                  Opacity is intentionally faint so the icon disc
+                  always wins for visual hierarchy. */}
               <circle
-                r="22"
-                fill={`hsl(${visual.hsl} / 0.18)`}
-                className="motion-safe:animate-ship-loop-halo origin-center"
-                style={{ animationDelay: `${(i * 0.15).toFixed(2)}s` }}
+                r="20"
+                fill={`hsl(${visual.hsl} / 0.12)`}
+                className="motion-safe:animate-ship-loop-halo-soft origin-center"
+                style={{ animationDelay: `${(i * 0.25).toFixed(2)}s` }}
               />
               {/* Disc backdrop -- gives the icon a solid plate so it
                   reads against the page's gradient mesh. The disc
@@ -246,11 +296,12 @@ export function ShipLoopAnimation({
           );
         })}
 
-        {/* Loop label tucked under the feedback arc so the meaning of
-            the lower curve is explicit without leaning on tooltips. */}
+        {/* Loop label tucked just under the feedback rail so the
+            meaning of the bottom edge is explicit without leaning
+            on tooltips. */}
         <text
           x={(STAGE_LEFT + STAGE_RIGHT) / 2}
-          y={PIPELINE_Y + FEEDBACK_DROP + 24}
+          y={FEEDBACK_Y + 22}
           textAnchor="middle"
           className="fill-muted-foreground text-[10px] uppercase tracking-[0.2em]"
         >
@@ -258,21 +309,24 @@ export function ShipLoopAnimation({
         </text>
 
         {/* Agent tokens -- three of them, staggered, tracing the full
-            forward + feedback path via SVG animateMotion. The shared
-            path id means the staggering is purely a `begin` offset,
-            so all three tokens stay in sync if the dur is retuned.
-            Omitted entirely under reduced motion so assistive tech
-            does not see "moving" content. */}
+            rectangular loop via SVG animateMotion. Speed is
+            intentionally slow (18s) and opacity is held down so the
+            tokens read as "ambient agents at work" rather than
+            "racing dots demanding attention". The shared path id
+            means staggering is purely a `begin` offset, so the
+            three tokens stay in sync if dur is retuned. Omitted
+            entirely under reduced motion so assistive tech does not
+            see "moving" content. */}
         {showAgents && (
-          <g aria-hidden>
+          <g aria-hidden opacity="0.7">
             {[0, 0.33, 0.66].map((delay, i) => (
-              <circle key={i} r="8" fill={`url(#${tokenGradId})`}>
+              <circle key={i} r="6" fill={`url(#${tokenGradId})`}>
                 {!prefersReducedMotion && (
                   <animateMotion
-                    dur="11s"
+                    dur="18s"
                     repeatCount="indefinite"
                     rotate="auto"
-                    begin={`-${(delay * 11).toFixed(2)}s`}
+                    begin={`-${(delay * 18).toFixed(2)}s`}
                   >
                     <mpath href={`#${flowPathId}`} />
                   </animateMotion>
@@ -301,35 +355,45 @@ export function describePipelineRail(): string {
 }
 
 /**
- * The feedback arc -- a smooth U-shaped Bezier from Observe back to
- * Specify, dipping FEEDBACK_DROP units below the pipeline. The curve
- * is symmetric around the pipeline midpoint so the dip reads as
- * intentional rather than skewed.
+ * The feedback edge as a rectangular bottom rail with rounded
+ * corners. Draws right -> down -> left -> up so it forms three sides
+ * of the rectangle complementing the top pipeline rail.
+ *
+ * Exported under the original name so test code that still imports
+ * `describeFeedbackArc` keeps building -- the shape changed (curve
+ * -> rect) but the topology (Observe -> ... -> Specify) is the same.
  */
 export function describeFeedbackArc(): string {
-  const startX = STAGE_RIGHT;
-  const endX = STAGE_LEFT;
-  const dipY = PIPELINE_Y + FEEDBACK_DROP;
-  // Cubic bezier with both control points at dipY; this gives the
-  // arc its symmetric U-shape regardless of the horizontal span.
-  return `M ${startX} ${PIPELINE_Y} C ${startX} ${dipY}, ${endX} ${dipY}, ${endX} ${PIPELINE_Y}`;
+  return [
+    `M ${STAGE_RIGHT} ${PIPELINE_Y}`,
+    `Q ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y}, ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y + CORNER_R}`,
+    `L ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y - CORNER_R}`,
+    `Q ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y}, ${STAGE_RIGHT} ${FEEDBACK_Y}`,
+    `L ${STAGE_LEFT} ${FEEDBACK_Y}`,
+    `Q ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y}, ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y - CORNER_R}`,
+    `L ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y + CORNER_R}`,
+    `Q ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y}, ${STAGE_LEFT} ${PIPELINE_Y}`,
+  ].join(" ");
 }
 
 /**
- * Full loop path used by the agent tokens: forward along the pipeline
- * (Specify -> Observe) then back along the feedback arc (Observe ->
- * Specify). Closed with `Z` so the animation wraps cleanly without a
- * visible jump at the seam.
+ * Full loop path used by the agent tokens: forward along the top
+ * rail (Specify -> Observe), then around the rectangular feedback
+ * edge (right corner down, bottom right-to-left, left corner up)
+ * and back to Specify. Closed with `Z` so animateMotion wraps
+ * cleanly without a visible jump at the seam.
  */
 export function describeFullLoop(): string {
   return [
-    describePipelineRail(),
-    // The feedback arc starts at STAGE_RIGHT/PIPELINE_Y (where the
-    // pipeline ended) so we can chain it directly without an
-    // intermediate "M".
-    `C ${STAGE_RIGHT} ${PIPELINE_Y + FEEDBACK_DROP}, ${STAGE_LEFT} ${
-      PIPELINE_Y + FEEDBACK_DROP
-    }, ${STAGE_LEFT} ${PIPELINE_Y}`,
+    `M ${STAGE_LEFT} ${PIPELINE_Y}`,
+    `L ${STAGE_RIGHT} ${PIPELINE_Y}`,
+    `Q ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y}, ${STAGE_RIGHT + CORNER_R} ${PIPELINE_Y + CORNER_R}`,
+    `L ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y - CORNER_R}`,
+    `Q ${STAGE_RIGHT + CORNER_R} ${FEEDBACK_Y}, ${STAGE_RIGHT} ${FEEDBACK_Y}`,
+    `L ${STAGE_LEFT} ${FEEDBACK_Y}`,
+    `Q ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y}, ${STAGE_LEFT - CORNER_R} ${FEEDBACK_Y - CORNER_R}`,
+    `L ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y + CORNER_R}`,
+    `Q ${STAGE_LEFT - CORNER_R} ${PIPELINE_Y}, ${STAGE_LEFT} ${PIPELINE_Y}`,
     "Z",
   ].join(" ");
 }
