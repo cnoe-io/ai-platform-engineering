@@ -57,6 +57,7 @@ export function FileTree({
         <span className="font-medium whitespace-nowrap">Files</span>
         <span className="text-muted-foreground">({files.length})</span>
       </div>
+      <p className="text-[10px] text-muted-foreground/60 italic">Ephemeral — files may be deleted automatically after 48h.</p>
 
       <div className="rounded-lg border border-border/50 bg-muted/30 p-2">
         <AnimatePresence mode="popLayout">

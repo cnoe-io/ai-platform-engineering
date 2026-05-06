@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # GridFS store (for agent file storage outside checkpoints)
     gridfs_bucket_name: str = "agent_files"
-    gridfs_ttl_seconds: int = 604800  # 7 days
+    gridfs_ttl_seconds: int = 172800  # 48 hours
     use_gridfs_backend: bool = True  # False = StateBackend (in-checkpoint files)
 
     # Runtime
