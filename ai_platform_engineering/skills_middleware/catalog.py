@@ -140,6 +140,13 @@ def _hub_skill_doc_to_catalog(
     scan_status = doc.get("scan_status")
     if scan_status is not None:
         out["scan_status"] = scan_status
+    # Carry the override sub-doc through so the dynamic-agents
+    # loader (which re-applies the gate as a defence-in-depth layer)
+    # can detect an active override on a flagged row. Stripped from
+    # the wire when absent to keep the catalog payload small.
+    scan_override = doc.get("scan_override")
+    if scan_override:
+        out["scan_override"] = scan_override
     return out
 
 
@@ -257,8 +264,15 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
         # per-skill ``scan_status`` directly on each ``hub_skills`` row.
         # Hub-wide blocks would have to be reintroduced in the UI
         # scanner if we ever want them again.
+        #
+        # Pass ``has_override`` so a flagged hub skill with an active
+        # admin override sub-doc is allowed through (under the warn
+        # gate). Without this the override would be invisible to the
+        # supervisor catalog and the merged listing would silently
+        # drop overridden hub skills.
         scan_status = row.get("scan_status")
-        if is_status_blocked(scan_status):
+        has_override = bool(row.get("scan_override"))
+        if is_status_blocked(scan_status, has_override=has_override):
             blocked_per_hub[hub_id] = blocked_per_hub.get(hub_id, 0) + 1
             continue
 

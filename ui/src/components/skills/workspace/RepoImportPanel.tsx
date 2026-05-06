@@ -22,6 +22,7 @@ import { Loader2, Import as ImportIcon, X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { readJson, readJsonOrError } from "@/lib/safe-json";
 import { cn } from "@/lib/utils";
 
 export type RepoImportSource = "github" | "gitlab";
@@ -42,7 +43,7 @@ const SOURCE_HINTS: Record<RepoImportSource, {
   },
   gitlab: {
     repoLabel: "Project (group/.../project)",
-    repoPlaceholder: "mycorp/platform",
+    repoPlaceholder: "gitlab-org/ai/skills",
     pathPlaceholder: "skills/example",
     credentialEnv: "GITLAB_TOKEN",
   },
@@ -109,10 +110,22 @@ export function RepoImportPanel({
         }),
       });
       if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || `Import failed: ${resp.status}`);
+        // Use readJsonOrError so an HTML response (e.g. 504 from an
+        // upstream load balancer) surfaces as a useful error message
+        // instead of a generic "Import failed: 504".
+        const parsed = await readJsonOrError<{ error?: string }>(resp);
+        if (parsed.ok === true) {
+          throw new Error(parsed.data.error || `Import failed: ${resp.status}`);
+        }
+        // parsed.ok === false here, so .preview/.status/.error are present.
+        const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
+        throw new Error(`Import failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
       }
-      const data = await resp.json();
+      const data = await readJson<{
+        data?: { files?: Record<string, string>; conflicts?: ImportConflict[] };
+        files?: Record<string, string>;
+        conflicts?: ImportConflict[];
+      }>(resp);
       const payload = (data.data ?? data) as {
         files?: Record<string, string>;
         conflicts?: ImportConflict[];

@@ -224,6 +224,16 @@ async function runBulkScan(
       // Persist onto the skill so the gallery shield reflects the
       // new state without a manual save.
       const now = new Date();
+      // Write the raw scanner verdict only — never touch the
+      // ``scan_override`` sub-doc here. Bulk rescans are the
+      // most likely path to a "wait, where did my overrides go?"
+      // surprise, so honouring the user's "keep override across
+      // rescans" requirement matters most here. Admins clear
+      // overrides explicitly via the override DELETE route.
+      // (Splitting status from override also means this update
+      // path can no longer accidentally nuke an override by
+      // writing the wrong status string — that whole class of
+      // bug is structurally impossible now.)
       try {
         await col.updateOne(
           { id: skill.id },
@@ -332,6 +342,17 @@ async function runBulkScan(
         scanResult.scan_summary ?? scanResult.unscanned_reason;
 
       const now = new Date();
+      // Write the raw scanner verdict to ``scan_status`` /
+      // ``scan_summary`` only. We deliberately do NOT touch the
+      // ``scan_override`` sub-doc here — admins clear overrides
+      // explicitly via the override DELETE route. Bulk rescans
+      // are the most likely path to a "wait, where did my
+      // overrides go?" surprise, so honouring the user's "keep
+      // override across rescans" requirement matters most here.
+      // (Splitting status from override also means this update
+      // path can no longer accidentally nuke an override by
+      // writing the wrong status string — that whole class of
+      // bug is structurally impossible now.)
       try {
         await col.updateOne(
           { hub_id: doc.hub_id, skill_id: doc.skill_id },

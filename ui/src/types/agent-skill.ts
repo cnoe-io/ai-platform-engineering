@@ -119,8 +119,65 @@ export interface AgentSkillMetadata {
   import_kind?: string;
 }
 
-/** Scan status set by skill-scanner on save/publish (FR-027). */
+/**
+ * Scan status produced by the skill-scanner service (FR-027).
+ *
+ * The scanner only ever emits one of these three values, and that
+ * is also the only value persisted on the doc — the admin override
+ * is a SEPARATE field (``scan_override`` sub-doc), not a magic
+ * status. See ``ScanOverride`` below for why.
+ */
 export type ScanStatus = "passed" | "flagged" | "unscanned";
+
+/**
+ * Audit record for an admin scan override.
+ *
+ * Set by ``POST /api/admin/skills/:source/:source_id/scan-override``
+ * and persisted on the ``agent_skills`` (or ``hub_skills``) doc as a
+ * separate field alongside the scanner-owned ``scan_status``. The
+ * runtime gate (Python ``scan_gate.is_skill_blocked`` and Node
+ * ``applyRunnableGate``) treats a flagged skill with this sub-doc
+ * present as runnable iff ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on;
+ * otherwise it collapses back to blocked so a single env flip
+ * removes the escape hatch in lockstep across both tiers.
+ *
+ * Why a separate field instead of ``scan_status: "admin_overridden"``:
+ * the previous design encoded the override into the status string
+ * itself, which collided with every scanner write path — any rescan
+ * would blindly overwrite ``scan_status: "flagged"`` and silently
+ * nuke the override. Splitting the signals lets scan routes write
+ * status freely while the override stays stable until an admin
+ * explicitly clears it.
+ *
+ * ``prior_scan_status`` is intentionally restricted to ``"flagged"``
+ * because that is the only state from which an override can be
+ * created — an admin can't pre-emptively override a passed or
+ * unscanned skill (no reason to). Captured here so the UI can
+ * render "Override active. Scanner had returned: flagged" without
+ * keeping a stale copy of the original verdict somewhere else.
+ */
+export interface ScanOverride {
+  /** Identity of the admin who set the override (email or user id). */
+  set_by: string;
+  /** ISO-8601 timestamp at which the override was set. */
+  set_at: string;
+  /** Free-form admin justification, persisted for audit. */
+  reason: string;
+  /** Scanner verdict at the moment of override (always ``"flagged"``). */
+  prior_scan_status: "flagged";
+  /** Snapshot of ``scan_summary`` at override time, if it existed. */
+  prior_scan_summary?: string;
+}
+
+/**
+ * @deprecated Kept as an alias for backwards source compatibility
+ * during the migration away from the magic ``"admin_overridden"``
+ * status. Now identical to ``ScanStatus`` — every callsite that
+ * gated on ``scan_status === "admin_overridden"`` should be
+ * rewritten to gate on ``!!scan_override`` instead. Will be removed
+ * after the next release cuts.
+ */
+export type PersistedScanStatus = ScanStatus;
 
 /**
  * Main agent skill interface
@@ -163,12 +220,24 @@ export interface AgentSkill {
   visibility?: SkillVisibility;
   /** Team IDs this skill is shared with (when visibility is "team") */
   shared_with_teams?: string[];
-  /** Scan status from skill-scanner on save (FR-027) */
-  scan_status?: ScanStatus;
+  /**
+   * Persisted scan status: the scanner verdict, OR
+   * ``"admin_overridden"`` if an admin has explicitly green-lit a
+   * previously flagged skill via the per-skill override route.
+   * (FR-027.) The override is read from ``scan_override`` below.
+   */
+  scan_status?: PersistedScanStatus;
   /** Optional scanner output / summary text persisted for UI report */
   scan_summary?: string;
   /** When the last scan result was persisted (save or manual Scan now) */
   scan_updated_at?: Date | string;
+  /**
+   * Audit metadata for an active admin override. Present iff
+   * ``scan_status === "admin_overridden"``. Cleared (along with the
+   * status flip back to "passed") when a rescan now returns
+   * ``"passed"`` — at which point the override is no longer needed.
+   */
+  scan_override?: ScanOverride;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
 }

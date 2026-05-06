@@ -115,6 +115,32 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: jest.fn() }),
 }));
 
+// Mock the scan-status indicator so the gallery tests can drive its
+// `onScanComplete` callback directly without simulating the full
+// override/scan dialog flow. The mock renders a hidden button keyed
+// by `data-testid="scan-complete-${configId}"` that, when clicked,
+// invokes the prop. This is how the catalog-refresh-after-override
+// test triggers the same code path the real dialog uses, so we can
+// assert the gallery refetches `/api/skills` to clear stale rows.
+jest.mock("../SkillScanStatusIndicator", () => ({
+  __esModule: true,
+  SkillScanStatusIndicator: ({
+    config,
+    onScanComplete,
+  }: {
+    config: { id: string };
+    onScanComplete?: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid={`scan-complete-${config.id}`}
+      onClick={() => onScanComplete?.()}
+    >
+      mock-scan-indicator
+    </button>
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Test data helpers
 // ---------------------------------------------------------------------------
@@ -904,5 +930,202 @@ describe("SkillsGallery — multi-task skill card opens modal", () => {
     const cards = screen.getAllByText("Deploy Pipeline Workflow");
     await act(async () => { fireEvent.click(cards[0]); });
     expect(screen.getByRole("button", { name: /try skill/i })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Catalog refresh after scan/override (regression for stale "Disabled"
+// badge requiring a hard refresh)
+// ---------------------------------------------------------------------------
+//
+// This block locks in the fix for the bug where clearing a hub
+// skill's admin scan-override left the gallery showing the red
+// "Disabled — flagged" badge until a hard browser refresh. The root
+// cause was twofold:
+//
+//   1. `onScanComplete` only re-ran the Zustand `loadSkills()`, which
+//      hits `/api/skills/configs` (the agent_skills branch). Hub-
+//      projected rows live in a separate `/api/skills` fetch that
+//      previously sat in a mount-only `useEffect`, so it never
+//      re-ran after admin actions.
+//   2. The catalog mapping dropped `scan_override` on its way through
+//      an inline type cast, so even a manual refetch would lose the
+//      gate signal that `isFlaggedSkill` uses to compute the
+//      synthetic "admin-overridden" UX state.
+//
+// We assert both: the catalog endpoint is re-hit on `onScanComplete`,
+// AND `scan_override` from the response actually suppresses the
+// flagged-disabled badge on hub-projected rows.
+
+describe("SkillsGallery — catalog refresh after scan/override", () => {
+  // Track every `/api/skills` (catalog) request so the test can
+  // assert that `onScanComplete` re-fetched it. We only count GETs
+  // for the unified catalog (the path with `include_content=true`).
+  let catalogFetchCount = 0;
+  // Per-test mutable response payload — flips between "flagged with
+  // override" and "flagged without override" to simulate the admin
+  // toggling the override on/off without remounting the component.
+  let catalogResponse: { skills: Array<Record<string, unknown>> } = { skills: [] };
+
+  beforeEach(() => {
+    catalogFetchCount = 0;
+    catalogResponse = { skills: [] };
+    _configs = [];
+
+    global.fetch = jest.fn((url: string | URL | Request) => {
+      const urlStr =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+          ? url.toString()
+          : url.url;
+
+      if (urlStr.includes("/api/skills/supervisor-status")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ mas_registered: true, skills_loaded_count: 1 }),
+        } as Response);
+      }
+
+      // Both the unified catalog endpoint (`/api/skills?...`) and
+      // the per-source mongo endpoint (`/api/skills/configs`) start
+      // with `/api/skills`. We only want to count the unified one,
+      // so we discriminate on the query string the gallery uses.
+      if (urlStr.includes("/api/skills?include_content=true")) {
+        catalogFetchCount += 1;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(catalogResponse),
+        } as Response);
+      }
+
+      if (urlStr.includes("/api/skills/configs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([]),
+        } as Response);
+      }
+
+      // Fallback: the gallery's seed/favorites paths. Empty OK is fine.
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({}),
+      } as Response);
+    }) as jest.Mock;
+  });
+
+  it("propagates scan_override from the catalog response so a flagged hub skill with override does NOT show 'Disabled — flagged'", async () => {
+    catalogResponse = {
+      skills: [
+        {
+          id: "hub-acme-secrets",
+          name: "Hub Skill With Override",
+          source: "hub",
+          source_id: "acme/secrets",
+          description: "Flagged hub skill that admin has explicitly green-lit.",
+          metadata: { catalog_source: "hub", category: "Hub" },
+          scan_status: "flagged",
+          scan_summary: "Found shell injection",
+          scan_override: {
+            set_by: "admin@example.com",
+            set_at: new Date().toISOString(),
+            reason: "Reviewed manually, the apparent shell call is in a comment.",
+            prior_scan_status: "flagged",
+            prior_scan_summary: "Found shell injection",
+          },
+        },
+      ],
+    };
+    await renderGallery();
+
+    // Card must render (the catalog feed is what drives hub rows).
+    expect(await screen.findByText("Hub Skill With Override")).toBeInTheDocument();
+
+    // The scoped "Disabled — flagged" badge belongs to this card iff
+    // `isFlaggedSkill` returned true. With `scan_override` present
+    // the predicate must return false. We don't bind to the card
+    // wrapper because the gallery shows the same row in multiple
+    // sections (My Skills / Built-in / All); just assert no such
+    // badge exists anywhere.
+    expect(screen.queryByText(/Disabled — flagged/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the 'Disabled — flagged' badge for a flagged hub skill WITHOUT an override (control case)", async () => {
+    catalogResponse = {
+      skills: [
+        {
+          id: "hub-acme-leak",
+          name: "Hub Skill Without Override",
+          source: "hub",
+          source_id: "acme/leak",
+          description: "Flagged hub skill, no admin override.",
+          metadata: { catalog_source: "hub", category: "Hub" },
+          scan_status: "flagged",
+          scan_summary: "Found credential leak",
+          // no scan_override
+        },
+      ],
+    };
+    await renderGallery();
+
+    expect(await screen.findByText("Hub Skill Without Override")).toBeInTheDocument();
+    // At least one occurrence: the card lives in both the All-skills
+    // grid and the source-filtered "Built-in" grid (hub rows are
+    // surfaced as built-in by `skillCatalogSource`). Both should
+    // show the badge.
+    expect(screen.getAllByText(/Disabled — flagged/i).length).toBeGreaterThan(0);
+  });
+
+  it("re-fetches the unified catalog when SkillScanStatusIndicator.onScanComplete fires", async () => {
+    // Initial response: flagged + override. We don't actually mutate
+    // it — we only need to confirm the gallery re-hits the endpoint
+    // when `onScanComplete` triggers, which is the contract that
+    // breaks if `refreshAll` regresses back to `loadSkills` alone.
+    catalogResponse = {
+      skills: [
+        {
+          id: "hub-acme-runme",
+          name: "Hub Skill Refresh Probe",
+          source: "hub",
+          source_id: "acme/runme",
+          description: "Used purely to host a scan indicator we can poke.",
+          metadata: { catalog_source: "hub", category: "Hub" },
+          scan_status: "flagged",
+          scan_override: {
+            set_by: "admin@example.com",
+            set_at: new Date().toISOString(),
+            reason: "Trusted source.",
+            prior_scan_status: "flagged",
+          },
+        },
+      ],
+    };
+    await renderGallery();
+
+    await waitFor(() => {
+      expect(catalogFetchCount).toBeGreaterThanOrEqual(1);
+    });
+    const initialCount = catalogFetchCount;
+
+    // Catalog rows are rendered with id `catalog-<source>-<source_id>`
+    // (see `mapCatalog` in SkillsGallery). Find any of the mocked
+    // indicator buttons — there is one per visible occurrence of
+    // the row, which is enough to drive the callback.
+    const triggers = await screen.findAllByTestId(/^scan-complete-catalog-/);
+    expect(triggers.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.click(triggers[0]);
+    });
+
+    // `refreshAll` runs `loadSkills()` and `reloadCatalog()` in
+    // parallel. We don't care about the agent_skills branch here —
+    // the regression we're guarding against is specifically the
+    // catalog branch, so we wait on its counter. Without the fix
+    // this stayed pinned at `initialCount` forever, which is what
+    // forced the user's hard refresh.
+    await waitFor(() => {
+      expect(catalogFetchCount).toBeGreaterThan(initialCount);
+    });
   });
 });

@@ -10,8 +10,11 @@ import {
 import {
   normalizeHubLocation,
   validateIncludePaths,
+  validateMaxTreePages,
 } from "./_lib/normalize";
 import { ObjectId } from "mongodb";
+import type { HubLastCrawlTruncation } from "@/lib/hub-crawl";
+import type { CrawlEvent } from "@/lib/crawl-events";
 
 /**
  * Skill Hubs API — Admin endpoints for managing external skill hubs.
@@ -32,6 +35,19 @@ interface SkillHubDoc {
   labels: string[];
   /** Optional path-prefix allow-list for hub crawl (FR-020). */
   include_paths?: string[];
+  /**
+   * GitLab only: per-hub override of the recursive-tree page cap.
+   * Mirrors the canonical ``SkillHubDoc.max_tree_pages`` in
+   * ``@/lib/hub-crawl``. Kept on this local interface so the
+   * insertOne path round-trips with strict typing.
+   */
+  max_tree_pages?: number;
+  /** Truncation summary from the most recent successful crawl (mirror of canonical). */
+  last_truncation?: HubLastCrawlTruncation;
+  /** Persisted, redacted log of the most recent ``forceFresh`` crawl. */
+  last_crawl_log?: CrawlEvent[];
+  /** ISO timestamp of when ``last_crawl_log`` was written. */
+  last_crawl_log_at?: string;
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;
@@ -152,6 +168,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       : [];
 
     const includePaths = validateIncludePaths(body.include_paths);
+    // `max_tree_pages` only meaningfully changes GitLab behaviour — the
+    // GitHub crawler issues a single non-paginated tree request. Reject
+    // the value on a GitHub hub so admins don't paste it expecting it
+    // to do something.
+    const maxTreePagesRaw = validateMaxTreePages(body.max_tree_pages);
+    if (type === "github" && typeof maxTreePagesRaw === "number") {
+      throw new ApiError(
+        "max_tree_pages applies to GitLab hubs only (GitHub fetches the tree in a single request).",
+        400,
+      );
+    }
+    const maxTreePages = typeof maxTreePagesRaw === "number" ? maxTreePagesRaw : undefined;
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
 
@@ -179,6 +207,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now,
     };
     if (includePaths) hubDoc.include_paths = includePaths;
+    if (maxTreePages !== undefined) hubDoc.max_tree_pages = maxTreePages;
 
     await collection.insertOne(hubDoc as any);
 
