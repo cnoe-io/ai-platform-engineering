@@ -124,7 +124,7 @@ describe("ShipLoopHome", () => {
     expect(screen.getByText(/agents run the ship loop\./i)).toBeInTheDocument();
   });
 
-  it("composes the loop animation, the swim-lane preview, and an entry per orbit stage", () => {
+  it("composes the loop animation, the swim-lane preview, and one label per orbit stage", () => {
     render(<ShipLoopHome />);
     // Animation present.
     expect(
@@ -134,12 +134,11 @@ describe("ShipLoopHome", () => {
     expect(
       screen.getByRole("img", { name: /swim lanes/i }),
     ).toBeInTheDocument();
-    // Each canonical stage has a tile (in addition to its node label
-    // inside the SVG, so getAllByText >= 2 -- one in the SVG, at least
-    // one in the legend tile).
+    // Each canonical stage still appears in the SVG animation; the
+    // separate Stage glossary was intentionally removed as redundant.
     for (const stage of ORBIT_STAGES) {
       const label = STAGE_VISUALS[stage].label;
-      expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1);
     }
   });
 

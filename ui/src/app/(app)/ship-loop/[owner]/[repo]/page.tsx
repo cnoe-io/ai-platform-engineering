@@ -19,7 +19,7 @@ export default async function ShipLoopRepoPage({
 }) {
   const { owner, repo } = await params;
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4 p-6 md:p-8">
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-4 p-6 md:p-8 lg:px-12">
       <nav aria-label="Breadcrumb" className="text-xs text-muted-foreground">
         <Link href="/ship-loop" className="hover:text-foreground">
           Ship Loop

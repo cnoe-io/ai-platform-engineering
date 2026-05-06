@@ -236,13 +236,13 @@ export function ShipLoopAnimation({
         {stageNodes.map(({ stage, visual, x, y }, i) => {
           const Icon = visual.icon;
           return (
-            <g key={stage} transform={`translate(${x} ${y})`}>
+            <g key={stage} transform={`translate(${x} ${y})`} data-stage={stage}>
               {/* Halo -- subtle, low-amplitude pulse to suggest live
                   activity without competing with the main animation.
                   Opacity is intentionally faint so the icon disc
                   always wins for visual hierarchy. */}
               <circle
-                r="20"
+                r="26"
                 fill={`hsl(${visual.hsl} / 0.12)`}
                 className="motion-safe:animate-ship-loop-halo-soft origin-center"
                 style={{ animationDelay: `${(i * 0.25).toFixed(2)}s` }}
@@ -252,7 +252,7 @@ export function ShipLoopAnimation({
                   uses the stage's HSL token at high opacity, the
                   icon strokes white so it's legible on every disc. */}
               <circle
-                r="14"
+                r="18"
                 fill={`hsl(${visual.hsl})`}
                 filter={`url(#${glowFilterId})`}
               />
@@ -262,10 +262,10 @@ export function ShipLoopAnimation({
                   also lock width/height so the icon scales with the
                   parent viewBox rather than its intrinsic 24px. */}
               <Icon
-                x={-9}
-                y={-9}
-                width={18}
-                height={18}
+                x={-12}
+                y={-12}
+                width={24}
+                height={24}
                 strokeWidth={2.25}
                 color="white"
                 aria-hidden
@@ -275,23 +275,12 @@ export function ShipLoopAnimation({
                   renders. Even-indexed stages go above, odd-indexed
                   below. */}
               <text
-                y={i % 2 === 0 ? -32 : 38}
+                y={i % 2 === 0 ? -36 : 44}
                 textAnchor="middle"
-                className="fill-foreground text-[12px] font-semibold tracking-tight"
+                className="fill-foreground text-[14px] font-semibold tracking-tight"
               >
                 {visual.label}
               </text>
-              {/* Stage blurb on the bookends only, so the eye knows
-                  where the loop starts and where it observes. */}
-              {(stage === "specify" || stage === "observe") && (
-                <text
-                  y={i % 2 === 0 ? -48 : 54}
-                  textAnchor="middle"
-                  className="fill-muted-foreground text-[10px]"
-                >
-                  {visual.blurb}
-                </text>
-              )}
             </g>
           );
         })}

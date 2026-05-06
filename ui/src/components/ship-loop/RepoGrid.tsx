@@ -139,7 +139,7 @@ export function RepoGrid({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3",
+        "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4",
         className,
       )}
       role="list"

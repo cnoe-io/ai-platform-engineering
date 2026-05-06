@@ -18,9 +18,8 @@
  *   - ShipLoopAnimation as the hero: the eight-stage loop shown
  *     literally as an animated orbit so users see "what they are
  *     about to onboard into" before they have any data.
- *   - Stage tiles -> the canonical Specify -> Observe vocabulary
- *     surfaced once, with the same icon + color the per-Epic views
- *     will reuse.
+ *   - Stage vocabulary now lives in the animation and per-Epic views
+ *     rather than a separate glossary row, keeping the home page lean.
  *   - SwimLanePreview -> previews the kanban viz that lands in US2.
  *   - Capabilities grid -> existing copy, restyled with glass-panel
  *     + hover-glow so it feels native to the design system.
@@ -41,10 +40,6 @@ import {
 import { RepoGrid } from "@/components/ship-loop/RepoGrid";
 import { ShipLoopAnimation } from "@/components/ship-loop/visualizations/ShipLoopAnimation";
 import { SwimLanePreview } from "@/components/ship-loop/visualizations/SwimLanePreview";
-import {
-  ORBIT_STAGES,
-  STAGE_VISUALS,
-} from "@/components/ship-loop/visualizations/stage-visuals";
 
 export function ShipLoopHome() {
   return (
@@ -80,7 +75,7 @@ export function ShipLoopHome() {
         />
       </div>
 
-      <div className="relative max-w-6xl mx-auto p-6 md:p-8 space-y-8">
+      <div className="relative mx-auto p-6 md:p-8 lg:px-12 space-y-8 max-w-[1600px]">
         {/* Hero -- two-column on md+. Copy + an inline stage-icon
             row on the left, the animation on the right with NO
             glass panel so it floats freely against the page's
@@ -109,51 +104,10 @@ export function ShipLoopHome() {
               </p>
             </div>
 
-            {/* Inline stage rail -- gives the headline an immediate
-                visual anchor in the AI-native palette without
-                duplicating the full legend tiles below. Each pill
-                tints itself with the same per-stage color tokens the
-                animation and per-Epic views use, so the colors are a
-                contract, not decoration. */}
-            <ul
-              className="flex flex-wrap items-center gap-1.5 pt-1"
-              aria-label="Ship-loop stages"
-            >
-              {ORBIT_STAGES.map((stage, idx) => {
-                const visual = STAGE_VISUALS[stage];
-                const Icon = visual.icon;
-                return (
-                  <li key={stage} className="flex items-center gap-1.5">
-                    <span
-                      className={[
-                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                        visual.bgClass,
-                        visual.borderClass,
-                      ].join(" ")}
-                      title={visual.blurb}
-                    >
-                      <Icon
-                        className={["h-3 w-3", visual.fgClass].join(" ")}
-                        aria-hidden
-                      />
-                      <span className="text-foreground/90">{visual.label}</span>
-                    </span>
-                    {idx < ORBIT_STAGES.length - 1 ? (
-                      <span
-                        aria-hidden
-                        className="text-muted-foreground/40 text-[10px]"
-                      >
-                        →
-                      </span>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
           </div>
 
           <div className="md:col-span-6">
-            <div className="mx-auto md:ml-auto md:mr-0 max-w-[640px]">
+            <div className="mx-auto md:ml-auto md:mr-0 max-w-[820px]">
               <ShipLoopAnimation />
             </div>
           </div>
@@ -174,51 +128,6 @@ export function ShipLoopHome() {
           <RepoGrid />
         </section>
 
-        {/* Stage legend -- richer per-stage blurbs (the inline rail
-            in the hero only shows label + icon). Acts as a glossary
-            tying the animation, the inline rail, and the eventual
-            per-Epic views to one shared vocabulary. */}
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              Stage glossary
-            </h2>
-            <span className="text-[11px] text-muted-foreground/70">
-              Specify → Observe → back to spec
-            </span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            {ORBIT_STAGES.map((stage) => {
-              const visual = STAGE_VISUALS[stage];
-              const Icon = visual.icon;
-              return (
-                <div
-                  key={stage}
-                  className={[
-                    "rounded-lg border px-2.5 py-2 transition-shadow hover-glow",
-                    visual.bgClass,
-                    visual.borderClass,
-                  ].join(" ")}
-                  title={visual.blurb}
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Icon
-                      className={["h-3.5 w-3.5", visual.fgClass].join(" ")}
-                      aria-hidden
-                    />
-                    <span className="text-[11px] font-semibold tracking-tight text-foreground">
-                      {visual.label}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground/80 leading-tight">
-                    {visual.blurb}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
         {/* Swim-lane preview -- shows the kanban viz coming in US2. */}
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
@@ -232,9 +141,7 @@ export function ShipLoopHome() {
           <SwimLanePreview />
         </section>
 
-        {/* Capabilities -- existing copy, restyled with glass + hover glow.
-            Each card now leads with a colored stage-style icon plate so it
-            visually links back to the stage tiles above. */}
+        {/* Capabilities -- existing copy, restyled with glass + hover glow. */}
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             What ships next
