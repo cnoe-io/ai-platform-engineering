@@ -519,30 +519,22 @@ export class A2ASDKClient {
       }
     }
 
-    // Intentionally do NOT synthesize a "Task <status> (ID: ...)" placeholder
-    // when the task event carries no artifact text.
-    //
-    // Task events (especially the initial `submitted` snapshot) frequently
-    // arrive without artifacts — they're a lifecycle signal, not user-facing
-    // content. Downstream consumers (SubAgentCard, ChatPanel timeline) join
-    // every event's `displayContent` into the visible card, so any synthetic
-    // filler we put here ends up rendered as a chat message like:
-    //   "Task submitted (ID: 2a538eba...)"
-    // which is misleading UX — especially for skills that render their output
-    // out-of-band (e.g. IDE filesystem skills) where this is the ONLY message
-    // the user ever sees, making it look like the assistant gave up.
-    //
-    // Leaving displayContent empty makes consumers correctly treat this event
-    // as lifecycle-only. The task id is still available via `taskId` and the
-    // raw status via `raw.status?.state` for any consumer that wants to
-    // surface it explicitly (e.g. timeline status chips).
+    // For intermediate lifecycle events (submitted, in-progress, etc.) leave
+    // displayContent empty — they are signals, not user-facing content.
+    // For a completed task with no artifact text, show a friendly fallback so
+    // the user knows the task finished but produced no visible output.
     const isFinal = task.status?.state === "completed";
+    const resolvedContent =
+      textContent ||
+      (isFinal
+        ? "No output generated. If this is in error, please retry or reask the question."
+        : "");
 
     return {
       raw: task,
       type: "task",
       artifactName,
-      displayContent: textContent,
+      displayContent: resolvedContent,
       isFinal,
       shouldAppend: false, // Task events typically replace content
       contextId: task.contextId,
