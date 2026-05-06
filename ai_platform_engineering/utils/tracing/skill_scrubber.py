@@ -204,8 +204,6 @@ def _strip_known_sections(text: str) -> str:
     return text
 
 
-# Back-compat shim — earlier tests import the old name.
-_strip_skills_section = _strip_known_sections
 
 
 def _looks_like_skill_read(value: str) -> bool:
