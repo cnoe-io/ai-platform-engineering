@@ -261,6 +261,10 @@ data/
 !.claude/skills
 !.claude/skills/**
 
+# .agents/skills symlinks to .claude/skills for ~/.agents/skills compatibility
+!.agents/
+!.agents/skills
+
 # UI Core (local development)
 caipe-ui-core/
 
