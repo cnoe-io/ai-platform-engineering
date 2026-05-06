@@ -277,8 +277,8 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 - [~] T100 **PARTIAL** — `quickstart.md` end-to-end against a real GitHub repo with screenshots remains pending until full GitHub OAuth + webhook auto-registration land. The mock-webhook equivalent (`mock-webhook-flow.sh` + the new `mock-webhook-demo.md`) covers the same MVP demo loop end-to-end without GitHub access.
 - [ ] T101 [P] Update `ui/README.md` with a "Ship Loop" section linking to the spec and the quickstart.
 - [ ] T102 [P] Add a security review note in `docs/docs/changes/2026-05-05-agentic-sdlc-ship-loop-ui-security.md` covering: webhook HMAC verification, untrusted-content rendering, deny-by-default authz, 404-on-disabled, secret handling, $-cost gating.
-- [ ] T103 [P] Run `npm run lint` and `npm run build` from `ui/` and fix any new violations.
-- [ ] T104 [P] Run the targeted Jest suite (`npm run test -- ship-loop` from `ui/`) and confirm all newly added tests pass.
+- [~] T103 [P] **PARTIAL** — `npm run lint` is broken on `main` because Next 16 removed the `next lint` subcommand and the existing `package.json` script still calls `next lint` (also a pre-existing ESLint v9 + flat-config circular-JSON crash on direct invocation). Substituted `tsc --noEmit` as the type-soundness gate while we wait for the upstream lint config to be migrated; clean against the full Phase-11 surface as of 2026-05-06. Untouched by ship-loop work.
+- [X] T104 [P] Targeted Jest suite (`npx jest --testPathPatterns 'ship-loop'`) green: 18 suites, 139 tests, 0 failures, ~2s wall-clock as of 2026-05-06. Full Jest suite has 19 pre-existing failures across 6 unrelated suites (skills/install.sh, skill-hubs/crawl, lib/config) that all reproduce on `main`; none are in the ship-loop tree.
 - [ ] T105 Run a manual penetration probe per SC-010: assert that disabling the feature returns 404 (not 403/500), that webhook deliveries with bad signatures are rejected, that non-admin users cannot see `cost_usd`, and that no untrusted GitHub content escapes the sanitizer.
 
 ---
