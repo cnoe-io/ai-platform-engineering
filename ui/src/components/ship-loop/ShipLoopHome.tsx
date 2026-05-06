@@ -153,7 +153,7 @@ export function ShipLoopHome() {
           </div>
 
           <div className="md:col-span-6">
-            <div className="mx-auto md:ml-auto md:mr-0 max-w-[560px]">
+            <div className="mx-auto md:ml-auto md:mr-0 max-w-[640px]">
               <ShipLoopAnimation />
             </div>
           </div>

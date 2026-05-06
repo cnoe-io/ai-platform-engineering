@@ -4,19 +4,28 @@
  * ShipLoopAnimation
  *
  * A single, dependency-free SVG hero showing the eight ship-loop stages
- * laid out as an elliptical track with three agent "tokens" orbiting
- * along it (full ellipse — they go forward through the active stages
- * AND back through the feedback arc, which is the loop part of "ship
- * loop"), plus a glowing core that pulses while agents are at work.
+ * laid out as a horizontal pipeline (Specify -> Observe, left to right)
+ * with a curved feedback path returning from Observe back to Specify
+ * underneath (the "loop" part of ship loop). Agent tokens flow along
+ * the pipeline left-to-right and curve back along the feedback line,
+ * giving a clear visual narrative: forward progress through stages,
+ * then learnings flow back into the next iteration.
  *
  * Why pure SVG:
  *   - No new dependency. Matches the plan: only the dependency-graph
  *     mode uses `@xyflow/react`; the rest is plain SVG / CSS.
- *   - SVG `animateMotion` gives us pixel-accurate orbit paths for free.
+ *   - SVG `animateMotion` gives us pixel-accurate motion paths for free.
  *   - Reduced-motion users still get the full static diagram (which is
  *     itself a meaningful at-a-glance picture of the loop) because we
  *     guard every keyframe-driven animation behind motion-safe and
  *     gate `animateMotion` via `usePrefersReducedMotion`.
+ *
+ * History:
+ *   The original layout was an elliptical orbit. User feedback
+ *   ("can we create a linear pipeline with a loop animation?") drove
+ *   the move to a horizontal pipeline + return-loop. The exported
+ *   path helpers were renamed accordingly; the loop topology
+ *   (forward + feedback) is preserved end-to-end.
  *
  * Re-use intent:
  *   This component is also the visual primitive that the eventual
@@ -42,21 +51,25 @@ interface ShipLoopAnimationProps {
   showAgents?: boolean;
 }
 
-const VIEWBOX_W = 800;
-const VIEWBOX_H = 360;
-const CENTER_X = VIEWBOX_W / 2;
-const CENTER_Y = VIEWBOX_H / 2;
-const RADIUS_X = 320;
-const RADIUS_Y = 130;
+// Pipeline geometry. Coordinates are SVG units; the rendered size is
+// driven by viewBox + responsive width on the wrapper. Tuned so that:
+//   - Stage spacing accommodates the longest label ("Implement") at
+//     12px text without crowding its neighbours.
+//   - The feedback arc has enough vertical headroom (FEEDBACK_DROP)
+//     that its curve reads as a deliberate U-turn rather than a
+//     near-straight line, even on small renders.
+const VIEWBOX_W = 880;
+const VIEWBOX_H = 280;
+const PIPELINE_Y = 110; // Y of the main pipeline rail.
+const STAGE_LEFT = 60;
+const STAGE_RIGHT = VIEWBOX_W - 60;
+const FEEDBACK_DROP = 110; // how far below the pipeline the feedback arc dips.
 
-/** Orbit position (0..1) -> SVG coordinates on the upper arc (Specify -> Observe). */
-function upperArcPoint(t: number): { x: number; y: number } {
-  // Map t in [0..1] from -PI (left) to 0 (right), staying on the upper
-  // half of the ellipse where Specify (left) -> Observe (right) live.
-  const angle = -Math.PI + t * Math.PI;
+/** Pipeline position (0..1) -> SVG coordinates on the horizontal rail. */
+function pipelinePoint(t: number): { x: number; y: number } {
   return {
-    x: CENTER_X + RADIUS_X * Math.cos(angle),
-    y: CENTER_Y + RADIUS_Y * Math.sin(angle),
+    x: STAGE_LEFT + (STAGE_RIGHT - STAGE_LEFT) * t,
+    y: PIPELINE_Y,
   };
 }
 
@@ -69,13 +82,13 @@ export function ShipLoopAnimation({
   const trackGradId = `${idPrefix}-track`;
   const glowFilterId = `${idPrefix}-glow`;
   const tokenGradId = `${idPrefix}-token`;
-  const orbitPathId = `${idPrefix}-orbit`;
+  const flowPathId = `${idPrefix}-flow`;
 
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const stageNodes = ORBIT_STAGES.map((stage) => {
     const visual = STAGE_VISUALS[stage];
-    const { x, y } = upperArcPoint(visual.orbitPos);
+    const { x, y } = pipelinePoint(visual.orbitPos);
     return { stage, visual, x, y };
   });
 
@@ -83,7 +96,7 @@ export function ShipLoopAnimation({
     <div
       className={["relative w-full", className ?? ""].join(" ")}
       role="img"
-      aria-label="Animated diagram of the agentic SDLC ship loop with eight stages from Specify to Observe and a feedback arc returning to Specify"
+      aria-label="Animated diagram of the agentic SDLC ship loop: a horizontal pipeline of eight stages from Specify to Observe, with a feedback arc looping back from Observe to Specify"
     >
       <svg
         viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
@@ -98,7 +111,7 @@ export function ShipLoopAnimation({
             <stop offset="100%" stopColor="hsl(var(--gradient-end))" />
           </linearGradient>
 
-          {/* Soft glow for stage nodes and the core. */}
+          {/* Soft glow for stage nodes. */}
           <filter id={glowFilterId} x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="6" result="blur" />
             <feMerge>
@@ -107,44 +120,44 @@ export function ShipLoopAnimation({
             </feMerge>
           </filter>
 
-          {/* Radial gradient for the orbiting agent tokens. */}
+          {/* Radial gradient for the agent tokens. */}
           <radialGradient id={tokenGradId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="1" />
             <stop offset="60%" stopColor="hsl(var(--primary))" stopOpacity="0.6" />
             <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
           </radialGradient>
 
-          {/* Hidden full-ellipse path that the agent tokens follow. */}
-          <path id={orbitPathId} d={describeFullEllipse()} fill="none" />
+          {/* Hidden full-loop path the agent tokens follow:
+              forward along the pipeline, U-turn at Observe, back
+              along the feedback arc, U-turn at Specify, repeat. */}
+          <path id={flowPathId} d={describeFullLoop()} fill="none" />
         </defs>
 
-        {/* Outer faint orbit hint — gives the loop a sense of full revolution. */}
-        <ellipse
-          cx={CENTER_X}
-          cy={CENTER_Y}
-          rx={RADIUS_X}
-          ry={RADIUS_Y}
-          fill="none"
-          stroke="hsl(var(--border))"
-          strokeWidth="1"
-          strokeDasharray="2 6"
-          opacity="0.35"
-        />
-
-        {/* Active arc — Specify -> Observe along the upper half. */}
-        <path
-          d={describeUpperArc()}
-          fill="none"
+        {/* Pipeline rail -- the spine of the diagram. */}
+        <line
+          x1={STAGE_LEFT}
+          y1={PIPELINE_Y}
+          x2={STAGE_RIGHT}
+          y2={PIPELINE_Y}
           stroke={`url(#${trackGradId})`}
           strokeWidth="3"
           strokeLinecap="round"
-          opacity="0.85"
+          opacity="0.9"
         />
 
-        {/* Feedback arc — Observe -> Specify along the lower half (the
-            "loop" part of ship loop). */}
+        {/* Direction arrowhead on the right end so the pipeline reads
+            as flowing forward, not just a static bar. */}
         <path
-          d={describeLowerArc()}
+          d={`M ${STAGE_RIGHT} ${PIPELINE_Y} l -10 -6 l 0 12 z`}
+          fill="hsl(var(--gradient-end))"
+          opacity="0.9"
+        />
+
+        {/* Feedback arc -- Observe back to Specify, dipping below the
+            pipeline. The curve has enough vertical drop (FEEDBACK_DROP)
+            that the U-turn reads clearly. */}
+        <path
+          d={describeFeedbackArc()}
           fill="none"
           stroke={`url(#${trackGradId})`}
           strokeWidth="2"
@@ -153,11 +166,12 @@ export function ShipLoopAnimation({
           opacity="0.45"
         />
 
-        {/* Animated dash flow on the feedback arc to convey "observed
-            reality flows back into the next spec". Disabled under
-            reduced motion via the motion-safe variant. */}
+        {/* Animated dash flow on the feedback arc so "observed reality
+            feeds the next spec" is visible at a glance. Gated behind
+            motion-safe so reduced-motion users see only the static
+            dashed line. */}
         <path
-          d={describeLowerArc()}
+          d={describeFeedbackArc()}
           fill="none"
           stroke="hsl(var(--primary))"
           strokeWidth="2"
@@ -170,29 +184,33 @@ export function ShipLoopAnimation({
         {/* Stage nodes. */}
         {stageNodes.map(({ stage, visual, x, y }, i) => (
           <g key={stage} transform={`translate(${x} ${y})`}>
-            {/* Halo — pulses to suggest live activity. */}
+            {/* Halo -- pulses to suggest live activity. */}
             <circle
-              r="22"
+              r="20"
               fill={`hsl(${visual.hsl} / 0.18)`}
               className="motion-safe:animate-ship-loop-halo origin-center"
-              style={{ animationDelay: `${(i * 0.18).toFixed(2)}s` }}
+              style={{ animationDelay: `${(i * 0.15).toFixed(2)}s` }}
             />
             <circle
               r="9"
               fill={`hsl(${visual.hsl})`}
               filter={`url(#${glowFilterId})`}
             />
+            {/* Alternate label position above/below to avoid the
+                neighbours crashing into each other on narrow renders.
+                Even-indexed stages go above, odd-indexed below. */}
             <text
-              y={visual.orbitPos < 0.5 ? -34 : 36}
+              y={i % 2 === 0 ? -30 : 36}
               textAnchor="middle"
               className="fill-foreground text-[12px] font-semibold tracking-tight"
             >
               {visual.label}
             </text>
-            {/* Stage blurb on the far ends only, to avoid clutter. */}
+            {/* Stage blurb on the bookends only, so the eye knows
+                where the loop starts and where it observes. */}
             {(stage === "specify" || stage === "observe") && (
               <text
-                y={visual.orbitPos < 0.5 ? -50 : 52}
+                y={i % 2 === 0 ? -46 : 52}
                 textAnchor="middle"
                 className="fill-muted-foreground text-[10px]"
               >
@@ -202,34 +220,35 @@ export function ShipLoopAnimation({
           </g>
         ))}
 
-        {/* Glowing core — visual anchor + "the loop is alive" pulse. */}
-        <g transform={`translate(${CENTER_X} ${CENTER_Y})`}>
-          <circle
-            r="46"
-            fill="hsl(var(--primary) / 0.08)"
-            className="motion-safe:animate-ship-loop-core origin-center"
-          />
-          <circle r="22" fill="hsl(var(--primary) / 0.22)" />
-          <circle r="6" fill="hsl(var(--primary))" filter={`url(#${glowFilterId})`} />
-        </g>
+        {/* Loop label tucked under the feedback arc so the meaning of
+            the lower curve is explicit without leaning on tooltips. */}
+        <text
+          x={(STAGE_LEFT + STAGE_RIGHT) / 2}
+          y={PIPELINE_Y + FEEDBACK_DROP + 24}
+          textAnchor="middle"
+          className="fill-muted-foreground text-[10px] uppercase tracking-[0.2em]"
+        >
+          feedback loop
+        </text>
 
-        {/* Orbiting agent tokens — three of them, staggered, tracing
-            the full ellipse via SVG animateMotion (which natively
-            handles the curve and respects begin/keyTimes/dur).
-            We omit the animateMotion entirely under reduced motion so
-            assistive tech does not see "moving" content. */}
+        {/* Agent tokens -- three of them, staggered, tracing the full
+            forward + feedback path via SVG animateMotion. The shared
+            path id means the staggering is purely a `begin` offset,
+            so all three tokens stay in sync if the dur is retuned.
+            Omitted entirely under reduced motion so assistive tech
+            does not see "moving" content. */}
         {showAgents && (
           <g aria-hidden>
             {[0, 0.33, 0.66].map((delay, i) => (
               <circle key={i} r="8" fill={`url(#${tokenGradId})`}>
                 {!prefersReducedMotion && (
                   <animateMotion
-                    dur="9s"
+                    dur="11s"
                     repeatCount="indefinite"
                     rotate="auto"
-                    begin={`-${(delay * 9).toFixed(2)}s`}
+                    begin={`-${(delay * 11).toFixed(2)}s`}
                   >
-                    <mpath href={`#${orbitPathId}`} />
+                    <mpath href={`#${flowPathId}`} />
                   </animateMotion>
                 )}
               </circle>
@@ -242,35 +261,49 @@ export function ShipLoopAnimation({
 }
 
 // ---------------------------------------------------------------------------
-// path helpers — kept exported for tests and for future viz modes that
-// want to reuse the same ellipse geometry.
+// Path helpers — kept exported for tests and for future viz modes that
+// want to reuse the same pipeline geometry.
 // ---------------------------------------------------------------------------
 
-export function describeUpperArc(): string {
-  const start = upperArcPoint(0);
-  const end = upperArcPoint(1);
-  return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} A ${RADIUS_X} ${RADIUS_Y} 0 0 1 ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
-}
-
-export function describeLowerArc(): string {
-  const start = upperArcPoint(1);
-  const end = upperArcPoint(0);
-  return `M ${start.x.toFixed(1)} ${start.y.toFixed(1)} A ${RADIUS_X} ${RADIUS_Y} 0 0 1 ${end.x.toFixed(1)} ${end.y.toFixed(1)}`;
+/**
+ * The forward pipeline rail as an SVG path: a horizontal line from
+ * Specify on the left to Observe on the right at PIPELINE_Y. Used as
+ * the first half of the agent token's flow path.
+ */
+export function describePipelineRail(): string {
+  return `M ${STAGE_LEFT} ${PIPELINE_Y} L ${STAGE_RIGHT} ${PIPELINE_Y}`;
 }
 
 /**
- * Full ellipse path expressed as two semicircular arcs — needed because
- * SVG arc commands cannot draw a full circle in a single segment. The
- * agent tokens follow this via `<mpath>` and naturally traverse forward
- * through the active stages and back through the feedback arc.
+ * The feedback arc -- a smooth U-shaped Bezier from Observe back to
+ * Specify, dipping FEEDBACK_DROP units below the pipeline. The curve
+ * is symmetric around the pipeline midpoint so the dip reads as
+ * intentional rather than skewed.
  */
-export function describeFullEllipse(): string {
-  const left = upperArcPoint(0);
-  const right = upperArcPoint(1);
+export function describeFeedbackArc(): string {
+  const startX = STAGE_RIGHT;
+  const endX = STAGE_LEFT;
+  const dipY = PIPELINE_Y + FEEDBACK_DROP;
+  // Cubic bezier with both control points at dipY; this gives the
+  // arc its symmetric U-shape regardless of the horizontal span.
+  return `M ${startX} ${PIPELINE_Y} C ${startX} ${dipY}, ${endX} ${dipY}, ${endX} ${PIPELINE_Y}`;
+}
+
+/**
+ * Full loop path used by the agent tokens: forward along the pipeline
+ * (Specify -> Observe) then back along the feedback arc (Observe ->
+ * Specify). Closed with `Z` so the animation wraps cleanly without a
+ * visible jump at the seam.
+ */
+export function describeFullLoop(): string {
   return [
-    `M ${left.x.toFixed(1)} ${left.y.toFixed(1)}`,
-    `A ${RADIUS_X} ${RADIUS_Y} 0 0 1 ${right.x.toFixed(1)} ${right.y.toFixed(1)}`,
-    `A ${RADIUS_X} ${RADIUS_Y} 0 0 1 ${left.x.toFixed(1)} ${left.y.toFixed(1)}`,
+    describePipelineRail(),
+    // The feedback arc starts at STAGE_RIGHT/PIPELINE_Y (where the
+    // pipeline ended) so we can chain it directly without an
+    // intermediate "M".
+    `C ${STAGE_RIGHT} ${PIPELINE_Y + FEEDBACK_DROP}, ${STAGE_LEFT} ${
+      PIPELINE_Y + FEEDBACK_DROP
+    }, ${STAGE_LEFT} ${PIPELINE_Y}`,
     "Z",
   ].join(" ");
 }
