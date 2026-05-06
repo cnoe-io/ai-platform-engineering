@@ -10,7 +10,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "ship-loop:create-indexes": "ts-node --transpile-only scripts/create-ship-loop-indexes.ts"
+    "ship-loop:create-indexes": "ts-node --transpile-only --project scripts/tsconfig.json scripts/create-ship-loop-indexes.ts",
+    "ship-loop:seed-mock-repo": "ts-node --transpile-only --project scripts/tsconfig.json scripts/seed-ship-loop-mock-repo.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",

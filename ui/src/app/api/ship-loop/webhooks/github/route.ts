@@ -22,6 +22,7 @@ import { NextResponse } from "next/server";
 import {
   enqueueShipLoopEvent,
 } from "@/lib/ship-loop/async-worker";
+import { extractEpicId } from "@/lib/ship-loop/epic-linkage";
 import { isShipLoopServerEnabled } from "@/lib/ship-loop/guard";
 import {
   getShipLoopEventsCollection,
@@ -209,12 +210,28 @@ function summariseEvent(
 
   if (eventType === "pull_request") {
     artifactKind = "pull_request";
-    const pr = payload.pull_request as { node_id?: string; updated_at?: string } | undefined;
+    const pr = payload.pull_request as
+      | {
+          node_id?: string;
+          updated_at?: string;
+          labels?: { name?: string }[];
+          body?: string;
+        }
+      | undefined;
     artifactId = pr?.node_id ?? "";
     occurredAt = pr?.updated_at ? new Date(pr.updated_at) : new Date();
+    epicId = extractEpicId(
+      pr?.labels?.map((l) => l.name ?? "").filter(Boolean) ?? [],
+      pr?.body ?? null,
+    );
   } else if (eventType === "issues") {
     const issue = payload.issue as
-      | { node_id?: string; updated_at?: string; labels?: { name?: string }[] }
+      | {
+          node_id?: string;
+          updated_at?: string;
+          labels?: { name?: string }[];
+          body?: string;
+        }
       | undefined;
     const labels =
       issue?.labels?.map((l) => l.name ?? "").filter(Boolean) ?? [];
@@ -222,16 +239,38 @@ function summariseEvent(
       labels.includes("epic") || labels.includes("Epic") ? "epic" : "subtask";
     artifactId = issue?.node_id ?? "";
     occurredAt = issue?.updated_at ? new Date(issue.updated_at) : new Date();
-    if (artifactKind === "epic") epicId = artifactId || null;
+    if (artifactKind === "epic") {
+      epicId = artifactId || null;
+    } else {
+      epicId = extractEpicId(labels, issue?.body ?? null);
+    }
   } else if (eventType === "deployment_status") {
     artifactKind = "deploy";
-    const dep = payload.deployment as { node_id?: string; updated_at?: string } | undefined;
+    const dep = payload.deployment as
+      | {
+          node_id?: string;
+          updated_at?: string;
+          payload?: { epic_id?: string };
+        }
+      | undefined;
     artifactId = dep?.node_id ?? "";
     occurredAt = dep?.updated_at ? new Date(dep.updated_at) : new Date();
+    // Mock + real-world convention: agentic deploys carry the parent
+    // Epic id either as a top-level deployment.payload.epic_id field
+    // or as a leading "epic:<id>" element in the deployment description
+    // / target_url query string. We support the structured form here;
+    // the description fallback is best-effort only.
+    epicId = dep?.payload?.epic_id ?? null;
   } else if (eventType === "pull_request_review") {
     artifactKind = "review";
-    const pr = payload.pull_request as { node_id?: string } | undefined;
+    const pr = payload.pull_request as
+      | { node_id?: string; labels?: { name?: string }[]; body?: string }
+      | undefined;
     artifactId = pr?.node_id ?? "";
+    epicId = extractEpicId(
+      pr?.labels?.map((l) => l.name ?? "").filter(Boolean) ?? [],
+      pr?.body ?? null,
+    );
   } else if (eventType === "issue_comment" || eventType === "pull_request_review_comment") {
     artifactKind = "comment";
   } else if (eventType === "label") {
