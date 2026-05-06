@@ -4,7 +4,7 @@ Single-shot per cron fire:
 
   1. Read SCHEDULE_ID from env.
   2. GET <SCHEDULER_INTERNAL_URL>/v1/schedules/<id>  (auth: SCHEDULER_SERVICE_TOKEN).
-  3. POST <CAIPE_API_URL>/api/chat/stream            (auth: CAIPE_API_TOKEN).
+  3. POST <CAIPE_API_URL><CAIPE_CHAT_PATH>           (auth: CAIPE_API_TOKEN).
   4. POST <SCHEDULER_INTERNAL_URL>/v1/schedules/<id>/runs with status.
 
 Has no Mongo or k8s API access by design — the only secrets it sees are its
@@ -13,9 +13,11 @@ own service token + chat-API token, both mounted from k8s Secrets at fire time.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 import httpx
 
@@ -41,7 +43,7 @@ def main() -> int:
     scheduler_token = _required_env("SCHEDULER_SERVICE_TOKEN")
     caipe_url = _required_env("CAIPE_API_URL").rstrip("/")
     caipe_token = _required_env("CAIPE_API_TOKEN")
-    chat_path = os.environ.get("CAIPE_CHAT_PATH", "/api/chat/stream")
+    chat_path = os.environ.get("CAIPE_CHAT_PATH", "/api/v1/chat/invoke")
     timeout = float(os.environ.get("HTTP_TIMEOUT", "60"))
 
     sched_headers = {"X-Scheduler-Token": scheduler_token}
@@ -64,10 +66,19 @@ def main() -> int:
             return 0
 
         # 2. POST to chat as the schedule's owner user.
+        run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        conversation_hash = hashlib.sha1(f"{schedule_id}:{run_ts}".encode()).hexdigest()[:12]
         chat_payload = {
             "agent_id": schedule["agent_id"],
             "message": schedule["message_template"],
+            "conversation_id": f"scheduled-{schedule_id}-{conversation_hash}",
             "owner_user_id": schedule["owner_user_id"],
+            "trace_id": f"scheduled-{schedule_id}-{conversation_hash}",
+            "client_context": {
+                "source": "scheduler",
+                "schedule_id": schedule_id,
+                "pod_id": schedule.get("pod_id"),
+            },
         }
         if schedule.get("pod_id"):
             chat_payload["pod_id"] = schedule["pod_id"]
@@ -76,6 +87,8 @@ def main() -> int:
             "Authorization": f"Bearer {caipe_token}",
             "Content-Type": "application/json",
             "X-CAIPE-User": schedule["owner_user_id"],
+            "X-Scheduler-Token": scheduler_token,
+            "X-Client-Source": "caipe-cron-runner",
         }
 
         status: str = "ok"

@@ -16,6 +16,7 @@ import {
   Home,
   Bot,
   AlertTriangle,
+  CalendarClock,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -226,6 +227,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -360,6 +362,21 @@ export function AppHeader() {
             >
               <Bot className="h-3.5 w-3.5 shrink-0" />
               Agents
+            </GuardedLink>
+          )}
+          {storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+            <GuardedLink
+              href="/schedules"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "schedules"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+              Schedules
             </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}

@@ -55,6 +55,11 @@ class Settings(BaseModel):
             "CAIPE_API_URL", "http://caipe-ui:3000"
         )
     )
+    caipe_chat_path: str = Field(
+        default_factory=lambda: os.environ.get(
+            "CAIPE_CHAT_PATH", "/api/v1/chat/invoke"
+        )
+    )
     # Secret name + key holding the runner's CAIPE API token.
     caipe_api_token_secret: str = Field(
         default_factory=lambda: os.environ.get(

@@ -113,7 +113,7 @@ mongo:
 # Where the runner POSTs the chat message.
 caipe:
   apiUrl: "http://caipe-ui:3000"
-  chatPath: "/api/chat/stream"
+  chatPath: "/api/v1/chat/invoke"
   # Existing Secret holding the chat API token under key "token".
   apiTokenSecret: "caipe-cron-runner-token"
   apiTokenSecretKey: "token"

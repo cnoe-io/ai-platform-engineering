@@ -153,6 +153,7 @@ class CronJobOps:
                                             {"name": "SCHEDULE_ID", "value": schedule_id},
                                             {"name": "SCHEDULER_INTERNAL_URL", "value": s.scheduler_internal_url},
                                             {"name": "CAIPE_API_URL", "value": s.caipe_api_url},
+                                            {"name": "CAIPE_CHAT_PATH", "value": s.caipe_chat_path},
                                             {
                                                 "name": "CAIPE_API_TOKEN",
                                                 "valueFrom": {
