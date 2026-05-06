@@ -19,14 +19,14 @@ The feature delivers a two-layer skills architecture:
   | agent_skills     |----->| get_merged_skills|----> GET /api/skills (Next.js)
   | loader (MongoDB) |      |   precedence     |
   +------------------+      |   TTL cache      |
-  | hub_github       |----->|                  |----> build_skills_files()
-  | fetcher          |      +------------------+            |
+  | hub_skills       |----->|                  |----> build_skills_files()
+  | loader (MongoDB) |      +------------------+            |
   +------------------+                                       v
-                                                     StateBackend (files dict)
-                                                             |
-                                                             v
-                                                     SkillsMiddleware
-                                                     (system prompt injection)
+       ^                                              StateBackend (files dict)
+       | written by                                          |
+       | ui/src/lib/hub-crawl.ts                             v
+       | (Next.js, GitHub+GitLab,                     SkillsMiddleware
+       |  the only VCS round-trip)                    (system prompt injection)
 ```
 
 ## SkillsMiddleware lifecycle vs per-invoke `files` (multi-user)
@@ -110,7 +110,16 @@ Located in the **Skills** tab of the Admin Dashboard (`/admin?tab=skills`). The 
 
 ### Hub Fetcher
 
-`hub_github.py` discovers SKILL.md files via the GitHub tree API (`repos/{owner}/{repo}/git/trees/HEAD?recursive=1`) and fetches content via the contents API. Supports both Anthropic/agentskills.io and OpenClaw-style SKILL.md frontmatter (FR-011).
+Hub crawling is owned by the **Next.js UI** in `ui/src/lib/hub-crawl.ts`,
+which exposes `crawlGitHubRepo` and `crawlGitLabRepo`. GitHub crawling
+uses the tree API (`repos/{owner}/{repo}/git/trees/HEAD?recursive=1`) +
+contents API; GitLab crawling uses the project repository tree API
+(subgroup-aware, `PRIVATE-TOKEN` header). Both honor optional path
+filters (`include_paths`) and capture ancillary files. Results are
+written to the Mongo `hub_skills` collection that the Python catalog
+reads — there is **no Python-side GitHub/GitLab round-trip**. Both
+Anthropic/agentskills.io and OpenClaw-style SKILL.md frontmatter are
+supported (FR-011).
 
 ## Precedence Rules
 

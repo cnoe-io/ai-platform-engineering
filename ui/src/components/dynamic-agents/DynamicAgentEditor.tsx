@@ -13,6 +13,9 @@ import remarkGfm from "remark-gfm";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -334,6 +337,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         console.error("Failed to fetch models:", err);
       } finally {
         setModelsLoading(false);
+        // Flip the snapshot sentinel after models load. This causes the dirty
+        // tracker to re-snapshot WITH the freshly applied default model, so a
+        // newly opened editor doesn't immediately appear dirty.
+        setModelDefaultsApplied(true);
       }
     }
     fetchModels();
@@ -358,6 +365,68 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+
+  // Local state for the in-app "you have unsaved changes" confirmation when the
+  // user clicks the back arrow. We don't route this through the global store's
+  // pendingNavigationHref because closing the editor isn't an href navigation —
+  // it's a parent-state flip controlled by the onCancel prop.
+  const [pendingClose, setPendingClose] = React.useState(false);
+
+  // Snapshot sentinel: flips once after the async models endpoint resolves and
+  // applies a default modelId/modelProvider to a previously empty form. This
+  // ensures the dirty-tracking snapshot is taken AFTER defaults are applied,
+  // preventing a false "dirty" right after model defaults populate.
+  const [modelDefaultsApplied, setModelDefaultsApplied] = React.useState(
+    !!source?.model?.id
+  );
+
+  // Aggregate all editable form fields into a single object so the
+  // dirty-tracking hook can compare current vs initial values.
+  const currentFormValues = React.useMemo(
+    () => ({
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    }),
+    [
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    ]
+  );
+
+  // The snapshot key combines the source identity with the model-defaults
+  // sentinel. When either changes, the dirty hook re-snapshots so the form
+  // appears clean.
+  const snapshotIdentity =
+    agent?._id ?? cloneFrom?._id ?? "new";
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
+
+  const { dirty, resetSnapshot } = useEditorDirtyTracking({
+    enabled: !readOnly,
+    currentValues: currentFormValues,
+    snapshotKey,
+  });
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
 
@@ -586,6 +655,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         }
       }
 
+      // Clear unsaved-changes state BEFORE calling onSave(): the parent will
+      // unmount this editor in response to onSave, and we want the global flag
+      // to be false by the time any header/tab guards re-evaluate. resetSnapshot
+      // also re-points the snapshot at the just-saved values so a follow-up
+      // dirty check (in the unlikely case the editor stays mounted) is correct.
+      resetSnapshot();
+      useUnsavedChangesStore.getState().setUnsaved(false);
+
       onSave();
     } catch (err: any) {
       setError(err.message || "An error occurred");
@@ -596,11 +673,34 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
 
+  // Back-button click handler. When the form has unsaved changes, we surface
+  // an in-app confirmation modal instead of silently discarding work. The
+  // dialog itself is rendered at the bottom of this component.
+  const handleBackClick = () => {
+    if (dirty) {
+      setPendingClose(true);
+    } else {
+      onCancel();
+    }
+  };
+
+  const handleConfirmDiscard = () => {
+    setPendingClose(false);
+    // Belt-and-suspenders: clear the global flag here AND let the unmount
+    // cleanup in useEditorDirtyTracking do the same. Either alone is enough.
+    useUnsavedChangesStore.getState().setUnsaved(false);
+    onCancel();
+  };
+
+  const handleCancelDiscard = () => {
+    setPendingClose(false);
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onCancel}>
+          <Button variant="ghost" size="icon" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -1269,6 +1369,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </Button>
         )}
       </div>
+
+      <UnsavedChangesDialog
+        open={pendingClose}
+        onCancel={handleCancelDiscard}
+        onDiscard={handleConfirmDiscard}
+        title="Unsaved changes"
+        description="You have unsaved changes in the agent editor. They will be lost if you leave now."
+      />
     </Card>
   );
 }

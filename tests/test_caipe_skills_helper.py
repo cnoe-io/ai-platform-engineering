@@ -69,7 +69,12 @@ def _run(helper: Any, argv: list[str]) -> tuple[int, str]:
 
 def test_helper_file_exists():
     assert HELPER_PATH.exists(), f"missing chart helper: {HELPER_PATH}"
-    assert HELPER_PATH.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3")
+    # The helper is a PEP 723 inline-metadata script run via `uv run --script`,
+    # not a plain `python3` script — switching to `uv run` gives us per-script
+    # dependency declarations without shipping a separate install step.
+    assert HELPER_PATH.read_text(encoding="utf-8").startswith(
+        "#!/usr/bin/env -S uv run --script"
+    )
 
 
 def test_helper_uses_only_stdlib(helper: Any):
@@ -127,9 +132,15 @@ def test_cli_api_key_overrides_env_and_config(
     assert base  # default constant or HOME-config base; just assert non-empty
 
 
-def test_env_api_key_overrides_config(
+def test_config_api_key_overrides_env(
     helper: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    """Config file wins over the env var when both are present.
+
+    See the docstring on ``_resolve_credentials`` — env vars only kick in
+    when no config file is present, so a stray exported ``CAIPE_CATALOG_KEY``
+    cannot silently shadow a key the user persisted to their config.
+    """
     monkeypatch.setenv("CAIPE_CATALOG_KEY", "from-env")
     cfg_dir = tmp_path / ".config" / "caipe"
     cfg_dir.mkdir(parents=True)
@@ -137,7 +148,7 @@ def test_env_api_key_overrides_config(
     monkeypatch.setenv("HOME", str(tmp_path))
 
     api_key, _ = helper._resolve_credentials(None, None)
-    assert api_key == "from-env"
+    assert api_key == "from-config"
 
 
 def test_config_api_key_used_when_cli_and_env_absent(

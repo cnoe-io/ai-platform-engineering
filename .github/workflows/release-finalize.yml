@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40  # v2.19.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -49,7 +49,13 @@ jobs:
           echo "🔍 Checking CI statuses for tag: $TAG"
           echo ""
 
-          # Required CI workflows that must pass for release
+          # Required CI workflows that must pass for release.
+          # Skill Scanner is gated alongside the other component images so a
+          # broken `ghcr.io/<owner>/skill-scanner:<appVersion>` actually blocks
+          # the release — the skill-scanner subchart in
+          # charts/ai-platform-engineering/charts/skill-scanner pulls that exact
+          # tag, so an unbuilt image would otherwise produce ImagePullBackOff
+          # on every fresh install with global.skillScanner.enabled=true.
           REQUIRED_WORKFLOWS=(
             "[CI][A2A] Sub-Agents A2A Docker Build and Push"
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
@@ -58,6 +64,7 @@ jobs:
             "[CI] Dynamic Agents Build and Push"
             "[CI] CAIPE UI Build and Push"
             "[CI] Slack Bot Build and Push"
+            "[CI] Skill Scanner Build and Push"
             "[CI][Helm] Publish Tagged Helm Charts"
           )
 

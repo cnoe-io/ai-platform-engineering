@@ -80,7 +80,7 @@ function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
 
   mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
     const u = typeof url === "string" ? url : url.toString();
-    if (u.includes("/api/agent-skills/seed")) {
+    if (u.includes("/api/skills/seed")) {
       if (init?.method === "POST") {
         return Promise.resolve({
           ok: true,
@@ -98,7 +98,7 @@ function mockLoadConfigsSuccess(configs: Array<Record<string, unknown>> = []) {
         json: () => Promise.resolve({ data: { favorites: [] } }),
       } as Response);
     }
-    if (u === "/api/agent-skills" && !init) {
+    if (u === "/api/skills/configs" && !init) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve(configPayload),
@@ -227,10 +227,10 @@ describe("agent-skills-store", () => {
 
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills/seed") && init?.method !== "POST") {
+        if (u.includes("/api/skills/seed") && init?.method !== "POST") {
           return seedPromise;
         }
-        if (u.includes("/api/agent-skills/seed") && init?.method === "POST") {
+        if (u.includes("/api/skills/seed") && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ seeded: 0 }),
@@ -242,7 +242,7 @@ describe("agent-skills-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -297,7 +297,7 @@ describe("agent-skills-store", () => {
     it("handles 503 - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills/seed")) {
+        if (u.includes("/api/skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -309,7 +309,7 @@ describe("agent-skills-store", () => {
             ok: false,
           } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             status: 503,
             ok: false,
@@ -328,7 +328,7 @@ describe("agent-skills-store", () => {
     it("handles 401 - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills/seed")) {
+        if (u.includes("/api/skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -337,7 +337,7 @@ describe("agent-skills-store", () => {
         if (u.includes("/api/users/me/favorites")) {
           return Promise.resolve({ status: 401, ok: false } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({ status: 401, ok: false } as Response);
         }
         return Promise.reject(new Error(`Unmocked: ${u}`));
@@ -353,7 +353,7 @@ describe("agent-skills-store", () => {
     it("handles error - returns empty configs", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills/seed")) {
+        if (u.includes("/api/skills/seed")) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ needsSeeding: false }),
@@ -365,7 +365,7 @@ describe("agent-skills-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.reject(new Error("Network error"));
         }
         return Promise.reject(new Error(`Unmocked: ${u}`));
@@ -381,7 +381,7 @@ describe("agent-skills-store", () => {
     it("calls seedTemplates if not seeded", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills/seed")) {
+        if (u.includes("/api/skills/seed")) {
           if (init?.method === "POST") {
             return Promise.resolve({
               ok: true,
@@ -399,7 +399,7 @@ describe("agent-skills-store", () => {
             json: () => Promise.resolve({ data: { favorites: [] } }),
           } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -413,7 +413,7 @@ describe("agent-skills-store", () => {
       });
 
       const seedCalls = mockFetch.mock.calls.filter((call) =>
-        String(call[0]).includes("/api/agent-skills/seed")
+        String(call[0]).includes("/api/skills/seed")
       );
       expect(seedCalls.length).toBeGreaterThanOrEqual(1);
     });
@@ -447,13 +447,13 @@ describe("agent-skills-store", () => {
     it("sends POST request", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u === "/api/agent-skills" && init?.method === "POST") {
+        if (u === "/api/skills/configs" && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ id: "new-id-123" }),
           } as Response);
         }
-        if (u === "/api/agent-skills" && !init) {
+        if (u === "/api/skills/configs" && !init) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([{ id: "new-id-123", ...createInput, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), owner_id: "user", is_system: false }]),
@@ -468,7 +468,7 @@ describe("agent-skills-store", () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-skills",
+        "/api/skills/configs",
         expect.objectContaining({
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -482,13 +482,13 @@ describe("agent-skills-store", () => {
       let callCount = 0;
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u === "/api/agent-skills" && init?.method === "POST") {
+        if (u === "/api/skills/configs" && init?.method === "POST") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ id: "created-id" }),
           } as Response);
         }
-        if (u === "/api/agent-skills" && !init) {
+        if (u === "/api/skills/configs" && !init) {
           callCount++;
           return Promise.resolve({
             ok: true,
@@ -561,10 +561,10 @@ describe("agent-skills-store", () => {
     it("sends PUT request with id in query", async () => {
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills?id=cfg-1") && init?.method === "PUT") {
+        if (u.includes("/api/skills/configs?id=cfg-1") && init?.method === "PUT") {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -580,7 +580,7 @@ describe("agent-skills-store", () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-skills?id=cfg-1",
+        "/api/skills/configs?id=cfg-1",
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({ name: "Updated Name" }),
@@ -594,7 +594,7 @@ describe("agent-skills-store", () => {
         if (u.includes("id=cfg-1") && init?.method === "PUT") {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -655,10 +655,10 @@ describe("agent-skills-store", () => {
     it("sends DELETE request", async () => {
       mockFetch.mockImplementation((url: string | URL) => {
         const u = typeof url === "string" ? url : url.toString();
-        if (u.includes("/api/agent-skills?id=del-1")) {
+        if (u.includes("/api/skills/configs?id=del-1")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -672,7 +672,7 @@ describe("agent-skills-store", () => {
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "/api/agent-skills?id=del-1",
+        "/api/skills/configs?id=del-1",
         expect.objectContaining({ method: "DELETE" })
       );
     });
@@ -694,7 +694,7 @@ describe("agent-skills-store", () => {
         if (u.includes("id=del-1")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([remainingConfig]),
@@ -720,7 +720,7 @@ describe("agent-skills-store", () => {
         if (u.includes("id=selected-to-delete")) {
           return Promise.resolve({ ok: true } as Response);
         }
-        if (u === "/api/agent-skills") {
+        if (u === "/api/skills/configs") {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve([]),
@@ -856,7 +856,7 @@ describe("agent-skills-store", () => {
         await useAgentSkillsStore.getState().seedTemplates();
       });
 
-      expect(mockFetch).toHaveBeenCalledWith("/api/agent-skills/seed");
+      expect(mockFetch).toHaveBeenCalledWith("/api/skills/seed");
     });
 
     it("seeds via POST when needed", async () => {
