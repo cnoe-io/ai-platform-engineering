@@ -32,5 +32,5 @@ Helm chart for **caipe-scheduler** — the cron schedule registry + k8s
 
 ## Notes
 
-- `cronJobOwnerReferences=true` (default) sets the Pod's UID as `ownerReferences` on every CronJob. This gives cascade-delete on **scheduler-pod** restart. For true Deployment-scoped GC, an init step should look up the Deployment UID via the k8s API and pass it via `OWNER_DEPLOYMENT_UID`. Left as a future hardening; v1 cascade is good enough.
+- `cronJobOwnerReferences=false` by default. Do not enable it unless `OWNER_DEPLOYMENT_UID` is a real scheduler Deployment UID; using the scheduler Pod UID as a Deployment owner UID makes CronJobs eligible for Kubernetes garbage collection.
 - The cron-runner image must be reachable by the cluster registry — the scheduler bakes the full `cronRunner.image.repository:tag` into every CronJob it creates.

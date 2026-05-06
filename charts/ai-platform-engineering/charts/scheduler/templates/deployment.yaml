@@ -76,19 +76,19 @@ spec:
                 secretKeyRef:
                   name: {{ include "scheduler.serviceTokenSecretName" . }}
                   key: {{ .Values.serviceToken.existingSecretKey | default "token" }}
-            # Owner reference for cascade-delete of CronJobs.
+            # Optional owner reference for cascade-delete of CronJobs.
+            # This must only be enabled when OWNER_DEPLOYMENT_UID is a real
+            # Deployment UID. A pod UID is not valid for a Deployment ownerRef
+            # and can make CronJobs disappear via garbage collection.
             {{- if .Values.cronJobOwnerReferences }}
             - name: OWNER_DEPLOYMENT_NAME
               value: {{ include "scheduler.fullname" . | quote }}
             - name: OWNER_DEPLOYMENT_UID
               valueFrom:
                 fieldRef:
-                  # Note: this is the Pod's uid, not the Deployment's. The
-                  # scheduler reads OWNER_DEPLOYMENT_UID at startup; for
-                  # accurate cascade-delete it should be patched in by an
-                  # init step or the operator can fetch its own Deployment
-                  # uid via the k8s API at startup. Left as a simple
-                  # default; see scheduler README for hardening notes.
+                  # This is the Pod UID, not the Deployment UID. Keep
+                  # cronJobOwnerReferences=false unless this value is replaced
+                  # with an actual Deployment UID by a future implementation.
                   fieldPath: metadata.uid
             {{- end }}
           {{- with .Values.livenessProbe }}

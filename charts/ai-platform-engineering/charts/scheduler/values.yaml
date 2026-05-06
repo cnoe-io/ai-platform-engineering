@@ -129,9 +129,11 @@ limits:
   maxSchedulesPerOwner: 50
   maxMessageChars: 2000
 
-# Set ownerReferences on every CronJob → scheduler-svc's own Deployment, so
-# uninstalling the chart cascades CronJob deletion. Default true.
-cronJobOwnerReferences: true
+# Set ownerReferences on every CronJob. Disabled by default because the chart
+# cannot obtain the scheduler Deployment UID through downward API; using the
+# scheduler Pod UID as a Deployment owner UID makes CronJobs eligible for
+# immediate Kubernetes garbage collection.
+cronJobOwnerReferences: false
 
 nodeSelector: {}
 tolerations: []

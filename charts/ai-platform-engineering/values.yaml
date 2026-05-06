@@ -858,6 +858,9 @@ scheduler:
     existingSecret: ""
     existingSecretKey: "token"
     value: ""
+  # Keep CronJobs independent unless a real Deployment UID is injected.
+  # A Pod UID is not a valid Deployment owner UID and can cause immediate GC.
+  cronJobOwnerReferences: false
 
 ######### Standalone MCP server configuration #########
 # MCP servers consumed by Dynamic Agents that are not tied to a platform-agent
