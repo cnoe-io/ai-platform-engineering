@@ -40,90 +40,107 @@ export function TrySkillsGateway() {
   const [copiedBulkUpgrade, setCopiedBulkUpgrade] = useState(false);
   const [copiedQuickInstall, setCopiedQuickInstall] = useState(false);
   const [quickInstallOpen, setQuickInstallOpen] = useState(false);
+  // Quick-install mode picker: pass nothing (default), `--upgrade`, or
+  // `--force` to the install.sh script. Modeled as a single string with
+  // three values so the radio-style UI can't end up in an illegal state
+  // (both upgrade AND force) — install.sh's flag handling treats those
+  // two as mutually exclusive (force always wins) and exposing both as
+  // independent checkboxes would surface a footgun the script ignores.
+  const [quickInstallMode, setQuickInstallMode] = useState<
+    "default" | "upgrade" | "force"
+  >("default");
+  // When true, the rendered one-liner asks install.sh to also write
+  // the /skills and /update-skills helper SKILL.md files. Default ON
+  // because (a) Quick Install used to silently skip them when
+  // ?catalog_url= was set (it forced mode=catalog-query, which has
+  // DO_HELPERS=0) and (b) those two helpers are how users actually
+  // search/refresh the catalog from inside Claude Code et al.
+  const [quickInstallHelpers, setQuickInstallHelpers] = useState(true);
   const [copiedSkill, setCopiedSkill] = useState(false);
   const [copiedInstall, setCopiedInstall] = useState(false);
 
-  // Bootstrap skill customization
+  // Live-skills skill customization
   const [skillCommandName, setSkillCommandName] = useState("skills");
   const [skillDescription, setSkillDescription] = useState(
     "Browse and install skills from the CAIPE skill catalog",
   );
-  // Selected coding agent (drives install path, file format, and launch guide).
-  const [selectedAgent, setSelectedAgent] = useState<string>("claude");
-  // Install scope: "user" (~/...) or "project" (./...). null = user has not
-  // picked yet, in which case we hide the install/installer commands and
-  // prompt the user to choose. Reset whenever the agent changes so we don't
-  // show a scope the new agent does not support.
+  // After the skills-only overhaul, every supported agent (Claude Code,
+  // Cursor, Codex CLI, Gemini CLI, opencode) reads the same
+  // `agentskills.io` SKILL.md format, and the install writes to BOTH
+  // ~/.claude/skills/<name>/SKILL.md AND ~/.agents/skills/<name>/SKILL.md
+  // (the vendor-neutral mirror that Cursor/Codex/Gemini/opencode all
+  // discover). We've also verified against the upstream agent docs that
+  // only Claude does template substitution in the body (`$ARGUMENTS`,
+  // `$N`); the other four read SKILL.md verbatim. So the agent picker
+  // had no functional effect on what gets installed -- it only changed
+  // the launch-guide footer + the success-card label. We pin Claude
+  // here as the rendering default (its $ARGUMENTS token is treated as
+  // plain text by the other four agents, so it is safe across the
+  // board) and drop the picker from both Quick install and Step 3.
+  const selectedAgent = "claude";
+  // Install scope: "user" (~/...) or "project" (./...). Defaults to
+  // "user" (the recommended choice -- per the new UX, project-scope
+  // is hidden behind an Advanced disclosure so the common case works
+  // without a click). Setting null would force a pre-flight pick.
   type InstallScope = "user" | "project";
-  const [selectedScope, setSelectedScope] = useState<InstallScope | null>(null);
-  // Agent file-system layout for skill artifacts. `commands` is the legacy
-  // <dir>/commands/{name}.<ext> single-file layout (Codex, Spec Kit, Continue,
-  // Gemini); `skills` is the modern <dir>/skills/{name}/SKILL.md per-skill-dir
-  // layout standardized by Claude Code (Oct 2025), Cursor, and opencode.
-  // null = "use the agent's documented default" (skills where supported,
-  // commands otherwise) so users get the right behavior without thinking.
-  type AgentLayout = "commands" | "skills";
-  const [selectedLayout, setSelectedLayout] = useState<AgentLayout | null>(null);
+  const [selectedScope, setSelectedScope] = useState<InstallScope | null>(
+    "user",
+  );
+  // After the skills-only overhaul, every supported agent reads the same
+  // agentskills.io SKILL.md format, so there's no layout toggle anymore.
+  // The local `AgentLayout` alias is kept for compatibility with API JSON
+  // that may still reference legacy fields, but no UI control consumes
+  // it.
+  type AgentLayout = "skills";
   const [copiedOneLiner, setCopiedOneLiner] = useState(false);
   const [copiedUpgrade, setCopiedUpgrade] = useState(false);
   const [copiedDownload, setCopiedDownload] = useState(false);
+  // Uninstall flow has two flavors. Both invoke install.sh?mode=uninstall
+  // but the --purge variant additionally removes ~/.config/caipe/config.json
+  // (the gateway URL + api_key); we separate them so the user picks the
+  // semantic they want without having to read the script first.
+  const [copiedUninstall, setCopiedUninstall] = useState(false);
+  const [copiedUninstallPurge, setCopiedUninstallPurge] = useState(false);
+  const [copiedUninstallDryRun, setCopiedUninstallDryRun] = useState(false);
 
-  // Per-agent rendered bootstrap (fetched from
-  // /api/skills/bootstrap?agent=<id>&command_name=...&description=...).
-  // The server resolves the canonical template from SKILLS_BOOTSTRAP_TEMPLATE,
-  // SKILLS_BOOTSTRAP_FILE, the chart default, or a built-in fallback, then
+  // Per-agent rendered live-skills (fetched from
+  // /api/skills/live-skills?agent=<id>&command_name=...&description=...).
+  // The server resolves the canonical template from SKILLS_LIVE_SKILLS_TEMPLATE,
+  // SKILLS_LIVE_SKILLS_FILE, the chart default, or a built-in fallback, then
   // renders it for the selected agent (Markdown frontmatter, plain Markdown,
   // Gemini TOML, or Continue JSON fragment).
   interface AgentMeta {
     id: string;
     label: string;
-    ext: string;
-    format: string;
-    /** Per-scope install paths; absent keys mean the agent does not support that scope. */
-    install_paths: Partial<Record<InstallScope, string>>;
+    /**
+     * Per-scope install paths. Each scope maps to an array of universal
+     * SKILL.md paths the install script writes to. The display path
+     * (first entry) is what the UI shows; the rest are mirrors for
+     * vendor-neutral agent discovery (`~/.agents/skills/...`).
+     */
+    install_paths: Partial<Record<InstallScope, string[] | readonly string[]>>;
     /** Scopes this agent actually supports. */
     scopes_available: InstallScope[];
-    is_fragment: boolean;
     docs_url?: string;
-    /** Per-layout, per-scope install paths. Server emits a sub-map per
-     *  layout the agent supports (`commands`, `skills`). Used to render
-     *  the layout toggle and resolve paths client-side without a refetch. */
-    install_paths_by_layout?: Partial<
-      Record<AgentLayout, Partial<Record<InstallScope, string>>>
-    >;
-    /** Agent's documented default layout. Used as the toggle's initial
-     *  value when `selectedLayout` is null. */
-    default_layout?: AgentLayout;
   }
-  interface BootstrapResponse {
+  interface LiveSkillsResponse {
     agent: string;
     label: string;
     template: string;
-    /** Resolved path for the requested scope, or null if no scope selected / unsupported. */
+    /** Resolved first path for the requested scope (display only). */
     install_path: string | null;
-    install_paths: Partial<Record<InstallScope, string>>;
+    install_paths: Partial<Record<InstallScope, string[] | readonly string[]>>;
     scope: InstallScope | null;
     scope_requested: InstallScope | null;
     scope_fallback: boolean;
     scopes_available: InstallScope[];
-    file_extension: string;
-    format: string;
-    is_fragment: boolean;
     launch_guide: string;
     docs_url?: string;
     agents: AgentMeta[];
     source: string;
-    /** Resolved layout for this render (after any fallback). */
-    layout?: AgentLayout;
-    /** What the client requested (or null if it accepted the default). */
-    layout_requested?: AgentLayout | null;
-    /** True iff the requested layout was unsupported and we fell back. */
-    layout_fallback?: boolean;
-    /** Layouts this agent supports, in display order (default first). */
-    layouts_available?: AgentLayout[];
   }
-  const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
-  const [bootstrapTemplateSource, setBootstrapTemplateSource] = useState<
+  const [liveSkills, setLiveSkills] = useState<LiveSkillsResponse | null>(null);
+  const [liveSkillsTemplateSource, setLiveSkillsTemplateSource] = useState<
     string | null
   >(null);
   const [agents, setAgents] = useState<AgentMeta[]>([]);
@@ -205,7 +222,7 @@ export function TrySkillsGateway() {
       .catch(() => {});
   }, []);
 
-  // Re-fetch the per-agent rendered bootstrap whenever the agent, scope,
+  // Re-fetch the per-agent rendered live-skills whenever the agent, scope,
   // command name, or description changes. Debounced lightly so typing is
   // smooth. Scope is optional (null = "ask the user first"); if set we
   // forward it so the response carries an `install_path` for the chosen
@@ -218,19 +235,18 @@ export function TrySkillsGateway() {
         command_name: skillCommandName.trim() || "skills",
       });
       if (selectedScope) params.set("scope", selectedScope);
-      if (selectedLayout) params.set("layout", selectedLayout);
       const desc = skillDescription.trim();
       if (desc) params.set("description", desc);
-      fetch(`/api/skills/bootstrap?${params.toString()}`, {
+      fetch(`/api/skills/live-skills?${params.toString()}`, {
         credentials: "include",
         signal: controller.signal,
       })
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: BootstrapResponse | null) => {
+        .then((data: LiveSkillsResponse | null) => {
           if (!data || typeof data.template !== "string") return;
-          setBootstrap(data);
+          setLiveSkills(data);
           if (typeof data.source === "string") {
-            setBootstrapTemplateSource(data.source);
+            setLiveSkillsTemplateSource(data.source);
           }
           if (Array.isArray(data.agents)) setAgents(data.agents);
         })
@@ -244,31 +260,12 @@ export function TrySkillsGateway() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedAgent, selectedScope, selectedLayout, skillCommandName, skillDescription]);
+  }, [selectedAgent, selectedScope, skillCommandName, skillDescription]);
 
-  // When the user switches agents, drop any scope choice that the new agent
-  // does not support (e.g. moving from Claude → Codex with scope=project, or
-  // → Spec Kit with scope=user). Falls back to whichever single scope is
-  // available, or null when both are valid (force the user to pick again).
-  useEffect(() => {
-    const meta = agents.find((a) => a.id === selectedAgent);
-    if (!meta) return; // first paint, before /api/skills/bootstrap returns
-    if (selectedScope && !meta.scopes_available.includes(selectedScope)) {
-      setSelectedScope(
-        meta.scopes_available.length === 1 ? meta.scopes_available[0] : null,
-      );
-    }
-    // Same dance for layout: dropping the choice when the target agent
-    // doesn't expose it (e.g. skills→commands when moving Claude→Codex).
-    // null means "use the agent's documented default", so we don't have to
-    // pick one for them.
-    const layoutsAvail = meta.install_paths_by_layout
-      ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
-      : (["commands"] as AgentLayout[]);
-    if (selectedLayout && !layoutsAvail.includes(selectedLayout)) {
-      setSelectedLayout(null);
-    }
-  }, [selectedAgent, agents, selectedScope, selectedLayout]);
+  // (Removed: the agent-change scope-reset effect is no longer needed.
+  // The agent is pinned to Claude and every supported agent supports
+  // both user and project scopes, so there is no per-agent scope
+  // narrowing to apply.)
 
   const handleMint = async () => {
     setMintBusy(true);
@@ -329,15 +326,19 @@ export function TrySkillsGateway() {
 
   // Rendered artifact + metadata from the server (per selected agent).
   // Falls back to placeholders while the first fetch is in flight.
-  const bootstrapSkillContent =
-    bootstrap?.template ?? "# Loading bootstrap skill template…\n";
-  const installPath = bootstrap?.install_path ?? null;
-  const isFragment = bootstrap?.is_fragment ?? false;
-  const launchGuide = bootstrap?.launch_guide ?? "";
-  const agentLabel = bootstrap?.label ?? "Claude Code";
-  const agentDocsUrl = bootstrap?.docs_url;
+  const liveSkillsSkillContent =
+    liveSkills?.template ?? "# Loading live-skills skill template…\n";
+  const installPath = liveSkills?.install_path ?? null;
+  // Fragment-config agents (Continue) are gone in the skills-only
+  // overhaul; every supported agent uses the universal SKILL.md format.
+  // Kept as a const for any leftover branches that conditionally render
+  // fragment-only copy.
+  const isFragment = false;
+  const launchGuide = liveSkills?.launch_guide ?? "";
+  const agentLabel = liveSkills?.label ?? "Claude Code";
+  const agentDocsUrl = liveSkills?.docs_url;
   const scopesAvailable: InstallScope[] =
-    bootstrap?.scopes_available ?? ["user", "project"];
+    liveSkills?.scopes_available ?? ["user", "project"];
 
   // Build the heredoc-style install command, scoped to the picked location.
   // null when the user hasn't picked a scope yet (UI hides the block in that
@@ -354,8 +355,8 @@ export function TrySkillsGateway() {
     const expandedPath = installPath.startsWith("~/")
       ? `"$HOME/${installPath.slice(2)}"`
       : installPath;
-    return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${bootstrapSkillContent}${
-      bootstrapSkillContent.endsWith("\n") ? "" : "\n"
+    return `mkdir -p ${expandedDir}\ncat > ${expandedPath} << 'SKILL'\n${liveSkillsSkillContent}${
+      liveSkillsSkillContent.endsWith("\n") ? "" : "\n"
     }SKILL`;
   })();
 
@@ -368,13 +369,14 @@ export function TrySkillsGateway() {
   // itself telling them to create the config file or pass --api-key=…
   const installerSnippets = (() => {
     if (!selectedScope) return null;
-    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-      selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&command_name=${encodeURIComponent(
-      safeCommandName,
-    )}${
-      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
-    }`;
+    // Note: ?agent= is intentionally omitted. The install.sh route
+    // defaults to Claude and the install is universal (writes to both
+    // ~/.claude/skills/ and ~/.agents/skills/), so the only thing
+    // ?agent= used to control was the success-card label. We keep
+    // the URL short and copy-pasteable instead.
+    const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&command_name=${encodeURIComponent(safeCommandName)}`;
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
     // Upgrade variant: forwards `--upgrade` to the script via `bash -s`,
     // which is `bash`'s standard way of passing flags to a piped script.
@@ -383,25 +385,45 @@ export function TrySkillsGateway() {
     return { oneLiner, oneLinerUpgrade, downloadSnippet, installShUrl };
   })();
 
+  // Uninstall snippets. Mirror `installerSnippets` exactly (same agent +
+  // scope + layout query params) but flip `mode=uninstall`. Three flavors
+  // exposed in the UI:
+  //   - oneLiner       : interactive per-item prompts; preserves config.json
+  //   - oneLinerPurge  : interactive + also removes ~/.config/caipe/config.json
+  //                      (true clean wipe; user has to re-enter the gateway
+  //                      URL + api_key after a future re-install)
+  //   - oneLinerDryRun : preview mode -- prints what would be removed without
+  //                      deleting anything. Implies --all so the output is
+  //                      flat rather than waiting on N prompts.
+  // We keep --all out of the default one-liner: per-item prompts are the
+  // safety net the design questionnaire chose, and a destructive default
+  // shouldn't be a `curl | bash` away.
+  const uninstallSnippets = (() => {
+    if (!selectedScope) return null;
+    const uninstallShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&mode=uninstall`;
+    const oneLiner = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash`;
+    const oneLinerPurge = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --purge`;
+    const oneLinerDryRun = `curl -fsSL ${shellQuote(uninstallShUrl)} | bash -s -- --dry-run`;
+    return { oneLiner, oneLinerPurge, oneLinerDryRun, uninstallShUrl };
+  })();
+
   // Bulk-install one-liner driven by the "Pick your skills" panel. Reuses
   // the same /api/skills/install.sh endpoint, but adds ?catalog_url=… so the
   // generated script writes one file per catalog skill instead of installing
-  // the bootstrap skill. Disabled when the agent is fragment-config (Continue)
+  // the live-skills skill. Disabled when the agent is fragment-config (Continue)
   // or when no scope has been chosen yet.
   const bulkInstallerSnippet = (() => {
     if (!selectedScope) return null;
-    const meta = agents.find((a) => a.id === selectedAgent);
-    if (meta?.is_fragment) return null;
     const previewSkillCount =
       previewData?.skills && Array.isArray(previewData.skills)
         ? previewData.skills.length
         : 0;
     if (previewSkillCount === 0) return null;
-    const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-      selectedAgent,
-    )}&scope=${encodeURIComponent(selectedScope)}&catalog_url=${encodeURIComponent(catalogUrl)}${
-      selectedLayout ? `&layout=${encodeURIComponent(selectedLayout)}` : ""
-    }`;
+    const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
+      selectedScope,
+    )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
     // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
     // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
     const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
@@ -416,9 +438,10 @@ export function TrySkillsGateway() {
           How to use Skills API Gateway with coding agents
         </h1>
         <p className="text-sm text-muted-foreground">
-          Pick the skills you want, generate an API key, and copy a one-line
-          installer for your coding agent (Claude Code, Cursor, Codex, Gemini
-          CLI, and more).
+          Start with the live catalog (Step 1), then mint a catalog API key (Step 2) for authenticated{" "}
+          <code className="text-xs">curl</code> / installer access. Step 3 installs the single live-skills{" "}
+          <code className="text-xs">/skills</code> command. Bulk install of every previewed skill is optional and
+          listed after Step 2 as an advanced flow.
         </p>
       </div>
 
@@ -430,7 +453,8 @@ export function TrySkillsGateway() {
             Step 1: Pick your skills
           </CardTitle>
           <CardDescription>
-            Build a catalog URL interactively and preview results.
+            Build a catalog URL and preview the live merged catalog (session-authenticated in the browser).
+            For scripted <code className="text-xs">curl</code> access to the same URL, use the catalog API key from Step 2.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -680,101 +704,6 @@ export function TrySkillsGateway() {
               </table>
             </div>
           )}
-
-          {/* Bulk install action bar — wires the Query Builder's catalog URL
-              into /api/skills/install.sh?catalog_url=… so each previewed
-              skill is written as a slash-command file for the chosen
-              coding agent + scope. Reuses the agent/scope pickers from the
-              bootstrap card above (state lives on the parent). */}
-          {previewData?.skills && previewData.skills.length > 0 && (
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="text-sm font-medium text-foreground">
-                  Install these {previewData.skills.length} skill
-                  {previewData.skills.length === 1 ? "" : "s"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  agent:{" "}
-                  <span className="font-mono">{selectedAgent}</span>
-                  {" · "}
-                  scope:{" "}
-                  <span className="font-mono">
-                    {selectedScope ?? "(pick above)"}
-                  </span>
-                </div>
-              </div>
-              {bulkInstallerSnippet ? (
-                <>
-                  <div className="relative group">
-                    <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                      {bulkInstallerSnippet.oneLiner}
-                    </pre>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(
-                          bulkInstallerSnippet.oneLiner,
-                        );
-                        setCopiedBulkOneLiner(true);
-                        setTimeout(() => setCopiedBulkOneLiner(false), 2000);
-                      }}
-                    >
-                      {copiedBulkOneLiner ? (
-                        <Check className="h-3.5 w-3.5 text-emerald-600" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                  <details className="text-xs">
-                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                      Already installed? Upgrade
-                    </summary>
-                    <div className="relative group mt-2">
-                      <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                        {bulkInstallerSnippet.oneLinerUpgrade}
-                      </pre>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(
-                            bulkInstallerSnippet.oneLinerUpgrade,
-                          );
-                          setCopiedBulkUpgrade(true);
-                          setTimeout(() => setCopiedBulkUpgrade(false), 2000);
-                        }}
-                      >
-                        {copiedBulkUpgrade ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-600" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </div>
-                  </details>
-                  <p className="text-[11px] text-muted-foreground">
-                    Writes one file per skill into the {selectedAgent} commands
-                    directory. Existing files are skipped unless you re-run
-                    with <code className="font-mono">--upgrade</code> (only
-                    overwrites files this script previously wrote) or{" "}
-                    <code className="font-mono">--force</code>.
-                  </p>
-                </>
-              ) : (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  {agents.find((a) => a.id === selectedAgent)?.is_fragment
-                    ? `${selectedAgent} stores commands inside an editor config file; bulk install is disabled. Install skills individually or use a non-fragment agent.`
-                    : "Pick an install scope (user-global or project-local) on the bootstrap card above to enable the install command."}
-                </p>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -861,6 +790,109 @@ export function TrySkillsGateway() {
         </CardContent>
       </Card>
 
+      {/* Advanced — bulk install uses the same preview as Step 1 + agent/scope from Step 3 */}
+      {previewData?.skills && previewData.skills.length > 0 && (
+        <Card className="border-dashed border-amber-500/40 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              Advanced: bulk-install previewed skills
+            </CardTitle>
+            <CardDescription>
+              Optional. Writes one slash-command file per skill from your Step 1 preview using{" "}
+              <code className="text-xs">install.sh?catalog_url=…</code>. Complete Step 2 first (API key in{" "}
+              <code className="text-xs">~/.config/caipe/config.json</code>), then pick agent and install scope in Step 3
+              before running the one-liner. The default path is a single live-skills skill in Step 3 — use bulk only when
+              you want every previewed skill materialized on disk.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="text-sm font-medium text-foreground">
+                Install these {previewData.skills.length} skill
+                {previewData.skills.length === 1 ? "" : "s"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                <span title="Works in Claude Code, Cursor, Codex CLI, Gemini CLI, and opencode">
+                  universal install
+                </span>
+                {" · "}
+                scope:{" "}
+                <span className="font-mono">{selectedScope ?? "(set in Step 3)"}</span>
+              </div>
+            </div>
+            {bulkInstallerSnippet ? (
+              <>
+                <div className="relative group">
+                  <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                    {bulkInstallerSnippet.oneLiner}
+                  </pre>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(bulkInstallerSnippet.oneLiner);
+                      setCopiedBulkOneLiner(true);
+                      setTimeout(() => setCopiedBulkOneLiner(false), 2000);
+                    }}
+                  >
+                    {copiedBulkOneLiner ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                    Already installed? Upgrade
+                  </summary>
+                  <div className="relative group mt-2">
+                    <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                      {bulkInstallerSnippet.oneLinerUpgrade}
+                    </pre>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(bulkInstallerSnippet.oneLinerUpgrade);
+                        setCopiedBulkUpgrade(true);
+                        setTimeout(() => setCopiedBulkUpgrade(false), 2000);
+                      }}
+                    >
+                      {copiedBulkUpgrade ? (
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </details>
+                <p className="text-[11px] text-muted-foreground">
+                  Writes one{" "}
+                  <code className="font-mono">SKILL.md</code> per skill into
+                  both <code className="font-mono">~/.claude/skills/</code> and
+                  the vendor-neutral{" "}
+                  <code className="font-mono">~/.agents/skills/</code> mirror
+                  (or the project-local equivalents). Existing files are
+                  skipped unless you re-run with{" "}
+                  <code className="font-mono">--upgrade</code> or{" "}
+                  <code className="font-mono">--force</code>.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                Pick an install scope (user-global or project-local) in Step 3
+                below to enable the bulk install command.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -899,7 +931,7 @@ EOF`}
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                 2
               </span>
-              Install the bootstrap skill
+              Install the live-skills skill
             </p>
             {/* PRIMARY ACTION — Quick install. Per Shubham Bakshi's review
                 feedback (PR #1268): the per-agent customization grid is
@@ -968,151 +1000,37 @@ EOF`}
               </div>
             </div>
 
-            <div className="pt-4">
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+            {/* Coding-agent picker dropped: the install is universal.
+                The same SKILL.md is written to the agent-specific tree
+                (~/.claude/skills/) AND the vendor-neutral mirror
+                (~/.agents/skills/), and Cursor / Codex CLI / Gemini
+                CLI / opencode all auto-discover the latter. We
+                surface the supported-agents list inline so users
+                know which CLIs will pick up the install without
+                having to read a docs link. */}
+            <div className="pt-4 rounded-md bg-muted/20 px-3 py-2.5">
+              <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-1.5">
                 <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
                   a
                 </span>
-                Coding agent
-              </label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {(agents.length > 0
-                  ? agents
-                  : [
-                      {
-                        id: "claude",
-                        label: "Claude Code",
-                        ext: "md",
-                        format: "markdown-frontmatter",
-                        install_paths: {
-                          user: "~/.claude/commands/skills.md",
-                          project: "./.claude/commands/skills.md",
-                        },
-                        scopes_available: ["user", "project"] as InstallScope[],
-                        is_fragment: false,
-                      } as AgentMeta,
-                    ]
-                ).map((a) => {
-                  // Show one of the agent's install paths in the option label
-                  // so the user has a hint of where this agent installs.
-                  // Prefer project-local for git-trackable agents (Claude,
-                  // Cursor, Spec Kit, Gemini, Continue) and user-global for
-                  // Codex (no project scope).
-                  const previewPath =
-                    a.install_paths?.project ??
-                    a.install_paths?.user ??
-                    "";
-                  return (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                      {previewPath ? ` — ${previewPath}` : ""}
-                    </option>
-                  );
-                })}
-              </select>
-              {agentDocsUrl ? (
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  <a href={agentDocsUrl} target="_blank" rel="noreferrer" className="text-primary underline">
-                    {agentLabel} docs
-                  </a>
-                </p>
-              ) : null}
+                Works in
+              </p>
+              <p className="text-xs text-foreground leading-relaxed">
+                <strong>Claude Code</strong>, <strong>Cursor</strong>,{" "}
+                <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and{" "}
+                <strong>opencode</strong> &mdash; the install writes a
+                single <code className="font-mono text-[11px]">SKILL.md</code>{" "}
+                per skill to the universal{" "}
+                <code className="font-mono text-[11px]">~/.agents/skills/</code>{" "}
+                location every supported agent discovers.
+              </p>
             </div>
 
-            {/* Layout toggle: skills/<name>/SKILL.md (Claude Code Oct 2025
-                + Cursor + opencode) vs the legacy <agent>/commands/{name}.md
-                file. Only visible for agents that support BOTH layouts —
-                otherwise the choice is forced. Defaults to the agent's
-                documented default (skills for Claude/Cursor, commands for
-                everyone else) so users get the right behavior on first paint
-                without having to think about it. Per Shubham Bakshi review
-                feedback (#1268, point C). */}
-            {(() => {
-              const meta = agents.find((a) => a.id === selectedAgent);
-              const layoutsAvail = meta?.install_paths_by_layout
-                ? (Object.keys(meta.install_paths_by_layout) as AgentLayout[])
-                : (["commands"] as AgentLayout[]);
-              if (layoutsAvail.length < 2) return null;
-              const effectiveLayout: AgentLayout =
-                selectedLayout ?? meta?.default_layout ?? layoutsAvail[0];
-              return (
-                <div className="mt-2 rounded-md bg-muted/20 p-3">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">
-                    File layout
-                    <span className="ml-1 text-[11px] font-normal opacity-70">
-                      ({agentLabel} supports both)
-                    </span>
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {layoutsAvail.map((layout) => {
-                      const isSelected = effectiveLayout === layout;
-                      const paths = meta?.install_paths_by_layout?.[layout];
-                      // Show the path that matches whichever scope is currently
-                      // picked; fall back to user-scope, then any available path
-                      // so the example never collapses to "undefined".
-                      const examplePath =
-                        (selectedScope && paths?.[selectedScope]) ||
-                        paths?.user ||
-                        paths?.project ||
-                        "";
-                      const labelText =
-                        layout === "skills"
-                          ? "Skills layout (SKILL.md per directory)"
-                          : "Commands layout (one .md file per command)";
-                      const sub =
-                        layout === "skills"
-                          ? "Auto-discovered by Claude Code, Cursor, opencode."
-                          : "Legacy slash-command layout. Pick this for portability with older agent versions.";
-                      return (
-                        <label
-                          key={layout}
-                          className={`flex items-start gap-2 rounded-md border p-2 cursor-pointer transition-colors ${
-                            isSelected
-                              ? "border-primary bg-primary/5"
-                              : "border-border bg-background/50 hover:bg-muted/30"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="agent-layout"
-                            value={layout}
-                            checked={isSelected}
-                            onChange={() => setSelectedLayout(layout)}
-                            className="mt-1"
-                          />
-                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                            <span className="text-sm font-medium">
-                              {labelText}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground">
-                              {sub}
-                            </span>
-                            {examplePath ? (
-                              <code className="text-[11px] font-mono text-muted-foreground break-all">
-                                {examplePath}
-                              </code>
-                            ) : null}
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Scope chooser: user (~/) vs project (./). Some agents only
-                support one of these (Codex = user-only, Spec Kit = project-
-                only) — we disable the unavailable radio rather than hide it
-                so the asymmetry is visible.
-
-                When the user has chosen an agent but not a scope, ring-
-                highlight this block so the eye lands on "the next thing to
-                do". */}
+            {/* Scope chooser. After the skills-only overhaul every agent
+                supports BOTH user and project scope, so we default-pick
+                "user" and put "project" behind an Advanced disclosure
+                with a `.gitignore` reminder for the per-project install
+                artifacts. */}
             <div
               className={`mt-2 rounded-md p-3 transition-colors ${
                 !selectedScope
@@ -1139,55 +1057,64 @@ EOF`}
                 Where to install?
               </p>
               <div className="flex flex-col gap-2">
-                {(["user", "project"] as InstallScope[]).map((s) => {
-                  const supported = scopesAvailable.includes(s);
-                  const path = bootstrap?.install_paths?.[s];
-                  const isSelected = selectedScope === s;
-                  const labelText =
-                    s === "user"
-                      ? "User-wide (reused across all projects)"
-                      : "Project-local (committed with this repo)";
+                {(() => {
+                  // User scope — the default. Render at the top, prominently.
+                  // Multi-target paths are shown as a stacked list of <code>
+                  // blocks since every install writes to BOTH the
+                  // ~/.claude/skills/ tree AND the vendor-neutral
+                  // ~/.agents/skills/ mirror.
+                  const userPathsRaw = liveSkills?.install_paths?.user;
+                  const userPaths: string[] = Array.isArray(userPathsRaw)
+                    ? (userPathsRaw as string[])
+                    : userPathsRaw
+                      ? [userPathsRaw as unknown as string]
+                      : [];
+                  const userSelected = selectedScope === "user";
+                  const userSupported = scopesAvailable.includes("user");
                   return (
                     <label
-                      key={s}
                       className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
-                        supported
+                        userSupported
                           ? `cursor-pointer hover:bg-background/60 ${
-                              isSelected
+                              userSelected
                                 ? "border-primary/60 bg-background"
                                 : "border-border/60 bg-background/30"
                             }`
                           : "cursor-not-allowed opacity-50 border-border/40"
                       }`}
-                      title={
-                        supported
-                          ? path
-                          : `${agentLabel} does not support ${s}-scope commands.`
-                      }
                     >
                       <input
                         type="radio"
                         name="install-scope"
-                        value={s}
-                        checked={isSelected}
-                        disabled={!supported}
-                        onChange={() =>
-                          supported && setSelectedScope(s)
-                        }
+                        value="user"
+                        checked={userSelected}
+                        disabled={!userSupported}
+                        onChange={() => userSupported && setSelectedScope("user")}
                         className="mt-0.5"
                       />
                       <span className="flex-1 leading-relaxed">
                         <span className="block font-medium text-foreground">
-                          {labelText}
+                          User-wide (reused across all projects)
+                          <span className="ml-2 inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            Recommended
+                          </span>
                         </span>
-                        {path ? (
-                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
-                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
-                              : path}
-                          </code>
+                        {userPaths.length > 0 ? (
+                          <span className="block mt-0.5 space-y-0.5">
+                            {userPaths.map((p) => (
+                              <code
+                                key={p}
+                                className="block text-[11px] text-muted-foreground font-mono"
+                              >
+                                {p.replace(
+                                  new RegExp(`/${skillCommandName}/SKILL\\.md$`),
+                                  "/<skill-name>/SKILL.md",
+                                )}
+                              </code>
+                            ))}
+                          </span>
                         ) : null}
-                        {!supported ? (
+                        {!userSupported ? (
                           <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
                             Not supported by {agentLabel}.
                           </span>
@@ -1195,7 +1122,96 @@ EOF`}
                       </span>
                     </label>
                   );
-                })}
+                })()}
+
+                {/* Advanced: project-local install. Hidden by default;
+                    expanding it shows the radio + a .gitignore reminder
+                    so users who pick this know to keep `.caipe/`,
+                    `.claude/`, and `.agents/` out of version control. */}
+                <details className="rounded-md border border-border/40 bg-background/20 px-3 py-2 group">
+                  <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground hover:text-foreground select-none">
+                    <span className="inline-block transition-transform group-open:rotate-90 mr-1">›</span>
+                    Advanced: install per-project instead
+                  </summary>
+                  <div className="mt-3">
+                    {(() => {
+                      const projectPathsRaw =
+                        liveSkills?.install_paths?.project;
+                      const projectPaths: string[] = Array.isArray(
+                        projectPathsRaw,
+                      )
+                        ? (projectPathsRaw as string[])
+                        : projectPathsRaw
+                          ? [projectPathsRaw as unknown as string]
+                          : [];
+                      const projectSelected = selectedScope === "project";
+                      const projectSupported =
+                        scopesAvailable.includes("project");
+                      return (
+                        <label
+                          className={`flex items-start gap-3 text-xs rounded-md border px-3 py-2 transition-colors ${
+                            projectSupported
+                              ? `cursor-pointer hover:bg-background/60 ${
+                                  projectSelected
+                                    ? "border-primary/60 bg-background"
+                                    : "border-border/60 bg-background/30"
+                                }`
+                              : "cursor-not-allowed opacity-50 border-border/40"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="install-scope"
+                            value="project"
+                            checked={projectSelected}
+                            disabled={!projectSupported}
+                            onChange={() =>
+                              projectSupported && setSelectedScope("project")
+                            }
+                            className="mt-0.5"
+                          />
+                          <span className="flex-1 leading-relaxed">
+                            <span className="block font-medium text-foreground">
+                              Project-local (committed with this repo)
+                            </span>
+                            {projectPaths.length > 0 ? (
+                              <span className="block mt-0.5 space-y-0.5">
+                                {projectPaths.map((p) => (
+                                  <code
+                                    key={p}
+                                    className="block text-[11px] text-muted-foreground font-mono"
+                                  >
+                                    {p.replace(
+                                      new RegExp(
+                                        `/${skillCommandName}/SKILL\\.md$`,
+                                      ),
+                                      "/<skill-name>/SKILL.md",
+                                    )}
+                                  </code>
+                                ))}
+                              </span>
+                            ) : null}
+                            {!projectSupported ? (
+                              <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
+                                Not supported by {agentLabel}.
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })()}
+                    <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+                      Reminder: add these to your <code className="font-mono">.gitignore</code> so
+                      manifests, helpers, and the agent dotfiles do not end up in
+                      version control:
+                    </p>
+                    <pre className="mt-1 rounded bg-muted/40 p-2 text-[11px] font-mono leading-snug text-muted-foreground">
+{`.caipe/
+.claude/
+.agents/`}
+                    </pre>
+                  </div>
+                </details>
               </div>
               {!selectedScope ? (
                 <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
@@ -1337,6 +1353,142 @@ EOF`}
                       </div>
                     </details>
 
+                    {uninstallSnippets ? (
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
+                          Uninstall (reverse the install)
+                        </summary>
+                        <div className="mt-3 space-y-3 pl-4 border-l-2 border-destructive/30">
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            Walks the sidecar manifest at{" "}
+                            <code>~/.config/caipe/installed.json</code> (or{" "}
+                            <code>./.caipe/installed.json</code> for project
+                            scope) and prompts per item before removing each
+                            CAIPE-installed file. Files NOT in the manifest are
+                            never touched, so a hand-authored skill at a
+                            CAIPE-looking path is always safe. When a Claude
+                            <code>SessionStart</code> hook entry is removed,
+                            the matching{" "}
+                            <code>~/.claude/settings.json</code> patch is
+                            reversed surgically — only the entries CAIPE added
+                            are removed, everything else is preserved.
+                          </p>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Interactive uninstall (preserves your gateway
+                              URL + api_key)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLiner}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLiner,
+                                  );
+                                  setCopiedUninstall(true);
+                                  setTimeout(
+                                    () => setCopiedUninstall(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstall ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              Per-item prompts: <code>y</code> = remove,{" "}
+                              <code>N</code> = skip, <code>a</code> = remove
+                              all remaining without prompting,{" "}
+                              <code>q</code> = quit (manifest stays
+                              consistent).
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Preview only (no files deleted)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLinerDryRun}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLinerDryRun,
+                                  );
+                                  setCopiedUninstallDryRun(true);
+                                  setTimeout(
+                                    () => setCopiedUninstallDryRun(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstallDryRun ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[11px] font-medium text-foreground mb-1">
+                              Full wipe (also removes{" "}
+                              <code>~/.config/caipe/config.json</code>)
+                            </p>
+                            <div className="relative group">
+                              <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
+                                {uninstallSnippets.oneLinerPurge}
+                              </pre>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  void navigator.clipboard.writeText(
+                                    uninstallSnippets.oneLinerPurge,
+                                  );
+                                  setCopiedUninstallPurge(true);
+                                  setTimeout(
+                                    () => setCopiedUninstallPurge(false),
+                                    2000,
+                                  );
+                                }}
+                              >
+                                {copiedUninstallPurge ? (
+                                  <Check className="h-3.5 w-3.5 text-green-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              You will need to re-enter the gateway URL +
+                              catalog API key on the next install.
+                            </p>
+                          </div>
+                        </div>
+                      </details>
+                    ) : null}
+
                     <details className="text-xs">
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
                         Show manual install command (no script)
@@ -1442,26 +1594,26 @@ EOF`}
 
             <p className="text-[11px] text-muted-foreground mt-4 mb-2 leading-relaxed">
               Template source:{" "}
-              <code>{bootstrapTemplateSource ?? "loading…"}</code>
+              <code>{liveSkillsTemplateSource ?? "loading…"}</code>
               {". Override via Helm value "}
-              <code>skillsBootstrap</code>
+              <code>skillsLiveSkills</code>
               {" (inline) or "}
-              <code>skillsBootstrapName</code>
+              <code>skillsLiveSkillsName</code>
               {" (selects "}
-              <code>data/skills/bootstrap.&lt;name&gt;.md</code>
+              <code>data/skills/live-skills.&lt;name&gt;.md</code>
               {"), or container env "}
-              <code>SKILLS_BOOTSTRAP_FILE</code>
+              <code>SKILLS_LIVE_SKILLS_FILE</code>
               {" / "}
-              <code>SKILLS_BOOTSTRAP_TEMPLATE</code>.
+              <code>SKILLS_LIVE_SKILLS_TEMPLATE</code>.
             </p>
 
             <details className="text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                Preview generated skill ({bootstrap?.file_extension ?? "md"})
+                Preview generated skill (md)
               </summary>
               <div className="relative group mt-2">
                 <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                  {bootstrapSkillContent}
+                  {liveSkillsSkillContent}
                 </pre>
                 <Button
                   type="button"
@@ -1469,7 +1621,7 @@ EOF`}
                   size="icon"
                   className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                   onClick={() => {
-                    void navigator.clipboard.writeText(bootstrapSkillContent);
+                    void navigator.clipboard.writeText(liveSkillsSkillContent);
                     setCopiedSkill(true);
                     setTimeout(() => setCopiedSkill(false), 2000);
                   }}
@@ -1491,10 +1643,64 @@ EOF`}
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-semibold">
                 3
               </span>
-              Launch {agentLabel} and use it
+              Launch your coding agent and use it
             </p>
-            <div className="ml-8">
-              <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
+            <div className="ml-8 space-y-3">
+              <p className="text-sm text-foreground">
+                The install wrote one{" "}
+                <code className="font-mono text-[12px]">SKILL.md</code> per
+                skill into both the Claude tree and the vendor-neutral{" "}
+                <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
+                mirror. Open any of these CLIs in a fresh shell and the
+                skills are immediately discoverable:
+              </p>
+              <ul className="text-sm text-foreground space-y-2 list-disc pl-5">
+                <li>
+                  <strong>Claude Code</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">claude</code> then
+                  type <code className="font-mono text-[12px]">/{safeCommandName}</code>
+                  {" "}to browse the catalog. Skills are also auto-invoked
+                  by description when you describe a matching task.
+                </li>
+                <li>
+                  <strong>Cursor</strong> &mdash; open Cursor and type{" "}
+                  <code className="font-mono text-[12px]">/</code> in the
+                  Agent chat to search by name, or describe the task and
+                  let the model pick the right skill.
+                </li>
+                <li>
+                  <strong>Codex CLI</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">codex</code> then
+                  type <code className="font-mono text-[12px]">/skills</code>{" "}
+                  to list, or use{" "}
+                  <code className="font-mono text-[12px]">$skill-name</code>{" "}
+                  to invoke explicitly.
+                </li>
+                <li>
+                  <strong>Gemini CLI</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">gemini</code> and
+                  use <code className="font-mono text-[12px]">/skills list</code>{" "}
+                  to confirm discovery; Gemini auto-activates skills by
+                  description.
+                </li>
+                <li>
+                  <strong>opencode</strong> &mdash; run{" "}
+                  <code className="font-mono text-[12px]">opencode</code>;
+                  the agent sees skills via the built-in{" "}
+                  <code className="font-mono text-[12px]">skill</code> tool
+                  and loads them on demand.
+                </li>
+              </ul>
+              {launchGuide ? (
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                    Detailed launch guide for {agentLabel}
+                  </summary>
+                  <div className="mt-3">
+                    <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
+                  </div>
+                </details>
+              ) : null}
             </div>
           </section>
         </CardContent>
@@ -1527,55 +1733,34 @@ EOF`}
           and falls back to a placeholder so the user knows where to paste
       */}
       <Dialog open={quickInstallOpen} onOpenChange={setQuickInstallOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Zap className="h-5 w-5 text-primary" />
               Quick install
             </DialogTitle>
             <DialogDescription>
-              Pick your coding agent and where to install. We&rsquo;ll
-              generate a one-line installer that fetches skills from your
-              catalog and writes them to the agent&rsquo;s skills directory.
+              We&rsquo;ll generate a one-line installer that fetches skills
+              from your catalog and writes a single SKILL.md per skill that
+              works in <strong>Claude Code</strong>, <strong>Cursor</strong>,
+              {" "}
+              <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and
+              {" "}
+              <strong>opencode</strong> &mdash; no per-agent setup
+              required.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 text-sm">
-            {/* Agent picker — same options as Step 3, kept compact. */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                Coding agent
-              </label>
-              <select
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {(agents.length > 0
-                  ? agents
-                  : [
-                      {
-                        id: "claude",
-                        label: "Claude Code",
-                        ext: "md",
-                        format: "markdown-frontmatter",
-                        install_paths: {
-                          user: "~/.claude/commands/skills.md",
-                          project: "./.claude/commands/skills.md",
-                        },
-                        scopes_available: ["user", "project"] as InstallScope[],
-                        is_fragment: false,
-                      } as AgentMeta,
-                    ]
-                ).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Agent picker dropped: the install writes to BOTH the
+                Claude tree (~/.claude/skills/) AND the vendor-neutral
+                mirror (~/.agents/skills/) which Cursor, Codex, Gemini,
+                and opencode all discover. The picker only used to
+                affect the launch-guide footer + success-card label;
+                see the new "compatibility" section after install for
+                the unified launch instructions. */}
 
-            {/* Scope picker — matches Step 3 wording. */}
+            {/* Scope picker. */}
             <div>
               <label className="text-xs font-medium text-muted-foreground">
                 Where to install?
@@ -1583,7 +1768,12 @@ EOF`}
               <div className="mt-1 flex flex-col gap-2">
                 {(["user", "project"] as InstallScope[]).map((s) => {
                   const supported = scopesAvailable.includes(s);
-                  const path = bootstrap?.install_paths?.[s];
+                  const pathsRaw = liveSkills?.install_paths?.[s];
+                  const paths: string[] = Array.isArray(pathsRaw)
+                    ? (pathsRaw as string[])
+                    : pathsRaw
+                      ? [pathsRaw as unknown as string]
+                      : [];
                   const isSelected = selectedScope === s;
                   const labelText =
                     s === "user"
@@ -1617,12 +1807,20 @@ EOF`}
                         <span className="block font-medium text-foreground">
                           {labelText}
                         </span>
-                        {path ? (
-                          <code className="block mt-0.5 text-[11px] text-muted-foreground font-mono">
-                            {(bootstrap?.layout === "skills" || selectedLayout === "skills")
-                              ? path.replace(new RegExp(`/${skillCommandName}/SKILL\\.md$`), "/<skill-name>/SKILL.md")
-                              : path}
-                          </code>
+                        {paths.length > 0 ? (
+                          <span className="block mt-0.5 space-y-0.5">
+                            {paths.map((p) => (
+                              <code
+                                key={p}
+                                className="block text-[11px] text-muted-foreground font-mono"
+                              >
+                                {p.replace(
+                                  new RegExp(`/${skillCommandName}/SKILL\\.md$`),
+                                  "/<skill-name>/SKILL.md",
+                                )}
+                              </code>
+                            ))}
+                          </span>
                         ) : null}
                         {!supported ? (
                           <span className="block mt-0.5 text-[11px] text-muted-foreground italic">
@@ -1639,17 +1837,6 @@ EOF`}
             {/* Result snippet (or guidance when blocked). */}
             <div className="border-t border-border pt-4">
               {(() => {
-                const meta = agents.find((a) => a.id === selectedAgent);
-                if (meta?.is_fragment) {
-                  return (
-                    <p className="text-xs text-amber-700 dark:text-amber-400 inline-flex items-start gap-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      {agentLabel} uses a config-fragment install (not a
-                      slash command), so the bulk one-liner doesn&rsquo;t
-                      apply. Use the detailed instructions in Step 3.
-                    </p>
-                  );
-                }
                 if (!selectedScope) {
                   return (
                     <p className="text-xs text-muted-foreground inline-flex items-start gap-1.5">
@@ -1659,13 +1846,26 @@ EOF`}
                     </p>
                   );
                 }
-                const installShUrl = `${baseUrl}/api/skills/install.sh?agent=${encodeURIComponent(
-                  selectedAgent,
-                )}&scope=${encodeURIComponent(
-                  selectedScope,
-                )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
+                // ?agent= omitted -- the install is universal across
+                // Claude / Cursor / Codex / Gemini / opencode (writes
+                // to both ~/.claude/skills/ and ~/.agents/skills/).
+                // The install URL is composed from (in order):
+                //   * scope (user/project) — drives ~/.claude vs ./.claude
+                //   * catalog_url= — the user-chosen catalog page from
+                //                    the "Pick your skills" preview
+                //   * mode=bulk-with-helpers — only when the helpers
+                //                    checkbox is on. Without this the
+                //                    server routes catalog_url= to
+                //                    catalog-query mode which has
+                //                    DO_HELPERS=0 (= no /skills,
+                //                    /update-skills SKILL.md files).
+                const installShUrl =
+                  `${baseUrl}/api/skills/install.sh` +
+                  `?scope=${encodeURIComponent(selectedScope)}` +
+                  `&catalog_url=${encodeURIComponent(catalogUrl)}` +
+                  (quickInstallHelpers ? `&mode=bulk-with-helpers` : "");
                 const targetPath =
-                  bootstrap?.install_paths?.[selectedScope] ?? null;
+                  liveSkills?.install_paths?.[selectedScope] ?? null;
                 const skillCount = previewData?.meta?.total ?? null;
                 // Single-line install snippet. install.sh reads the API key
                 // from ~/.config/caipe/config.json (Step 1), so we don't
@@ -1673,7 +1873,22 @@ EOF`}
                 // copy-pasteable, and makes the "API key cannot be
                 // recovered" message in the key card actually true — we
                 // never echo the key into examples after minting it.
-                const oneLiner = `curl -fsSL ${shellQuote(installShUrl)} | bash`;
+                //
+                // The optional `--upgrade` / `--force` flag is appended via
+                // `bash -s --` (the standard way of forwarding args to a
+                // piped script). With no flag, install.sh's safe-default
+                // refuses to overwrite existing files; `--upgrade` only
+                // overwrites files we previously wrote (manifest-tracked);
+                // `--force` clobbers anything in the target paths.
+                const installFlag =
+                  quickInstallMode === "upgrade"
+                    ? "--upgrade"
+                    : quickInstallMode === "force"
+                      ? "--force"
+                      : "";
+                const oneLiner = installFlag
+                  ? `curl -fsSL ${shellQuote(installShUrl)} | bash -s -- ${installFlag}`
+                  : `curl -fsSL ${shellQuote(installShUrl)} | bash`;
                 return (
                   <div className="space-y-3">
                     {/* Summary chips: tell the user *what* will happen
@@ -1710,17 +1925,89 @@ EOF`}
                           API key minted.
                         </div>
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                          ⚠ Copy it now and paste it into{" "}
-                          <code className="font-mono">
-                            ~/.config/caipe/config.json
-                          </code>{" "}
-                          (Step 1) — we cannot show it again:
+                          ⚠ Copy it now — we cannot show it again. Two
+                          options:
                         </div>
-                        <CopyableBlock
-                          as="code"
-                          text={mintedKey}
-                          ariaLabel="Copy API key"
-                        />
+
+                        {/* Option A: bare key, for users who want to
+                            hand-edit ~/.config/caipe/config.json
+                            (matches the previous UX). */}
+                        <div className="space-y-1">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                            Option A — paste into{" "}
+                            <code className="font-mono">
+                              ~/.config/caipe/config.json
+                            </code>{" "}
+                            yourself
+                          </p>
+                          <CopyableBlock
+                            as="code"
+                            text={mintedKey}
+                            ariaLabel="Copy API key"
+                          />
+                        </div>
+
+                        {/* Option B (Option-4 from the install-flow
+                            design): single-shot bootstrap. Writes
+                            ~/.config/caipe/config.json with chmod 600
+                            then runs the same install one-liner the
+                            "Run this in your terminal" block shows
+                            below. The key is embedded INSIDE a
+                            single-quoted heredoc so bash doesn't try
+                            to expand $... or backticks; both values
+                            are JSON.stringify'd so any character is
+                            safe inside the JSON string literal.
+                            chmod 600 lands the key on disk readable
+                            only by the owner. The bare curl is
+                            unchanged below for repeat-installs that
+                            don't need to re-seed config.json. */}
+                        {(() => {
+                          const bootstrapSnippet = [
+                            `mkdir -p ~/.config/caipe && \\`,
+                            `cat > ~/.config/caipe/config.json <<'CAIPE_BOOTSTRAP_EOF'`,
+                            `{`,
+                            `  "base_url": ${JSON.stringify(baseUrl)},`,
+                            `  "api_key": ${JSON.stringify(mintedKey)}`,
+                            `}`,
+                            `CAIPE_BOOTSTRAP_EOF`,
+                            `chmod 600 ~/.config/caipe/config.json && \\`,
+                            oneLiner,
+                          ].join("\n");
+                          return (
+                            <div
+                              className="space-y-1"
+                              data-testid="quick-install-bootstrap-snippet"
+                            >
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                                Option B — write config + install in
+                                one shot{" "}
+                                <span className="normal-case font-normal text-muted-foreground">
+                                  (recommended for first-time setup)
+                                </span>
+                              </p>
+                              <CopyableBlock
+                                as="pre"
+                                text={bootstrapSnippet}
+                                ariaLabel="Copy bootstrap install snippet"
+                                className="break-all"
+                              />
+                              <p className="text-[10px] text-muted-foreground leading-snug">
+                                Writes{" "}
+                                <code className="font-mono">
+                                  ~/.config/caipe/config.json
+                                </code>{" "}
+                                with{" "}
+                                <code className="font-mono">chmod 600</code>{" "}
+                                (owner-readable only), then runs the
+                                install. The key lives in the single-
+                                quoted heredoc so bash doesn&rsquo;t
+                                expand it; the only place it lands on
+                                disk is the config file you just
+                                created.
+                              </p>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-3">
@@ -1749,6 +2036,120 @@ EOF`}
                       </div>
                     )}
 
+                    {/* Install options. Single checkbox controlling
+                        whether the rendered one-liner asks install.sh
+                        to also drop the /skills and /update-skills
+                        helper SKILL.md files (the meta-helpers that
+                        let the user search and refresh the catalog
+                        from inside Claude Code, Cursor, etc.).
+
+                        Default ON because the previous default URL
+                        silently skipped these helpers — ?catalog_url=
+                        forced mode=catalog-query on the server, which
+                        has DO_HELPERS=0. Users had no UI affordance
+                        to discover the gap. */}
+                    <div
+                      className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1.5"
+                      data-testid="quick-install-helpers-toggle"
+                    >
+                      <p className="text-[11px] font-medium text-foreground">
+                        Install options
+                      </p>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={quickInstallHelpers}
+                          onChange={(e) =>
+                            setQuickInstallHelpers(e.target.checked)
+                          }
+                          className="rounded border-border mt-0.5"
+                          data-testid="quick-install-helpers"
+                        />
+                        <span className="text-xs">
+                          <span className="font-medium">
+                            Install <code className="font-mono">/skills</code>{" "}
+                            and{" "}
+                            <code className="font-mono">/update-skills</code>{" "}
+                            helpers
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground mt-0.5">
+                            Adds two slash commands to your skill tree:{" "}
+                            <code className="font-mono">/skills</code>{" "}
+                            (search and run any catalog skill) and{" "}
+                            <code className="font-mono">/update-skills</code>{" "}
+                            (refresh on-disk skills from the live
+                            catalog). Recommended — leave on unless
+                            you only want the bulk skill files.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    {/* Install-mode toggles. Modeled as two checkboxes
+                        (matching the include_content pattern in the Live
+                        URL builder above) but mutually exclusive — picking
+                        one unchecks the other. install.sh treats
+                        --upgrade and --force as a precedence chain (force
+                        wins), so two independent toggles would let the UI
+                        ask for "upgrade AND force" while the script
+                        silently ignored upgrade. The radio-in-checkbox-
+                        clothing keeps the visual affordance the user
+                        asked for without the footgun. */}
+                    <div
+                      className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-1.5"
+                      data-testid="quick-install-mode-toggles"
+                    >
+                      <p className="text-[11px] font-medium text-foreground">
+                        Overwrite policy
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={quickInstallMode === "upgrade"}
+                            onChange={(e) =>
+                              setQuickInstallMode(
+                                e.target.checked ? "upgrade" : "default",
+                              )
+                            }
+                            className="rounded border-border"
+                            data-testid="quick-install-upgrade"
+                          />
+                          <span className="font-mono text-[11px]">
+                            --upgrade
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            (refresh files this installer wrote before)
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={quickInstallMode === "force"}
+                            onChange={(e) =>
+                              setQuickInstallMode(
+                                e.target.checked ? "force" : "default",
+                              )
+                            }
+                            className="rounded border-border"
+                            data-testid="quick-install-force"
+                          />
+                          <span className="font-mono text-[11px]">
+                            --force
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            (clobber any existing files at the target
+                            paths)
+                          </span>
+                        </label>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Mutually exclusive — picking one clears the
+                        other. Leave both off for the safe default
+                        (existing files untouched).
+                      </p>
+                    </div>
+
                     {/* The actual one-liner. Multi-line + monospace so the
                         long install.sh URL is readable. Big, full-width
                         copy button so it's the primary action. */}
@@ -1762,6 +2163,7 @@ EOF`}
                           variant="outline"
                           size="sm"
                           className="h-7 gap-1.5 text-xs"
+                          data-testid="quick-install-copy-bare-curl"
                           onClick={() => {
                             void navigator.clipboard.writeText(oneLiner);
                             setCopiedQuickInstall(true);
@@ -1793,10 +2195,30 @@ EOF`}
                         {oneLiner}
                       </pre>
                       <p className="text-[11px] text-muted-foreground">
-                        Idempotent and safe to re-run. Existing skill files
-                        are skipped — pass{" "}
-                        <code className="font-mono">--upgrade</code> to
-                        overwrite.
+                        {quickInstallMode === "force" ? (
+                          <>
+                            <code className="font-mono">--force</code>{" "}
+                            mode: every target file at the install paths
+                            will be overwritten, including files this
+                            installer didn&rsquo;t create.
+                          </>
+                        ) : quickInstallMode === "upgrade" ? (
+                          <>
+                            <code className="font-mono">--upgrade</code>{" "}
+                            mode: only files this installer previously
+                            wrote (tracked in the manifest) will be
+                            refreshed. Other files are left alone.
+                          </>
+                        ) : (
+                          <>
+                            Idempotent and safe to re-run. Existing skill
+                            files are skipped — toggle{" "}
+                            <code className="font-mono">--upgrade</code>{" "}
+                            or{" "}
+                            <code className="font-mono">--force</code>{" "}
+                            above to overwrite.
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -1883,7 +2305,7 @@ function CopyableBlock({
 
 /**
  * Minimal Markdown renderer for the per-agent launch guide returned by
- * /api/skills/bootstrap. Supports the subset our agent registry uses:
+ * /api/skills/live-skills. Supports the subset our agent registry uses:
  *   - fenced code blocks (```...```)
  *   - blank-line separated paragraphs
  *   - **bold** and `inline code`
@@ -1905,7 +2327,7 @@ function LaunchGuide({
   if (!markdown) {
     return (
       <p className="text-xs text-muted-foreground italic">
-        Launch instructions will appear here once the bootstrap template loads.
+        Launch instructions will appear here once the live-skills template loads.
       </p>
     );
   }

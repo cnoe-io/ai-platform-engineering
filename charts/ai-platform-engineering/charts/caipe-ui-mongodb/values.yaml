@@ -42,12 +42,27 @@ podAnnotations: {}
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
 podLabels: {}
 
+# Security contexts are set to satisfy the Kubernetes Pod Security Standards Baseline
+# profile (enforced) and meet all Restricted profile requirements except
+# readOnlyRootFilesystem, which is left false because MongoDB requires writable data
+# directories. To enforce the policy at the namespace level:
+#   kubectl label namespace <ns> \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/audit=restricted
 podSecurityContext:
   fsGroup: 999
+  runAsNonRoot: true
 
 securityContext:
   runAsNonRoot: true
   runAsUser: 999
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { withErrorHandler } from "@/lib/api-middleware";
+import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import type { ScanStatus } from "@/types/agent-skill";
 import fs from "fs";
 import path from "path";
 
@@ -34,6 +36,39 @@ interface SkillTemplateResponse {
   icon: string;
   tags: string[];
   content: string;
+  /** Cached scan status (from `builtin_skill_scans`), if any. */
+  scan_status?: ScanStatus;
+  scan_summary?: string;
+  scan_updated_at?: string;
+}
+
+interface BuiltinScanDoc {
+  id: string;
+  scan_status: ScanStatus;
+  scan_summary?: string;
+  scan_updated_at?: Date;
+}
+
+const BUILTIN_SCAN_COLLECTION = "builtin_skill_scans";
+
+/**
+ * Best-effort lookup of cached built-in scan results, keyed by template id.
+ * Mongo is the source of truth; if it's unreachable we just return an empty
+ * map so the gallery shows "Unscanned" badges instead of erroring.
+ */
+async function loadBuiltinScans(): Promise<Map<string, BuiltinScanDoc>> {
+  if (!isMongoDBConfigured) return new Map();
+  try {
+    const col = await getCollection<BuiltinScanDoc>(BUILTIN_SCAN_COLLECTION);
+    const docs = await col
+      .find({})
+      .project<BuiltinScanDoc>({ _id: 0 })
+      .toArray();
+    return new Map(docs.map((d) => [d.id, d]));
+  } catch (err) {
+    console.warn("[SkillTemplates] Failed to load built-in scan cache:", err);
+    return new Map();
+  }
 }
 
 interface SkillMetadata {
@@ -193,24 +228,37 @@ function loadSkillTemplates(skillsDir: string): SkillTemplateResponse[] {
   return templates;
 }
 
-let cachedTemplates: SkillTemplateResponse[] | null = null;
-let cacheTimestamp = 0;
-const CACHE_TTL_MS = 30_000;
-
+// NOTE: We deliberately do NOT cache the response here anymore. The
+// loader itself caches the filesystem read for 30s (cheap), and we
+// merge in fresh `builtin_skill_scans` results on each request so an
+// admin clicking "Scan now" in the gallery sees the new badge without
+// waiting up to 30s for the in-memory cache to expire.
 export const GET = withErrorHandler(async () => {
-  const now = Date.now();
-  if (cachedTemplates && now - cacheTimestamp < CACHE_TTL_MS) {
-    return NextResponse.json(cachedTemplates);
-  }
-
   const skillsDir = resolveSkillsDir();
-  console.log(`[SkillTemplates] Loading templates from: ${skillsDir}`);
+  const [templates, scans] = await Promise.all([
+    Promise.resolve(loadSkillTemplates(skillsDir)),
+    loadBuiltinScans(),
+  ]);
 
-  const templates = loadSkillTemplates(skillsDir);
-  console.log(`[SkillTemplates] Loaded ${templates.length} skill templates`);
+  const merged: SkillTemplateResponse[] = templates.map((tpl) => {
+    const scan = scans.get(tpl.id);
+    if (!scan) return tpl;
+    return {
+      ...tpl,
+      scan_status: scan.scan_status,
+      ...(scan.scan_summary !== undefined
+        ? { scan_summary: scan.scan_summary }
+        : {}),
+      ...(scan.scan_updated_at
+        ? {
+            scan_updated_at:
+              scan.scan_updated_at instanceof Date
+                ? scan.scan_updated_at.toISOString()
+                : String(scan.scan_updated_at),
+          }
+        : {}),
+    };
+  });
 
-  cachedTemplates = templates;
-  cacheTimestamp = now;
-
-  return NextResponse.json(templates);
+  return NextResponse.json(merged);
 });

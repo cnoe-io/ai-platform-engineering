@@ -1,36 +1,51 @@
 /**
  * GET /api/skills/helpers/caipe-skills.py
  *
- * Returns the canonical CAIPE skills query helper as a Python source file.
- * The bootstrap skill template (`charts/.../skills/bootstrap.md`) instructs
- * the agent to one-time-curl this endpoint into
- * `~/.config/caipe/caipe-skills.py` and thereafter call it via
- * `python3 ~/.config/caipe/caipe-skills.py <args>`.
+ * Returns the canonical CAIPE skills helper as a Python source file. This
+ * file is the single client-side dependency for both the `/skills`
+ * (live-skills) and `/update-skills` slash commands: it queries the
+ * catalog API and (with `--register PATH`) writes install-manifest
+ * entries used by `/update-skills` to track which on-disk skills CAIPE
+ * owns.
  *
- * Why a separate endpoint (and not just include the helper inline in
- * bootstrap.md):
- *   - The inlined `python3 -c "..."` block was 20+ lines of escaped
- *     Python embedded in a Markdown code fence inside a bash call. It was
- *     unreadable, fragile (single-quote escaping), and impossible to test
- *     directly.
- *   - As a separate file we can: import it from tests, type-check args,
+ * `install.sh` curls this endpoint exactly once per install scope into
+ * `~/.config/caipe/caipe-skills.py` and the slash-command templates then
+ * call it via `python3` / `uv run`. Re-running `install.sh --upgrade`
+ * fetches a fresh copy.
+ *
+ * Why a separate endpoint:
+ *   - The original inlined `python3 -c "..."` block was 20+ lines of
+ *     escaped Python embedded in a Markdown code fence inside a bash
+ *     call. It was unreadable, fragile (single-quote escaping), and
+ *     impossible to test.
+ *   - As a separate file we can import it from tests, type-check args,
  *     and ship config-file resolution + URL validation that would be
  *     hostile to write inline.
  *   - As a separate endpoint the helper is fetched fresh on first run
  *     and re-fetched whenever the user opts to upgrade — same model as
- *     the bootstrap template itself.
+ *     the live-skills template itself.
  *
  * Optional query params:
- *   - base_url: replaces the literal token "{{BASE_URL}}" in the helper
- *               body so the installed file calls back to the deployment
- *               that served it (rather than the placeholder default).
- *               Defaults to the request origin.
+ *   - base_url: replaces the literal token "{{BASE_URL}}" in the
+ *               helper's `DEFAULT_BASE_URL` constant so the installed
+ *               file calls back to the deployment that served it (rather
+ *               than the unrewritten placeholder, which the helper
+ *               treats as "no base_url configured" and errors out on).
+ *               Defaults to the request origin via `getRequestOrigin`,
+ *               which honors NEXTAUTH_URL / x-forwarded-* before falling
+ *               back to the inbound URL — important when running behind
+ *               an ingress.
  *
- * Resolution order for the helper source:
+ * Resolution order for the helper SOURCE on the gateway side:
  *   1. SKILLS_HELPER_FILE env var (operator override)
  *   2. <repo>/charts/ai-platform-engineering/data/skills/caipe-skills.py
  *   3. Built-in minimal fallback (just enough for the agent to report
  *      a clear error to the operator)
+ *
+ * Resolution order for base_url INSIDE the served Python file (after
+ * install) is documented in caipe-skills.py's module docstring; the
+ * route only sets the baked default. End users can still override via
+ * env vars or their config.json without re-fetching the helper.
  *
  * Response:
  *   - Content-Type: text/x-python; charset=utf-8
@@ -101,8 +116,8 @@ function resolveHelperSource(): { source: string; origin: string } {
 
 /**
  * Validate base URL: only http(s), no embedded credentials. Returns null
- * if invalid. Mirrors the validation in `bootstrap/route.ts` so the
- * helper file we write is byte-identical to what the bootstrap template
+ * if invalid. Mirrors the validation in `live-skills/route.ts` so the
+ * helper file we write is byte-identical to what the live-skills template
  * would have produced.
  */
 function sanitizeBaseUrl(raw: string | null): string | null {

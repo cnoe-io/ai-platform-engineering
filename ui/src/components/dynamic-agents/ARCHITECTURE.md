@@ -207,3 +207,7 @@ This survives `clearSSEEvents()` and persists across messages:
 
 - [Server Architecture](../../../../ai_platform_engineering/dynamic_agents/ARCHITECTURE.md) - Backend runtime, caching, MongoDB storage, and request flow diagrams
 - [SSE Events](../../../../ai_platform_engineering/dynamic_agents/SSE_EVENTS.md) - Detailed SSE event types and streaming protocol
+
+## Editor Unsaved-Changes Warning
+
+When `DynamicAgentEditor` has unsaved edits, attempts to leave the editor (back button, sibling sub-tab on the Agents page, or any top-level header link) surface an in-app modal instead of silently discarding the form. Dirty state is value-based (revert-to-original clears it) and tracked via `useEditorDirtyTracking` (`src/hooks/use-editor-dirty-tracking.ts`), which mirrors a single boolean into the global `useUnsavedChangesStore`. Native browser dialogs (`beforeunload`, refresh, tab close) are intentionally NOT used. See the spec at `docs/docs/specs/2026-04-29-agent-editor-unsaved-warning/` for the full design.

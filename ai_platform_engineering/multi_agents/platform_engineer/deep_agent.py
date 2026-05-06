@@ -53,6 +53,8 @@ from ai_platform_engineering.utils.deepagents_custom.self_service_middleware imp
     SelfServiceWorkflowMiddleware,
 )
 from langchain.agents.middleware.model_retry import ModelRetryMiddleware
+from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
+from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
@@ -119,6 +121,12 @@ ENABLE_SELF_SERVICE_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SELF_SE
 ENABLE_POLICY_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_POLICY_MIDDLEWARE", "true").lower() == "true"
 ENABLE_SKILLS_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_SKILLS_MIDDLEWARE", "true").lower() == "true"
 ENABLE_FILE_ARG_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_FILE_ARG_MIDDLEWARE", "true").lower() == "true"
+ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE", "true").lower() == "true"
+TOOL_CALL_LIMIT = int(os.getenv("TOOL_CALL_LIMIT", "50"))
+TOOL_CALL_LIMIT_EXIT_BEHAVIOR = os.getenv("TOOL_CALL_LIMIT_EXIT_BEHAVIOR", "continue")
+ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE", "true").lower() == "true"
+MODEL_CALL_LIMIT = int(os.getenv("MODEL_CALL_LIMIT", "20"))
+MODEL_CALL_LIMIT_EXIT_BEHAVIOR = os.getenv("MODEL_CALL_LIMIT_EXIT_BEHAVIOR", "end")
 
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
@@ -1616,6 +1624,8 @@ This format is required so the UI can display agent stickers next to each task.
             "DeterministicTaskMiddleware": ENABLE_DETERMINISTIC_MIDDLEWARE,
             "CallToolWithFileArgMiddleware": ENABLE_FILE_ARG_MIDDLEWARE,
             "SelfServiceWorkflowMiddleware": ENABLE_SELF_SERVICE_MIDDLEWARE,
+            "ToolCallLimitMiddleware": ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE,
+            "ModelCallLimitMiddleware": ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE,
         }
         if ENABLE_POLICY_MIDDLEWARE:
             middleware_list.append(PolicyMiddleware(agent_name="platform_engineer", agent_type="deep_agent"))
@@ -1627,6 +1637,20 @@ This format is required so the UI can display agent stickers next to each task.
             middleware_list.append(CallToolWithFileArgMiddleware())
         if ENABLE_SELF_SERVICE_MIDDLEWARE:
             middleware_list.append(SelfServiceWorkflowMiddleware())
+        if ENABLE_TOOL_CALL_LIMIT_MIDDLEWARE:
+            middleware_list.append(
+                ToolCallLimitMiddleware(
+                    run_limit=TOOL_CALL_LIMIT,
+                    exit_behavior=TOOL_CALL_LIMIT_EXIT_BEHAVIOR,
+                )
+            )
+        if ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE:
+            middleware_list.append(
+                ModelCallLimitMiddleware(
+                    run_limit=MODEL_CALL_LIMIT,
+                    exit_behavior=MODEL_CALL_LIMIT_EXIT_BEHAVIOR,
+                )
+            )
 
         enabled = [k for k, v in _mw_flags.items() if v]
         disabled = [k for k, v in _mw_flags.items() if not v]

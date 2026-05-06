@@ -5,6 +5,10 @@ metadata:
   labels:
     {{- include "caipe-ui.labels" . | nindent 4 }}
 data:
+  # Render each value through `tpl` so operators can reference Helm built-ins
+  # (notably `{{ .Release.Name }}`) inside string values like
+  # `SKILL_SCANNER_URL`. Plain literals pass through unchanged because `tpl`
+  # is a no-op when the template body has no actions.
   {{- range $key, $value := .Values.config }}
-  {{ $key }}: {{ $value | quote }}
+  {{ $key }}: {{ tpl ($value | toString) $ | quote }}
   {{- end }}

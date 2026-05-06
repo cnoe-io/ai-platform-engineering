@@ -24,10 +24,18 @@ spec:
         {{- include "slack-bot.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "slack-bot.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "slack-bot.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.botConfig }}
           env:
             - name: SLACK_INTEGRATION_BOT_CONFIG

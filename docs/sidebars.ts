@@ -262,6 +262,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Features',
+      items: [
+        {
+          type: 'doc',
+          id: 'features/skills/README',
+          label: 'Skills',
+        },
+      ],
+    },
+    {
+      type: 'category',
       label: 'Security',
       items: [
         {

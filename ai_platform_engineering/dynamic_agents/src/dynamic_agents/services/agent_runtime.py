@@ -195,6 +195,23 @@ class AgentRuntime:
         self._created_at = time.time()
         self._last_interaction = time.time()
         self.tracing = TracingManager()
+        # Scrub skill payloads (SKILL.md bodies, ancillary file
+        # contents, skills_metadata channel) from spans before they
+        # leave the process. Must run after TracingManager() (which
+        # sets up the TracerProvider) and is idempotent so multiple
+        # AgentRuntime instances all share the same processor.
+        try:
+            # Vendored — see skill_scrubber.py header for the
+            # source-of-truth path under ai_platform_engineering/.
+            from dynamic_agents.services.skill_scrubber import (
+                install_skill_content_scrubber,
+            )
+            install_skill_content_scrubber()
+        except Exception as exc:  # noqa: BLE001 — tracing is best-effort
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Skill-trace scrubber install failed: %s", exc,
+            )
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names
@@ -316,12 +333,32 @@ class AgentRuntime:
                     mongodb_database=self.settings.mongodb_database,
                 )
 
-                # Track skills that were requested but not found
+                # Track skills that were requested but not found.
+                # When SKILL_SCANNER_GATE=strict is active and a skill
+                # has scan_status != "passed", the loader silently
+                # filters it out — same observable result as "not in
+                # DB" but a very different fix. Surface that distinction
+                # in the user-visible warning so operators can tell
+                # whether they need to (a) re-pick the skill, (b) run
+                # the scanner, or (c) loosen the gate.
                 loaded_ids = {s["id"] for s in skills_data}
                 missing = [sid for sid in self.config.skills if sid not in loaded_ids]
                 if missing:
                     self._failed_skills = missing
-                    self._failed_skills_error = f"Skills not found: {', '.join(missing)}"
+                    # Vendored — see services/scan_gate.py docstring for
+                    # why this isn't ai_platform_engineering.skills_middleware.
+                    from dynamic_agents.services.scan_gate import (
+                        get_scan_gate,
+                    )
+                    if get_scan_gate() == "strict":
+                        self._failed_skills_error = (
+                            f"Skills unavailable (not found in DB or blocked by scan gate "
+                            f"under SKILL_SCANNER_GATE=strict): {', '.join(missing)}"
+                        )
+                    else:
+                        self._failed_skills_error = (
+                            f"Skills not found: {', '.join(missing)}"
+                        )
 
                 if skills_data:
                     self._skills_files, skills_sources = build_skills_files(skills_data)

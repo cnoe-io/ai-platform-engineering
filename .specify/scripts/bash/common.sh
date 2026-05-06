@@ -69,9 +69,14 @@ check_feature_branch() {
         return 0
     fi
 
+    if [[ "${SPECKIT_SKIP_BRANCH_CHECK:-}" == "1" ]]; then
+        return 0
+    fi
+
     if [[ ! "$branch" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}- ]]; then
         echo "ERROR: Not on a feature branch. Current branch: $branch" >&2
         echo "Feature branches should be named like: 2026-04-28-feature-name" >&2
+        echo "Hint: set SPECKIT_SKIP_BRANCH_CHECK=1 when using a legacy branch with SPECKIT_FEATURE_DIR." >&2
         return 1
     fi
 
@@ -135,9 +140,14 @@ get_feature_paths() {
         has_git_repo="true"
     fi
 
-    # Use prefix-based lookup to support multiple branches per spec
+    # Explicit override: work on a dated spec folder from a non-date branch (e.g. fix/*)
     local feature_dir
-    if ! feature_dir=$(find_feature_dir_by_prefix "$repo_root" "$current_branch"); then
+    if [[ -n "${SPECKIT_FEATURE_DIR:-}" ]]; then
+        feature_dir="${SPECKIT_FEATURE_DIR}"
+        if [[ "$feature_dir" != /* ]]; then
+            feature_dir="$repo_root/$feature_dir"
+        fi
+    elif ! feature_dir=$(find_feature_dir_by_prefix "$repo_root" "$current_branch"); then
         echo "ERROR: Failed to resolve feature directory" >&2
         return 1
     fi

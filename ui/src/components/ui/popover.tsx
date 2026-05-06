@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 interface PopoverProps {
@@ -10,10 +11,17 @@ interface PopoverProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-const PopoverStateContext = React.createContext<{
+interface PopoverContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
-}>({ open: false, setOpen: () => {} });
+  triggerRef: React.RefObject<HTMLElement | null>;
+}
+
+const PopoverStateContext = React.createContext<PopoverContextValue>({
+  open: false,
+  setOpen: () => {},
+  triggerRef: { current: null },
+});
 
 export function Popover({
   children,
@@ -24,6 +32,7 @@ export function Popover({
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const triggerRef = React.useRef<HTMLElement | null>(null);
 
   const setOpen = React.useCallback((value: boolean) => {
     if (!isControlled) {
@@ -32,7 +41,6 @@ export function Popover({
     onOpenChange?.(value);
   }, [isControlled, onOpenChange]);
 
-  // Close on escape key
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && open) {
@@ -44,7 +52,7 @@ export function Popover({
   }, [open, setOpen]);
 
   return (
-    <PopoverStateContext.Provider value={{ open, setOpen }}>
+    <PopoverStateContext.Provider value={{ open, setOpen, triggerRef }}>
       <div className="relative inline-flex">{children}</div>
     </PopoverStateContext.Provider>
   );
@@ -56,21 +64,45 @@ interface PopoverTriggerProps {
 }
 
 export function PopoverTrigger({ children, asChild }: PopoverTriggerProps) {
-  const { open, setOpen } = React.useContext(PopoverStateContext);
+  const { open, setOpen, triggerRef } = React.useContext(PopoverStateContext);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setOpen(!open);
   };
 
+  // Capture the rendered DOM node so PopoverContent can compute viewport
+  // coordinates from it. Without this the popover has no anchor when it's
+  // portaled to document.body.
+  const setRef = React.useCallback(
+    (node: HTMLElement | null) => {
+      triggerRef.current = node;
+    },
+    [triggerRef],
+  );
+
   if (asChild && React.isValidElement(children)) {
-    return React.cloneElement(children as React.ReactElement<React.HTMLAttributes<HTMLElement>>, {
+    type ChildProps = React.HTMLAttributes<HTMLElement> & {
+      ref?: React.Ref<HTMLElement>;
+    };
+    const childWithRef = children as React.ReactElement<ChildProps> & {
+      ref?: React.Ref<HTMLElement>;
+    };
+    const existingRef = childWithRef.ref;
+    const mergedRef = (node: HTMLElement | null) => {
+      setRef(node);
+      if (typeof existingRef === "function") existingRef(node);
+      else if (existingRef && typeof existingRef === "object")
+        (existingRef as React.MutableRefObject<HTMLElement | null>).current = node;
+    };
+    return React.cloneElement(childWithRef, {
       onClick: handleClick,
-    });
+      ref: mergedRef,
+    } as ChildProps);
   }
 
   return (
-    <button type="button" onClick={handleClick}>
+    <button type="button" onClick={handleClick} ref={setRef as React.Ref<HTMLButtonElement>}>
       {children}
     </button>
   );
@@ -85,6 +117,23 @@ interface PopoverContentProps {
   className?: string;
 }
 
+/**
+ * Popover content rendered via React portal to `document.body`.
+ *
+ * The previous implementation used `position: absolute` inside the trigger's
+ * relative parent, which meant any ancestor with `overflow: hidden` (e.g. a
+ * narrow resizable panel like the Skill workspace Files tree) clipped the
+ * popover. Portalling to body + computing fixed-position coordinates from
+ * the trigger's `getBoundingClientRect()` lets the popover escape those
+ * clipping contexts and stay anchored under any layout. We also clamp the
+ * final coordinates to the viewport so a narrow panel can never push the
+ * popover off-screen — the bug that motivated this change.
+ *
+ * Recomputed on open, on resize, and on scroll so it tracks the trigger
+ * even when the user resizes the workspace pane while the popover is open.
+ */
+const VIEWPORT_PADDING = 8;
+
 export function PopoverContent({
   children,
   side = "bottom",
@@ -93,87 +142,121 @@ export function PopoverContent({
   alignOffset = 0,
   className,
 }: PopoverContentProps) {
-  const { open, setOpen } = React.useContext(PopoverStateContext);
+  const { open, setOpen, triggerRef } = React.useContext(PopoverStateContext);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = React.useState<{ top: number; left: number } | null>(null);
+  const [mounted, setMounted] = React.useState(false);
 
-  // Close on click outside
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const computeCoords = React.useCallback(() => {
+    const trigger = triggerRef.current;
+    const content = contentRef.current;
+    if (!trigger || !content) return;
+    const tRect = trigger.getBoundingClientRect();
+    const cRect = content.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let top = 0;
+    let left = 0;
+
+    if (side === "top") {
+      top = tRect.top - cRect.height - sideOffset;
+    } else if (side === "bottom") {
+      top = tRect.bottom + sideOffset;
+    } else if (side === "left") {
+      left = tRect.left - cRect.width - sideOffset;
+    } else if (side === "right") {
+      left = tRect.right + sideOffset;
+    }
+
+    if (side === "top" || side === "bottom") {
+      if (align === "start") left = tRect.left + alignOffset;
+      else if (align === "end") left = tRect.right - cRect.width - alignOffset;
+      else left = tRect.left + tRect.width / 2 - cRect.width / 2;
+    } else {
+      if (align === "start") top = tRect.top + alignOffset;
+      else if (align === "end") top = tRect.bottom - cRect.height - alignOffset;
+      else top = tRect.top + tRect.height / 2 - cRect.height / 2;
+    }
+
+    // Viewport clamp — prevents the popover from disappearing off the
+    // left/right edge of the screen on narrow side panels.
+    left = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(left, vw - cRect.width - VIEWPORT_PADDING),
+    );
+    top = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(top, vh - cRect.height - VIEWPORT_PADDING),
+    );
+
+    setCoords({ top, left });
+  }, [align, alignOffset, side, sideOffset, triggerRef]);
+
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null);
+      return;
+    }
+    // Two-pass: first render off-screen so we can measure, then position.
+    computeCoords();
+    const onChange = () => computeCoords();
+    window.addEventListener("resize", onChange);
+    window.addEventListener("scroll", onChange, true);
+    return () => {
+      window.removeEventListener("resize", onChange);
+      window.removeEventListener("scroll", onChange, true);
+    };
+  }, [open, computeCoords]);
+
   React.useEffect(() => {
     if (!open) return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (contentRef.current && !contentRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (contentRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
 
-    // Delay to prevent immediate close from trigger click
-    setTimeout(() => {
+    const id = window.setTimeout(() => {
       document.addEventListener("mousedown", handleClickOutside);
     }, 0);
 
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open, setOpen]);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open, setOpen, triggerRef]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  // Position styles based on side and align
-  const getPositionStyles = () => {
-    const styles: Record<string, string> = {};
-    
-    // Side positioning
-    if (side === "top") {
-      styles.bottom = "100%";
-      styles.marginBottom = `${sideOffset}px`;
-    } else if (side === "bottom") {
-      styles.top = "100%";
-      styles.marginTop = `${sideOffset}px`;
-    } else if (side === "left") {
-      styles.right = "100%";
-      styles.marginRight = `${sideOffset}px`;
-    } else if (side === "right") {
-      styles.left = "100%";
-      styles.marginLeft = `${sideOffset}px`;
-    }
-
-    // Alignment
-    if (side === "top" || side === "bottom") {
-      if (align === "start") {
-        styles.left = `${alignOffset}px`;
-      } else if (align === "end") {
-        styles.right = `${alignOffset}px`;
-      } else {
-        styles.left = "50%";
-        styles.transform = "translateX(-50%)";
-      }
-    } else {
-      if (align === "start") {
-        styles.top = `${alignOffset}px`;
-      } else if (align === "end") {
-        styles.bottom = `${alignOffset}px`;
-      } else {
-        styles.top = "50%";
-        styles.transform = "translateY(-50%)";
-      }
-    }
-
-    return styles;
-  };
-
-  return (
+  const node = (
     <div
       ref={contentRef}
+      style={{
+        position: "fixed",
+        top: coords?.top ?? -9999,
+        left: coords?.left ?? -9999,
+        visibility: coords ? "visible" : "hidden",
+      }}
       className={cn(
-        "absolute z-50 rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
+        "z-50 rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
         "animate-in fade-in-0 zoom-in-95",
         side === "bottom" && "slide-in-from-top-2",
         side === "top" && "slide-in-from-bottom-2",
         side === "left" && "slide-in-from-right-2",
         side === "right" && "slide-in-from-left-2",
-        className
+        className,
       )}
-      style={getPositionStyles()}
     >
       {children}
     </div>
   );
+
+  return createPortal(node, document.body);
 }

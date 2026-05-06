@@ -195,6 +195,21 @@ helm install caipe charts/ai-platform-engineering \
   --set caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL="https://your-caipe-api.example.com"
 ```
 
+#### Pod Security Standards
+
+All Helm charts ship with security contexts configured to satisfy the Kubernetes [Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/) **Baseline** profile and meet all **Restricted** profile requirements, except `readOnlyRootFilesystem` (left `false` because some agent workloads write to the filesystem at runtime). All app containers set a user ID in `runAsUser` so Kubernetes can enforce `runAsNonRoot` when the image USER directive is a name rather than a numeric UID.
+
+To enforce Baseline and warn on Restricted at the namespace level:
+
+```bash
+kubectl label namespace <your-namespace> \
+  pod-security.kubernetes.io/enforce=baseline \
+  pod-security.kubernetes.io/warn=restricted \
+  pod-security.kubernetes.io/audit=restricted
+```
+
+To reach full Restricted compliance, set `readOnlyRootFilesystem: true` in each chart's values and add `emptyDir` volume mounts for the write paths.
+
 ## 📦 Documentation
 
 - [Quick Start Guide](https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start)
