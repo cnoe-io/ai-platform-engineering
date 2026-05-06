@@ -38,6 +38,7 @@ import {
   Sparkles,
   ArrowRight,
 } from "lucide-react";
+import { RepoGrid } from "@/components/ship-loop/RepoGrid";
 import { ShipLoopAnimation } from "@/components/ship-loop/visualizations/ShipLoopAnimation";
 import { SwimLanePreview } from "@/components/ship-loop/visualizations/SwimLanePreview";
 import {
@@ -107,6 +108,21 @@ export function ShipLoopHome() {
             so the gradient mesh shows through subtly behind it. */}
         <section className="glass-panel rounded-2xl p-4 md:p-6">
           <ShipLoopAnimation />
+        </section>
+
+        {/* Onboarded repos -- the live data surface. Renders an
+            empty/error/loading state without blowing up the page so
+            the mock-webhook demo always has something to show. */}
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Onboarded repos
+            </h2>
+            <span className="text-[11px] text-muted-foreground/70">
+              Live counts from the projector
+            </span>
+          </div>
+          <RepoGrid />
         </section>
 
         {/* Stage tiles -- one per canonical stage, in order. Doubles as
