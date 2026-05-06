@@ -21,6 +21,7 @@ import re
 from datetime import datetime, timezone
 from html import escape
 from typing import Annotated, Any
+from urllib.parse import parse_qs, quote_plus, urlparse, urlunparse
 
 import httpx
 from mcp.shared.exceptions import McpError
@@ -185,6 +186,72 @@ class FindPriorMeetingPage(BaseModel):
         str | None,
         Field(description="ISO timestamp; defaults to now."),
     ] = None
+
+
+class ConfluencePageArtifact(BaseModel):
+    kind: Annotated[
+        str,
+        Field(description="Artifact type, e.g. agenda_template, agenda_draft, notes."),
+    ] = "confluence_page"
+    url: Annotated[str | None, Field(description="URL returned by Confluence MCP.")] = None
+    page_id: Annotated[str | None, Field(description="Confluence page id, if known.")] = None
+    space_key: Annotated[str | None, Field(description="Confluence space key, if known.")] = None
+    title: Annotated[str | None, Field(description="Confluence page title, if known.")] = None
+
+
+class FinalTaskCheck(BaseModel):
+    workflow: Annotated[
+        str,
+        Field(description="Workflow being completed, e.g. fresh_setup, prep, writeup."),
+    ] = "fresh_setup"
+    requester_email: Annotated[str, Field(description="The current user's email.")]
+    planned_final_response: Annotated[
+        str | None,
+        Field(description="The exact final response Pam intends to send to the user."),
+    ] = None
+
+    meeting_series_mode: Annotated[
+        str | None,
+        Field(description="Initial form choice: use existing, create new, or blank."),
+    ] = None
+    meeting_series_status: Annotated[
+        str | None,
+        Field(
+            description=(
+                "created, using_existing, skipped, blocked_missing_info, or not_applicable. "
+                "Use blocked_missing_info only when Pam is asking for required missing data."
+            )
+        ),
+    ] = None
+    meeting_series_id: Annotated[
+        str | None,
+        Field(description="External meeting/series id if one was created."),
+    ] = None
+    meeting_series_name: Annotated[str | None, Field()] = None
+    pod_id: Annotated[str | None, Field(description="Pod registry id, if known.")] = None
+
+    webex_space_choice: Annotated[
+        str | None,
+        Field(description="Initial form choice for Webex space."),
+    ] = None
+    webex_room_id: Annotated[str | None, Field(description="Webex room id, if any.")] = None
+    webex_space_link: Annotated[str | None, Field(description="Webex room link Pam will show.")] = None
+    requester_added_to_webex_space: Annotated[
+        bool | None,
+        Field(description="True only if add_users_to_room succeeded or membership was verified."),
+    ] = None
+
+    confluence_pages: Annotated[
+        list[ConfluencePageArtifact],
+        Field(default_factory=list, description="Confluence pages/templates created or updated."),
+    ]
+
+    schedule_choice: Annotated[str | None, Field(description="User's scheduling choice.")] = None
+    schedule_status: Annotated[
+        str | None,
+        Field(description="created, skipped, blocked_missing_info, or not_applicable."),
+    ] = None
+    schedule_id: Annotated[str | None, Field(description="Scheduler id if created.")] = None
 
 
 # ──────────────────────────── VTT parser ────────────────────────────────────
@@ -749,6 +816,175 @@ def register_tools(server) -> None:
             }
         return {"found": True, "page": rows[0]}
 
+    # ─── do_final_task_check ───────────────────────────────────────────────
+    @server.tool(name="do_final_task_check")
+    @_handle_errors
+    async def do_final_task_check(args: FinalTaskCheck) -> dict[str, Any]:
+        """Validate Pam's planned final response against required side effects.
+
+        This is a deterministic guardrail, not another LLM. It checks durable
+        state it can inspect directly (Mongo pod registry, Webex membership
+        when the bot token allows it) and requires Pam to pass proof fields for
+        actions performed by other MCPs.
+        """
+        issues: list[dict[str, str]] = []
+        warnings: list[dict[str, str]] = []
+        canonical: dict[str, Any] = {"confluence_pages": []}
+        required_actions: list[str] = []
+
+        planned = args.planned_final_response or ""
+        webex_choice = _norm_choice(args.webex_space_choice)
+        series_mode = _norm_choice(args.meeting_series_mode)
+        series_status = _norm_choice(args.meeting_series_status)
+        schedule_choice = _norm_choice(args.schedule_choice)
+        schedule_status = _norm_choice(args.schedule_status)
+
+        def issue(code: str, message: str) -> None:
+            issues.append({"code": code, "message": message})
+
+        def warn(code: str, message: str) -> None:
+            warnings.append({"code": code, "message": message})
+
+        if not planned:
+            issue(
+                "missing_planned_final_response",
+                "Pass the exact final response you intend to send so required links can be checked.",
+            )
+
+        if "create a new meeting series" in series_mode:
+            if series_status not in {"created", "blocked missing info"}:
+                issue(
+                    "meeting_series_not_followed_through",
+                    (
+                        "User selected Create a new meeting series, but meeting_series_status "
+                        "is not created or blocked_missing_info."
+                    ),
+                )
+                required_actions.append(
+                    "Create the durable meeting series/pod record, or ask for missing fields before finalizing."
+                )
+            if series_status == "created" and not (args.pod_id or args.meeting_series_id):
+                issue(
+                    "meeting_series_missing_identifier",
+                    "Created meeting series needs either pod_id or meeting_series_id.",
+                )
+
+        if args.pod_id:
+            try:
+                db = _mongo_db()
+                pod = db["pods"].find_one({"_id": args.pod_id})
+                if pod:
+                    canonical["pod"] = {
+                        "pod_id": args.pod_id,
+                        "name": pod.get("name"),
+                        "webex_room_id": pod.get("webex_room_id"),
+                        "agenda_template_url": pod.get("agenda_template_url"),
+                    }
+                    if "create a new meeting series" in series_mode and not (
+                        pod.get("default_meeting_series") or pod.get("name")
+                    ):
+                        issue(
+                            "pod_missing_meeting_series_name",
+                            "Pod registry record exists but has no default_meeting_series/name.",
+                        )
+                elif "create a new meeting series" in series_mode:
+                    issue(
+                        "pod_registry_missing",
+                        f"pod_id={args.pod_id} is not present in the pods registry.",
+                    )
+            except McpError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                warn("pod_registry_check_failed", f"{type(exc).__name__}: {exc}")
+
+        webex_link = args.webex_space_link or _webex_space_link(args.webex_room_id)
+        canonical["webex_space_link"] = webex_link
+        if "create a new webex space" in webex_choice:
+            if not args.webex_room_id:
+                issue("webex_room_id_missing", "Created Webex space needs webex_room_id.")
+                required_actions.append("Call create_room and pass the returned room id.")
+            if not webex_link:
+                issue("webex_space_link_missing", "Final response must include a Webex space link.")
+            elif not _planned_response_contains(planned, webex_link):
+                issue(
+                    "final_response_missing_webex_link",
+                    f"Planned final response does not include Webex space link: {webex_link}",
+                )
+                required_actions.append("Include canonical.webex_space_link in the final response.")
+
+            membership_verified = False
+            membership = await _verify_webex_membership(args.webex_room_id, args.requester_email)
+            canonical["requester_webex_membership"] = membership
+            if membership.get("checked") and membership.get("member") is True:
+                membership_verified = True
+            if args.requester_added_to_webex_space is True:
+                membership_verified = True
+
+            if not membership_verified:
+                issue(
+                    "requester_not_added_to_webex_space",
+                    (
+                        f"{args.requester_email} was not verified as a member of the created Webex space. "
+                        "Call add_users_to_room, then rerun this check."
+                    ),
+                )
+                required_actions.append(
+                    f"Add {args.requester_email} to the Webex space with add_users_to_room."
+                )
+
+        for page in args.confluence_pages:
+            canonical_url = _canonical_confluence_page_url(
+                url=page.url,
+                page_id=page.page_id,
+                space_key=page.space_key,
+                title=page.title,
+            )
+            canonical_page = {
+                "kind": page.kind,
+                "url": page.url,
+                "canonical_url": canonical_url,
+                "page_id": page.page_id or _extract_confluence_bits(page.url)["page_id"],
+                "space_key": page.space_key or _extract_confluence_bits(page.url)["space_key"],
+                "title": page.title,
+            }
+            canonical["confluence_pages"].append(canonical_page)
+            if not canonical_url:
+                issue(
+                    "confluence_url_missing",
+                    f"Confluence artifact {page.kind} is missing a URL/page id.",
+                )
+                continue
+            if canonical_url != page.url:
+                warn(
+                    "confluence_url_canonicalized",
+                    f"Use canonical URL for {page.kind}: {canonical_url}",
+                )
+            if not _planned_response_contains(planned, canonical_url):
+                issue(
+                    "final_response_missing_canonical_confluence_url",
+                    f"Planned final response does not include canonical {page.kind} URL: {canonical_url}",
+                )
+                required_actions.append(
+                    f"Use the canonical URL for {page.kind} in the final response."
+                )
+
+        if "yes" in schedule_choice or "create" in schedule_choice:
+            if schedule_status != "created":
+                issue(
+                    "schedule_not_created",
+                    "User chose to create a prep schedule, but schedule_status is not created.",
+                )
+            if schedule_status == "created" and not args.schedule_id:
+                issue("schedule_id_missing", "Created schedule needs schedule_id.")
+
+        return {
+            "ok": not issues,
+            "issues": issues,
+            "warnings": warnings,
+            "canonical": canonical,
+            "required_actions": required_actions,
+        }
+
     logger.info("✅ Registered pod_meeting tools")
 
 
@@ -769,3 +1005,117 @@ def _build_webex_permalink(m: dict[str, Any]) -> str | None:
     if rid and mid:
         return f"https://web.webex.com/space/{rid}#message:{mid}"
     return None
+
+
+def _webex_space_link(room_id: str | None) -> str | None:
+    if not room_id:
+        return None
+    return f"https://web.webex.com/space/{room_id}"
+
+
+def _norm_choice(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value or "").strip().lower()
+
+
+def _planned_response_contains(planned: str | None, needle: str | None) -> bool:
+    if not planned or not needle:
+        return False
+    return needle in planned
+
+
+def _extract_confluence_bits(url: str | None) -> dict[str, str | None]:
+    """Extract page id and space key from common Confluence URL shapes."""
+    if not url:
+        return {"page_id": None, "space_key": None}
+
+    parsed = urlparse(url)
+    path = parsed.path or ""
+    page_id: str | None = None
+    space_key: str | None = None
+
+    m = re.search(r"/spaces/([^/]+)/pages/(\d+)(?:/|$)", path)
+    if m:
+        space_key = m.group(1)
+        page_id = m.group(2)
+
+    if not page_id:
+        m = re.search(r"/pages/(\d+)(?:/|$)", path)
+        if m:
+            page_id = m.group(1)
+
+    if not page_id:
+        qs = parse_qs(parsed.query)
+        vals = qs.get("pageId") or qs.get("pageid")
+        if vals:
+            page_id = vals[0]
+
+    return {"page_id": page_id, "space_key": space_key}
+
+
+def _canonical_confluence_page_url(
+    *,
+    url: str | None,
+    page_id: str | None,
+    space_key: str | None,
+    title: str | None,
+) -> str | None:
+    """Build the canonical Atlassian Cloud Confluence page URL when possible.
+
+    The page id is the durable identifier. The title slug is for canonical,
+    readable URLs; Confluence will usually route without it if the base path is
+    correct, but Pam should show the canonical form when she has the title.
+    """
+    bits = _extract_confluence_bits(url)
+    page_id = page_id or bits["page_id"]
+    space_key = space_key or bits["space_key"]
+    if not page_id:
+        return url
+
+    parsed = urlparse(url or "")
+    scheme = parsed.scheme or "https"
+    netloc = parsed.netloc
+    if not netloc:
+        return url
+
+    if space_key:
+        base_path = "/wiki" if netloc.endswith(".atlassian.net") else ""
+        slug = f"/{quote_plus(title)}" if title else ""
+        return urlunparse(
+            (
+                scheme,
+                netloc,
+                f"{base_path}/spaces/{space_key}/pages/{page_id}{slug}",
+                "",
+                "",
+                "",
+            )
+        )
+
+    # If the space is unknown, at least preserve the Confluence app base path.
+    if netloc.endswith(".atlassian.net") and not parsed.path.startswith("/wiki/"):
+        return urlunparse((scheme, netloc, f"/wiki{parsed.path}", "", parsed.query, ""))
+    return url
+
+
+async def _verify_webex_membership(room_id: str | None, email: str | None) -> dict[str, Any]:
+    if not room_id or not email:
+        return {"checked": False, "member": None, "reason": "missing room_id or email"}
+    token = os.environ.get("WEBEX_TOKEN")
+    if not token:
+        return {"checked": False, "member": None, "reason": "WEBEX_TOKEN not set"}
+    try:
+        async with httpx.AsyncClient(
+            base_url=WEBEX_API_BASE,
+            timeout=20.0,
+            headers={"Authorization": f"Bearer {token}"},
+        ) as client:
+            r = await client.get(
+                "/memberships",
+                params={"roomId": room_id, "personEmail": email, "max": 1},
+            )
+            r.raise_for_status()
+            items = r.json().get("items") or []
+        return {"checked": True, "member": bool(items)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("failed to verify Webex membership", exc_info=exc)
+        return {"checked": False, "member": None, "reason": f"{type(exc).__name__}: {exc}"}

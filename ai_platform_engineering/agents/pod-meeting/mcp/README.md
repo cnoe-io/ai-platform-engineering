@@ -13,6 +13,7 @@ Deterministic helpers for Pam Beesly (the Pod Meeting Assistant). This MCP inten
 - `render_notes_xhtml(template?, transcript_summary, decisions, action_items, deliverables, meeting_meta)`
 - `get_pod` / `list_pods` / `upsert_pod` — Mongo `pods` CRUD
 - `find_prior_meeting_page(pod_id, before_iso?)` — local cache (Mongo `pod_meeting_pages`); fallback is Confluence search
+- `do_final_task_check(...)` — validates Pam's planned final response against required setup/prep side effects, including canonical Confluence URLs and Webex-space membership/link checks
 
 **Auth:** none. Reads `MONGODB_URI`, `MONGODB_DATABASE` (default `caipe`), and `WEBEX_TOKEN` (only needed by `harvest_webex_topics`).
 
