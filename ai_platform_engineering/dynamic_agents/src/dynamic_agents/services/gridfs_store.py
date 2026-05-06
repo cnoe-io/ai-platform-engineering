@@ -212,31 +212,6 @@ class MongoDBGridFSStore(BaseStore):
         self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
 
 
-def _maybe_pretty_print_json(value: dict) -> None:
-    """If value contains single-line JSON content, pretty-print it in place.
-
-    This makes grep return individual matching lines instead of the entire blob.
-    Modifies value["content"] in place.
-    """
-    content = value.get("content")
-    if not isinstance(content, list) or len(content) != 1:
-        return
-    line = content[0]
-    if not isinstance(line, str) or len(line) < 1000:
-        return  # Not worth pretty-printing small content
-    # Check if it starts with { or [ (fast heuristic before attempting parse)
-    stripped = line.lstrip()
-    if not stripped or stripped[0] not in ("{", "["):
-        return
-    try:
-        parsed = json.loads(line)
-        pretty = json.dumps(parsed, indent=2, ensure_ascii=False)
-        value["content"] = pretty.split("\n")
-        logger.debug("[gridfs] Pretty-printed JSON content: 1 line -> %d lines", len(value["content"]))
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-
 def _serialize_value(value: dict) -> str:
     """Serialize a value dict to JSON string for GridFS storage."""
     return json.dumps(value, ensure_ascii=False)
