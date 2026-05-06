@@ -81,14 +81,15 @@ export function ShipLoopHome() {
       </div>
 
       <div className="relative max-w-6xl mx-auto p-6 md:p-8 space-y-8">
-        {/* Hero -- two-column on lg+: copy on the left, animation on
-            the right. Stacks to a single column below lg so the
-            animation never gets compressed enough to lose its labels.
-            Animation is constrained to ~5/12 of the row so the copy
-            keeps top billing and the orbit reads as a supporting
-            visual rather than the dominant element. */}
-        <section className="grid gap-6 lg:grid-cols-12 lg:items-center">
-          <div className="space-y-4 lg:col-span-7">
+        {/* Hero -- two-column on md+: copy on the left, animation on
+            the right. Stacks below md so the animation never gets
+            compressed enough to lose its stage labels. Animation is
+            constrained to ~5/12 of the row AND capped at 420px wide
+            so on a very wide viewport the orbit doesn't grow back to
+            dominating the page -- the headline keeps top billing and
+            the orbit reads as a supporting visual. */}
+        <section className="grid gap-6 md:grid-cols-12 md:items-center">
+          <div className="space-y-4 md:col-span-7">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-primary/30 bg-primary/10 text-primary">
               <Sparkles className="h-3 w-3" aria-hidden />
               <span className="uppercase tracking-wider">Preview</span>
@@ -110,8 +111,8 @@ export function ShipLoopHome() {
             </div>
           </div>
 
-          <div className="lg:col-span-5">
-            <div className="glass-panel rounded-2xl p-3 md:p-4">
+          <div className="md:col-span-5">
+            <div className="glass-panel rounded-2xl p-3 md:p-4 mx-auto md:ml-auto md:mr-0 max-w-[420px]">
               <ShipLoopAnimation />
             </div>
           </div>
