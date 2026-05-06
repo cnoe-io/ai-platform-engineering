@@ -258,6 +258,8 @@ data/
 .claude/*
 !.claude/commands/
 !.claude/skills
+# ~/.agents/skills is the symlink target; contents are not tracked (git does not follow symlinks)
+.agents/skills/
 
 # UI Core (local development)
 caipe-ui-core/
