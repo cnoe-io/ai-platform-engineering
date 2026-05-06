@@ -1,3 +1,56 @@
+## 0.4.7-dev.9 (2026-05-06)
+
+### Feat
+
+- **mcp-aws**: add AWS MCP server with aws_cli_execute and eks_kubectl_execute (#1324)
+
+## 0.4.7-dev.7 (2026-05-06)
+
+### Fix
+
+- **ui**: suppress synthetic "Task <status> (ID: ...)" filler in chat (#1275)
+
+## 0.4.7-dev.6 (2026-05-06)
+
+### Fix
+
+- **tracing**: update skill_scrubber test to use renamed _strip_known_sections (#1342)
+
+## 0.4.7-dev.5 (2026-05-06)
+
+### Fix
+
+- **tracing**: scrub skill/workflow content + cap span attribute size for Langfuse (#1330)
+
+## 0.4.7-dev.4 (2026-05-06)
+
+### Feat
+
+- **supervisor**: add ToolCallLimitMiddleware and ModelCallLimitMiddleware with configurable env vars (#1319)
+
+## 0.4.7-dev.3 (2026-05-06)
+
+### Feat
+
+- **charts**: configures Helm charts for Kubernetes Pod Security Standards Baseline compliance (#1337)
+
+### Fix
+
+- **slack-bot**: use correct Slack mention syntax for subteam/usergroup IDs in escalation (#1341)
+
+## 0.4.7-dev.2 (2026-05-06)
+
+### Fix
+
+- **mcp**: remove trailing slash from default HTTP MCP path (#1339)
+- replace bash 4+ case conversion for POSIX compat (#1340)
+
+## 0.4.7-dev.1 (2026-05-06)
+
+### Feat
+
+- **skills**: admin scan override + hub-crawl pagination/caps + live crawl console (#1338)
+
 ## 0.4.7 (2026-05-05)
 
 ## 0.4.6-dev.2 (2026-05-05)
