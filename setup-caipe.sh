@@ -129,7 +129,7 @@ prompt()  { echo -en "${BOLD}  ▸ $*${NC}"; }
 tty_read() { read "$@" <&3; }
 
 # Returns 0 (true) when the user wants to go back — accepts "b", "back", "0"
-_is_back() { [[ "${1,,}" == "b" || "${1,,}" == "back" || "$1" == "0" ]]; }
+_is_back() { local _v; _v="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; [[ "$_v" == "b" || "$_v" == "back" || "$1" == "0" ]]; }
 
 ask_yn() {
   local question="$1" default="${2:-y}"
@@ -1757,7 +1757,7 @@ _choose_agents() {
   _input="${_input:-all}"
 
   SELECTED_AGENTS=()
-  if [[ "${_input,,}" == "all" || -z "$_input" ]]; then
+  if [[ "$(echo "$_input" | tr '[:upper:]' '[:lower:]')" == "all" || -z "$_input" ]]; then
     SELECTED_AGENTS=("${_agent_keys[@]}")
     log "All agents selected"
     return
