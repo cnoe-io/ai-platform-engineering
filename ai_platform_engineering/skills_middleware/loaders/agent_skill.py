@@ -80,6 +80,11 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
           "owner_user_id": 1,
           "ancillary_files": 1,
           "scan_status": 1,
+          # Project the override sub-doc so ``is_skill_blocked`` can
+          # detect an active admin override on a flagged row. The
+          # sub-doc shape (set_by/set_at/reason) isn't read here —
+          # the gate only cares whether the field is present.
+          "scan_override": 1,
         },
       )
     )
@@ -128,6 +133,13 @@ def load_agent_skills(include_content: bool = True) -> list[dict[str, Any]]:
       "ancillary_files": ancillary if include_content else {},
       "scan_status": doc.get("scan_status"),
     }
+    # Carry the admin override sub-doc through so downstream
+    # consumers (dynamic-agents loader, UI) can detect an active
+    # override on a flagged row. Only stamped when present so docs
+    # without an override keep their compact shape.
+    scan_override = doc.get("scan_override")
+    if scan_override:
+      skill["scan_override"] = scan_override
     skills.append(skill)
 
   if blocked:

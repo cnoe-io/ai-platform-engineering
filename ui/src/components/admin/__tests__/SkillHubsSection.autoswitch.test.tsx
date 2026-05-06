@@ -27,17 +27,33 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
-// Minimal fetch contract for the initial GET /api/skill-hubs.
+// Minimal fetch contract for the initial GET /api/skill-hubs. The
+// ``headers.get("content-type")`` shim is required because ``loadHubs``
+// now goes through ``readJson`` to surface non-JSON responses (e.g. an
+// upstream 504 HTML page) as actionable errors instead of opaque
+// ``Unexpected token '<', "<!DOCTYPE "`` parse failures.
+const jsonHeaders = {
+  get: (n: string) => (n.toLowerCase() === "content-type" ? "application/json" : null),
+};
 beforeEach(() => {
   mockFetch.mockReset();
   mockFetch.mockImplementation((url: string) => {
     if (typeof url === "string" && url.includes("/api/skill-hubs")) {
       return Promise.resolve({
         ok: true,
+        status: 200,
+        headers: jsonHeaders,
         json: async () => ({ hubs: [] }),
+        text: async () => JSON.stringify({ hubs: [] }),
       });
     }
-    return Promise.resolve({ ok: true, json: async () => ({}) });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: jsonHeaders,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
   });
 });
 
