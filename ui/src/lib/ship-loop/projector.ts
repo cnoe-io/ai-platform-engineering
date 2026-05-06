@@ -153,6 +153,34 @@ function projectIssue(
   };
 }
 
+/**
+ * Build the Mongo upsert document for a `ShipLoopArtifact`.
+ *
+ * Critical invariant: `$set` and `$setOnInsert` MUST NOT touch the same
+ * field paths — Mongo rejects the entire operation with
+ * "Updating the path 'X' would create a conflict at 'X'" otherwise.
+ *
+ * Exported so the test suite can statically assert this invariant
+ * without a live Mongo instance; if someone re-introduces conflicting
+ * fields we'll catch it before the next live smoke test.
+ */
+export function buildArtifactUpsert(
+  patch: ArtifactPatch,
+  occurredAt: Date,
+  now: Date,
+): { $set: Record<string, unknown>; $setOnInsert: Record<string, unknown> } {
+  return {
+    $set: {
+      ...patch,
+      last_event_at: occurredAt,
+      updated_at: now,
+    },
+    $setOnInsert: {
+      created_at: now,
+    },
+  };
+}
+
 function projectDeploymentStatus(
   ev: ShipLoopEvent,
   repo: OnboardedRepo,

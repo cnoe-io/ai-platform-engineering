@@ -37,7 +37,11 @@ import {
   getShipLoopEventsCollection as shipLoopEvents,
   getShipLoopReposCollection as shipLoopRepos,
 } from "@/lib/ship-loop/mongo-collections";
-import { projectEvent, type ArtifactPatch } from "@/lib/ship-loop/projector";
+import {
+  buildArtifactUpsert,
+  projectEvent,
+  type ArtifactPatch,
+} from "@/lib/ship-loop/projector";
 import type {
   OnboardedRepo,
   ShipLoopArtifact,
@@ -45,7 +49,7 @@ import type {
 } from "@/types/ship-loop";
 
 // Re-export for legacy callers and tests that imported from this module.
-export { projectEvent };
+export { buildArtifactUpsert, projectEvent };
 export type { ArtifactPatch };
 
 // ---------------------------------------------------------------------------
@@ -158,20 +162,7 @@ async function processOneById(
       kind: artifactPatch.kind,
       artifact_id: artifactPatch.artifact_id,
     };
-
-    const update: Record<string, unknown> = {
-      $set: {
-        ...artifactPatch,
-        last_event_at: ev.occurred_at,
-        updated_at: now,
-      },
-      $setOnInsert: {
-        created_at: now,
-        repo_id: ev.repo_id,
-        kind: artifactPatch.kind,
-        artifact_id: artifactPatch.artifact_id,
-      },
-    };
+    const update = buildArtifactUpsert(artifactPatch, ev.occurred_at, now);
 
     // Detect stage transition for SSE emission.
     const prior = (await artifacts.findOne(filter)) as ShipLoopArtifact | null;

@@ -5,7 +5,10 @@
  * via integration tests; the projection function itself is pure over
  * (event, repo) and we cover it here.
  */
-import { projectEvent } from "@/lib/ship-loop/projector";
+import {
+  buildArtifactUpsert,
+  projectEvent,
+} from "@/lib/ship-loop/projector";
 import type {
   OnboardedRepo,
   ShipLoopEvent,
@@ -211,5 +214,62 @@ describe("projectEvent — unmodelled events", () => {
     expect(
       projectEvent(makeEvent("watch", {}), makeRepo()),
     ).toBeNull();
+  });
+});
+
+/**
+ * Regression test for the upsert-conflict bug surfaced by the
+ * end-to-end smoke against a live Mongo instance: if `$set` and
+ * `$setOnInsert` ever touch the same field paths, every artifact
+ * upsert fails with `MongoError: Updating the path 'X' would create
+ * a conflict at 'X'` and projector.failed events accumulate silently.
+ */
+describe("buildArtifactUpsert — Mongo path-conflict invariant", () => {
+  function patch() {
+    const ev = makeEvent("pull_request", {
+      pull_request: {
+        node_id: "PR_1",
+        title: "x",
+        body: "",
+        state: "open",
+        merged: false,
+        labels: [],
+        requested_reviewers: [],
+        assignees: [],
+        html_url: "u",
+      },
+    });
+    const p = projectEvent(ev, makeRepo());
+    if (!p) throw new Error("expected non-null patch");
+    return p;
+  }
+
+  it("$set and $setOnInsert never share a field path", () => {
+    const update = buildArtifactUpsert(patch(), new Date(), new Date());
+    const setKeys = Object.keys(update.$set);
+    const insertKeys = Object.keys(update.$setOnInsert);
+    const overlap = setKeys.filter((k) => insertKeys.includes(k));
+    expect(overlap).toEqual([]);
+  });
+
+  it("$set carries every field of the projected patch (so the artifact is fully written)", () => {
+    const p = patch();
+    const update = buildArtifactUpsert(p, new Date(), new Date());
+    for (const key of Object.keys(p)) {
+      expect(update.$set).toHaveProperty(key);
+    }
+  });
+
+  it("$setOnInsert only carries fields that should not change after creation", () => {
+    const update = buildArtifactUpsert(patch(), new Date(), new Date());
+    expect(Object.keys(update.$setOnInsert).sort()).toEqual(["created_at"]);
+  });
+
+  it("includes last_event_at and updated_at on $set", () => {
+    const occurred = new Date("2026-01-01T00:00:00Z");
+    const now = new Date("2026-05-06T13:00:00Z");
+    const update = buildArtifactUpsert(patch(), occurred, now);
+    expect(update.$set.last_event_at).toBe(occurred);
+    expect(update.$set.updated_at).toBe(now);
   });
 });
