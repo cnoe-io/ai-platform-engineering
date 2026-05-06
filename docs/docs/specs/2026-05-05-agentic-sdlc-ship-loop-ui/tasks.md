@@ -110,9 +110,9 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 - [ ] T035 [US1] Implement `DELETE /api/ship-loop/repos/{owner}/{repo}` in the same route — sets `offboarded_at`, idempotent.
 - [ ] T036 [P] [US1] Implement webhook health check job in `ui/src/lib/ship-loop/webhook-health.ts` — periodically (every 60s in pilot) scans `OnboardedRepo` and updates `webhook_status` to `degraded` when no events received within the configured idle threshold.
 - [ ] T037 [P] [US1] Implement `useOnboardedRepos` hook in `ui/src/hooks/use-onboarded-repos.ts` (SWR-style cache + revalidate on focus).
-- [ ] T038 [P] [US1] Implement the nav tab pill in `ui/src/components/layout/AppHeader.tsx` — visible only when `useShipLoopFeature().enabled === true`. Mirrors the existing `ragEnabled` pattern.
-- [ ] T039 [P] [US1] Implement `ShipLoopHome.tsx` shell in `ui/src/components/ship-loop/ShipLoopHome.tsx` — empty-state when no repos, repo card grid when ≥1.
-- [ ] T040 [US1] Wire `ShipLoopHome` into `ui/src/app/(app)/ship-loop/page.tsx` (server component delegating to the client component).
+- [X] T038 [P] [US1] Implement the nav tab pill in `ui/src/components/layout/AppHeader.tsx` — visible only when `useShipLoopFeature().enabled === true`. Mirrors the existing `ragEnabled` pattern.
+- [~] T039 [P] [US1] **PARTIAL — placeholder shell shipped early as a demo target for the toggle wiring.** Real "empty-state when no repos, repo card grid when ≥1" remains pending until `GET /api/ship-loop/repos` (T032) lands. File: `ui/src/components/ship-loop/ShipLoopHome.tsx`.
+- [X] T040 [US1] Wire `ShipLoopHome` into `ui/src/app/(app)/ship-loop/page.tsx` (server component delegating to the client component).
 - [ ] T041 [P] [US1] Implement `OnboardRepoDialog.tsx` in `ui/src/components/ship-loop/OnboardRepoDialog.tsx` — repo dropdown sourced from `listUserRepos`, sandbox-environment text input, label-mapping override JSON editor, submit calls `POST /api/ship-loop/repos`.
 - [ ] T042 [P] [US1] Implement `WebhookHealthBanner.tsx` in `ui/src/components/ship-loop/WebhookHealthBanner.tsx` with one-click "Reconnect" calling a server action that recreates the webhook.
 - [ ] T043 [US1] Implement `ui/src/app/(app)/ship-loop/onboard/page.tsx` route hosting `OnboardRepoDialog` for direct deep-links.

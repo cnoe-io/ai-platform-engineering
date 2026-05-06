@@ -16,7 +16,9 @@ import {
   Home,
   Bot,
   AlertTriangle,
+  Ship,
 } from "lucide-react";
+import { useShipLoopFeature } from "@/hooks/use-ship-loop-feature";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -219,6 +221,11 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
 
+  // Ship Loop feature gating (two-layer: server env + per-user flag).
+  // The tab is rendered only when both layers are on; the layout itself
+  // notFound()s if the server flag is off, so this is purely visual.
+  const { enabled: shipLoopEnabled } = useShipLoopFeature();
+
   const getActiveTab = () => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
@@ -226,6 +233,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/ship-loop")) return "ship-loop";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -330,6 +338,22 @@ export function AppHeader() {
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
           </GuardedLink>
+          {/* Ship Loop tab - only when both server config AND per-user flag are on */}
+          {shipLoopEnabled && (
+            <GuardedLink
+              href="/ship-loop"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "ship-loop"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Ship className="h-3.5 w-3.5 shrink-0" />
+              Ship Loop
+            </GuardedLink>
+          )}
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
             <GuardedLink
