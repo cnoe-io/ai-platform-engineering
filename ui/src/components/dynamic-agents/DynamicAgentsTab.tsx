@@ -90,10 +90,11 @@ export function DynamicAgentsTab() {
   };
 
   /**
-   * Export agent configuration as YAML file
+   * Export agent configuration as YAML file.
    */
   const handleExportYaml = (agent: DynamicAgentConfig) => {
-    // Build a clean config object for export (excluding internal fields)
+    // Build a complete config object for export (excluding only internal metadata)
+    const agentRecord = agent as unknown as Record<string, unknown>;
     const exportConfig = {
       id: agent._id,
       name: agent.name,
@@ -106,6 +107,8 @@ export function DynamicAgentsTab() {
       builtin_tools: agent.builtin_tools,
       subagents: agent.subagents?.length ? agent.subagents : undefined,
       skills: agent.skills?.length ? agent.skills : undefined,
+      features: agent.features,
+      interrupt_on: agentRecord.interrupt_on || undefined,
       ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
     };
