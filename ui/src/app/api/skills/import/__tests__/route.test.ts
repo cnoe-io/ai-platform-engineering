@@ -45,19 +45,31 @@ interface FakeResponse {
   ok: boolean;
   status: number;
   statusText: string;
+  headers: { get: (name: string) => string | null };
   text: () => Promise<string>;
   json: () => Promise<unknown>;
 }
 
-function fakeResponse(body: unknown, status = 200): FakeResponse {
+function fakeResponse(
+  body: unknown,
+  status = 200,
+  contentType: string = "application/json",
+): FakeResponse {
   const ok = status >= 200 && status < 300;
   const text = typeof body === "string" ? body : JSON.stringify(body);
+  const headerMap: Record<string, string> = {
+    "content-type": contentType,
+  };
   return {
     ok,
     status,
     statusText: ok ? "OK" : "ERR",
+    headers: {
+      get: (name: string) => headerMap[name.toLowerCase()] ?? null,
+    },
     text: () => Promise.resolve(text),
-    json: () => Promise.resolve(typeof body === "string" ? body : JSON.parse(text)),
+    json: () =>
+      Promise.resolve(typeof body === "string" ? body : JSON.parse(text)),
   };
 }
 
@@ -266,6 +278,152 @@ describe("runImport — GitLab branch", () => {
         paths: ["skills/x"],
       }),
     ).rejects.toThrow(/set GITLAB_TOKEN/);
+  });
+
+  it("returns a 'token does not grant access' hint when 403 fires with a token set", async () => {
+    // Regression for the user-reported failure mode where a
+    // self-hosted GitLab project (e.g.
+    // https://cd.splunkdev.com/ai-productivity/skills-marketplace)
+    // returns 403 because the configured GITLAB_TOKEN is for the
+    // wrong instance or lacks scope. The previous error simply
+    // surfaced "GitLab tree fetch failed: 403" with no path to
+    // resolution. The new hint must tell the operator to check
+    // instance/scope/visibility AND specifically call out that
+    // the gitlab.com token won't work against self-hosted.
+    process.env.GITLAB_API_URL = "https://cd.splunkdev.com/api/v4";
+    process.env.GITLAB_TOKEN = "glpat-WRONG-INSTANCE";
+    installFetchMock(() => fakeResponse({ message: "Forbidden" }, 403));
+
+    let captured: Error | undefined;
+    try {
+      await runImport({
+        source: "gitlab",
+        repo: "ai-productivity/skills-marketplace",
+        paths: ["skills/x"],
+      });
+    } catch (err) {
+      captured = err as Error;
+    }
+    expect(captured).toBeDefined();
+    expect(captured!.message).toContain("403");
+    expect(captured!.message).toContain("project: ai-productivity/skills-marketplace");
+    expect(captured!.message).toContain("API: cd.splunkdev.com");
+    expect(captured!.message).toContain("does not grant access");
+    expect(captured!.message).toContain("read_repository");
+    // The "self-hosted vs gitlab.com token" callout is the
+    // fix-finding sentence for this scenario; pin it so a future
+    // refactor doesn't drop it.
+    expect(captured!.message).toContain("gitlab.com token will not work");
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression: prior to this fix the GitLab tree fetch only requested
+  // page 1 (per_page=100, no `page=` loop), so a project with more than
+  // 100 entries silently truncated and the importer returned `count: 0`.
+  // -------------------------------------------------------------------------
+  it("paginates the GitLab tree across pages (FR: 100+ entry repo)", async () => {
+    // Page 1: 100 blobs under skills/example. Page 2: 1 trailing blob.
+    // The handler must serve each ?page=N independently.
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      type: "blob",
+      path: `skills/example/file_${String(i).padStart(3, "0")}.py`,
+    }));
+    const page2 = [{ type: "blob", path: "skills/example/zzz_last.py" }];
+    const calls = installFetchMock((url) => {
+      if (url.includes("/repository/tree?")) {
+        // Precise-match `&page=N` (with leading separator) to avoid
+        // the `per_page=100` substring colliding with `page=1`.
+        if (url.includes("&page=1") && !url.match(/&page=1[0-9]/)) {
+          return fakeResponse(page1);
+        }
+        if (url.includes("&page=2") && !url.match(/&page=2[0-9]/)) {
+          return fakeResponse(page2);
+        }
+        // Anything past page 2 should signal "no more entries" so the
+        // loop terminates cleanly. Empty array < 100 → break.
+        return fakeResponse([]);
+      }
+      const m = url.match(/\/repository\/files\/([^/]+)\/raw/);
+      if (m) {
+        const p = decodeURIComponent(m[1]);
+        return fakeResponse(`raw:${p}`);
+      }
+      return fakeResponse("unexpected " + url, 500);
+    });
+    const result = await runImport({
+      source: "gitlab",
+      repo: "mycorp/big-repo",
+      paths: ["skills/example"],
+    });
+    // 100 blobs from page 1 + 1 from page 2 = 101 imported files.
+    // None of them is SKILL.md, none is outside the prefix, so all
+    // count.
+    expect(result.count).toBe(101);
+    expect(result.files["zzz_last.py"]).toBe("raw:skills/example/zzz_last.py");
+    // Verify that the route actually issued the page=2 request — this
+    // is the regression guard for the silent-truncation bug.
+    const treeCalls = calls.filter((c) =>
+      c.url.includes("/repository/tree?recursive=true"),
+    );
+    expect(treeCalls.length).toBeGreaterThanOrEqual(2);
+    expect(treeCalls.some((c) => c.url.includes("page=1"))).toBe(true);
+    expect(treeCalls.some((c) => c.url.includes("page=2"))).toBe(true);
+  });
+
+  it("stops paging early once a page returns < 100 entries", async () => {
+    const page1 = Array.from({ length: 50 }, (_, i) => ({
+      type: "blob",
+      path: `skills/example/f_${i}.py`,
+    }));
+    const calls = installFetchMock((url) => {
+      if (url.endsWith("&page=1")) {
+        return fakeResponse(page1);
+      }
+      if (url.includes("/repository/tree?")) {
+        // If the route asks for page=2 we'd fail this test by returning
+        // something — but it shouldn't, because page=1 had < 100.
+        throw new Error(`Unexpected extra page request: ${url}`);
+      }
+      const m = url.match(/\/repository\/files\/([^/]+)\/raw/);
+      if (m) return fakeResponse(`raw:${decodeURIComponent(m[1])}`);
+      return fakeResponse("unexpected " + url, 500);
+    });
+    const result = await runImport({
+      source: "gitlab",
+      repo: "mycorp/small-repo",
+      paths: ["skills/example"],
+    });
+    expect(result.count).toBe(50);
+    const treeCalls = calls.filter((c) =>
+      c.url.includes("/repository/tree?recursive=true"),
+    );
+    expect(treeCalls).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression: when an upstream proxy / SSO challenge intercepts the
+  // GitLab API call and returns HTML, ``await .json()`` would throw the
+  // opaque ``Unexpected token '<', "<!DOCTYPE "`` to the client. The
+  // route now detects non-JSON content-types and surfaces a structured
+  // 502 with a body preview so operators can see *which* proxy is at
+  // fault.
+  // -------------------------------------------------------------------------
+  it("rejects non-JSON tree responses (HTML proxy interstitial)", async () => {
+    installFetchMock(() =>
+      fakeResponse(
+        "<!DOCTYPE html><html><body>SSO login required</body></html>",
+        200,
+        "text/html; charset=utf-8",
+      ),
+    );
+    process.env.GITLAB_TOKEN = "glpat_TEST";
+    await expect(
+      runImport({
+        source: "gitlab",
+        repo: "mycorp/big-repo",
+        paths: ["skills/example"],
+      }),
+    ).rejects.toThrow(/non-JSON response.*Content-Type: text\/html/);
   });
 });
 

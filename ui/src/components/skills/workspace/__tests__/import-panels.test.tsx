@@ -31,6 +31,37 @@ beforeEach(() => {
   (global as any).fetch = jest.fn();
 });
 
+/**
+ * Build a minimal fetch-Response stub with the headers + json + text
+ * surface that ``readJson`` / ``readJsonOrError`` need. The legacy
+ * inline ``{ ok, status, json }`` mocks would now miss the
+ * ``headers.get("content-type")`` call and fail with the wrong error
+ * — the safer ergonomic is one helper that's used everywhere.
+ */
+function mockFetchResponse(opts: {
+  ok: boolean;
+  status: number;
+  body?: unknown;
+  contentType?: string;
+}): unknown {
+  const ct = opts.contentType ?? "application/json";
+  const text =
+    typeof opts.body === "string"
+      ? opts.body
+      : opts.body !== undefined
+        ? JSON.stringify(opts.body)
+        : "";
+  const headerMap: Record<string, string> = { "content-type": ct };
+  return {
+    ok: opts.ok,
+    status: opts.status,
+    headers: { get: (n: string) => headerMap[n.toLowerCase()] ?? null },
+    text: async () => text,
+    json: async () =>
+      typeof opts.body === "string" ? opts.body : (opts.body as unknown),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // SkillTemplatesMenu
 // ---------------------------------------------------------------------------
@@ -166,17 +197,19 @@ describe("RepoImportPanel", () => {
 
   it("POSTs to /api/skills/import with source=github by default", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: {
-          files: { "a.txt": "hi", "b.txt": "ho" },
-          count: 2,
-          conflicts: [],
+    (global.fetch as any).mockResolvedValueOnce(
+      mockFetchResponse({
+        ok: true,
+        status: 200,
+        body: {
+          data: {
+            files: { "a.txt": "hi", "b.txt": "ho" },
+            count: 2,
+            conflicts: [],
+          },
         },
       }),
-    });
+    );
     const onImported = jest.fn();
     render(<RepoImportPanel onImported={onImported} />);
     fireEvent.change(screen.getByLabelText(/Repository/i), {
@@ -208,13 +241,13 @@ describe("RepoImportPanel", () => {
 
   it("switches placeholders + body source when GitLab is selected", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: { files: { "x.py": "" }, count: 1, conflicts: [] },
+    (global.fetch as any).mockResolvedValueOnce(
+      mockFetchResponse({
+        ok: true,
+        status: 200,
+        body: { data: { files: { "x.py": "" }, count: 1, conflicts: [] } },
       }),
-    });
+    );
     render(<RepoImportPanel onImported={() => {}} />);
 
     // Pre-toggle placeholder is GitHub
@@ -229,7 +262,7 @@ describe("RepoImportPanel", () => {
     // Placeholder + label switch
     expect(
       (screen.getByLabelText(/Project/i) as HTMLInputElement).placeholder,
-    ).toBe("mycorp/platform");
+    ).toBe("gitlab-org/ai/skills");
 
     fireEvent.change(screen.getByLabelText(/Project/i), {
       target: { value: "mycorp/platform" },
@@ -269,19 +302,25 @@ describe("RepoImportPanel", () => {
 
   it("surfaces a conflict toast when first-wins drops a duplicate", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: {
-          files: { "shared.txt": "from a", "onlya.txt": "" },
-          count: 2,
-          conflicts: [
-            { name: "shared.txt", kept_from: "skills/a", dropped_from: "skills/b" },
-          ],
+    (global.fetch as any).mockResolvedValueOnce(
+      mockFetchResponse({
+        ok: true,
+        status: 200,
+        body: {
+          data: {
+            files: { "shared.txt": "from a", "onlya.txt": "" },
+            count: 2,
+            conflicts: [
+              {
+                name: "shared.txt",
+                kept_from: "skills/a",
+                dropped_from: "skills/b",
+              },
+            ],
+          },
         },
       }),
-    });
+    );
     render(<RepoImportPanel onImported={() => {}} />);
     fireEvent.change(screen.getByLabelText(/Repository/i), {
       target: { value: "owner/repo" },
@@ -304,11 +343,13 @@ describe("RepoImportPanel", () => {
 
   it("toasts on non-OK responses and does NOT call onImported", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-      json: async () => ({ error: "not found" }),
-    });
+    (global.fetch as any).mockResolvedValueOnce(
+      mockFetchResponse({
+        ok: false,
+        status: 404,
+        body: { error: "not found" },
+      }),
+    );
     const onImported = jest.fn();
     render(<RepoImportPanel onImported={onImported} />);
     fireEvent.change(screen.getByLabelText(/Repository/i), {
@@ -325,6 +366,45 @@ describe("RepoImportPanel", () => {
         5000,
       ),
     );
+    expect(onImported).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression: a 504 HTML response from an upstream proxy / SSO challenge
+  // used to surface as the opaque
+  //   ``SyntaxError: Unexpected token '<', "<!DOCTYPE "...``
+  // because the success branch called ``await resp.json()`` unguarded.
+  // The defensive ``readJson`` wrapper now turns that into an actionable
+  // toast pointing at the actual upstream status + body excerpt.
+  // -------------------------------------------------------------------------
+  it("surfaces an actionable error when the server returns HTML (e.g. 504)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global.fetch as any).mockResolvedValueOnce(
+      mockFetchResponse({
+        ok: false,
+        status: 504,
+        body: "<!DOCTYPE html><html><body>Gateway Timeout</body></html>",
+        contentType: "text/html; charset=utf-8",
+      }),
+    );
+    const onImported = jest.fn();
+    render(<RepoImportPanel onImported={onImported} />);
+    fireEvent.change(screen.getByLabelText(/Repository/i), {
+      target: { value: "owner/repo" },
+    });
+    fireEvent.change(screen.getByLabelText(/Directory path 1/i), {
+      target: { value: "skills/foo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
+
+    await waitFor(() => expect(mockToast).toHaveBeenCalled());
+    const [message, level] = mockToast.mock.calls[0];
+    // Toast must mention the HTTP status (so the user knows it's a 504,
+    // not a content/payload problem) and must NOT mention the literal
+    // ``Unexpected token`` string from the unguarded JSON.parse.
+    expect(message).toMatch(/HTTP 504/);
+    expect(message).not.toMatch(/Unexpected token/);
+    expect(level).toBe("error");
     expect(onImported).not.toHaveBeenCalled();
   });
 });

@@ -149,6 +149,26 @@ export const POST = withErrorHandler(
       });
 
       const collection = await getCollection<AgentSkill>("agent_skills");
+
+      // Write the raw scanner verdict to ``scan_status`` /
+      // ``scan_summary`` only. We deliberately do NOT touch the
+      // ``scan_override`` sub-doc here:
+      //
+      //   * If the skill carries an admin override, the override
+      //     was the admin's "I trust this regardless of the scanner"
+      //     assertion. A subsequent rescan that still flags doesn't
+      //     change that intent — and a passing rescan doesn't
+      //     either (the user explicitly asked: "keep override
+      //     across rescans, admins clear it manually"). Auto-
+      //     reverting on clean was tried earlier; it created
+      //     surprising "wait, I just set this and it disappeared"
+      //     UX during scanner flakiness and was removed.
+      //
+      //   * Splitting status from override means the previous
+      //     "scan_status='admin_overridden'" encoding is gone, so
+      //     this update path can no longer accidentally nuke an
+      //     override by writing the wrong status string. That
+      //     class of bug is structurally impossible now.
       await collection.updateOne(
         { id },
         {

@@ -155,7 +155,10 @@ describe("POST /api/skill-hubs/crawl — host/type mismatch backstop", () => {
 
 describe("POST /api/skill-hubs/crawl — guard does NOT over-fire", () => {
   it("allows canonical owner/repo (no URL, type=github) through to the GitHub crawler", async () => {
-    crawlGitHubMock.mockResolvedValue([{ path: "skills/foo/SKILL.md", name: "foo", description: "x" }]);
+    crawlGitHubMock.mockResolvedValue({
+      skills: [{ path: "skills/foo/SKILL.md", name: "foo", description: "x" }],
+      truncation: { kind: "ok", pages_walked: 1 },
+    });
     const res = await POST(
       makeRequest({ type: "github", location: "owner/repo" }),
     );
@@ -167,7 +170,10 @@ describe("POST /api/skill-hubs/crawl — guard does NOT over-fire", () => {
   });
 
   it("allows a matching github.com URL through (auto-normalized to owner/repo)", async () => {
-    crawlGitHubMock.mockResolvedValue([]);
+    crawlGitHubMock.mockResolvedValue({
+      skills: [],
+      truncation: { kind: "ok", pages_walked: 1 },
+    });
     const res = await POST(
       makeRequest({
         type: "github",
@@ -185,7 +191,10 @@ describe("POST /api/skill-hubs/crawl — guard does NOT over-fire", () => {
   });
 
   it("allows a matching gitlab.com URL through (no mismatch)", async () => {
-    crawlGitLabMock.mockResolvedValue([]);
+    crawlGitLabMock.mockResolvedValue({
+      skills: [],
+      truncation: { kind: "ok", pages_walked: 1 },
+    });
     const res = await POST(
       makeRequest({
         type: "gitlab",
@@ -194,6 +203,34 @@ describe("POST /api/skill-hubs/crawl — guard does NOT over-fire", () => {
     );
     expect(res.status).toBe(200);
     expect(crawlGitLabMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the admin-supplied max_tree_pages to the GitLab crawler and surfaces truncation in the response", async () => {
+    // Regression pin for the new "preview honours max_tree_pages" path:
+    // an operator setting an aggressive cap should see the truncation
+    // signal in the preview response so they can raise the cap before
+    // saving the hub. We assert both the crawler arg and the response
+    // body shape.
+    crawlGitLabMock.mockResolvedValue({
+      skills: [],
+      truncation: { kind: "cap", pages_walked: 2, cap: 2 },
+    });
+    const res = await POST(
+      makeRequest({
+        type: "gitlab",
+        location: "https://gitlab.com/group/project",
+        max_tree_pages: 2,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(crawlGitLabMock).toHaveBeenCalledWith(
+      "group/project",
+      undefined,
+      undefined,
+      2,
+    );
+    const body = (await res.json()) as { truncation?: { kind: string } };
+    expect(body.truncation?.kind).toBe("cap");
   });
 
   it("does NOT classify look-alike hosts (evil-github.com) as github", async () => {

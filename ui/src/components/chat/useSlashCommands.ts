@@ -50,6 +50,12 @@ type CatalogSkillLite = {
   scan_status?: string | null;
   runnable?: boolean;
   blocked_reason?: string | null;
+  // Presence (truthy) = admin override active. The catalog API
+  // already stamps ``runnable: true`` for overridden skills, but
+  // we mirror the field here so the predicate can reach the same
+  // verdict locally even when consumers pass synthesized lite
+  // skills that don't carry ``runnable`` (tests, transitions).
+  scan_override?: unknown;
 };
 
 /**
@@ -65,17 +71,20 @@ type CatalogSkillLite = {
  * decision we hide flagged entries from the picker entirely so the menu
  * only shows things that are actually runnable.
  *
- * We treat all three signals the gateway stamps as authoritative
- * (``scan_status``, ``runnable``, ``blocked_reason``) so a future schema
- * tweak on either side can't silently re-enable a flagged skill in the
- * picker.
+ * We treat all the signals the gateway stamps as authoritative
+ * (``scan_status``, ``runnable``, ``blocked_reason``, ``scan_override``)
+ * so a future schema tweak on either side can't silently re-enable a
+ * flagged skill in the picker. ``scan_status === "flagged"`` is gated
+ * by ``!scan_override`` so an admin-overridden flagged skill still
+ * shows up — the override is the admin's "trust this regardless of
+ * the scanner" assertion, mirrored by the catalog API stamping
+ * ``runnable: true`` on the same row.
  */
 function isFlaggedSkill(skill: CatalogSkillLite): boolean {
-  return (
-    skill.scan_status === "flagged"
-    || skill.runnable === false
-    || skill.blocked_reason === "scan_flagged"
-  );
+  if (skill.runnable === false) return true;
+  if (skill.blocked_reason === "scan_flagged") return true;
+  if (skill.scan_status === "flagged" && !skill.scan_override) return true;
+  return false;
 }
 
 /**
