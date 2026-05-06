@@ -114,6 +114,72 @@ describe("skill-hubs URL hostname validation", () => {
     );
     expect(result).toBe("owner/repo");
   });
+
+  // -------------------------------------------------------------------------
+  // .git suffix stripping — regression for the screenshot bug where
+  // pasting a clone URL produced a confusing 404 because the literal
+  // ".git" segment was URL-encoded into the API project path.
+  // -------------------------------------------------------------------------
+
+  it("strips a trailing .git from a GitLab clone URL (regression)", () => {
+    // Exact bug report: kkantesaria/skills-marketplace.git on a
+    // self-hosted GitLab.
+    const previousApi = process.env.GITLAB_API_URL;
+    process.env.GITLAB_API_URL = "https://cd.splunkdev.com/api/v4";
+    try {
+      expect(
+        normalizeHubLocation(
+          "https://cd.splunkdev.com/kkantesaria/skills-marketplace.git",
+          "gitlab",
+        ),
+      ).toBe("kkantesaria/skills-marketplace");
+    } finally {
+      if (previousApi === undefined) delete process.env.GITLAB_API_URL;
+      else process.env.GITLAB_API_URL = previousApi;
+    }
+  });
+
+  it("strips a trailing .git from a gitlab.com clone URL with subgroups", () => {
+    expect(
+      normalizeHubLocation(
+        "https://gitlab.com/group/subgroup/project.git",
+        "gitlab",
+      ),
+    ).toBe("group/subgroup/project");
+  });
+
+  it("strips a trailing .git from a GitHub clone URL", () => {
+    expect(
+      normalizeHubLocation("https://github.com/owner/repo.git", "github"),
+    ).toBe("owner/repo");
+  });
+
+  it("strips a trailing .git from a canonical-form (non-URL) input", () => {
+    expect(
+      normalizeHubLocation("kkantesaria/skills-marketplace.git", "gitlab"),
+    ).toBe("kkantesaria/skills-marketplace");
+    expect(normalizeHubLocation("owner/repo.git", "github")).toBe("owner/repo");
+  });
+
+  it("does NOT strip .git from intermediate path segments", () => {
+    // A real-world group named ``some.git-stuff`` mid-path must survive.
+    expect(
+      normalizeHubLocation(
+        "https://gitlab.com/some.git-stuff/project",
+        "gitlab",
+      ),
+    ).toBe("some.git-stuff/project");
+  });
+
+  it("does NOT strip a bare '.git' segment (length-guard)", () => {
+    // The bare ``.git`` segment would collapse to ``""`` if we
+    // naively stripped — the length check guarantees we leave it
+    // alone. The URL is otherwise normalized normally (path
+    // preserved as-is for GitLab).
+    expect(
+      normalizeHubLocation("https://gitlab.com/owner/.git", "gitlab"),
+    ).toBe("owner/.git");
+  });
 });
 
 describe("skill-hubs include_paths validation (FR-020)", () => {
