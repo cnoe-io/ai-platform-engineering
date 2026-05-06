@@ -148,7 +148,7 @@ class CronJobOps:
                                     {
                                         "name": "runner",
                                         "image": s.cron_runner_image,
-                                        "imagePullPolicy": "IfNotPresent",
+                                        "imagePullPolicy": s.cron_runner_image_pull_policy,
                                         "env": [
                                             {"name": "SCHEDULE_ID", "value": schedule_id},
                                             {"name": "SCHEDULER_INTERNAL_URL", "value": s.scheduler_internal_url},

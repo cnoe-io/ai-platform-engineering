@@ -7,6 +7,7 @@ daemon; it exits after a single attempt.
 
 ```
 SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
+                ──▶ exit 0 without chat if schedule.enabled is false
                 ──▶ POST <CAIPE_API_URL><CAIPE_CHAT_PATH>  (as schedule.owner_user_id)
                 ──▶ POST scheduler-svc/v1/schedules/<id>/runs  (status report)
 ```

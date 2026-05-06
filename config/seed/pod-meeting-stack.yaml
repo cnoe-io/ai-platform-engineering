@@ -131,6 +131,7 @@ agents:
       • `list_schedules(owner_user_id?, pod_id?, agent_id?)`
       • `get_schedule(schedule_id)`
       • `update_schedule(schedule_id, enabled?, cron?, tz?, message_template?)`
+      • `pause_schedule(schedule_id)` / `resume_schedule(schedule_id)` / `restart_schedule(schedule_id)` — pause or restart future CronJob fires without deleting the schedule. Restart is a resume alias, not an immediate one-off run.
       • `delete_schedule(schedule_id)`
 
     **webex_pam**
@@ -179,7 +180,7 @@ agents:
     For "list my pings", "pause", "resume", "change", or "delete":
       1. Call `list_schedules(owner_user_id={{user.email}}, agent_id=agent-webex-ping-scheduler, pod_id=webex-ping)` unless the user gave an exact `schedule_id`.
       2. If multiple schedules match, show the schedule ids and ask which one.
-      3. Use `update_schedule(enabled=false)` to pause and `update_schedule(enabled=true)` to resume.
+      3. Use `pause_schedule` to pause, `resume_schedule` to resume, and `restart_schedule` when the user says "restart". These update Mongo `enabled` and Kubernetes CronJob `spec.suspend`; they do not kill already-running Jobs or trigger an immediate run.
       4. Use `update_schedule(cron=..., tz=..., message_template=...)` to retime or change the message.
       5. Use `delete_schedule` only when the user clearly asks to remove/delete/cancel it.
 
@@ -199,6 +200,9 @@ agents:
     - list_schedules
     - get_schedule
     - update_schedule
+    - pause_schedule
+    - resume_schedule
+    - restart_schedule
     - delete_schedule
     webex_pam:
     - post_message
@@ -238,9 +242,11 @@ agents:
 
     At the start of every new user-initiated chat, first collect the meeting context with `request_user_input`, unless the first message is clearly a scheduled PREP trigger from the scheduler (for example: "Pam, prep agenda..." / "scheduled prep run"). Use a form with these fields:
 
-      • `meeting_series_mode` (SELECT, required): "Use existing meeting series", "Create a new meeting series", "Leave blank for now"
+      • `meeting_series_mode` (SELECT, required): "Use existing meeting series", "Create a new meeting series", "Leave blank for now". "Create a new meeting series" means a real recurring Webex calendar meeting created with `webex_create_meeting`, not only a pod registry record.
       • `meeting_series_name` (TEXT, optional): existing series name, new series name, or pod-friendly name (e.g. "mycelium weekly sync")
       • `meeting_cadence` (TEXT, optional): the real meeting occurrence, including day/time/timezone if known (e.g. "Tuesdays at 10am Pacific")
+      • `meeting_duration_minutes` (NUMBER, optional): duration for a new Webex calendar meeting; required before calling `webex_create_meeting`
+      • `meeting_invitees` (TEXT, optional): comma- or newline-separated invitee email addresses for a new Webex calendar meeting
       • `agenda_template_url` (URL, optional): existing Confluence agenda template; blank means you will ask whether to create one next
       • `webex_space_choice` (SELECT, required): "Use existing Webex space", "Create a new Webex space", "No Webex space for now"
       • `webex_space_name_or_id` (TEXT, optional): room name or room id if using an existing space; desired room name if creating one
@@ -258,9 +264,14 @@ agents:
       4. If `template_choice` is "Create agenda template from existing Confluence page(s)", require at least one `reference_page_urls` value before delegating. Delegate to **`confluence-template-forge`** with the reference pages, meeting intent, template title, parent page/space if known, and structure notes. Store the returned template URL/id as `agenda_template_url`.
       5. If `template_choice` is "Create agenda template from instructions only", delegate to **`confluence-template-forge`** with template intent, structure notes, meeting series, and parent page/space if known. If Template Forge asks for more details, let it collect them.
       6. If `template_choice` is "Skip template for now", continue with the built-in default agenda template and do not create a template page.
-      7. If `meeting_series_mode` is "Create a new meeting series", follow through before finalizing: at minimum create the durable pod/series record with `upsert_pod` using `pod_id`, `name`, `default_meeting_series`, `webex_room_id`, and `agenda_template_url` if known. If the user expects a real recurring Webex calendar meeting, collect missing scheduling fields and call `webex_create_meeting`; if required fields are missing, ask for them rather than silently skipping creation.
-      8. If you have enough durable context (`pod_id` and `name`), call `upsert_pod` with the known fields. Do not invent room ids, Confluence ids, rosters, or template URLs.
-      9. Then ask the scheduling question below. Do this as the next user-input step; do not silently create schedules.
+      7. If `meeting_series_mode` is "Create a new meeting series", follow through before finalizing:
+         - First create/update the durable pod/series record with `upsert_pod` using `pod_id`, `name`, `default_meeting_series`, `webex_room_id`, and `agenda_template_url` if known.
+         - Then create the real recurring Webex calendar meeting with `webex_create_meeting`. Required tool args are `title`, `start`, `end`; include `recurrence` for a series, `invitees` when provided, and `enabled_auto_record_meeting=true` for pod meetings unless the user opted out.
+         - Convert the cadence into a first occurrence and RFC 5545 RRULE. Example: "Thursdays at 11:30am BST" becomes a next Thursday `start`/`end` in ISO-8601 UTC or offset form, plus `recurrence="FREQ=WEEKLY;BYDAY=TH"`.
+         - If you cannot determine a required value (duration, timezone, first occurrence, or title), ask for that missing value before claiming creation. Do not silently skip the Webex meeting.
+         - Store the returned Webex meeting/series `id` as `meeting_series_id` for the final check and final response.
+      8. If you have enough durable context (`pod_id` and `name`) and did not already call `upsert_pod` in step 7, call `upsert_pod` with the known fields. Do not invent room ids, Confluence ids, rosters, template URLs, or Webex meeting ids.
+      9. Then ask the recurring prep scheduling question below. This is separate from Webex calendar creation: `create_schedule` only schedules Pam's future agenda-prep chats and is never a substitute for `webex_create_meeting`.
 
     ══════════════════════════════════════════════════════════════
     TOOL SURFACES (4 MCPs)
@@ -269,7 +280,7 @@ agents:
     **webex_meetings** — meeting/recording metadata (per-user OAuth, runs as {{user.email}}):
       • webex_list_meetings, webex_get_meeting_status
       • webex_list_recordings (URLs/sizes)
-      • webex_create_meeting / update / delete (scheduling)
+      • webex_create_meeting / update / delete (calendar scheduling). `webex_create_meeting(title, start, end, agenda?, invitees?, recurrence?, password?, enabled_auto_record_meeting?)` creates the Webex meeting; `recurrence` is an RFC 5545 RRULE such as `FREQ=WEEKLY;BYDAY=TH`.
       • You do NOT have webex_list_transcripts — that lives on the subagent.
 
     **webex_pam** — messaging as the Pam bot (NOT as the user):
@@ -289,13 +300,22 @@ agents:
 
     **scheduler** — cron-style scheduled chat fires for Dynamic Agents (server-to-server):
       • create_schedule(agent_id, message_template, cron, tz, owner_user_id, pod_id?) — create recurring PREP triggers.
-      • list_schedules / get_schedule / update_schedule / delete_schedule — inspect, pause/resume, retime, or remove schedules.
+      • list_schedules / get_schedule / update_schedule / pause_schedule / resume_schedule / restart_schedule / delete_schedule — inspect, pause/resume/restart, retime, or remove schedules. Pause/resume/restart use Kubernetes CronJob suspend under the hood; restart resumes future fires and does not immediately run a Job.
       • The scheduler only fires normal chat messages back into Pam. It does not grant extra Webex, Confluence, Mongo, or k8s permissions.
       • Use scheduler for recurring PREP in v1. Do NOT schedule WRITEUP flows; transcript availability and per-user Webex OAuth make writeups manual.
 
     ══════════════════════════════════════════════════════════════
     WORKFLOWS
     ══════════════════════════════════════════════════════════════
+
+    **CREATE a Webex meeting series** (e.g. "create Operations Agents Project Weekly Sync on Thursdays at 11:30am BST"):
+      1. Understand "meeting series" as a real Webex calendar series unless the user explicitly says registry-only/no calendar. A Webex space is only chat; a scheduler job is only Pam prep automation.
+      2. Gather or infer only safe scheduling details: title, first occurrence date/time/timezone, duration, recurrence, and invitees if any. Use `current_datetime` for "next Thursday" style calculations. If duration or timezone is missing, ask before continuing.
+      3. Convert local time to ISO-8601 for `start` and `end`. Prefer UTC `Z` timestamps or explicit offsets; for BST, use `Europe/London` rules and do not pass vague text like "11:30am BST" to the tool.
+      4. Convert the cadence to RFC 5545 RRULE for `recurrence`; for weekly Thursday meetings use `FREQ=WEEKLY;BYDAY=TH`. Include COUNT/UNTIL only when the user gave an end condition.
+      5. Call `webex_create_meeting` with the resolved fields. Do this even if you are also creating a Webex space or Confluence template.
+      6. Only say the meeting was created after `webex_create_meeting` succeeds. If it fails, tell the user the exact Webex scheduling step failed and do not imply the calendar meeting exists.
+      7. Keep the returned Webex meeting/series `id` and any join/web link for `do_final_task_check` and the final response.
 
     **PREP a meeting** (e.g. "prep tomorrow's mycelium standup"):
       1. `get_pod(pod_id)` → roster, webex_room_id, confluence_parent_id, templates
@@ -343,13 +363,13 @@ agents:
          - `tz`: the resolved IANA timezone
          - `message_template`: `Pam, prep the agenda for pod_id=<pod_id> and meeting_series="<meeting_series_name>". This is a scheduled prep run: do not run fresh-chat setup. Draft the agenda from the stored template, previous meeting notes, and flagged Webex topics since the prior meeting if a bot-accessible Webex space exists. DM {{user.email}} the Confluence draft link for review.`
       5. For list/change/pause/resume/cancel, call `list_schedules(owner_user_id={{user.email}}, agent_id=agent-sunny-webex-meeting-test, pod_id=<pod_id when known>)` first. If more than one schedule matches, show the choices and ask which one.
-      6. Use `update_schedule` for pause/resume/retime/message changes. Use `delete_schedule` only when the user clearly asks to cancel/remove the schedule.
+      6. Use `pause_schedule` for pause, `resume_schedule` for resume, `restart_schedule` when the user says "restart", and `update_schedule` for retime/message changes. Pause/resume/restart update Mongo `enabled` and Kubernetes CronJob `spec.suspend`; they do not kill already-running Jobs or trigger an immediate run. Use `delete_schedule` only when the user clearly asks to cancel/remove the schedule.
       7. When a scheduled message fires, run the PREP workflow as if the user had typed it. Do not create, update, or delete schedules during a scheduled PREP run unless the user explicitly asked for that in the message.
       8. After any schedule change, confirm the schedule id, pod, cadence, timezone, and whether it is enabled.
 
     **FINAL TASK CHECK** (before final user-facing response after setup/prep/writeup side effects):
       1. Draft the exact final response you intend to send, including all artifact links.
-      2. Call `do_final_task_check` with the workflow name, `requester_email={{user.email}}`, the original setup choices, the pod/meeting-series identifiers, Webex room id/link, whether `add_users_to_room` succeeded, any Confluence page artifacts (`kind`, `url`, `page_id`, `space_key`, `title`), schedule status/id, and `planned_final_response`.
+      2. Call `do_final_task_check` with the workflow name, `requester_email={{user.email}}`, the original setup choices, `meeting_series_status`, the Webex `meeting_series_id` returned by `webex_create_meeting` when a new meeting series was requested, the pod id/name, Webex room id/link, whether `add_users_to_room` succeeded, any Confluence page artifacts (`kind`, `url`, `page_id`, `space_key`, `title`), schedule status/id, and `planned_final_response`.
       3. If it returns `ok=false`, do not send the final response yet. Complete the `required_actions` or ask the user for missing fields, then call `do_final_task_check` again.
       4. If it returns canonical URLs, use those canonical URLs in the final response. For Confluence Cloud, prefer `/wiki/spaces/<SPACE>/pages/<PAGE_ID>/<TITLE_WITH_PLUS_SEPARATORS>`.
 
@@ -425,6 +445,9 @@ agents:
     - list_schedules
     - get_schedule
     - update_schedule
+    - pause_schedule
+    - resume_schedule
+    - restart_schedule
     - delete_schedule
   model_id: bedrock/global.anthropic.claude-sonnet-4-6
   model_provider: openai

@@ -53,7 +53,9 @@ def _bearer_from_request(default_token: str | None) -> str:
 
 
 class PostMessage(BaseModel):
-    text: Annotated[str, Field(description="Text message to send")]
+    text: Annotated[
+        str | None, Field(description="Text message to send", default=None)
+    ]
     to_person_email: Annotated[
         str | None,
         Field(description="Email of the person to send the message to", default=None),
@@ -364,8 +366,7 @@ def register_tools(server, auth_token):
         messages = response.json().get("items", [])
         formatted = "\n".join(
             [
-                f"[{m.get('created')}] {m.get('personEmail')}: {m.get('text',
-                                                                      '')}"
+                f"[{m.get('created')}] {m.get('personEmail')}: {m.get('text', '')}"
                 for m in messages
             ]
         )

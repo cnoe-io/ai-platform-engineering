@@ -30,6 +30,13 @@ GET    /healthz
 
 All but `/healthz` require header `X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`.
 
+`PATCH /v1/schedules/{id}` with `{"enabled": false}` pauses a schedule by
+setting Mongo `enabled=false` and Kubernetes `CronJob.spec.suspend=true`.
+`{"enabled": true}` resumes future fires with `spec.suspend=false`. The
+cron-runner also checks `enabled` after fetching the schedule and exits without
+posting chat if the schedule is disabled, which protects against manual k8s/Mongo
+drift. Pausing does not kill a Job that is already running.
+
 ## Run locally
 
 ```sh

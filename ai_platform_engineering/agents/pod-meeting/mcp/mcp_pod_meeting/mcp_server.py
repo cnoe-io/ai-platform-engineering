@@ -863,10 +863,16 @@ def register_tools(server) -> None:
                 required_actions.append(
                     "Create the durable meeting series/pod record, or ask for missing fields before finalizing."
                 )
-            if series_status == "created" and not (args.pod_id or args.meeting_series_id):
+            if series_status == "created" and not args.meeting_series_id:
                 issue(
                     "meeting_series_missing_identifier",
-                    "Created meeting series needs either pod_id or meeting_series_id.",
+                    (
+                        "Created meeting series needs the external Webex meeting/series id "
+                        "returned by webex_create_meeting."
+                    ),
+                )
+                required_actions.append(
+                    "Call webex_create_meeting and pass the returned id as meeting_series_id."
                 )
 
         if args.pod_id:

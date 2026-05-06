@@ -28,6 +28,10 @@ cronRunner:
       cpu: 100m
       memory: 128Mi
 
+# Explicit env-style chat path override rendered as CAIPE_CHAT_PATH in the
+# scheduler ConfigMap. Falls back to caipe.chatPath when empty.
+CAIPE_CHAT_PATH: ""
+
 imagePullSecrets: []
 
 # Service account for the scheduler-svc Deployment. Gets `cronjobs.*` Role bound.

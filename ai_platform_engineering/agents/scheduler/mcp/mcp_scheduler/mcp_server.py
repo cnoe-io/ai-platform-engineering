@@ -160,6 +160,10 @@ class GetScheduleArgs(BaseModel):
     schedule_id: Annotated[str, Field(description="The sched_<...> id to fetch.")]
 
 
+class ScheduleIdArgs(BaseModel):
+    schedule_id: Annotated[str, Field(description="The sched_<...> id to change.")]
+
+
 class PatchScheduleArgs(BaseModel):
     schedule_id: Annotated[str, Field(description="The schedule to patch.")]
     enabled: Annotated[
@@ -185,6 +189,19 @@ class DeleteScheduleArgs(BaseModel):
 
 def register_tools(server) -> None:
     timeout = float(os.environ.get("HTTP_TIMEOUT", "30"))
+
+    async def _patch_schedule(
+        schedule_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.patch(
+                f"{_scheduler_url()}/v1/schedules/{schedule_id}",
+                headers=_headers(),
+                json=body,
+            )
+            r.raise_for_status()
+            return r.json()
 
     @server.tool(
         name="create_schedule",
@@ -254,14 +271,43 @@ def register_tools(server) -> None:
     @_handle_errors
     async def update_schedule(args: PatchScheduleArgs) -> dict[str, Any]:
         body = args.model_dump(exclude_unset=True, exclude={"schedule_id"})
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.patch(
-                f"{_scheduler_url()}/v1/schedules/{args.schedule_id}",
-                headers=_headers(),
-                json=body,
-            )
-            r.raise_for_status()
-            return r.json()
+        return await _patch_schedule(args.schedule_id, body)
+
+    @server.tool(
+        name="pause_schedule",
+        description=(
+            "Pause a schedule without deleting it. Sets Mongo enabled=false and "
+            "suspends the underlying Kubernetes CronJob (spec.suspend=true). "
+            "Already-running Jobs are not killed."
+        ),
+    )
+    @_handle_errors
+    async def pause_schedule(args: ScheduleIdArgs) -> dict[str, Any]:
+        return await _patch_schedule(args.schedule_id, {"enabled": False})
+
+    @server.tool(
+        name="resume_schedule",
+        description=(
+            "Resume a paused schedule. Sets Mongo enabled=true and unsuspends "
+            "the underlying Kubernetes CronJob (spec.suspend=false). This does "
+            "not immediately trigger a run; it resumes future cron fires."
+        ),
+    )
+    @_handle_errors
+    async def resume_schedule(args: ScheduleIdArgs) -> dict[str, Any]:
+        return await _patch_schedule(args.schedule_id, {"enabled": True})
+
+    @server.tool(
+        name="restart_schedule",
+        description=(
+            "Alias for resume_schedule for users who say 'restart the CronJob'. "
+            "It re-enables future scheduled fires only; it does not create an "
+            "immediate one-off Job."
+        ),
+    )
+    @_handle_errors
+    async def restart_schedule(args: ScheduleIdArgs) -> dict[str, Any]:
+        return await _patch_schedule(args.schedule_id, {"enabled": True})
 
     @server.tool(
         name="delete_schedule",

@@ -10,6 +10,9 @@ patch, and delete schedules.
 - `list_schedules(owner_user_id?, pod_id?, agent_id?)`
 - `get_schedule(schedule_id)`
 - `update_schedule(schedule_id, [enabled|cron|tz|message_template])`
+- `pause_schedule(schedule_id)` — set `enabled=false` and suspend the underlying Kubernetes CronJob
+- `resume_schedule(schedule_id)` — set `enabled=true` and unsuspend the underlying Kubernetes CronJob
+- `restart_schedule(schedule_id)` — alias for resume; resumes future fires, does not immediately create a Job
 - `delete_schedule(schedule_id)`
 
 ## Env
