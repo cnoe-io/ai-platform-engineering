@@ -25,6 +25,16 @@ inputs:
       Examples: 0.3.0-rc.2, 0.3.0-rc.2-chart.1, a commit SHA.
     required: false
     default: ''
+  bump_charts:
+    description: >
+      Whether to bump Chart.yaml versions in full-update mode.
+      Set to 'false' for PRs that only touch Python/UI code and do not
+      need a pre-built Helm chart — avoids the version-conflict noise
+      caused by every concurrent PR bumping chart versions independently.
+      Chart-only mode (version ending in -chart.M) always bumps charts
+      regardless of this flag.
+    required: false
+    default: 'true'
 
 outputs:
   final_version:
@@ -52,6 +62,7 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         DIFF_TARGET: ${{ inputs.diff_target }}
+        BUMP_CHARTS: ${{ inputs.bump_charts }}
       run: |
         set -euo pipefail
 
@@ -276,25 +287,29 @@ runs:
           uv lock
           echo "  ✅ uv.lock regenerated"
 
-          # Update ALL Chart.yaml: version + appVersion
-          for CHART_FILE in $CHART_FILES; do
-            yq -i ".version = \"$VERSION\"" "$CHART_FILE"
-            yq -i ".appVersion = \"$VERSION\"" "$CHART_FILE"
-            echo "  ✅ Updated $CHART_FILE (version + appVersion)"
-          done
+          if [[ "$BUMP_CHARTS" == "true" ]]; then
+            # Update ALL Chart.yaml: version + appVersion
+            for CHART_FILE in $CHART_FILES; do
+              yq -i ".version = \"$VERSION\"" "$CHART_FILE"
+              yq -i ".appVersion = \"$VERSION\"" "$CHART_FILE"
+              echo "  ✅ Updated $CHART_FILE (version + appVersion)"
+            done
 
-          # Update ALL local dependency version references
-          echo ""
-          echo "🔄 Updating local dependency version references to '$VERSION'..."
+            # Update ALL local dependency version references
+            echo ""
+            echo "🔄 Updating local dependency version references to '$VERSION'..."
 
-          for CHART_FILE in $CHART_FILES; do
-            if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
-              for LOCAL_CHART in $LOCAL_CHART_NAMES; do
-                yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository == null)).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
-                yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository != null and (.repository | test(\"^file://\")))).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
-              done
-            fi
-          done
+            for CHART_FILE in $CHART_FILES; do
+              if yq -e '.dependencies' "$CHART_FILE" > /dev/null 2>&1; then
+                for LOCAL_CHART in $LOCAL_CHART_NAMES; do
+                  yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository == null)).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
+                  yq -i "(.dependencies[] | select(.name == \"$LOCAL_CHART\" and .repository != null and (.repository | test(\"^file://\")))).version = \"$VERSION\"" "$CHART_FILE" 2>/dev/null || true
+                done
+              fi
+            done
+          else
+            echo "  ⏭️ Skipping Chart.yaml updates (helm-chart-bump label not present)"
+          fi
 
           echo "✅ Full update complete"
         fi
