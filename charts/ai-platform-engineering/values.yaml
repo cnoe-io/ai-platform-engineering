@@ -716,6 +716,8 @@ caipe-ui:
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
     # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+    # Scheduler service URL used by the Schedules tab to pause/restart CronJobs.
+    SCHEDULER_URL: "http://caipe-scheduler:8080"
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true; the in-cluster Service
     # name is derived from the Helm release name, so the URL is rendered

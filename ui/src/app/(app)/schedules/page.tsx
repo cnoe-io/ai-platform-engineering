@@ -6,6 +6,8 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Pause,
+  Play,
   RefreshCw,
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
@@ -46,6 +48,12 @@ interface SchedulesResponse {
   error?: string;
 }
 
+interface ScheduleMutationResponse {
+  success: boolean;
+  data?: ScheduleItem;
+  error?: string;
+}
+
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";
   const date = new Date(value);
@@ -70,6 +78,7 @@ export default function SchedulesPage() {
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadSchedules = useCallback(async () => {
@@ -93,6 +102,39 @@ export default function SchedulesPage() {
   useEffect(() => {
     void loadSchedules();
   }, [loadSchedules]);
+
+  const toggleSchedule = useCallback(async (item: ScheduleItem) => {
+    const nextEnabled = !item.enabled;
+    const verb = nextEnabled ? "restart" : "pause";
+
+    setError(null);
+    setMutatingId(item.schedule_id);
+    try {
+      const response = await fetch(
+        `/api/schedules/${encodeURIComponent(item.schedule_id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: nextEnabled ? "restart" : "pause" }),
+        }
+      );
+      const body = (await response.json()) as ScheduleMutationResponse;
+      if (!response.ok || !body.success || !body.data) {
+        throw new Error(body.error || `Failed to ${verb} schedule`);
+      }
+      const updated = body.data;
+
+      setItems((current) =>
+        current.map((currentItem) =>
+          currentItem.schedule_id === item.schedule_id ? updated : currentItem
+        )
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMutatingId(null);
+    }
+  }, []);
 
   const stats = useMemo(() => {
     const enabled = items.filter((item) => item.enabled).length;
@@ -170,7 +212,7 @@ export default function SchedulesPage() {
 
             <div className="overflow-hidden rounded-lg border bg-card">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] text-sm">
+                <table className="w-full min-w-[1060px] text-sm">
                   <thead className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left font-medium">Job</th>
@@ -178,18 +220,19 @@ export default function SchedulesPage() {
                       <th className="px-4 py-3 text-left font-medium">Message</th>
                       <th className="px-4 py-3 text-left font-medium">Last Run</th>
                       <th className="px-4 py-3 text-left font-medium">Status</th>
+                      <th className="px-4 py-3 text-right font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
                           Loading scheduled jobs...
                         </td>
                       </tr>
                     ) : items.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
                           No scheduled jobs yet.
                         </td>
                       </tr>
@@ -250,6 +293,34 @@ export default function SchedulesPage() {
                             >
                               {item.enabled ? "Enabled" : "Paused"}
                             </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right align-top">
+                            <Button
+                              variant={item.enabled ? "outline" : "default"}
+                              size="sm"
+                              className="min-w-28"
+                              onClick={() => void toggleSchedule(item)}
+                              disabled={mutatingId === item.schedule_id}
+                              title={
+                                item.enabled
+                                  ? "Pause scheduled runs"
+                                  : "Restart scheduled runs"
+                              }
+                              aria-label={
+                                item.enabled
+                                  ? `Pause ${item.schedule_id}`
+                                  : `Restart ${item.schedule_id}`
+                              }
+                            >
+                              {mutatingId === item.schedule_id ? (
+                                <RefreshCw className="animate-spin" />
+                              ) : item.enabled ? (
+                                <Pause />
+                              ) : (
+                                <Play />
+                              )}
+                              {item.enabled ? "Pause" : "Restart"}
+                            </Button>
                           </td>
                         </tr>
                       ))
