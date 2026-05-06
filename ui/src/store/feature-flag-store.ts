@@ -85,7 +85,12 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     preferencesKey: "debug_mode_enabled",
   },
   // Ship Loop feature is gated by both SHIP_LOOP_ENABLED (server) AND this
-  // per-user flag (client). Server flag wins when off — see use-ship-loop-feature.
+  // per-user flag (client). The default below is `true` so that whenever
+  // the operator turns the server-side flag on, every user sees the
+  // feature without having to opt in. Users who explicitly toggle this
+  // OFF will have `false` written to localStorage + their server
+  // preferences, and that explicit choice is honored on subsequent
+  // sessions (readFromLocalStorage merges over the defaults).
   {
     id: "shipLoop",
     label: "Agentic SDLC Ship Loop",
@@ -94,10 +99,13 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
       "Surfaces the Ship Loop tab where you can onboard a GitHub repo and watch agents take an Epic through sub-tasks, PRs, HITL reviews, and sandbox deploys in real time. Requires SHIP_LOOP_ENABLED=true on the server.",
     icon: "Ship",
     category: "developer",
-    defaultValue: false,
+    defaultValue: true,
     preferencesKey: "ship_loop_enabled",
     docsUrl: "/docs/features/ship-loop",
   },
+  // Sub-feature kept opt-in by default until the AG-UI assistant work
+  // (US5 / T071-T083) actually ships — turning it on without the panel
+  // existing would surface a broken UI affordance.
   {
     id: "shipLoopAssistant",
     label: "Talk to the Loop",
