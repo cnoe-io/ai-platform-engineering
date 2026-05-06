@@ -12,7 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
+import { Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";

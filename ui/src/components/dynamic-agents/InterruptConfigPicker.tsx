@@ -258,25 +258,6 @@ export function InterruptConfigPicker({
     updateRow(rowId, { allowed_decisions: next, mode: "custom" });
   };
 
-  const handleModeToggle = (rowId: string) => {
-    const row = rows.find((r) => r.id === rowId);
-    if (!row) return;
-
-    if (row.mode === "default") {
-      // Switch to custom — expand to show checkboxes
-      updateRow(rowId, { mode: "custom" });
-      setExpandedRows((prev) => new Set(prev).add(rowId));
-    } else {
-      // Switch back to default — reset to all decisions
-      updateRow(rowId, { mode: "default", allowed_decisions: [...ALL_DECISIONS] });
-      setExpandedRows((prev) => {
-        const next = new Set(prev);
-        next.delete(rowId);
-        return next;
-      });
-    }
-  };
-
   return (
     <div className="space-y-3">
       {/* Top-right add button */}

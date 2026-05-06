@@ -602,7 +602,7 @@ def create_format_file_tool(store, namespace_factory):
                 formatted_lines = json.dumps(parsed, indent=2, ensure_ascii=False).split("\n")
                 is_json = True
             except (json.JSONDecodeError, ValueError):
-                pass
+                pass  # Not valid JSON — fall through to fixed-width chunking
 
         if not is_json:
             # Chunk into fixed-width lines

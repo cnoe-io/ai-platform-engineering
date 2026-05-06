@@ -174,7 +174,7 @@ export function AgentTimeline({
       return;
     }
     // Collapse when HITL input is resolved (pendingHitl went true → false)
-    if (prevPendingHitlRef.current && !pendingHitl) {
+    if (prevPendingHitlRef.current) {
       setMachineryExpanded(false);
     }
     // Collapse when streaming ends
