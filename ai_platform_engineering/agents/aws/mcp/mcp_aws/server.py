@@ -11,6 +11,7 @@ A2A agent, exposed as MCP tools for use in single-node caipe deployments.
 """
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -74,13 +75,8 @@ logger = logging.getLogger(__name__)
 # AWS profile setup
 # ---------------------------------------------------------------------------
 
-_aws_profiles_configured = False
-
-
 def _setup_aws_profiles() -> list[dict]:
     """Read AWS_ACCOUNT_LIST and write ~/.aws/config with assume-role profiles."""
-    global _aws_profiles_configured
-
     aws_account_list = os.getenv("AWS_ACCOUNT_LIST", "")
     if not aws_account_list:
         return []
@@ -99,9 +95,6 @@ def _setup_aws_profiles() -> list[dict]:
     if not accounts:
         return []
 
-    if _aws_profiles_configured:
-        return accounts
-
     cross_account_role = os.getenv("CROSS_ACCOUNT_ROLE_NAME", "caipe-read-only")
     aws_config_dir = os.path.expanduser("~/.aws")
     os.makedirs(aws_config_dir, exist_ok=True)
@@ -117,12 +110,13 @@ def _setup_aws_profiles() -> list[dict]:
     with open(os.path.join(aws_config_dir, "config"), "w") as fh:
         fh.write("\n".join(sections))
 
-    _aws_profiles_configured = True
     logger.info("Generated AWS profiles for %d accounts: %s", len(accounts), [a["name"] for a in accounts])
     return accounts
 
 
+@functools.lru_cache(maxsize=None)
 def _get_configured_profiles() -> list[str]:
+    """Return profile names from AWS_ACCOUNT_LIST. Cached after first call."""
     return [a["name"] for a in _setup_aws_profiles()]
 
 
@@ -469,8 +463,8 @@ def _safe_unlink(path: Optional[str]) -> None:
     if path:
         try:
             os.unlink(path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Could not remove temp file %s: %s", path, exc)
 
 
 # ---------------------------------------------------------------------------
