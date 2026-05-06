@@ -81,33 +81,40 @@ export function ShipLoopHome() {
       </div>
 
       <div className="relative max-w-6xl mx-auto p-6 md:p-8 space-y-8">
-        {/* Hero strip */}
-        <section className="space-y-4">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-primary/30 bg-primary/10 text-primary">
-            <Sparkles className="h-3 w-3" aria-hidden />
-            <span className="uppercase tracking-wider">Preview</span>
-            <span className="text-primary/70">— Agentic SDLC</span>
-          </span>
+        {/* Hero -- two-column on lg+: copy on the left, animation on
+            the right. Stacks to a single column below lg so the
+            animation never gets compressed enough to lose its labels.
+            Animation is constrained to ~5/12 of the row so the copy
+            keeps top billing and the orbit reads as a supporting
+            visual rather than the dominant element. */}
+        <section className="grid gap-6 lg:grid-cols-12 lg:items-center">
+          <div className="space-y-4 lg:col-span-7">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border border-primary/30 bg-primary/10 text-primary">
+              <Sparkles className="h-3 w-3" aria-hidden />
+              <span className="uppercase tracking-wider">Preview</span>
+              <span className="text-primary/70">— Agentic SDLC</span>
+            </span>
 
-          <div className="space-y-3 max-w-3xl">
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight">
-              <span className="gradient-text">Engineers write the rules.</span>
-              <br />
-              <span className="text-foreground">Agents run the ship loop.</span>
-            </h1>
-            <p className="text-sm md:text-base text-muted-foreground max-w-2xl">
-              Onboard a GitHub repo and watch autonomous agents drive an Epic
-              from specification through sub-tasks, pull requests, human-in-the-loop
-              review, merge, and sandbox deployment — live, label-driven, and
-              webhook-fed.
-            </p>
+            <div className="space-y-3">
+              <h1 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight">
+                <span className="gradient-text">Engineers write the rules.</span>
+                <br />
+                <span className="text-foreground">Agents run the ship loop.</span>
+              </h1>
+              <p className="text-sm md:text-base text-muted-foreground max-w-xl">
+                Onboard a GitHub repo and watch autonomous agents drive an Epic
+                from specification through sub-tasks, pull requests, human-in-the-loop
+                review, merge, and sandbox deployment — live, label-driven, and
+                webhook-fed.
+              </p>
+            </div>
           </div>
-        </section>
 
-        {/* Hero animation -- the centerpiece. Lives in a glass panel
-            so the gradient mesh shows through subtly behind it. */}
-        <section className="glass-panel rounded-2xl p-4 md:p-6">
-          <ShipLoopAnimation />
+          <div className="lg:col-span-5">
+            <div className="glass-panel rounded-2xl p-3 md:p-4">
+              <ShipLoopAnimation />
+            </div>
+          </div>
         </section>
 
         {/* Onboarded repos -- the live data surface. Renders an
