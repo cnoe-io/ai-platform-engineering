@@ -78,6 +78,7 @@ export interface StreamCallbacks {
     error?: string,
     namespace?: string[],
     args?: string,
+    result?: string,
   ): void;
 
   /** Agent is requesting user input via a form (HITL) */

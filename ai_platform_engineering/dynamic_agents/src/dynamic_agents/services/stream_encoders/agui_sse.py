@@ -27,7 +27,7 @@ from typing import Any
 from uuid import uuid4
 
 from dynamic_agents.services.stream_encoders import StreamEncoder
-from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper
+from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper, truncate_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -441,21 +441,23 @@ class AGUIStreamEncoder(StreamEncoder):
 
                     logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
                     results.extend(self._emit_namespace_if_changed(namespace))
-                    if error:
+
+                    # Emit TOOL_CALL_RESULT with the content (errors have "ERROR:" prefix)
+                    if isinstance(content, str) and content:
                         results.append(
                             _sse_frame(
-                                "CUSTOM",
+                                "TOOL_CALL_RESULT",
                                 {
-                                    "type": "CUSTOM",
-                                    "name": "TOOL_ERROR",
-                                    "value": {
-                                        "tool_call_id": tool_call_id,
-                                        "error": error,
-                                    },
+                                    "type": "TOOL_CALL_RESULT",
+                                    "message_id": getattr(msg, "id", tool_call_id),
+                                    "tool_call_id": tool_call_id,
+                                    "content": truncate_tool_result(content),
+                                    "role": "tool",
                                     "timestamp": _ts(),
                                 },
                             )
                         )
+
                     results.append(
                         _sse_frame(
                             "TOOL_CALL_END",

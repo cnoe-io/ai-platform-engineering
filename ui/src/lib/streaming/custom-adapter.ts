@@ -184,6 +184,8 @@ export class CustomStreamAdapter implements StreamAdapter {
             undefined, // custom protocol doesn't include tool_name in tool_end
             parsed.error,
             parsed.namespace ?? [],
+            undefined, // args (not sent in custom protocol tool_end)
+            parsed.result,
           );
           return false;
         }

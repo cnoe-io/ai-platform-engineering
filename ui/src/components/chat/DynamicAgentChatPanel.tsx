@@ -653,7 +653,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolEnd(toolCallId, toolName, error, namespace, args) {
+    onToolEnd(toolCallId, toolName, error, namespace, args, result) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
       // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object
       let parsedArgs: Record<string, unknown> | undefined;
@@ -670,6 +670,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
         error,
+        result,
         args: parsedArgs,
         namespace: namespace ?? [],
       });

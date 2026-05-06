@@ -21,7 +21,7 @@ import logging
 from typing import Any
 
 from dynamic_agents.services.stream_encoders import StreamEncoder
-from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper
+from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper, truncate_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +258,8 @@ class CustomStreamEncoder(StreamEncoder):
                     }
                     if error:
                         tool_end_data["error"] = error
+                    elif isinstance(content, str) and content:
+                        tool_end_data["result"] = truncate_tool_result(content)
                     results.append(_sse_frame("tool_end", tool_end_data))
 
         return results

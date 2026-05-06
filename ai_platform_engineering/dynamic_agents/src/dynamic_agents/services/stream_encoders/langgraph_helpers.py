@@ -31,6 +31,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Max chars of tool result content to send to the frontend.
+# Larger results are truncated with a "[...N chars]" suffix.
+TOOL_RESULT_DISPLAY_LIMIT = 2000
+
+
+def truncate_tool_result(content: str, limit: int = TOOL_RESULT_DISPLAY_LIMIT) -> str:
+    """Truncate tool result content for frontend display."""
+    if len(content) <= limit:
+        return content
+    remaining = len(content) - limit
+    return content[:limit] + f"...[{remaining} chars]"
+
 
 class LangGraphStreamHelper:
     """Stateful helper for parsing LangGraph stream chunks.

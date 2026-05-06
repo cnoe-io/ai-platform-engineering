@@ -546,6 +546,15 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
           {errorDisplay}
         </p>
       )}
+      {/* Tool result (truncated, shown when completed) */}
+      {!isFailed && tool.result && (
+        <p className={cn(
+          "text-muted-foreground/70 mt-0.5 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-3",
+          isNested ? "text-[8px]" : "text-[10px]"
+        )}>
+          {tool.result}
+        </p>
+      )}
       {/* Expandable parameters */}
       {hasParams && (
         <div className={cn(
@@ -732,6 +741,15 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
           isNested ? "text-[8px]" : "text-[10px]"
         )}>
           {errorDisplay}
+        </p>
+      )}
+      {/* Tool result (truncated, shown when completed) */}
+      {!isFailed && tool.result && (
+        <p className={cn(
+          "text-muted-foreground/70 mt-0.5 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-3",
+          isNested ? "text-[8px]" : "text-[10px]"
+        )}>
+          {tool.result}
         </p>
       )}
       {/* Expandable parameters */}
