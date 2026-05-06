@@ -181,44 +181,70 @@ export function ShipLoopAnimation({
           className="motion-safe:animate-ship-loop-dash"
         />
 
-        {/* Stage nodes. */}
-        {stageNodes.map(({ stage, visual, x, y }, i) => (
-          <g key={stage} transform={`translate(${x} ${y})`}>
-            {/* Halo -- pulses to suggest live activity. */}
-            <circle
-              r="20"
-              fill={`hsl(${visual.hsl} / 0.18)`}
-              className="motion-safe:animate-ship-loop-halo origin-center"
-              style={{ animationDelay: `${(i * 0.15).toFixed(2)}s` }}
-            />
-            <circle
-              r="9"
-              fill={`hsl(${visual.hsl})`}
-              filter={`url(#${glowFilterId})`}
-            />
-            {/* Alternate label position above/below to avoid the
-                neighbours crashing into each other on narrow renders.
-                Even-indexed stages go above, odd-indexed below. */}
-            <text
-              y={i % 2 === 0 ? -30 : 36}
-              textAnchor="middle"
-              className="fill-foreground text-[12px] font-semibold tracking-tight"
-            >
-              {visual.label}
-            </text>
-            {/* Stage blurb on the bookends only, so the eye knows
-                where the loop starts and where it observes. */}
-            {(stage === "specify" || stage === "observe") && (
+        {/* Stage nodes -- each rendered as the canonical Lucide icon
+            for that stage, on a colored disc, so the visual is the
+            same vocabulary the inline rail and per-Epic views use.
+            The icon SVG is positioned via x/y on the Lucide element
+            itself (Lucide icons accept SVG-standard positioning). */}
+        {stageNodes.map(({ stage, visual, x, y }, i) => {
+          const Icon = visual.icon;
+          return (
+            <g key={stage} transform={`translate(${x} ${y})`}>
+              {/* Halo -- pulses to suggest live activity. */}
+              <circle
+                r="22"
+                fill={`hsl(${visual.hsl} / 0.18)`}
+                className="motion-safe:animate-ship-loop-halo origin-center"
+                style={{ animationDelay: `${(i * 0.15).toFixed(2)}s` }}
+              />
+              {/* Disc backdrop -- gives the icon a solid plate so it
+                  reads against the page's gradient mesh. The disc
+                  uses the stage's HSL token at high opacity, the
+                  icon strokes white so it's legible on every disc. */}
+              <circle
+                r="14"
+                fill={`hsl(${visual.hsl})`}
+                filter={`url(#${glowFilterId})`}
+              />
+              {/* Lucide icon. The component renders an <svg> root;
+                  nesting <svg> inside <svg> is valid SVG2 and is
+                  positioned via x/y on the inner svg element. We
+                  also lock width/height so the icon scales with the
+                  parent viewBox rather than its intrinsic 24px. */}
+              <Icon
+                x={-9}
+                y={-9}
+                width={18}
+                height={18}
+                strokeWidth={2.25}
+                color="white"
+                aria-hidden
+              />
+              {/* Alternate label position above/below to avoid the
+                  neighbours crashing into each other on narrow
+                  renders. Even-indexed stages go above, odd-indexed
+                  below. */}
               <text
-                y={i % 2 === 0 ? -46 : 52}
+                y={i % 2 === 0 ? -32 : 38}
                 textAnchor="middle"
-                className="fill-muted-foreground text-[10px]"
+                className="fill-foreground text-[12px] font-semibold tracking-tight"
               >
-                {visual.blurb}
+                {visual.label}
               </text>
-            )}
-          </g>
-        ))}
+              {/* Stage blurb on the bookends only, so the eye knows
+                  where the loop starts and where it observes. */}
+              {(stage === "specify" || stage === "observe") && (
+                <text
+                  y={i % 2 === 0 ? -48 : 54}
+                  textAnchor="middle"
+                  className="fill-muted-foreground text-[10px]"
+                >
+                  {visual.blurb}
+                </text>
+              )}
+            </g>
+          );
+        })}
 
         {/* Loop label tucked under the feedback arc so the meaning of
             the lower curve is explicit without leaning on tooltips. */}
