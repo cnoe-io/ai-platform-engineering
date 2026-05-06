@@ -154,10 +154,14 @@ def _ping_victorops_oncall(
     return f"victorops: error — {e}"
 
 
+def _slack_mention(uid: str) -> str:
+  return f"<!subteam^{uid}>" if uid.startswith("S") else f"<@{uid}>"
+
+
 def _ping_users(slack_client, channel_id: str, thread_ts: str, user_ids: list[str]) -> str:
   """Directly @-mention configured users/groups in the thread."""
   try:
-    mentions = " ".join(f"<@{uid}>" for uid in user_ids)
+    mentions = " ".join(_slack_mention(uid) for uid in user_ids)
     slack_client.chat_postMessage(
       channel=channel_id,
       thread_ts=thread_ts,
