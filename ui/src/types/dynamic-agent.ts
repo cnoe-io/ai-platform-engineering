@@ -161,11 +161,22 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
 // =============================================================================
 
 /**
+ * Custom theme configuration for agents.
+ * Used when gradient_theme is "custom".
+ */
+export interface CustomThemeConfig {
+  gradient_from: string;   // CSS color for gradient start (hex, hsl, etc.)
+  gradient_to: string;     // CSS color for gradient end
+  accent_color: string;    // Tint color for the bot avatar SVG stroke
+}
+
+/**
  * UI configuration for dynamic agents.
  * Controls visual appearance like gradient themes.
  */
 export interface AgentUIConfig {
-  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset') or empty for global default
+  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset'), "custom", or empty for global default
+  custom_theme_config?: CustomThemeConfig;  // Only used when gradient_theme === "custom"
 }
 
 // =============================================================================
@@ -356,6 +367,7 @@ export interface AvailableSubagent {
   description?: string;
   visibility: VisibilityType;
   gradient_theme?: string;
+  custom_theme_config?: CustomThemeConfig;
 }
 
 // =============================================================================

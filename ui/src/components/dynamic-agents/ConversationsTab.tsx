@@ -30,7 +30,7 @@ import {
   Copy,
   ExternalLink,
 } from "lucide-react";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
 
 interface ConversationItem {
@@ -166,6 +166,12 @@ export function ConversationsTab() {
     if (!agentId) return null;
     const agent = agents.get(agentId);
     return agent?.ui?.gradient_theme || null;
+  };
+
+  const getAgentCustomTheme = (agentId: string | null) => {
+    if (!agentId) return null;
+    const agent = agents.get(agentId);
+    return agent?.ui?.custom_theme_config || null;
   };
 
   const handleClear = async (conversationId: string) => {
@@ -354,13 +360,14 @@ export function ConversationsTab() {
                     <div className="flex items-center gap-1.5">
                       {(() => {
                         const gradient = getAgentGradient(conv.agent_id);
-                        const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                        const customTheme = getAgentCustomTheme(conv.agent_id);
+                        const gradientStyle = gradient ? getGradientStyle(gradient, customTheme) : null;
                         return gradientStyle ? (
                           <div 
                             className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
                             style={gradientStyle}
                           >
-                            <Bot className="h-2.5 w-2.5 text-white" />
+                            <Bot className="h-2.5 w-2.5" style={{ color: getAccentColor(gradient, customTheme) || "white" }} />
                           </div>
                         ) : (
                           <Bot className="h-3 w-3 text-purple-500" />

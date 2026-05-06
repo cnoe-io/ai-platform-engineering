@@ -33,7 +33,7 @@ import type {
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
 import { isFileToolName, isTodoToolName } from "@/components/dynamic-agents/sse-types";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -86,6 +86,7 @@ function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
 export interface SubagentLookupInfo {
   name: string;
   gradientTheme?: string;
+  customThemeConfig?: import("@/types/dynamic-agent").CustomThemeConfig | null;
 }
 
 type SubagentLookupFn = (subagentName: string) => SubagentLookupInfo | undefined;
@@ -832,7 +833,7 @@ function SubagentSegmentView({
   const getSubagentInfo = useContext(SubagentLookupContext);
   const subagentLookup = getSubagentInfo?.(info.name);
   const gradientStyle = subagentLookup?.gradientTheme 
-    ? getGradientStyle(subagentLookup.gradientTheme) 
+    ? getGradientStyle(subagentLookup.gradientTheme, subagentLookup.customThemeConfig) 
     : null;
 
   // Custom icon with gradient avatar
@@ -844,7 +845,7 @@ function SubagentSegmentView({
       )}
       style={gradientStyle || undefined}
     >
-      <Bot className="h-3 w-3 text-white" />
+      <Bot className="h-3 w-3" style={{ color: getAccentColor(subagentLookup?.gradientTheme, subagentLookup?.customThemeConfig) || "white" }} />
     </div>
   );
   

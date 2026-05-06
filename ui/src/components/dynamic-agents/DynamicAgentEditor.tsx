@@ -24,6 +24,7 @@ import type {
   SubAgentRef,
   BuiltinToolsConfig,
   AgentUIConfig,
+  CustomThemeConfig,
   FeaturesConfig,
   InterruptOn,
 } from "@/types/dynamic-agent";
@@ -33,7 +34,7 @@ import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
-import { gradientThemes, getGradientStyle } from "@/lib/gradient-themes";
+import { gradientThemes, getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -287,16 +288,6 @@ function AdvancedStep({
           onError={setMiddlewareError}
         />
       </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Task Builder"
-        description="Select tasks the agent can invoke"
-        badge="0 tasks"
-      >
-        <p className="text-xs text-muted-foreground italic py-2">
-          Task configuration will allow you to define deterministic workflows that the agent can execute step-by-step.
-        </p>
-      </CollapsibleSection>
     </div>
   );
 }
@@ -342,6 +333,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
+  const [customThemeConfig, setCustomThemeConfig] = React.useState<CustomThemeConfig>(
+    source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
+  );
+  const [showCustomPicker, setShowCustomPicker] = React.useState(false);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   React.useEffect(() => {
@@ -610,6 +605,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           setPromptTab("preview");
           break;
         case "theme": {
+          // Check for custom theme response: "custom:#hex1,#hex2,#hex3"
+          const customMatch = content.match(/custom:\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})/);
+          if (customMatch) {
+            setGradientTheme("custom");
+            setCustomThemeConfig({
+              gradient_from: customMatch[1],
+              gradient_to: customMatch[2],
+              accent_color: customMatch[3],
+            });
+            setShowCustomPicker(true);
+            break;
+          }
           // Try exact match first (after normalization)
           const normalized = content.toLowerCase().replace(/[^a-z_]/g, "");
           const exactMatch = gradientThemes.find((t) => t.id === normalized);
@@ -706,7 +713,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     try {
       // Build UI config if gradient theme is set
       const uiConfig: AgentUIConfig | undefined = gradientTheme
-        ? { gradient_theme: gradientTheme }
+        ? {
+            gradient_theme: gradientTheme,
+            ...(gradientTheme === "custom" ? { custom_theme_config: customThemeConfig } : {}),
+          }
         : undefined;
 
       if (isEditing) {
@@ -807,9 +817,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </div>
           <div
             className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
-            style={getGradientStyle(gradientTheme)}
+            style={getGradientStyle(gradientTheme, gradientTheme === "custom" ? customThemeConfig : null)}
           >
-            <Bot className="h-5 w-5 text-white" />
+            <Bot className="h-5 w-5" style={{ color: getAccentColor(gradientTheme, customThemeConfig) || "white" }} />
           </div>
         </div>
       </CardHeader>
@@ -1003,7 +1013,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     <button
                       key={theme.id}
                       type="button"
-                      onClick={() => setGradientTheme(theme.id)}
+                      onClick={() => { setGradientTheme(theme.id); setShowCustomPicker(false); }}
                       className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
                         gradientTheme === theme.id
@@ -1030,6 +1040,120 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       )}
                     </button>
                   ))}
+                  {/* Custom theme button */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => { setGradientTheme("custom"); setShowCustomPicker(!showCustomPicker); }}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left w-full",
+                        gradientTheme === "custom"
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                      disabled={loading}
+                      title="Custom colors"
+                    >
+                      <div
+                        className="w-6 h-6 rounded-md shrink-0 border border-dashed border-muted-foreground/40 flex items-center justify-center"
+                        style={gradientTheme === "custom" ? { background: `linear-gradient(to bottom right, ${customThemeConfig.gradient_from}, ${customThemeConfig.gradient_to})` } : undefined}
+                      >
+                        {gradientTheme !== "custom" && <span className="text-[10px] text-muted-foreground">+</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-medium block truncate">Custom</span>
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          Pick your own
+                        </span>
+                      </div>
+                      {gradientTheme === "custom" && (
+                        <Check className="h-3 w-3 text-primary shrink-0" />
+                      )}
+                    </button>
+
+                    {/* Custom theme picker popup — positioned to the left of the button */}
+                    {showCustomPicker && gradientTheme === "custom" && (
+                      <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
+                        {/* Preview */}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-all"
+                            style={getGradientStyle("custom", customThemeConfig)}
+                          >
+                            <Bot className="h-6 w-6" style={{ color: customThemeConfig.accent_color }} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Live preview
+                          </div>
+                        </div>
+
+                        {/* Color inputs */}
+                        <div className="space-y-2.5">
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient From</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#6366f1"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient To</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#1e1b4b"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Icon Color</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#ffffff"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Done button */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setShowCustomPicker(false)}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

@@ -21,7 +21,7 @@ import { MetadataInputForm, type UserInputMetadata, type InputField } from "./Me
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
@@ -38,12 +38,13 @@ interface ChatPanelProps {
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
   agentGradient?: string | null; // Gradient theme for agent avatar
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null; // Custom theme config
   agentName?: string; // Agent name for display
   agentSkills?: string[]; // Configured skill IDs for this agent
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -170,6 +171,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             const info: SubagentLookupInfo = {
               name: agent.name,
               gradientTheme: agent.ui?.gradient_theme,
+              customThemeConfig: agent.ui?.custom_theme_config,
             };
             cache.set(agent._id, info);
             // Also index by lowercase name for name-based lookup
@@ -1374,7 +1376,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 ) : (
                   <>
                     {(() => {
-                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
                       return (
                         <div 
                           className={cn(
@@ -1383,7 +1385,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           )}
                           style={gradientStyle || undefined}
                         >
-                          <Sparkles className="h-8 w-8 text-white" />
+                          <Sparkles className="h-8 w-8" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
                         </div>
                       );
                     })()}
@@ -1393,7 +1395,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       {(() => {
-                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
                         return (
                           <div 
                             className={cn(
@@ -1402,7 +1404,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                             )}
                             style={gradientStyle || undefined}
                           >
-                            <Bot className="h-4 w-4 text-white" />
+                            <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
                           </div>
                         );
                       })()}
@@ -1536,6 +1538,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           userDisplayName={userDisplayName}
                           showTimestamp={showTimestamps}
                           agentGradient={agentGradient}
+                          agentCustomTheme={agentCustomTheme}
                           agentName={agentName}
                           turnEvents={turnEvents}
                           // Timeline props (only passed to latest message)
@@ -1916,6 +1919,7 @@ interface ChatMessageProps {
   userDisplayName?: string;
   showTimestamp?: boolean;
   agentGradient?: string | null;
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null;
   agentName?: string;
   turnEvents?: StreamEvent[];
   // Timeline props (for AgentTimeline)
@@ -1947,6 +1951,7 @@ const ChatMessage = React.memo(function ChatMessage({
   userDisplayName = "You",
   showTimestamp = false,
   agentGradient,
+  agentCustomTheme,
   agentName,
   turnEvents = [],
   // Timeline props
@@ -1987,7 +1992,8 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseLeave={() => setIsHovered(false)}
     >
       {(() => {
-        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient) : null;
+        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+        const iconColor = getAccentColor(agentGradient, agentCustomTheme) || "white";
         return (
           <div
             className={cn(
@@ -2010,9 +2016,9 @@ const ChatMessage = React.memo(function ChatMessage({
                 <User className="h-4 w-4 text-white" />
               )
             ) : isStreaming ? (
-              <Loader2 className="h-4 w-4 text-white animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" style={{ color: iconColor }} />
             ) : (
-              <Bot className="h-4 w-4 text-white" />
+              <Bot className="h-4 w-4" style={{ color: iconColor }} />
             )}
           </div>
         );
