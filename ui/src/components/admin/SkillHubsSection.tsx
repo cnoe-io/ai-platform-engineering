@@ -467,14 +467,15 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         truncation?: HubLastCrawlTruncation;
       }>(res);
       if (!res.ok) {
-        if (parsed.ok) {
+        if (parsed.ok === true) {
           const d = parsed.data;
           throw new Error(d.message || d.detail?.message || d.error || `Crawl failed (HTTP ${res.status})`);
         }
+        // parsed.ok === false here, so .preview/.status/.error are present.
         const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
         throw new Error(`Crawl failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
       }
-      if (!parsed.ok) {
+      if (parsed.ok === false) {
         throw new Error(`Crawl returned non-JSON response: ${parsed.error}`);
       }
       const data = parsed.data;

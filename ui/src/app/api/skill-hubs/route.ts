@@ -13,6 +13,8 @@ import {
   validateMaxTreePages,
 } from "./_lib/normalize";
 import { ObjectId } from "mongodb";
+import type { HubLastCrawlTruncation } from "@/lib/hub-crawl";
+import type { CrawlEvent } from "@/lib/crawl-events";
 
 /**
  * Skill Hubs API — Admin endpoints for managing external skill hubs.
@@ -33,6 +35,19 @@ interface SkillHubDoc {
   labels: string[];
   /** Optional path-prefix allow-list for hub crawl (FR-020). */
   include_paths?: string[];
+  /**
+   * GitLab only: per-hub override of the recursive-tree page cap.
+   * Mirrors the canonical ``SkillHubDoc.max_tree_pages`` in
+   * ``@/lib/hub-crawl``. Kept on this local interface so the
+   * insertOne path round-trips with strict typing.
+   */
+  max_tree_pages?: number;
+  /** Truncation summary from the most recent successful crawl (mirror of canonical). */
+  last_truncation?: HubLastCrawlTruncation;
+  /** Persisted, redacted log of the most recent ``forceFresh`` crawl. */
+  last_crawl_log?: CrawlEvent[];
+  /** ISO timestamp of when ``last_crawl_log`` was written. */
+  last_crawl_log_at?: string;
   last_success_at: number | null;
   last_failure_at: number | null;
   last_failure_message: string | null;

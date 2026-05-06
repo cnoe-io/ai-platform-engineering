@@ -340,10 +340,13 @@ export type EncodeResult =
  * Not thread-safe (Node single-threaded; this isn't a concern in
  * practice). Construct one encoder per crawl run.
  */
+/** Truncation reason; only the ``dropped`` variant of EncodeResult carries one. */
+export type TruncationReason = Extract<EncodeResult, { kind: "dropped" }>["reason"];
+
 export class NdjsonStreamEncoder {
   private events_emitted = 0;
   private bytes_emitted = 0;
-  private truncated_reason: EncodeResult["reason"] | null = null;
+  private truncated_reason: TruncationReason | null = null;
 
   encode(event: CrawlEvent): EncodeResult {
     if (this.truncated_reason !== null) {
@@ -382,7 +385,7 @@ export class NdjsonStreamEncoder {
   }
 
   /** Reason the stream was truncated, or null if it ran to completion. */
-  get truncated(): EncodeResult["reason"] | null {
+  get truncated(): TruncationReason | null {
     return this.truncated_reason;
   }
 }

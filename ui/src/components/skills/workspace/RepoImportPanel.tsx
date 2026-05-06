@@ -114,9 +114,10 @@ export function RepoImportPanel({
         // upstream load balancer) surfaces as a useful error message
         // instead of a generic "Import failed: 504".
         const parsed = await readJsonOrError<{ error?: string }>(resp);
-        if (parsed.ok) {
+        if (parsed.ok === true) {
           throw new Error(parsed.data.error || `Import failed: ${resp.status}`);
         }
+        // parsed.ok === false here, so .preview/.status/.error are present.
         const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
         throw new Error(`Import failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
       }
