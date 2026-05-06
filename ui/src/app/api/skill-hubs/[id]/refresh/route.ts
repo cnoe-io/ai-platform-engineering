@@ -6,7 +6,7 @@ import {
   requireAdmin,
   ApiError,
 } from "@/lib/api-middleware";
-import { getHubSkills } from "@/lib/hub-crawl";
+import { getHubSkills, resolveHubToken } from "@/lib/hub-crawl";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
 import {
   apiHostFromBaseUrl,
@@ -89,6 +89,12 @@ export const POST = withErrorHandler(
                 ?.last_truncation ?? { kind: "ok", pages_walked: 0 };
             return { skills: skills.length, truncation };
           },
+          // Auto-introspect on GitLab auth failure to produce the
+          // precise scope-mismatch hint inline. Skipped for GitHub
+          // hubs; the introspection module is GitLab-specific.
+          ...(hub.type === "gitlab"
+            ? { gitlabIntrospect: { baseUrl, token: resolveHubToken(hub) } }
+            : {}),
           persistLog: async (log) => {
             await collection.updateOne(
               { id },

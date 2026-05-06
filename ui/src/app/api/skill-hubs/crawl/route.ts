@@ -192,6 +192,12 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
               );
               return { skills: crawled.length, truncation };
             },
+            // Auto-introspect on auth failure -- this is the
+            // mechanism that produces the precise "your token
+            // has [read_repository] but needs read_api" hint,
+            // closing the diagnostic loop the user spent real
+            // time stuck inside.
+            gitlabIntrospect: { baseUrl, token },
           }) as unknown as NextResponse;
         }
 

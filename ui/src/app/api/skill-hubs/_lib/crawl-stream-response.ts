@@ -33,6 +33,7 @@ import {
   type CrawlErrorCode,
 } from "@/lib/crawl-events";
 import { NdjsonStreamEncoder } from "@/lib/crawl-stream";
+import { emitScopeHintIfApplicable } from "@/lib/gitlab-token-introspect";
 
 /**
  * Cap on the number of events we persist to ``hub.last_crawl_log``
@@ -72,6 +73,22 @@ export interface CrawlStreamOptions {
    * undefined so nothing is persisted.
    */
   persistLog?: (log: CrawlEvent[]) => Promise<void>;
+  /**
+   * Optional GitLab-only diagnostic context. When set, an
+   * auth-shaped failure (``code === "auth_failed"``) automatically
+   * triggers a token introspection probe against
+   * ``${baseUrl}/personal_access_tokens/self`` and emits a
+   * ``scope_mismatch`` warning with the precise hint (see
+   * ``gitlab-token-introspect.ts``). Best-effort -- the probe
+   * never escalates to a request failure if it itself errors.
+   * Omitted entirely for GitHub crawls (GitHub's PAT diagnostics
+   * are simpler and an introspection endpoint exists but the
+   * common failure modes there are different).
+   */
+  gitlabIntrospect?: {
+    baseUrl: string;
+    token: string | undefined;
+  };
 }
 
 /**
@@ -113,7 +130,8 @@ function classifyError(err: unknown): { code: CrawlErrorCode; message: string; h
 export function buildCrawlStreamResponse(
   options: CrawlStreamOptions,
 ): Response {
-  const { provider, project, api_host, run, persistLog } = options;
+  const { provider, project, api_host, run, persistLog, gitlabIntrospect } =
+    options;
   const encoder = new NdjsonStreamEncoder();
   // We tee every encoded event into ``persistedLog`` so the refresh
   // path can durably store the run for later inspection. Capped to
@@ -196,6 +214,36 @@ export function buildCrawlStreamResponse(
           });
         } catch (err) {
           const { code, message, hint } = classifyError(err);
+          // For GitLab auth failures, run the token-introspection
+          // probe BEFORE the terminal error event so the live
+          // dialog renders the precise scope hint inline. The
+          // probe emits its own `warning` event; we still surface
+          // the original error so the operator sees the actual
+          // failed URL alongside the diagnosis.
+          if (code === "auth_failed" && gitlabIntrospect) {
+            try {
+              const probe = await emitScopeHintIfApplicable(
+                gitlabIntrospect.baseUrl,
+                gitlabIntrospect.token,
+                emitter,
+              );
+              // Promote the probe's diagnostic into the error
+              // hint so consumers that only render the terminal
+              // event still see the scope mismatch.
+              if (probe && probe.diagnosis !== "unknown") {
+                writeEvent({
+                  type: "error",
+                  code,
+                  message,
+                  hint: probe.hint,
+                });
+                return;
+              }
+            } catch {
+              // Swallow -- introspection failure is non-fatal;
+              // fall through to the original error event below.
+            }
+          }
           writeEvent({
             type: "error",
             code,
