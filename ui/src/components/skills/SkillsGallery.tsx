@@ -81,7 +81,7 @@ import { getConfig } from "@/lib/config";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill } from "@/types/agent-skill";
+import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { SupervisorSyncBadge } from "@/components/skills/SupervisorSyncBadge";
 import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
@@ -608,34 +608,41 @@ export function SkillsGallery({
   // Catalog skills from GET /api/skills (unified source of truth)
   const [catalogSkills, setCatalogSkills] = useState<AgentSkill[]>([]);
 
-  // Load configs and catalog skills on mount
-  useEffect(() => {
-    loadSkills();
-
-    // Unified catalog: default, agent_skills, and hub entries (FR-021).
-    //
-    // We request `include_content=true` so the SKILL.md body is available
-    // for the static folder adapter (Files-tab "peek" on default skills)
-    // and so the workspace fallback fetch isn't strictly required when the
-    // user clicks Edit/View on a built-in chart template.
-    fetch("/api/skills?include_content=true", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data?.skills) return;
-        const mapped: AgentSkill[] = data.skills.map(
-          (s: {
-            id: string;
-            name: string;
-            source: string;
-            source_id?: string | null;
-            description?: string;
-            metadata?: Record<string, unknown>;
-            visibility?: string;
-            content?: string | null;
-            scan_status?: "passed" | "flagged" | "unscanned";
-            scan_summary?: string;
-            scan_updated_at?: string;
-          }) => ({
+  /**
+   * Refetch the unified catalog (default + agent_skills + hub-projected
+   * rows). Pulled out of the mount-only `useEffect` so callers can
+   * invalidate the local cache after admin actions like
+   * set/clear-override on a hub skill — otherwise the row keeps the
+   * stale "Disabled — flagged" badge and the only fix is a hard
+   * refresh. We propagate ``scan_override`` (and other gating fields)
+   * onto the resulting `AgentSkill` so `isFlaggedSkill` /
+   * `SkillScanStatusIndicator` can compute the synthetic
+   * "admin_overridden" UX state without another round trip.
+   */
+  const reloadCatalog = useCallback(async () => {
+    try {
+      const res = await fetch("/api/skills?include_content=true", {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.skills) return;
+      const mapped: AgentSkill[] = data.skills.map(
+        (s: {
+          id: string;
+          name: string;
+          source: string;
+          source_id?: string | null;
+          description?: string;
+          metadata?: Record<string, unknown>;
+          visibility?: string;
+          content?: string | null;
+          scan_status?: "passed" | "flagged" | "unscanned";
+          scan_summary?: string;
+          scan_updated_at?: string;
+          scan_override?: ScanOverride;
+        }) =>
+          ({
             id: `catalog-${s.id}`,
             name: s.name,
             description: s.description || "",
@@ -659,13 +666,37 @@ export function SkillsGallery({
             },
             scan_status: s.scan_status,
             scan_summary: s.scan_summary,
-            scan_updated_at: s.scan_updated_at ? new Date(s.scan_updated_at) : undefined,
-          } as AgentSkill),
-        );
-        setCatalogSkills(mapped);
-      })
-      .catch(() => {});
-  }, [loadSkills]);
+            scan_updated_at: s.scan_updated_at
+              ? new Date(s.scan_updated_at)
+              : undefined,
+            scan_override: s.scan_override,
+          }) as AgentSkill,
+      );
+      setCatalogSkills(mapped);
+    } catch {
+      // Silent — this fetch is best-effort; the agent_skills branch
+      // (driven by `loadSkills`) is the user-action path that already
+      // surfaces errors via toast.
+    }
+  }, []);
+
+  // Load configs and catalog skills on mount.
+  useEffect(() => {
+    loadSkills();
+    void reloadCatalog();
+  }, [loadSkills, reloadCatalog]);
+
+  /**
+   * Composite refresh used by `onScanComplete` after scan / override
+   * mutations. Refreshes BOTH branches: agent_skills (via the Zustand
+   * store) and the unified catalog (hub-projected rows + defaults).
+   * Without this, hub overrides only updated the indicator's
+   * optimistic state and the gallery card kept the stale red badge
+   * until a hard refresh.
+   */
+  const refreshAll = useCallback(async () => {
+    await Promise.all([loadSkills(), reloadCatalog()]);
+  }, [loadSkills, reloadCatalog]);
 
   // Merge agent configs (store) with catalog-only skills, deduplicating by name
   const allConfigs = useMemo(() => {
@@ -1335,7 +1366,7 @@ export function SkillsGallery({
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
                           <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
                             {shouldShowSkillScanIndicator(config) && (
-                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                              <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
@@ -1411,7 +1442,7 @@ export function SkillsGallery({
                         <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
                           <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
                             {shouldShowSkillScanIndicator(config) && (
-                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                              <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
@@ -1516,7 +1547,7 @@ export function SkillsGallery({
                         <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1.5">
                           <div className="flex shrink-0 items-center gap-2" aria-label="Skill status icons">
                             {shouldShowSkillScanIndicator(config) && (
-                              <SkillScanStatusIndicator config={config} onScanComplete={loadSkills} />
+                              <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
