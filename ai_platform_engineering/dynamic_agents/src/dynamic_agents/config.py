@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["*"]
 
+    # Checkpointer collections
+    checkpoint_collection: str = "checkpoints_conversation"
+    checkpoint_writes_collection: str = "checkpoint_writes_conversation"
+
+    # GridFS store (for agent file storage outside checkpoints)
+    gridfs_bucket_name: str = "agent_files"
+    gridfs_ttl_seconds: int = 604800  # 7 days
+    use_gridfs_backend: bool = True  # False = StateBackend (in-checkpoint files)
+
     # Runtime
     agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).

@@ -485,7 +485,8 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
   const hasParams = tool.args && Object.keys(tool.args).length > 0;
-  const [paramsOpen, setParamsOpen] = useState(false);
+  const hasDetails = hasParams || (!isFailed && tool.result);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -497,10 +498,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      {/* Header row with tool name, thought, and status — clickable to toggle details */}
       <div
-        className={cn("flex items-center gap-1.5 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
-        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+        className={cn("flex items-center gap-1.5 rounded-sm transition-colors", hasDetails && "hover:bg-foreground/5 cursor-pointer")}
+        onClick={hasDetails ? () => setDetailsOpen(!detailsOpen) : undefined}
       >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -518,10 +519,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
             — {thought}
           </span>
         )}
-        {hasParams && (
+        {hasDetails && (
           <ChevronDown className={cn(
             "text-muted-foreground/50 transition-transform duration-150 shrink-0",
-            paramsOpen && "rotate-180",
+            detailsOpen && "rotate-180",
             isNested ? "h-2.5 w-2.5" : "h-3 w-3"
           )} />
         )}
@@ -546,23 +547,44 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
           {errorDisplay}
         </p>
       )}
-      {/* Tool result (truncated, shown when completed) */}
-      {!isFailed && tool.result && (
-        <p className={cn(
-          "text-muted-foreground/70 mt-0.5 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-3",
-          isNested ? "text-[8px]" : "text-[10px]"
-        )}>
-          {tool.result}
-        </p>
-      )}
-      {/* Expandable parameters */}
-      {hasParams && (
+      {/* Expandable details: params + output */}
+      {hasDetails && (
         <div className={cn(
           "grid transition-all duration-150 ease-out",
-          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
+          detailsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
           <div className="overflow-hidden">
-            <ToolParamsView args={tool.args!} isNested={isNested} />
+            <div>
+              <span className={cn(
+                "text-muted-foreground/50 font-medium",
+                isNested ? "text-[8px]" : "text-[10px]"
+              )}>params:</span>
+              {hasParams ? (
+                <ToolParamsView args={tool.args!} isNested={isNested} />
+              ) : (
+                <span className={cn(
+                  "text-muted-foreground/40 italic ml-1",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>none provided for this tool call</span>
+              )}
+            </div>
+            {!isFailed && tool.result && (
+              <hr className={cn("border-foreground/10 my-1.5")} />
+            )}
+            {!isFailed && tool.result && (
+              <div>
+                <span className={cn(
+                  "text-muted-foreground/50 font-medium",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>output:</span>
+                <p className={cn(
+                  "text-muted-foreground/70 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-6 mt-0.5",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>
+                  {tool.result}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -570,10 +592,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
   );
 }
 
+
 // ═══════════════════════════════════════════════════════════════
 // Helper: Format tool error message for display
 // ═══════════════════════════════════════════════════════════════
-
 /**
  * Return the raw error string as-is for full transparency.
  */
@@ -600,7 +622,7 @@ function ToolParamsView({ args, isNested = false }: { args: Record<string, unkno
 
   return (
     <div className={cn(
-      "font-mono border-t border-border/30 pt-1.5 space-y-1",
+      "font-mono pt-0.5 space-y-1",
       isNested ? "text-[8px]" : "text-[10px]"
     )}>
       {entries.map(([key, value]) => (
@@ -682,7 +704,8 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
   const hasParams = tool.args && Object.keys(tool.args).length > 0;
-  const [paramsOpen, setParamsOpen] = useState(false);
+  const hasDetails = hasParams || (!isFailed && tool.result);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -694,10 +717,10 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      {/* Header row with tool name, thought, and status — clickable to toggle details */}
       <div
-        className={cn("flex items-center gap-2 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
-        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+        className={cn("flex items-center gap-2 rounded-sm transition-colors", hasDetails && "hover:bg-foreground/5 cursor-pointer")}
+        onClick={hasDetails ? () => setDetailsOpen(!detailsOpen) : undefined}
       >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -715,10 +738,10 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
             — {thought}
           </span>
         )}
-        {hasParams && (
+        {hasDetails && (
           <ChevronDown className={cn(
             "text-muted-foreground/50 transition-transform duration-150 shrink-0",
-            paramsOpen && "rotate-180",
+            detailsOpen && "rotate-180",
             isNested ? "h-2.5 w-2.5" : "h-3 w-3"
           )} />
         )}
@@ -743,23 +766,44 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
           {errorDisplay}
         </p>
       )}
-      {/* Tool result (truncated, shown when completed) */}
-      {!isFailed && tool.result && (
-        <p className={cn(
-          "text-muted-foreground/70 mt-0.5 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-3",
-          isNested ? "text-[8px]" : "text-[10px]"
-        )}>
-          {tool.result}
-        </p>
-      )}
-      {/* Expandable parameters */}
-      {hasParams && (
+      {/* Expandable details: params + output */}
+      {hasDetails && (
         <div className={cn(
           "grid transition-all duration-150 ease-out",
-          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
+          detailsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
           <div className="overflow-hidden">
-            <ToolParamsView args={tool.args!} isNested={isNested} />
+            <div>
+              <span className={cn(
+                "text-muted-foreground/50 font-medium",
+                isNested ? "text-[8px]" : "text-[10px]"
+              )}>params:</span>
+              {hasParams ? (
+                <ToolParamsView args={tool.args!} isNested={isNested} />
+              ) : (
+                <span className={cn(
+                  "text-muted-foreground/40 italic ml-1",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>none provided for this tool call</span>
+              )}
+            </div>
+            {!isFailed && tool.result && (
+              <hr className={cn("border-foreground/10 my-1.5")} />
+            )}
+            {!isFailed && tool.result && (
+              <div>
+                <span className={cn(
+                  "text-muted-foreground/50 font-medium",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>output:</span>
+                <p className={cn(
+                  "text-muted-foreground/70 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-6 mt-0.5",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>
+                  {tool.result}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

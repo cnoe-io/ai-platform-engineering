@@ -19,12 +19,13 @@ from uuid import uuid4
 
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
-from deepagents.backends.state import StateBackend
+from deepagents.backends.store import StoreBackend
 from deepagents.middleware.skills import SkillsMiddleware
 from jinja2 import ChainableUndefined, TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.mongodb.saver import MongoDBSaver
+from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 from pymongo import MongoClient
 
@@ -42,11 +43,13 @@ from dynamic_agents.models import (
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
+    create_format_file_tool,
     create_request_user_input_tool,
     create_self_identity_tool,
     create_user_info_tool,
     create_wait_tool,
 )
+from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
@@ -170,6 +173,7 @@ class AgentRuntime:
             self._owns_mongo_client = False
             self._mongo_client = None
             self._checkpointer = MemorySaver()
+            self._store = InMemoryStore()
         else:
             # Use shared MongoClient if provided; otherwise create our own
             self._owns_mongo_client = mongo_client is None
@@ -178,8 +182,13 @@ class AgentRuntime:
             self._checkpointer = MongoDBSaver(
                 self._mongo_client,
                 db_name=self.settings.mongodb_database,
-                checkpoint_collection_name="checkpoints_conversation",
-                writes_collection_name="checkpoint_writes_conversation",
+                checkpoint_collection_name=self.settings.checkpoint_collection,
+                writes_collection_name=self.settings.checkpoint_writes_collection,
+            )
+            # GridFS-backed store for large file content (avoids 16MB checkpoint limit)
+            self._store = MongoDBGridFSStore(
+                db=self._mongo_client[self.settings.mongodb_database],
+                bucket_name=self.settings.gridfs_bucket_name,
             )
         self._initialized = False
         self._is_streaming = False  # guards LRU eviction — never evict mid-stream
@@ -347,12 +356,28 @@ class AgentRuntime:
         # name fields, which OpenAI validates against ^[^\s<|\\/>]+$.
         safe_name = _sanitize_agent_name(self.config.name)
 
+        # Namespace factory for StoreBackend — scopes files to this agent+conversation
+        agent_id = self.config.id
+        session_id = self._session_id
+
+        # Backend selection: GridFS-backed StoreBackend or in-checkpoint StateBackend
+        logger.info(f"use_gridfs_backend={self.settings.use_gridfs_backend}")
+        if self.settings.use_gridfs_backend:
+            backend = lambda rt: StoreBackend(
+                rt,
+                namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+            )
+        else:
+            backend = None  # defaults to StateBackend
+
         self._graph = create_deep_agent(
             model=llm,
             tools=tools,
             system_prompt=system_prompt,
             context_schema=AgentContext,
             checkpointer=self._checkpointer,
+            store=self._store,
+            backend=backend,
             name=safe_name,
             subagents=subagents if subagents else None,
             interrupt_on=interrupt_config,
@@ -441,6 +466,18 @@ class AgentRuntime:
                 )
             )
             config_summary["self_identity"] = {}
+
+        # format_file tool — always available when using GridFS backend
+        if self.settings.use_gridfs_backend and self._store:
+            agent_id = config.id
+            session_id = self._session_id
+            tools.append(
+                create_format_file_tool(
+                    store=self._store,
+                    namespace_factory=lambda: (agent_id, session_id, "filesystem"),
+                )
+            )
+            config_summary["format_file"] = {}
 
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")

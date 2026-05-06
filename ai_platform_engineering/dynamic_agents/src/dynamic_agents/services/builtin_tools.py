@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from langgraph.store.base import GetOp, PutOp
 
 from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
 
@@ -542,6 +543,92 @@ def create_self_identity_tool(
     return self_identity
 
 
+def create_format_file_tool(store, namespace_factory):
+    """Create a format_file tool that reformats single-line files into multi-line.
+
+    This tool detects JSON and pretty-prints it, or chunks non-JSON content
+    into fixed-width lines. Useful when grep returns entire file contents
+    because the file is a single massive line.
+
+    Args:
+        store: The MongoDBGridFSStore instance.
+        namespace_factory: Callable(agent_id, session_id) -> namespace tuple.
+    """
+
+    @tool
+    def format_file(
+        file_path: str,
+    ) -> str:
+        """Reformat a single-line file into multiple lines for easier searching.
+
+        Use this tool when grep returns an entire file's content because the file
+        is stored as one massive line (e.g., minified JSON). This creates a new
+        formatted copy that grep can search line-by-line.
+
+        For JSON files: pretty-prints with indentation.
+        For other files: splits into fixed-width lines of 200 characters.
+
+        Args:
+            file_path: Absolute path to the file to format (e.g., /large_tool_results/tooluse_abc123)
+
+        Returns:
+            The path to the newly created formatted file, or an error message.
+        """
+        namespace = namespace_factory()
+
+        # Read the file from the store
+        items = store.batch([GetOp(namespace=namespace, key=file_path)])
+        item = items[0] if items else None
+        if item is None:
+            return f"Error: file not found at {file_path}"
+
+        content_lines = item.value.get("content", [])
+        if not content_lines:
+            return f"Error: file at {file_path} has no content"
+
+        if len(content_lines) > 1:
+            return f"File already has {len(content_lines)} lines — no reformatting needed."
+
+        line = content_lines[0]
+        if len(line) < 1000:
+            return f"File is only {len(line)} characters — no reformatting needed."
+
+        # Try JSON pretty-print
+        stripped = line.lstrip()
+        is_json = False
+        if stripped and stripped[0] in ("{", "["):
+            try:
+                parsed = json.loads(line)
+                formatted_lines = json.dumps(parsed, indent=2, ensure_ascii=False).split("\n")
+                is_json = True
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        if not is_json:
+            # Chunk into fixed-width lines
+            chunk_size = 200
+            formatted_lines = [line[i : i + chunk_size] for i in range(0, len(line), chunk_size)]
+
+        # Determine output filename
+        if is_json:
+            output_path = f"{file_path}_formatted.json"
+        else:
+            output_path = f"{file_path}_formatted"
+
+        # Write the formatted file
+        now = datetime.now(timezone.utc).isoformat()
+        value = {
+            "content": formatted_lines,
+            "created_at": now,
+            "modified_at": now,
+        }
+        store.batch([PutOp(namespace=namespace, key=output_path, value=value)])
+
+        return f"Created formatted file at {output_path} ({len(formatted_lines)} lines). Use grep or read_file on this path instead."
+
+    return format_file
+
+
 __all__ = [
     "create_fetch_url_tool",
     "create_current_datetime_tool",
@@ -549,6 +636,7 @@ __all__ = [
     "create_wait_tool",
     "create_request_user_input_tool",
     "create_self_identity_tool",
+    "create_format_file_tool",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

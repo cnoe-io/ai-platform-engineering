@@ -81,21 +81,6 @@ class AgentMetrics:
         )
 
         # -----------------------------------------------------------------
-        # Per-middleware timing (recorded by TimedMiddlewareWrapper)
-        # -----------------------------------------------------------------
-        self.middleware_duration_seconds = Histogram(
-            "da_middleware_duration_seconds",
-            "Time spent in a middleware hook (histogram, excludes inner handler)",
-            labelnames=["middleware_name", "agent_name", "hook"],
-            buckets=(0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5, float("inf")),
-        )
-        self.middleware_duration_summary = Summary(
-            "da_middleware_duration_summary_seconds",
-            "Time spent in a middleware hook (exact quantiles, excludes inner handler)",
-            labelnames=["middleware_name", "agent_name", "hook"],
-        )
-
-        # -----------------------------------------------------------------
         # Runtime init metrics
         # -----------------------------------------------------------------
         self.runtime_init_duration_seconds = Histogram(

@@ -11,16 +11,25 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from pymongo.database import Database
 
 from dynamic_agents.auth.access import can_access_conversation
 from dynamic_agents.auth.auth import UserContext, get_user_context
+from dynamic_agents.config import get_settings
 from dynamic_agents.models import ApiResponse
+from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import get_runtime_cache
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+def _get_gridfs_store(db: Database) -> MongoDBGridFSStore:
+    """Get a GridFS store instance for the given database."""
+    settings = get_settings()
+    return MongoDBGridFSStore(db=db, bucket_name=settings.gridfs_bucket_name)
 
 
 class InterruptData(BaseModel):
@@ -149,9 +158,9 @@ async def get_conversation_files_list(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationFilesListResponse:
-    """Get list of file paths for a conversation from the LangGraph checkpointer.
+    """Get list of file paths for a conversation from GridFS store.
 
-    Returns the list of files in the agent's in-memory filesystem.
+    Returns the list of files stored by the agent during this conversation.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -180,49 +189,11 @@ async def get_conversation_files_list(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
-
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    if not state or not state.values:
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    # 6. Extract file paths from state
-    files_dict = state.values.get("files", {})
-    file_paths = sorted(files_dict.keys()) if isinstance(files_dict, dict) else []
+    # 4. Query GridFS store directly (no runtime needed)
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
+    items = store.search(namespace, limit=1000)
+    file_paths = sorted(item.key for item in items)
 
     logger.debug(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
 
@@ -241,9 +212,9 @@ async def get_conversation_file_content(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> FileContentResponse:
-    """Get content of a single file from the LangGraph checkpointer.
+    """Get content of a single file from GridFS store.
 
-    Returns the content of a specific file from the agent's in-memory filesystem.
+    Returns the content of a specific file stored by the agent.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -268,50 +239,18 @@ async def get_conversation_file_content(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
+    # 4. Query GridFS store directly
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
+    item = store.get(namespace, path)
 
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
+    if item is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve file")
-
-    if not state or not state.values:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # 6. Get file content from state
-    # files is dict[str, FileData] where FileData is a TypedDict with content: list[str]
-    files_dict = state.values.get("files", {})
-    if not isinstance(files_dict, dict) or path not in files_dict:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    file_data = files_dict[path]
-
-    # FileData is a TypedDict: {"content": list[str], "created_at": str, "modified_at": str}
-    # content is list of lines - join them with newlines
-    if isinstance(file_data, dict) and "content" in file_data:
-        lines = file_data["content"]
-        content = "\n".join(lines) if isinstance(lines, list) else str(lines)
-    else:
-        # Fallback: assume it's already a string
-        content = str(file_data)
+    # 5. Extract content from value
+    value = item.value
+    raw_content = value.get("content", "")
+    content = "\n".join(raw_content) if isinstance(raw_content, list) else str(raw_content)
 
     logger.debug(f"Retrieved file {path} for conversation {conversation_id}")
 
@@ -330,11 +269,9 @@ async def delete_conversation_file(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
-    """Delete a file from the agent's in-memory filesystem.
+    """Delete a file from GridFS store.
 
-    Uses LangGraph's aupdate_state with a None value to trigger deletion
-    via the files reducer. The file is removed from the checkpoint state.
-
+    Removes the file from the GridFS-backed store for this conversation.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -359,48 +296,16 @@ async def delete_conversation_file(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
+    # 4. Delete from GridFS store
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
 
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state and verify file exists
-    if not runtime._graph:
+    # Verify file exists first
+    item = store.get(namespace, path)
+    if item is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to access conversation state")
-
-    if not state or not state.values:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    files_dict = state.values.get("files", {})
-    if not isinstance(files_dict, dict) or path not in files_dict:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # 6. Delete file using aupdate_state with None value
-    # The files reducer treats None as a deletion marker
-    try:
-        await runtime._graph.aupdate_state(
-            config,
-            {"files": {path: None}},
-        )
-    except Exception as e:
-        logger.error(f"Failed to delete file {path} from conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete file")
+    store.delete(namespace, path)
 
     logger.info(f"Deleted file {path} from conversation {conversation_id}")
 
@@ -511,8 +416,9 @@ async def clear_conversation_checkpoints(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     conversations_coll = db["conversations"]
-    checkpoints_coll = db["checkpoints_conversation"]
-    writes_coll = db["checkpoint_writes_conversation"]
+    settings = get_settings()
+    checkpoints_coll = db[settings.checkpoint_collection]
+    writes_coll = db[settings.checkpoint_writes_collection]
 
     # Verify conversation exists
     conversation = conversations_coll.find_one({"_id": conversation_id})
@@ -523,11 +429,18 @@ async def clear_conversation_checkpoints(
     checkpoints_result = checkpoints_coll.delete_many({"thread_id": conversation_id})
     writes_result = writes_coll.delete_many({"thread_id": conversation_id})
 
+    # Delete GridFS files for this conversation
+    agent_id = conversation.get("agent_id", "")
+    store = _get_gridfs_store(db)
+    files_deleted = 0
+    if agent_id:
+        files_deleted = store.delete_by_namespace((agent_id, conversation_id, "filesystem"))
+
     # Log the action for audit
     logger.info(
         f"Admin {user.email} cleared conversation {conversation_id}: "
         f"deleted {checkpoints_result.deleted_count} checkpoints, "
-        f"{writes_result.deleted_count} writes"
+        f"{writes_result.deleted_count} writes, {files_deleted} files"
     )
 
     return ApiResponse(
@@ -536,5 +449,6 @@ async def clear_conversation_checkpoints(
             "conversation_id": conversation_id,
             "checkpoints_deleted": checkpoints_result.deleted_count,
             "writes_deleted": writes_result.deleted_count,
+            "files_deleted": files_deleted,
         },
     )

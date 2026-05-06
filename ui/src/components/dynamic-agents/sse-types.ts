@@ -338,7 +338,7 @@ export const EMPTY_STREAM_EVENTS: StreamEvent[] = [];
  * Tool names for file operations (from deepagents filesystem middleware).
  * Used to detect when file-related tools are called.
  */
-export const FILE_TOOL_NAMES = ["write_file", "edit_file", "read_file", "ls"] as const;
+export const FILE_TOOL_NAMES = ["write_file", "edit_file", "read_file", "ls", "grep", "glob", "format_file"] as const;
 
 /** Type for file tool names */
 export type FileToolName = (typeof FILE_TOOL_NAMES)[number];
