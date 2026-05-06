@@ -254,9 +254,10 @@ data/
 !.cursor/commands/
 !.cursor/rules/
 
-# Claude Code — track commands, ignore everything else
+# Claude Code — track commands and skills symlink, ignore everything else
 .claude/*
 !.claude/commands/
+!.claude/skills
 
 # UI Core (local development)
 caipe-ui-core/
