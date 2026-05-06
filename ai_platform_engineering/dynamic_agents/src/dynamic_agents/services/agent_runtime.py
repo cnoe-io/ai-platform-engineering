@@ -19,6 +19,7 @@ from uuid import uuid4
 
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
+from deepagents.backends.state import StateBackend
 from deepagents.backends.store import StoreBackend
 from deepagents.middleware.skills import SkillsMiddleware
 from jinja2 import ChainableUndefined, TemplateSyntaxError
@@ -50,6 +51,7 @@ from dynamic_agents.services.builtin_tools import (
     create_wait_tool,
 )
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
+from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
@@ -57,9 +59,7 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
-from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.skills import build_skills_files, load_skills
-
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -206,11 +206,14 @@ class AgentRuntime:
             from dynamic_agents.services.skill_scrubber import (
                 install_skill_content_scrubber,
             )
+
             install_skill_content_scrubber()
         except Exception as exc:  # noqa: BLE001 — tracing is best-effort
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
-                "Skill-trace scrubber install failed: %s", exc,
+                "Skill-trace scrubber install failed: %s",
+                exc,
             )
         self._current_trace_id: str | None = None
         self._missing_tools: list[str] = []
@@ -350,15 +353,14 @@ class AgentRuntime:
                     from dynamic_agents.services.scan_gate import (
                         get_scan_gate,
                     )
+
                     if get_scan_gate() == "strict":
                         self._failed_skills_error = (
                             f"Skills unavailable (not found in DB or blocked by scan gate "
                             f"under SKILL_SCANNER_GATE=strict): {', '.join(missing)}"
                         )
                     else:
-                        self._failed_skills_error = (
-                            f"Skills not found: {', '.join(missing)}"
-                        )
+                        self._failed_skills_error = f"Skills not found: {', '.join(missing)}"
 
                 if skills_data:
                     self._skills_files, skills_sources = build_skills_files(skills_data)
@@ -400,10 +402,12 @@ class AgentRuntime:
         # Backend selection: GridFS-backed StoreBackend or in-checkpoint StateBackend
         logger.info(f"use_gridfs_backend={self.settings.use_gridfs_backend}")
         if self.settings.use_gridfs_backend:
-            backend = lambda rt: StoreBackend(
-                rt,
-                namespace=lambda ctx: (agent_id, session_id, "filesystem"),
-            )
+
+            def backend(rt):
+                return StoreBackend(
+                    rt,
+                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                )
         else:
             backend = None  # defaults to StateBackend
 
