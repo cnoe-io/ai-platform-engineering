@@ -9,6 +9,102 @@ import { getCollection } from "@/lib/mongodb";
 import { validateCredentialsRef } from "@/lib/api-middleware";
 import { scanHubSkillsAsync, type HubSkillScanRef } from "@/lib/skill-scan";
 import type { ScanStatus, ScanOverride } from "@/types/agent-skill";
+import {
+  NOOP_EMITTER,
+  type CrawlEventEmitter,
+  type CrawlRequestPhase,
+} from "@/lib/crawl-events";
+
+/**
+ * Issue a fetch and report it to the crawl-event emitter.
+ *
+ * Centralized here (rather than at every call site) because every
+ * crawler request — tree page, SKILL.md body, ancillary file,
+ * future scope-introspection probe — needs identical instrumentation.
+ * Wrapping the fetch keeps the emitter ergonomic (one parameter, one
+ * code path) and prevents drift where a new fetch callsite forgets
+ * to emit a ``request`` event.
+ *
+ * The wrapper:
+ *   - Records start time before the network call
+ *   - Catches transport errors (TypeError thrown by `fetch` on
+ *     connect timeout / DNS / TLS failure) and emits a ``request``
+ *     event with ``status: 0`` so the UI can show "this URL never
+ *     completed" rather than nothing at all
+ *   - For 4xx/5xx responses, captures the body via ``.clone().text()``
+ *     (clone preserves the original `Response` for the caller's
+ *     ``.json()`` / ``.text()`` parsing) and includes it in
+ *     ``body_preview`` clamped at 1KB. Secret-pattern redaction
+ *     happens at the wire-encoder layer, not here, so the in-memory
+ *     event still carries the full text for tests and logs.
+ *   - Always re-throws transport errors after emitting, preserving
+ *     existing crawler error handling
+ */
+async function fetchWithEmitter(
+  url: string,
+  init: RequestInit,
+  emitter: CrawlEventEmitter,
+  phase: CrawlRequestPhase,
+): Promise<Response> {
+  const method = (init.method || "GET").toUpperCase();
+  const startedAt = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    emitter.emit({
+      type: "request",
+      method,
+      url,
+      status: 0,
+      duration_ms: Math.max(0, Date.now() - startedAt),
+      phase,
+    });
+    throw err;
+  }
+  const duration_ms = Math.max(0, Date.now() - startedAt);
+  // ``res.headers`` may be missing on test mocks (Jest's hand-rolled
+  // ``Response``-shaped object). Tolerate gracefully — the wrapper
+  // exists to instrument production fetches, and missing headers
+  // simply means we can't report ``bytes``. We don't want test-only
+  // mock omissions to make the production code path crash.
+  const contentLengthHeader =
+    typeof res.headers?.get === "function"
+      ? res.headers.get("content-length")
+      : null;
+  const bytes =
+    contentLengthHeader && /^\d+$/.test(contentLengthHeader)
+      ? Number(contentLengthHeader)
+      : undefined;
+
+  // Capture error body for diagnostics — clone first so the caller
+  // can still consume the original response untouched. ``.clone()``
+  // is also test-mock-optional; if it's not provided, skip preview
+  // entirely rather than throw.
+  let body_preview: string | undefined;
+  if (!res.ok && typeof res.clone === "function") {
+    try {
+      const text = await res.clone().text();
+      body_preview = text.length > 1024 ? text.slice(0, 1024) : text;
+    } catch {
+      // Some Response implementations can't be cloned twice (e.g.
+      // certain test mocks). Swallow — body_preview is best-effort.
+    }
+  }
+
+  emitter.emit({
+    type: "request",
+    method,
+    url,
+    status: res.status,
+    duration_ms,
+    bytes,
+    phase,
+    body_preview,
+  });
+
+  return res;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -447,6 +543,7 @@ export async function crawlGitHubRepo(
   repo: string,
   token?: string,
   includePaths?: readonly string[],
+  emitter: CrawlEventEmitter = NOOP_EMITTER,
 ): Promise<CrawlResult> {
   const normalizedIncludes = normalizeIncludePaths(includePaths);
 
@@ -457,9 +554,11 @@ export async function crawlGitHubRepo(
   if (token) headers["Authorization"] = `token ${token}`;
 
   // Use Git Trees API (recursive) for efficiency — single request for full tree
-  const treeRes = await fetch(
+  const treeRes = await fetchWithEmitter(
     `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`,
     { headers, signal: AbortSignal.timeout(15000) },
+    emitter,
+    "tree",
   );
   if (!treeRes.ok) {
     throw new Error(
@@ -476,6 +575,17 @@ export async function crawlGitHubRepo(
   // the warning makes it clear the result is incomplete.
   const platformTruncated = treeData.truncated === true;
   const entries: GitHubTreeEntry[] = treeData.tree || [];
+
+  // GitHub returns the entire recursive tree in a single response.
+  // Emit a synthetic ``page`` event so the UI dialog can render the
+  // same "1 page walked" indicator it shows for GitLab. ``has_next``
+  // is always false because there is no pagination on this endpoint.
+  emitter.emit({
+    type: "page",
+    page: 1,
+    entries: entries.length,
+    has_next: false,
+  });
 
   // Find all SKILL.md files (optionally filtered to the configured prefixes
   // so monorepos don't blast the whole tree into Mongo).
@@ -520,11 +630,21 @@ export async function crawlGitHubRepo(
   for (const skillPath of skillMdPaths) {
     try {
       // Fetch SKILL.md content
-      const contentRes = await fetch(
+      const contentRes = await fetchWithEmitter(
         `https://api.github.com/repos/${owner}/${repo}/contents/${skillPath}`,
         { headers, signal: AbortSignal.timeout(10000) },
+        emitter,
+        "skill_md",
       );
-      if (!contentRes.ok) continue;
+      if (!contentRes.ok) {
+        emitter.emit({
+          type: "warning",
+          code: "fetch_failed",
+          message: `SKILL.md fetch failed for ${skillPath}: HTTP ${contentRes.status}`,
+          context: { path: skillPath, status: contentRes.status },
+        });
+        continue;
+      }
       const contentData = await contentRes.json();
       const content = Buffer.from(contentData.content, "base64").toString(
         "utf-8",
@@ -553,9 +673,11 @@ export async function crawlGitHubRepo(
           relPath,
           size,
           async () => {
-            const fileRes = await fetch(
+            const fileRes = await fetchWithEmitter(
               `https://api.github.com/repos/${owner}/${repo}/contents/${absPath}`,
               { headers, signal: AbortSignal.timeout(10000) },
+              emitter,
+              "ancillary",
             );
             if (!fileRes.ok) {
               throw new Error(
@@ -588,9 +710,10 @@ export async function crawlGitHubRepo(
 
       const fm = parseFrontmatter(content);
 
+      const skillName = fm.name || id;
       skills.push({
-        id: fm.name || id,
-        name: fm.name || id,
+        id: skillName,
+        name: skillName,
         description: fm.description || "",
         content,
         metadata,
@@ -598,8 +721,20 @@ export async function crawlGitHubRepo(
         ancillary_files: ancillary.files,
         ancillary_summary: ancillary.summary,
       });
+      emitter.emit({
+        type: "skill_found",
+        path: skillPath,
+        name: skillName,
+        ancillary_count: Object.keys(ancillary.files).length,
+      });
     } catch (err) {
       console.error(`[HubCrawl] Failed to fetch ${skillPath}:`, err);
+      emitter.emit({
+        type: "warning",
+        code: "fetch_failed",
+        message: `Failed to ingest ${skillPath}: ${err instanceof Error ? err.message : String(err)}`,
+        context: { path: skillPath },
+      });
     }
   }
 
@@ -612,6 +747,13 @@ export async function crawlGitHubRepo(
           `or >7MB). Skills outside the returned slice were silently omitted.`,
       }
     : { kind: "ok", pages_walked: 1 };
+  if (truncation.kind === "platform") {
+    emitter.emit({
+      type: "warning",
+      code: "tree_truncated_platform",
+      message: truncation.reason,
+    });
+  }
   return { skills, truncation };
 }
 
@@ -705,6 +847,7 @@ export async function crawlGitLabRepo(
   token?: string,
   includePaths?: readonly string[],
   maxTreePages?: number,
+  emitter: CrawlEventEmitter = NOOP_EMITTER,
 ): Promise<CrawlResult> {
   // GitLab's API addresses projects by URL-encoded namespaced path
   // (`group/sub/project`), NOT by full URL. Callers MUST pass the
@@ -777,9 +920,11 @@ export async function crawlGitLabRepo(
   let pagesWalked = 0;
   let capHit = false;
   while (true) {
-    const treeRes = await fetch(
+    const treeRes = await fetchWithEmitter(
       `${baseUrl}/projects/${encodedProject}/repository/tree?recursive=true&per_page=100&page=${page}`,
       { headers, signal: AbortSignal.timeout(15000) },
+      emitter,
+      "tree",
     );
     if (!treeRes.ok) {
       throw new Error(formatGitLabFetchError(treeRes, baseUrl, !!token, trimmed));
@@ -790,7 +935,15 @@ export async function crawlGitLabRepo(
 
     const nextHeader = treeRes.headers.get("x-next-page");
     const nextPage = nextHeader ? parseInt(nextHeader, 10) : NaN;
-    if (!nextHeader || !Number.isFinite(nextPage) || nextPage <= page) {
+    const hasNext =
+      !!nextHeader && Number.isFinite(nextPage) && nextPage > page;
+    emitter.emit({
+      type: "page",
+      page,
+      entries: pageEntries.length,
+      has_next: hasNext,
+    });
+    if (!hasNext) {
       break;
     }
     if (pagesWalked >= effectiveCap) {
@@ -838,11 +991,21 @@ export async function crawlGitLabRepo(
   for (const skillPath of skillMdPaths) {
     try {
       const encodedPath = encodeURIComponent(skillPath);
-      const fileRes = await fetch(
+      const fileRes = await fetchWithEmitter(
         `${baseUrl}/projects/${encodedProject}/repository/files/${encodedPath}/raw?ref=HEAD`,
         { headers, signal: AbortSignal.timeout(10000) },
+        emitter,
+        "skill_md",
       );
-      if (!fileRes.ok) continue;
+      if (!fileRes.ok) {
+        emitter.emit({
+          type: "warning",
+          code: "fetch_failed",
+          message: `SKILL.md fetch failed for ${skillPath}: HTTP ${fileRes.status}`,
+          context: { path: skillPath, status: fileRes.status },
+        });
+        continue;
+      }
       const content = await fileRes.text();
 
       const dir = skillPath.replace(/\/SKILL\.md$/, "");
@@ -869,9 +1032,11 @@ export async function crawlGitLabRepo(
           0, // unknown size — accumulator still enforces total + count caps
           async () => {
             const encodedAbs = encodeURIComponent(absPath);
-            const res = await fetch(
+            const res = await fetchWithEmitter(
               `${baseUrl}/projects/${encodedProject}/repository/files/${encodedAbs}/raw?ref=HEAD`,
               { headers, signal: AbortSignal.timeout(10000) },
+              emitter,
+              "ancillary",
             );
             if (!res.ok) {
               throw new Error(
@@ -902,9 +1067,10 @@ export async function crawlGitLabRepo(
 
       const fm = parseFrontmatter(content);
 
+      const skillName = fm.name || id;
       skills.push({
-        id: fm.name || id,
-        name: fm.name || id,
+        id: skillName,
+        name: skillName,
         description: fm.description || "",
         content,
         metadata,
@@ -912,14 +1078,37 @@ export async function crawlGitLabRepo(
         ancillary_files: ancillary.files,
         ancillary_summary: ancillary.summary,
       });
+      emitter.emit({
+        type: "skill_found",
+        path: skillPath,
+        name: skillName,
+        ancillary_count: Object.keys(ancillary.files).length,
+      });
     } catch (err) {
       console.error(`[HubCrawl] Failed to fetch ${skillPath}:`, err);
+      emitter.emit({
+        type: "warning",
+        code: "fetch_failed",
+        message: `Failed to ingest ${skillPath}: ${err instanceof Error ? err.message : String(err)}`,
+        context: { path: skillPath },
+      });
     }
   }
 
   const truncation: HubLastCrawlTruncation = capHit
     ? { kind: "cap", pages_walked: pagesWalked, cap: effectiveCap }
     : { kind: "ok", pages_walked: pagesWalked };
+  if (truncation.kind === "cap") {
+    emitter.emit({
+      type: "warning",
+      code: "tree_truncated_pages",
+      message:
+        `GitLab tree pagination capped at ${effectiveCap} pages ` +
+        `(GITLAB_MAX_TREE_PAGES or per-hub override). Skills past ` +
+        `page ${effectiveCap} may be missing.`,
+      context: { pages_walked: pagesWalked, cap: effectiveCap },
+    });
+  }
   return { skills, truncation };
 }
 
@@ -961,6 +1150,7 @@ function resolveToken(hub: SkillHubDoc): string | undefined {
 export async function getHubSkills(
   hub: SkillHubDoc,
   forceFresh = false,
+  emitter: CrawlEventEmitter = NOOP_EMITTER,
 ): Promise<CatalogSkill[]> {
   const hubSkillsCol = await getCollection<HubSkillDoc>("hub_skills");
 
@@ -975,7 +1165,12 @@ export async function getHubSkills(
     const isFresh = cached.some((doc) => doc.cached_at >= cacheThreshold);
 
     if (!isFresh) {
-      // Stale — return cached immediately, refresh in background
+      // Stale — return cached immediately, refresh in background.
+      // Background refresh deliberately does NOT propagate the
+      // emitter because it runs after the request returns; there's
+      // no UI listener to consume events, and we don't want to
+      // accidentally hold a streaming response open waiting for a
+      // background refresh that's racing the original request.
       _refreshHubInBackground(hub, hubSkillsCol).catch((err) => {
         console.warn(`[HubCrawl] Background refresh failed for ${hub.location}:`, err);
       });
@@ -985,7 +1180,7 @@ export async function getHubSkills(
   }
 
   // No cache at all (or force-fresh) — must crawl synchronously
-  return _crawlAndCache(hub, hubSkillsCol);
+  return _crawlAndCache(hub, hubSkillsCol, emitter);
 }
 
 /**
@@ -994,6 +1189,7 @@ export async function getHubSkills(
 async function _crawlAndCache(
   hub: SkillHubDoc,
   hubSkillsCol: Awaited<ReturnType<typeof getCollection<HubSkillDoc>>>,
+  emitter: CrawlEventEmitter = NOOP_EMITTER,
 ): Promise<CatalogSkill[]> {
   const token = resolveToken(hub);
   let crawled: CrawledSkill[];
@@ -1014,7 +1210,13 @@ async function _crawlAndCache(
       const owner = parts[0];
       const repo = parts[1];
       if (!owner || !repo) throw new Error(`Invalid GitHub location: ${hub.location}`);
-      const result = await crawlGitHubRepo(owner, repo, token, hub.include_paths);
+      const result = await crawlGitHubRepo(
+        owner,
+        repo,
+        token,
+        hub.include_paths,
+        emitter,
+      );
       crawled = result.skills;
       truncation = result.truncation;
     } else if (hub.type === "gitlab") {
@@ -1023,6 +1225,7 @@ async function _crawlAndCache(
         token,
         hub.include_paths,
         hub.max_tree_pages,
+        emitter,
       );
       crawled = result.skills;
       truncation = result.truncation;
