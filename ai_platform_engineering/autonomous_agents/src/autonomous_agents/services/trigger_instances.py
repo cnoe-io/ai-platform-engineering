@@ -139,6 +139,7 @@ def derive_dedup_key(
     task: TaskDefinition,
     headers: Mapping[str, str] | Any,
     verified_signature: str | None,
+    default_dedup_header: str | None = None,
 ) -> DedupKey:
     """Choose the most reliable dedup key for an incoming webhook.
 
@@ -155,6 +156,12 @@ def derive_dedup_key(
         body. Pass ``None`` when no secret is configured (signature
         strategy is unavailable). The ``sha256=`` prefix is stripped
         before incorporation into the key.
+    default_dedup_header:
+        Adapter-declared per-delivery header (e.g. ``X-GitHub-Delivery``
+        for the github adapter). Used only when the task has no
+        ``dedup_header`` of its own; the per-task value always wins so
+        operators can override the adapter's default for an unusual
+        upstream variant.
 
     Returns
     -------
@@ -164,7 +171,7 @@ def derive_dedup_key(
         dedup is impossible.
     """
     trigger = task.trigger if isinstance(task.trigger, WebhookTrigger) else None
-    dedup_header = trigger.dedup_header if trigger is not None else None
+    dedup_header = (trigger.dedup_header if trigger is not None else None) or default_dedup_header
 
     if dedup_header:
         canonical, value = _lookup_header(headers, dedup_header)

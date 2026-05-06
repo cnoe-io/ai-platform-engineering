@@ -31,6 +31,7 @@ from autonomous_agents.services.mongo import (
     get_mongo_service,
     reset_mongo_service,
 )
+from autonomous_agents.services.webhook_adapters import load_adapters
 
 
 def fatal_exit(message: str, exit_code: int = 1) -> None:
@@ -49,6 +50,16 @@ def fatal_exit(message: str, exit_code: int = 1) -> None:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting Autonomous Agents service...")
+
+    # Load webhook provider adapters (github, slack, pagerduty,
+    # generic_hmac, plus any operator-defined providers in the file
+    # pointed at by ``WEBHOOK_PROVIDERS_FILE``). Failure to parse the
+    # YAML is fatal: the service can't safely accept signed webhooks
+    # if it doesn't know how to verify them.
+    try:
+        load_adapters(settings.webhook_providers_file)
+    except (FileNotFoundError, ValueError) as exc:
+        fatal_exit(f"Failed to load webhook_providers.yaml: {exc}")
 
     # ------------------------------------------------------------------
     # MongoDB is REQUIRED. No in-memory fallback -- if the operator
