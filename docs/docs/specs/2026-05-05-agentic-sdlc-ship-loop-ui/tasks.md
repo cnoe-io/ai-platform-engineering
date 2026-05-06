@@ -76,7 +76,7 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 ### SSE pub/sub baseline
 
 - [X] T025 Implement `ui/src/lib/ship-loop/sse-bus.ts` — in-process pub/sub keyed by `epic:<repo>:<epic>` and `inbox:<user>`, with bounded per-connection queues (default 256), overflow-close semantics, per-user 10-connection cap, and 25s heartbeats.
-- [ ] T026 [P] Adapt `ui/src/lib/sse-streaming-client.ts` patterns into `ui/src/hooks/use-ship-loop-stream.ts` (deferred to Chunk C/D — needed by the per-Epic UI).
+- [X] T026 [P] Adapt `ui/src/lib/sse-streaming-client.ts` patterns into `ui/src/hooks/use-ship-loop-stream.ts`. Implements the documented reconnect ladder (1s, 2s, 4s, ..., capped at 30s) and terminal-error short-circuit (`feature_disabled`, `access_revoked`).
 
 ### Observability SLIs (per Q5)
 
@@ -104,14 +104,14 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 
 ### Implementation for User Story 1
 
-- [ ] T032 [P] [US1] Implement `GET /api/ship-loop/repos` in `ui/src/app/api/ship-loop/repos/route.ts` — lists repos onboarded by the user, returns counts (open epics, in-flight subtasks, PRs awaiting review, deploys 24h).
+- [~] T032 [P] [US1] **PARTIAL** — `GET /api/ship-loop/repos` ships in `ui/src/app/api/ship-loop/repos/route.ts` returning counts (open epics, in-flight subtasks, PRs awaiting review, deploys 24h) under the `{items: [...]}` envelope. Full GitHub-OAuth-backed visibility filter is deferred to FR-029 alongside repo authz.
 - [ ] T033 [US1] Implement `POST /api/ship-loop/repos` in the same `route.ts` — verifies repo read access, creates GitHub webhook (or links existing), persists `OnboardedRepo` in Mongo, returns `201`. Handles `409` on duplicate active onboarding.
 - [ ] T034 [P] [US1] Implement `GET /api/ship-loop/repos/{owner}/{repo}` in `ui/src/app/api/ship-loop/repos/[owner]/[repo]/route.ts` — repo detail + webhook health.
 - [ ] T035 [US1] Implement `DELETE /api/ship-loop/repos/{owner}/{repo}` in the same route — sets `offboarded_at`, idempotent.
 - [ ] T036 [P] [US1] Implement webhook health check job in `ui/src/lib/ship-loop/webhook-health.ts` — periodically (every 60s in pilot) scans `OnboardedRepo` and updates `webhook_status` to `degraded` when no events received within the configured idle threshold.
 - [ ] T037 [P] [US1] Implement `useOnboardedRepos` hook in `ui/src/hooks/use-onboarded-repos.ts` (SWR-style cache + revalidate on focus).
 - [X] T038 [P] [US1] Implement the nav tab pill in `ui/src/components/layout/AppHeader.tsx` — visible only when `useShipLoopFeature().enabled === true`. Mirrors the existing `ragEnabled` pattern.
-- [~] T039 [P] [US1] **PARTIAL — placeholder shell shipped early as a demo target for the toggle wiring.** Real "empty-state when no repos, repo card grid when ≥1" remains pending until `GET /api/ship-loop/repos` (T032) lands. File: `ui/src/components/ship-loop/ShipLoopHome.tsx`.
+- [X] T039 [P] [US1] `ShipLoopHome.tsx` now embeds the live `RepoGrid` (fetches `/api/ship-loop/repos`) between the hero animation and the stage tile legend. Empty / loading / error states are explicit and the error path links the operator at the SHIP_LOOP_ALLOW_NO_AUTH bypass + the seed script.
 - [X] T040 [US1] Wire `ShipLoopHome` into `ui/src/app/(app)/ship-loop/page.tsx` (server component delegating to the client component).
 - [ ] T041 [P] [US1] Implement `OnboardRepoDialog.tsx` in `ui/src/components/ship-loop/OnboardRepoDialog.tsx` — repo dropdown sourced from `listUserRepos`, sandbox-environment text input, label-mapping override JSON editor, submit calls `POST /api/ship-loop/repos`.
 - [ ] T042 [P] [US1] Implement `WebhookHealthBanner.tsx` in `ui/src/components/ship-loop/WebhookHealthBanner.tsx` with one-click "Reconnect" calling a server action that recreates the webhook.
@@ -134,19 +134,19 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 
 ### Implementation for User Story 2
 
-- [ ] T046 [P] [US2] Implement `GET /api/ship-loop/repos/{owner}/{repo}/epics/{epicId}` in `ui/src/app/api/ship-loop/repos/[owner]/[repo]/epics/[epicId]/route.ts` — returns the bundle (epic, subtasks, pull_requests, deploys, recent_events, needs_me).
-- [ ] T047 [US2] Implement `GET .../epics/{epicId}/events` SSE stream in `ui/src/app/api/ship-loop/repos/[owner]/[repo]/epics/[epicId]/events/route.ts` — `text/event-stream`, emits `connected`, `artifact_upserted`, `event_appended`, `stage_transition`, `webhook_health`, `heartbeat` per `contracts/sse-channels.md`. Sanitizes outbound payloads (strips raw webhook body, redacts secrets).
-- [ ] T048 [P] [US2] Implement `useEpicShipState` hook in `ui/src/hooks/use-epic-ship-state.ts` — initial fetch + SSE subscription via `use-ship-loop-stream`; reconciles `artifact_upserted` events into a stable selector for visualizations.
-- [ ] T049 [P] [US2] Implement `EpicView.tsx` shell in `ui/src/components/ship-loop/EpicView.tsx` — hosts the active visualization mode + side metadata.
-- [ ] T050 [P] [US2] Implement `PipelineView.tsx` (mode A) in `ui/src/components/ship-loop/visualizations/PipelineView.tsx` — horizontal stage cells with artifact tokens; pure CSS Grid + Tailwind.
-- [ ] T051 [P] [US2] Implement `KanbanView.tsx` (mode B) in `ui/src/components/ship-loop/visualizations/KanbanView.tsx` — columns by stage, sortable cards, no drag-and-drop in MVP.
-- [ ] T052 [P] [US2] Implement `TimelineView.tsx` (mode C) in `ui/src/components/ship-loop/visualizations/TimelineView.tsx` — SVG horizontal axis with chronological event markers.
-- [ ] T053 [P] [US2] Implement `StageBadge.tsx` in `ui/src/components/ship-loop/StageBadge.tsx` and an agent-vs-human iconography helper to satisfy FR-016.
-- [ ] T054 [US2] Wire the visualization picker (Pipeline / Kanban / Timeline) into `EpicView.tsx` with persisted choice via Zustand `ship-loop-store.ts` (T055).
-- [ ] T055 [P] [US2] Implement `ui/src/store/ship-loop-store.ts` for selected viz mode, filters, current Epic id; persists per-user.
-- [ ] T056 [US2] Implement the per-Epic Next.js page in `ui/src/app/(app)/ship-loop/repos/[owner]/[repo]/epics/[epicId]/page.tsx` hosting `EpicView`.
-- [ ] T057 [P] [US2] Implement `ui/src/app/(app)/ship-loop/repos/[owner]/[repo]/page.tsx` — per-repo Epic list with stage filter; uses `GET /repos/{owner}/{repo}/epics`.
-- [ ] T058 [P] [US2] Implement `GET /api/ship-loop/repos/{owner}/{repo}/epics` in `ui/src/app/api/ship-loop/repos/[owner]/[repo]/epics/route.ts` — supports `?stage=`, `?needs_me=`, `?stalled=`, cursor pagination.
+- [X] T046 [P] [US2] `GET /api/ship-loop/repos/{owner}/{repo}/epics/{epicId}` returns the bundle (epic, subtasks, pull_requests, deploys, recent_events, needs_me). Strips `payload` and `_id` from `recent_events` before emission.
+- [X] T047 [US2] `GET .../epics/{epicId}/events` SSE stream emits the documented event names via the in-process `sse-bus`. Pre-checks Epic existence so typos / stale URLs fail fast instead of holding an empty stream open. Disposes the bus subscription on `req.signal.abort` so browser-tab-close does not leak subscribers and trip the per-user 10-conn cap.
+- [X] T048 [P] [US2] `useEpicShipState` ships in `ui/src/hooks/use-epic-ship-state.ts` — fetches the detail bundle, layers the SSE stream events on top using documented reconciliation rules (artifact_upserted = replace-or-append in bucket; event_appended capped at 100; stage_transition is a no-op because artifact_upserted is canonical).
+- [X] T049 [P] [US2] `EpicView.tsx` shell ships in `ui/src/components/ship-loop/EpicView.tsx` with header (StageBadge, GitHub link, "needs you" callout, live-stream status indicator) and Pipeline / Kanban / Timeline tabs.
+- [X] T050 [P] [US2] `PipelineView.tsx` ships -- 8 stages laid out left-to-right (responsive 1/2/4/8 columns), each column tinted from its stage's `bgClass`, empty-column placeholders so layout doesn't collapse, footer roll-up of PRs / deploys / sub-tasks.
+- [X] T051 [P] [US2] `KanbanView.tsx` ships -- three lanes (Implement / Review / Deploy). Deploy lane intentionally accepts `deploy` and `observe` stages because those are too short-lived to deserve their own lane and the operator instinctively expects rolled-out services to live there.
+- [X] T052 [P] [US2] `TimelineView.tsx` ships -- chronological list of `recent_events` with relative timestamps, agent-vs-human actor icons, kind/id summary line, and an explicit empty state that links to the "first webhook" so a fresh demo never feels broken.
+- [X] T053 [P] [US2] `StageBadge.tsx` (in `ui/src/components/ship-loop/visualizations/`) and the `ArtifactCard.tsx` agent-vs-human iconography helper satisfy FR-016. Agent inference uses `agent_labels.length > 0` from the projector.
+- [X] T054 [US2] Visualization picker (Pipeline / Kanban / Timeline) wired into `EpicView.tsx` via local `useState`. Per-user persistence is deferred to T055.
+- [ ] T055 [P] [US2] Per-user persistence of selected viz mode + filters in `ui/src/store/ship-loop-store.ts` (Zustand). Deferred -- not blocking the mock-webhook demo, and per-user persistence requires the real session-based path to be cleaner. Tracked under polish.
+- [X] T056 [US2] Per-Epic Next.js page lives at `ui/src/app/(app)/ship-loop/[owner]/[repo]/epics/[epicId]/page.tsx` (note: chose `/ship-loop/[owner]/[repo]/...` over `/ship-loop/repos/[owner]/[repo]/...` for shorter URLs; the `/repos` segment is a backend-API concept, not a user-facing one).
+- [X] T057 [P] [US2] Per-repo Epic list page lives at `ui/src/app/(app)/ship-loop/[owner]/[repo]/page.tsx` and renders `RepoEpicList.tsx` with inline stage / needs_human / stalled filters.
+- [X] T058 [P] [US2] `GET /api/ship-loop/repos/{owner}/{repo}/epics` ships with `stage=` (validated against the closed enum -> 400 on typo), `needs_human=`, `stalled=`, and cursor pagination keyed on `(last_event_at desc, _id desc)` with strict-less tie breaking on identical timestamps.
 
 **Checkpoint**: A user can open an Epic, switch among 3 viz modes, and watch live updates within the 10 s SLO. **MVP complete when paired with US1.**
 
@@ -274,12 +274,26 @@ This is a **Next.js web application** living entirely under `ui/`. Phase-1 plan 
 - [ ] T097 [P] Sanitize all user/agent-supplied text fields end-to-end in `ui/src/lib/ship-loop/sanitize.ts` (titles, body excerpts, comments, assistant output) using the existing markdown allow-list. Re-render tests in `ui/src/__tests__/ship-loop/sanitize.test.ts`.
 - [ ] T098 [P] Add per-route rate limiting on `/api/ship-loop/actions/**` (default 30/min per user-repo) and SSE-connection cap (default 10 per user) in `ui/src/lib/ship-loop/rate-limit.ts`.
 - [ ] T099 [P] Add audit log retention review surface in `ui/src/components/ship-loop/AuditLogView.tsx` (admin-only) — read-only listing of `source: "ui"` events for a given repo.
-- [ ] T100 Run `quickstart.md` end-to-end against a dev environment and capture screenshots into `docs/docs/specs/2026-05-05-agentic-sdlc-ship-loop-ui/walkthrough/` for the README.
+- [~] T100 **PARTIAL** — `quickstart.md` end-to-end against a real GitHub repo with screenshots remains pending until full GitHub OAuth + webhook auto-registration land. The mock-webhook equivalent (`mock-webhook-flow.sh` + the new `mock-webhook-demo.md`) covers the same MVP demo loop end-to-end without GitHub access.
 - [ ] T101 [P] Update `ui/README.md` with a "Ship Loop" section linking to the spec and the quickstart.
 - [ ] T102 [P] Add a security review note in `docs/docs/changes/2026-05-05-agentic-sdlc-ship-loop-ui-security.md` covering: webhook HMAC verification, untrusted-content rendering, deny-by-default authz, 404-on-disabled, secret handling, $-cost gating.
 - [ ] T103 [P] Run `npm run lint` and `npm run build` from `ui/` and fix any new violations.
 - [ ] T104 [P] Run the targeted Jest suite (`npm run test -- ship-loop` from `ui/`) and confirm all newly added tests pass.
 - [ ] T105 Run a manual penetration probe per SC-010: assert that disabling the feature returns 404 (not 403/500), that webhook deliveries with bad signatures are rejected, that non-admin users cannot see `cost_usd`, and that no untrusted GitHub content escapes the sanitizer.
+
+---
+
+## Phase 11: Mock-Webhook Demo Loop (MVP test target)
+
+**Purpose**: Provide a self-contained demo path that doesn't require a real GitHub App / OAuth wiring — the operator can drive a complete Epic → sub-task → PR → approve → merge → deploy scenario locally, end-to-end, with HMAC-signed deliveries.
+
+- [X] T106 Add `npm run ship-loop:seed-mock-repo` (`ui/scripts/seed-mock-repo.ts`) which idempotently inserts `repo_id=999900001` (`mock-org/mock-repo`) into `ship_loop_repos` with the well-known mock secret hash, and documents the label-override schema in `seed-mock-repo.md`.
+- [X] T107 Add `SHIP_LOOP_ALLOW_NO_AUTH` server-side bypass in `ship-loop-auth.ts` so the new GET APIs work in non-production without dragging full NextAuth into the demo loop. Production rejects the env var entirely (defense-in-depth + the `Config.isProduction` check). Forbidden in production is asserted by the unit test in `ship-loop-auth.test.ts`.
+- [X] T108 Add `ui/scripts/mock-webhook-flow.sh` end-to-end driver — full Epic→deploy scenario, signed deliveries, pre-flight health check that produces actionable error messages for the two most common misconfigurations (bypass not set → 401; seed not run → 404). Each delivery id is unique per invocation so re-runs do not collide on the idempotency index.
+- [X] T109 Add demo-walkthrough doc `docs/docs/specs/2026-05-05-agentic-sdlc-ship-loop-ui/mock-webhook-demo.md` covering: required env vars, dev-server prerequisites, command sequence, expected UI state at each step, troubleshooting matrix.
+- [ ] T110 Capture annotated screenshots of the mock demo into `docs/docs/specs/2026-05-05-agentic-sdlc-ship-loop-ui/walkthrough/` (deferred to T100-class polish; the walkthrough doc references frame numbers so screenshots can drop in later).
+
+**Checkpoint**: Operator with no GitHub access can `npm run dev`, run two scripts, click through, and watch the live Pipeline / Kanban / Timeline views update from a fully-mocked deploy success.
 
 ---
 
