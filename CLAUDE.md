@@ -110,27 +110,28 @@ If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the He
 
 ## Reusable Skills
 
-The `skills/` directory contains reusable tools organized by category:
+Skills live in `.claude/skills/` and are auto-discovered by Claude Code.
 
-- **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
-- **debugging**: (future) Debugging and troubleshooting tools
-- **monitoring**: (future) Observability and metrics helpers
-- **deployment**: (future) Deployment automation
+To also access them via `~/.agents/skills`, create a symlink once after cloning:
+
+```bash
+ln -s "$(pwd)/.claude/skills" ~/.agents/skills
+```
 
 ### Quick Examples
 
 ```bash
 # Test persistence backend
-./skills/persistence/test_persistence_all_backends.sh redis
+./.claude/skills/persistence/test_persistence_all_backends.sh redis
 
 # Switch persistence backend
-./skills/persistence/switch_backend.sh postgres
+./.claude/skills/persistence/switch_backend.sh postgres
 
 # Python-based testing
-python skills/persistence/test_langgraph_persistence.py mongodb
+python .claude/skills/persistence/test_langgraph_persistence.py mongodb
 ```
 
-See [skills/README.md](./skills/README.md) for full documentation.
+See [.claude/skills/README.md](./.claude/skills/README.md) for full documentation.
 
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
