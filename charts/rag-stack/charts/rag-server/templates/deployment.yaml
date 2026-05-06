@@ -32,9 +32,17 @@ spec:
       initContainers:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         # Main RAG Server container
         - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
@@ -84,6 +92,10 @@ spec:
         {{- if .Values.webIngestor.enabled }}
         # Web Ingestor sidecar container
         - name: web-ingestor
+          {{- with .Values.webIngestor.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
           {{- with .Values.webIngestor.envFrom }}
