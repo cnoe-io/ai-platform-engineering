@@ -30,6 +30,8 @@ import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSectio
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
+import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
+import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { useAdminRole } from "@/hooks/use-admin-role";
@@ -719,6 +721,11 @@ function AdminPage() {
 
   return (
     <div className="flex-1 overflow-hidden">
+      {/* Global Crawl Console dialog. Rendered at the page root so
+          it survives admin tab switches; opens via the header pill
+          or auto-opens when SkillHubsSection starts the first
+          crawl of the session. */}
+      <CrawlConsoleDialog />
       <ScrollArea className="h-full">
           <div className="p-6 space-y-6 max-w-7xl mx-auto">
             {/* Header */}
@@ -731,6 +738,12 @@ function AdminPage() {
                     Read-Only
                   </span>
                 )}
+                {/* Always-visible status pill that opens the
+                    Crawl Console dialog. Hidden until at least
+                    one crawl has happened in this session, so
+                    the header doesn't gain a permanent "0 crawls"
+                    chip on freshly-loaded pages. */}
+                <CrawlConsoleHeaderPill />
               </div>
               <p className="text-muted-foreground">
                 {isAdmin

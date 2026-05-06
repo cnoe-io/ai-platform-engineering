@@ -10,6 +10,8 @@ import { ScanAllDialog } from "@/components/skills/ScanAllDialog";
 import { cn } from "@/lib/utils";
 import { detectHubProviderFromUrl } from "@/app/api/skill-hubs/_lib/normalize";
 import { readJson, readJsonOrError } from "@/lib/safe-json";
+import { startCrawlStream } from "@/lib/crawl-stream-client";
+import { useCrawlConsoleStore } from "@/store/crawl-console-store";
 
 type HubType = "github" | "gitlab";
 
@@ -326,19 +328,59 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const handleRecrawl = async (hubId: string) => {
     setRecrawlingId(hubId);
     try {
-      const res = await fetch(`/api/skill-hubs/${hubId}/refresh`, { method: "POST" });
-      const parsed = await readJsonOrError<{ error?: string; skills_count?: number }>(res);
-      if (!res.ok) {
-        if (parsed.ok) {
-          throw new Error(parsed.data.error || `Recrawl failed (HTTP ${res.status})`);
+      // Use the streaming branch so the live console dialog
+      // tracks the run automatically. We also derive the
+      // skills_count from the terminal `done` event so the
+      // existing per-row "Refreshed: N skills" badge stays
+      // accurate. Operators who don't open the dialog still see
+      // the same UI they're used to; operators who DO get a full
+      // network trace + scope hints inline.
+      const hub = hubs.find((h) => h.id === hubId);
+      const label = hub
+        ? `Refresh — ${hub.location}`
+        : `Refresh — ${hubId}`;
+      const { runId } = startCrawlStream({
+        url: `/api/skill-hubs/${hubId}/refresh`,
+        label,
+        kind: "refresh",
+      });
+      // Poll the store until the run terminates, then read the
+      // skills count from the `done` event. This is intentionally
+      // simple polling -- subscribing to the store would couple
+      // SkillHubsSection to zustand internals for marginal value.
+      // Cap the wait so a runaway crawl can't pin the UI forever
+      // (the underlying stream keeps running regardless).
+      const deadline = Date.now() + 5 * 60_000; // 5 minutes
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const run = useCrawlConsoleStore
+          .getState()
+          .runs.find((r) => r.id === runId);
+        if (!run || run.status !== "running") break;
+        if (Date.now() > deadline) {
+          throw new Error(
+            "Recrawl is still running after 5 minutes — check the Crawl Console for live progress.",
+          );
         }
-        const detail = parsed.preview ? ` Body starts with: ${parsed.preview.slice(0, 120)}` : "";
-        throw new Error(`Recrawl failed (HTTP ${parsed.status}): ${parsed.error}${detail}`);
+        await new Promise((res) => setTimeout(res, 200));
       }
-      if (!parsed.ok) {
-        throw new Error(`Recrawl returned non-JSON response: ${parsed.error}`);
+      const finalRun = useCrawlConsoleStore
+        .getState()
+        .runs.find((r) => r.id === runId);
+      if (!finalRun) return;
+      if (finalRun.status === "succeeded") {
+        const done = finalRun.events.find((e) => e.type === "done");
+        if (done?.type === "done") {
+          setRecrawlResult((prev) => ({ ...prev, [hubId]: done.skills }));
+        }
+      } else {
+        const errEvent = finalRun.events.find((e) => e.type === "error");
+        const errMsg =
+          errEvent?.type === "error"
+            ? errEvent.message
+            : `Recrawl failed (${finalRun.status})`;
+        throw new Error(errMsg);
       }
-      setRecrawlResult((prev) => ({ ...prev, [hubId]: parsed.data.skills_count ?? 0 }));
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -384,6 +426,28 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
         }
         maxTreePages = parsed;
       }
+      // Fire a streaming run in parallel so the global Crawl
+      // Console dialog can render live progress with full network
+      // detail. The console run is purely observational --
+      // ``handleCrawlPreview`` stays the source of truth for the
+      // inline "Discovered SKILL.md paths" list because the form
+      // already renders its results from the JSON-shape response.
+      // We accept the second request -- preview is an explicit
+      // admin action, not a hot path -- in exchange for not having
+      // to re-derive the preview list from streamed events. If
+      // this becomes a perf concern, switch the form to consume
+      // the stream's skill_found events instead.
+      startCrawlStream({
+        url: "/api/skill-hubs/crawl",
+        body: {
+          type: formType,
+          location: formLocation.trim(),
+          credentials_ref: formCredRef.trim() || null,
+          max_tree_pages: maxTreePages,
+        },
+        label: `Preview — ${formLocation.trim()}`,
+        kind: "preview",
+      });
       const res = await fetch("/api/skill-hubs/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
