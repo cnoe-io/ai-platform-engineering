@@ -14,6 +14,7 @@ Auth: no per-user OAuth. Reads ``MONGODB_URI`` / ``MONGODB_DATABASE`` /
 ``WEBEX_TOKEN`` from env. Pam invokes these tools server-to-server.
 """
 
+import base64
 import functools
 import logging
 import os
@@ -96,6 +97,10 @@ class ParseWebexVtt(BaseModel):
     vtt_text: Annotated[
         str | None,
         Field(description="Raw WebVTT text. If omitted, ``url`` must be set."),
+    ] = None
+    vtt_base64: Annotated[
+        str | None,
+        Field(description="Base64-encoded WebVTT text, for embedded attachment resources."),
     ] = None
     url: Annotated[
         str | None,
@@ -488,13 +493,18 @@ def register_tools(server) -> None:
     async def parse_webex_vtt(args: ParseWebexVtt) -> dict[str, Any]:
         """Parse Cisco-flavoured WebVTT into structured segments."""
         text = args.vtt_text
+        if not text and args.vtt_base64:
+            try:
+                text = base64.b64decode(args.vtt_base64, validate=True).decode("utf-8-sig")
+            except Exception as e:  # noqa: BLE001
+                raise ValueError(f"Invalid vtt_base64 payload: {e}") from e
         if not text and args.url:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.get(args.url)
                 r.raise_for_status()
                 text = r.text
         if not text:
-            raise ValueError("Provide either vtt_text or url")
+            raise ValueError("Provide vtt_text, vtt_base64, or url")
         return _parse_vtt(text)
 
     # ─── extract_action_items ───────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Plan: Pam Beesly — Pod Meeting Assistant on CAIPE
 
-**TL;DR.** Build Pam as a **CAIPE Dynamic Agent** (no new platform agent code) backed by **three MCP servers**: (1) a **new** `mcp_webex_meetings` MCP — a thin local server that exposes the same tool surface as Cisco's official Webex Meetings MCP (`webex-list-meetings`, `webex-list-transcripts`, etc.) but hits the **public Webex REST API** (`webexapis.com/v1/...`) directly. Authed via **per-user OAuth** — token resolved from the `vendor_connections` Mongo collection populated by the existing UI OAuth flow. Built deliberately so we can drop in Cisco's official MCP later (just swap one URL) the day Cisco IT enables agentic apps in cisco.com Control Hub. (2) the existing in-house `mcp_webex` (messaging-only, kept untouched, bot-token auth). (3) the existing `mcp-atlassian` Confluence MCP. (4) **a new lightweight MCP — `mcp_pod_meeting`** — containing only the *deterministic* helpers an LLM is bad at: VTT parsing, action/decision extraction, agenda XHTML rendering, Webex `#agenda` topic harvesting, and a pod registry. PgM↔Pam approvals run **in Webex DM via CAIPE's existing Webex bot listener** (`integrations/webex_bot`, already in repo) — no UI-only loop. v1 is chat-triggered with an optional Kubernetes CronJob that POSTs `"Pam, prep <pod>'s next meeting"` to Pam's chat endpoint.
+**TL;DR.** Build Pam as a **CAIPE Dynamic Agent** (no new platform agent code) backed by **three MCP servers**: (1) a **new** `mcp_webex_meetings` MCP — a thin local server that exposes the same tool surface as Cisco's official Webex Meetings MCP (`webex-list-meetings`, `webex-list-transcripts`, etc.) but hits the **public Webex REST API** (`webexapis.com/v1/...`) directly. Authed via **per-user OAuth** — token resolved from the `vendor_connections` Mongo collection populated by the existing UI OAuth flow. Built deliberately so we can drop in Cisco's official MCP later (just swap one URL) the day Cisco IT enables agentic apps in cisco.com Control Hub. (2) the existing in-house `mcp_webex` (messaging-only, kept untouched, bot-token auth). (3) the existing `mcp-atlassian` Confluence MCP. (4) **a new lightweight MCP — `mcp_pod_meeting`** — containing only the *deterministic* helpers an LLM is bad at: VTT parsing, action/decision extraction, agenda XHTML rendering, Webex `#agenda` topic harvesting, and a pod registry. PgM↔Pam approvals run **in Webex DM via CAIPE's existing Webex bot listener** (`integrations/webex_bot`, already in repo) — no UI-only loop. v1 is chat-triggered with optional Kubernetes CronJobs that POST prep and best-effort post-meeting writeup messages to Pam's chat endpoint. The transcript updater always targets an existing Confluence page: it reads the page fields/sections first, mines Webex or attached/pasted VTT, and updates that same page.
 
 > **Why a separate `mcp_webex_meetings` MCP (not extending `mcp_webex`)?**
 > 1. **Auth model**: `mcp_webex` uses a single shared bot token (`WEBEX_TOKEN`) for posting messages as the bot. Meeting/transcript reads need the *requesting user's* OAuth bearer (the bot can't read other people's transcripts; even with Compliance Officer scopes, you want per-user audit trails for transcripts). MCP-level auth is per-server, so mixing strategies in one MCP is wrong.
@@ -39,7 +39,7 @@ Built using the same FastMCP + Pydantic + Click template as `mcp_webex`. Located
 
 **Tools (deterministic, no LLM in the path):**
 
-1. **`parse_webex_vtt(vtt_text | url)`** → `{segments: [{speaker, start, end, text}], speakers: [...], duration_s}`. Pure VTT parser; normalizes Cisco's display-name format. Reference input: `ai-platform-engineering-context-id-bug/Mycelium Team-20260424 2031-1.vtt`.
+1. **`parse_webex_vtt(vtt_text | vtt_base64 | url)`** → `{segments: [{speaker, start, end, text}], speakers: [...], duration_s}`. Pure VTT parser; normalizes Cisco's display-name format. `vtt_base64` supports Confluence attachment downloads returned as embedded resources. Reference input: `ai-platform-engineering-context-id-bug/Mycelium Team-20260424 2031-1.vtt`.
 2. **`extract_action_items(segments)`** → `[{owner_hint, text, ts, confidence}]`. Regex/heuristic pass: "I'll …", "X will …", "action item …", "TODO …". Returns raw candidates; final phrasing left to LLM, but extraction is deterministic.
 3. **`extract_decisions(segments)`** → `[{text, ts}]`. Heuristic pass on "we agreed", "decision:", "let's go with".
 4. **`resolve_owners(owner_hints, pod_id)`** → resolves first-name / mention to `{display_name, email, webex_person_id}` using the pod roster (Mongo). Falls back to "unassigned".
@@ -95,7 +95,7 @@ Default to **B1** for v1.
 
 - **Primary trigger (v1):** PgM types in CAIPE chat (the grid). **No Webex bot listener in v1** — there's no bot integration wired into dynamic-agents today, so all approvals stay in-grid. Cron-triggered prep posts a draft Confluence link into the chat session for the PgM to review.
 - **Webex bot listener — Phase 2, post-merge.** After v1 ships, add a Webex bot integration that forwards DMs to Pam's chat session so PgMs can approve from Webex instead of the grid. Tracked separately.
-- **Scheduled trigger (v1):** see **Phase 4b — Scheduler service** below. Pam exposes `schedule_prep` / `unschedule_prep` / `list_schedules` tools; the actual cron lives in a separate `scheduler-svc` pod that creates per-schedule k8s `CronJob`s. dynamic-agents itself never gets k8s API perms.
+- **Scheduled trigger (v1):** see **Phase 4b — Scheduler service** below. Pam exposes scheduler-backed prep and best-effort post-meeting writeup flows; the actual cron lives in a separate `scheduler-svc` pod that creates per-schedule k8s `CronJob`s. dynamic-agents itself never gets k8s API perms. Post-meeting writeup runs about one hour after the meeting ends, passes the existing Confluence agenda page to the transcript updater, first tries Webex transcripts when a meeting id can be resolved, then falls back to a `.vtt` attachment or pasted `WEBVTT` block on that page.
 - **Approvals (v1, in Webex):** Pam DMs the PgM via the bot with a Confluence link + summary. PgM replies in the same Webex DM thread → bot forwards to Pam's chat session → Pam treats it as the next user turn. Pam looks for an explicit `approve` token (or PgM-edited content) and only then posts to the pod space. From Pam's perspective the channel is irrelevant — it's just chat.
 
 **Re: "fake CAIPE email" auto-pickup.** Out of scope for v1 because it requires (a) a Microsoft Graph / Exchange integration that doesn't exist anywhere in the repo, (b) a webhook listener service, (c) a calendar-invite parser to extract pod identity. Realistic effort is a separate small service (Graph subscription → webhook → POST to Pam's chat endpoint with parsed metadata) — track as Phase 6.
@@ -242,7 +242,7 @@ New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
 2. Language: **Python** (matches MCP stack) — confirm vs. Go.
 3. Image registry: `ghcr.io/cnoe-io/caipe-scheduler` + `ghcr.io/cnoe-io/caipe-cron-runner`?
 4. `owner_user_id`: CAIPE user id, or email string?
-5. WRITEUP via cron — out of scope (needs host's Webex OAuth; PgM does writeup manually). Confirm.
+5. WRITEUP via cron — in scope as best-effort. It uses the scheduler service to fire a static message about one hour after meeting end. Pam resolves the existing Confluence agenda page and delegates it to the transcript updater, which tries Webex transcript access with the scheduled user's OAuth and then falls back to a `.vtt` attachment or pasted `WEBVTT` block on that page.
 
 ### Phase 4b deliverables
 
@@ -257,7 +257,7 @@ New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
 
 ## Phase 5 — Persona content & verification
 
-- **System prompt** explicitly enumerates the workflow: pre-meeting (template+harvest+draft+approve+post), during (n/a in v1, transcript-first), post (parse VTT → render notes → DM PgM → wait for approval → post in pod space).
+- **System prompt** explicitly enumerates the workflow: pre-meeting (template+harvest+draft+approve+post), during (n/a in v1, transcript-first), post (resolve existing Confluence page → transcript updater reads page fields + VTT → updates same page → DM/post summary).
 - **Sample fixtures** in `mcp_pod_meeting/tests/fixtures/`: the `Mycelium Team-20260424 2031-1.vtt` and the linked Mycelium Confluence page exported as XHTML, used to validate the parse+render round-trip.
 
 ---
@@ -286,7 +286,7 @@ New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
 ## Relevant files
 
 - `ai_platform_engineering/agents/webex/mcp/mcp_webex/mcp_server.py` — MCP-server template to copy (FastMCP + Click + Pydantic models + `@server.tool` decorators + `handle_mcp_errors`).
-- `ai_platform_engineering/agents/confluence/mcp/mcp_confluence/server.py` — confirms `update_page`, `update_page_title` already exposed (lines 517, 561). Pam will call these via the Confluence MCP, no wrapper needed.
+- `ai_platform_engineering/agents/confluence/mcp/mcp_confluence/server.py` — confirms `update_page` and attachment read/download tools are exposed. The transcript updater calls these via the Confluence MCP, no wrapper needed.
 - `ai_platform_engineering/agents/confluence/agent_confluence/protocol_bindings/a2a_server/agent.py` — confirms deployments use `sooperset/mcp-atlassian` (line 79).
 - `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/config.yaml` — where to register the 4 MCP servers + Pam.
 - `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mcp_client.py` — `build_mcp_connection_config()`; verify bearer-token passthrough for the official Webex Meetings MCP.
@@ -304,7 +304,7 @@ New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
 2. **Unit:** `extract_action_items` + `extract_decisions` produce non-empty plausible candidates from the Mycelium VTT (assert ≥3 actions and ≥1 decision; spot-check).
 3. **Unit:** `render_notes_xhtml` produces XHTML that parses as well-formed Confluence storage format and contains the expected anchors.
 4. **Integration (manual):** start CAIPE locally with the new config, open chat → "Pam, register pod 'demo' with room <id> and parent <id>" → "Pam, prep next demo meeting" → verify a draft Confluence page appears + Webex DM is sent to PgM.
-5. **Integration (manual):** "Pam, write up notes from this transcript:" + paste VTT → verify notes page is created + PgM gets DM with link + summary blurb.
+5. **Integration (manual):** upload a `.vtt` attachment to an existing Confluence agenda page or paste a `WEBVTT` block into it, then ask the transcript updater to use that page → verify the existing page's fields/sections are filled and the agent returns an updated-page JSON result.
 6. **Bearer passthrough:** confirm the official Webex Meetings MCP returns real meetings via `webex-list-meetings` from inside Pam's tool list.
 7. **Allow-list:** confirm only Pam's whitelisted tools appear in the dynamic-agents UI tool inspector.
 
@@ -324,7 +324,7 @@ New sub-chart: `charts/ai-platform-engineering/charts/scheduler/`. Values:
 
 ## Further considerations
 
-1. **Webex token scopes for transcripts.** The transcripts REST API only returns data the token owner is authorised to see. To pull transcripts for *other people's* meetings (which is what Pam needs in most pods), the token must belong to a Webex user with the **Compliance Officer** role, or be an Integration with `spark-compliance:meetings_read` / `spark-compliance:transcripts_read`. *Recommendation:* document this prerequisite; for orgs without a CO, fall back to having the meeting host paste the VTT into chat (still triggers the same `parse_webex_vtt` → `render_notes_xhtml` path).
+1. **Webex token scopes for transcripts.** The transcripts REST API only returns data the token owner is authorised to see. To pull transcripts for *other people's* meetings (which is what Pam needs in most pods), the token must belong to a Webex user with the **Compliance Officer** role, or be an Integration with `spark-compliance:meetings_read` / `spark-compliance:transcripts_read`. *Recommendation:* document this prerequisite; for orgs without a CO, fall back to having the meeting host add the VTT to the Confluence agenda page as a `.vtt` attachment or pasted `WEBVTT` block. The transcript updater can then use the same parser/extractors and fill the existing page without requiring CAIPE chat file upload.
 2. **Webex bot ↔ dynamic_agents wiring.** The existing bot integration today routes to the **supervisor**. Verify it can address dynamic agents directly (e.g. `@CAIPE pam: ...`) or that we add a small router so DMs to the bot end up in Pam's chat thread. If not, ship a minimal patch — this is the only piece keeping the in-Webex approval loop from working.
 3. **Storage-format XHTML vs. ADF.** Atlassian's newer "v2" pages use ADF (JSON), older REST uses storage-format XHTML. *Recommendation:* render storage-format because `mcp-atlassian`'s `create_page` accepts it; revisit if your Cloud instance forces v2.
 4. **Idempotency on re-runs.** If Pam is invoked twice for the same meeting, do we update the existing page or create a new one? *Recommendation:* `find_prior_meeting_page` covers lookup; if a page exists with today's title, `update_page` instead of `create_page`. Encode this in the system prompt.
