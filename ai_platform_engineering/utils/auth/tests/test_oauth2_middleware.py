@@ -11,8 +11,31 @@ sets up its env BEFORE the module loads (or reloads).
 import importlib
 import os
 import sys
+import types
 import unittest
 from unittest.mock import patch
+
+# Defensive stub augmentation: another upstream test file (test_a2a_server.py)
+# installs a stub `jwt` module at collection time when pyjwt isn't installed.
+# That stub lacks `InvalidTokenError`, which oauth2_middleware imports at
+# module-load. Ensure the attributes exist so our re-import succeeds in any
+# test environment — real pyjwt or stubbed.
+if "jwt" in sys.modules:
+    _jwt_mod = sys.modules["jwt"]
+    if not hasattr(_jwt_mod, "InvalidTokenError"):
+        _jwt_mod.InvalidTokenError = Exception
+    if not hasattr(_jwt_mod, "PyJWTError"):
+        _jwt_mod.PyJWTError = Exception
+    if not hasattr(_jwt_mod, "get_unverified_header"):
+        _jwt_mod.get_unverified_header = lambda token: {"kid": "k1"}
+    if not hasattr(_jwt_mod, "decode"):
+        _jwt_mod.decode = lambda *a, **kw: {}
+    if not hasattr(_jwt_mod, "algorithms"):
+        # Minimal stub for the RSAAlgorithm.from_jwk path; tests patch around it.
+        _jwt_mod.algorithms = types.SimpleNamespace(
+            RSAAlgorithm=types.SimpleNamespace(from_jwk=lambda x: "fake_key"),
+            ECAlgorithm=types.SimpleNamespace(from_jwk=lambda x: "fake_key"),
+        )
 
 
 _OAUTH2_ENV = {
@@ -99,6 +122,47 @@ class TestVerifyTokenStrictMode(unittest.TestCase):
 
     def test_unknown_azp_rejected_in_strict_mode(self):
         self.assertFalse(_verify_with_payload(self.mod, {"azp": "intruder"}))
+
+    def test_empty_string_claim_treated_as_missing_in_strict_mode(self):
+        """`azp=""` falls through the truthy `or` chain to the next claim;
+        if all are empty/missing, strict mode rejects."""
+        self.assertFalse(_verify_with_payload(self.mod, {"azp": "", "client_id": ""}))
+
+
+class TestVerifyTokenEdgeCases(unittest.TestCase):
+    """Edge cases on claim values: empty strings, claim precedence, type safety."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_middleware()
+
+    def test_empty_azp_falls_through_to_client_id(self):
+        """`azp=""` is falsy; `or` chain continues to `client_id`."""
+        self.assertTrue(
+            _verify_with_payload(
+                self.mod, {"azp": "", "client_id": "supervisor"}
+            )
+        )
+
+    def test_empty_client_id_falls_through_to_cid(self):
+        """`client_id=""` falsy; falls through to `cid`."""
+        self.assertTrue(
+            _verify_with_payload(
+                self.mod, {"client_id": "", "cid": "supervisor"}
+            )
+        )
+
+    def test_all_empty_in_permissive_default_accepted(self):
+        """Default permissive mode accepts tokens with all-empty claims (legacy)."""
+        self.assertTrue(
+            _verify_with_payload(
+                self.mod, {"azp": "", "client_id": "", "cid": ""}
+            )
+        )
+
+    def test_non_string_claim_rejected_via_set_membership(self):
+        """A malicious IdP issuing a list/dict claim still gets rejected."""
+        self.assertFalse(_verify_with_payload(self.mod, {"azp": [1, 2, 3]}))
 
 
 if __name__ == "__main__":
