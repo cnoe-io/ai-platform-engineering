@@ -49,6 +49,7 @@ const config: Config = {
       {
         redirects: [
           // Old docs-based release notes → new blog posts
+          {from: '/releases/release-0.4.9', to: '/blog/releases/release-0.4.9'},
           {from: '/releases/release-0.4.8', to: '/blog/releases/release-0.4.8'},
           {from: '/releases/release-0.4.7', to: '/blog/releases/release-0.4.7'},
           {from: '/releases/release-0.4.6', to: '/blog/releases/release-0.4.6'},
@@ -100,16 +101,21 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
-          lastVersion: '0.4.8',
+          lastVersion: '0.4.9',
           versions: {
             current: {
               label: 'main 🚧',
               path: 'next',
               badge: true,
             },
-            '0.4.8': {
-              label: '0.4.8 (Latest)',
+            '0.4.9': {
+              label: '0.4.9 (Latest)',
               path: '',
+              badge: false,
+            },
+            '0.4.8': {
+              label: '0.4.8',
+              path: '0.4.8',
               badge: false,
             },
           },
