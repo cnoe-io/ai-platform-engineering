@@ -28,6 +28,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_litellm")
 
 
+def get_default_timeout() -> int:
+  """Return the default LiteLLM API timeout in seconds."""
+  raw_timeout = os.getenv("LITELLM_API_TIMEOUT", "30")
+  try:
+    timeout = int(raw_timeout)
+  except ValueError:
+    logger.warning("Invalid LITELLM_API_TIMEOUT=%r, using 30 seconds", raw_timeout)
+    return 30
+
+  if timeout <= 0:
+    logger.warning("LITELLM_API_TIMEOUT must be positive, using 30 seconds")
+    return 30
+
+  return timeout
+
 
 def assemble_nested_body(flat_body: Dict[str, Any]) -> Dict[str, Any]:
   """
@@ -58,7 +73,7 @@ async def make_api_request(
   token: Optional[str] = None,
   params: Dict[str, Any] = {},
   data: Dict[str, Any] = {},
-  timeout: int = 30,
+  timeout: Optional[int] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
   """
   Make a request to the API
@@ -69,11 +84,13 @@ async def make_api_request(
       token: API token (defaults to LITELLM_API_KEY)
       params: Query parameters for the request (optional)
       data: JSON data for POST/PATCH/PUT requests (optional)
-      timeout: Request timeout in seconds (default: 30)
+      timeout: Request timeout in seconds (defaults to LITELLM_API_TIMEOUT or 30)
 
   Returns:
       Tuple of (success, data) where data is either the response JSON or an error dict
   """
+  timeout = timeout or get_default_timeout()
+
   logger.debug(f"Making {method} request to {path}")
 
   if not token:

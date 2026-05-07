@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from fastmcp import FastMCP
 
 
+from mcp_litellm.tools import usage_reports
+
 from mcp_litellm.tools import models
 
 from mcp_litellm.tools import models_model_id
@@ -258,6 +260,15 @@ def main():
     mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
   else:
     mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+
+  # Register curated report tools first so agents prefer summarized analytics
+  # over raw paginated spend logs for FinOps questions.
+
+  mcp.tool()(usage_reports.get_llm_token_usage_report)
+  mcp.tool()(usage_reports.get_llm_spend_by_model_report)
+  mcp.tool()(usage_reports.get_llm_usage_and_spend_by_user_report)
+  mcp.tool()(usage_reports.get_llm_top_models_report)
+  mcp.tool()(usage_reports.get_llm_usage_by_user_report)
 
   # Register models tools
 

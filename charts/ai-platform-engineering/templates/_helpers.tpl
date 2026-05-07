@@ -143,3 +143,51 @@ When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays 
 {{- define "ai-platform-engineering.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
+
+{{/*
+LiteLLM MCP standalone server helpers.
+*/}}
+{{- define "ai-platform-engineering.litellmMcp.name" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- default "litellm-mcp" $values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.fullname" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- if $values.fullnameOverride -}}
+{{- $values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := default "litellm-mcp" $values.nameOverride -}}
+{{- if contains $name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "ai-platform-engineering.litellmMcp.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: mcp
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.labels" -}}
+helm.sh/chart: {{ include "ai-platform-engineering.chart" . }}
+{{ include "ai-platform-engineering.litellmMcp.selectorLabels" . }}
+app.kubernetes.io/part-of: {{ include "ai-platform-engineering.name" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.secretName" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- if $values.existingSecret -}}
+{{- $values.existingSecret -}}
+{{- else -}}
+{{- $secret := $values.secret | default dict -}}
+{{- default (include "ai-platform-engineering.litellmMcp.fullname" .) $secret.name -}}
+{{- end -}}
+{{- end -}}
