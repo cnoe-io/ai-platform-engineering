@@ -107,6 +107,39 @@ class ModelConfig(BaseModel):
 
 
 # =============================================================================
+# Agent Backend Configuration
+# =============================================================================
+
+# Backend type constants
+BACKEND_STATE = "state"
+BACKEND_STORE = "store"
+BACKEND_SANDBOX = "sandbox"
+
+
+class AgentBackendConfig(BaseModel):
+    """Backend-specific configuration options."""
+
+    fs_ttl_seconds: int | None = Field(
+        None,
+        ge=0,
+        description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
+    )
+
+
+class AgentBackend(BaseModel):
+    """Agent backend configuration — controls filesystem storage strategy."""
+
+    type: Literal["state", "store", "sandbox"] | None = Field(
+        None,
+        description="Backend type. None = use server default_runtime_backend.",
+    )
+    config: AgentBackendConfig | None = Field(
+        None,
+        description="Backend-specific config (TTL, etc.)",
+    )
+
+
+# =============================================================================
 # SubAgent Reference
 # =============================================================================
 
@@ -404,6 +437,10 @@ class DynamicAgentConfigBase(BaseModel):
             "Map of server_id -> {tool_name: config}. "
             "Use 'builtin' as server_id for built-in tools (no namespace prefix)."
         ),
+    )
+    backend: AgentBackend | None = Field(
+        None,
+        description="Backend configuration (storage type, TTL). None = use server defaults.",
     )
 
     @model_validator(mode="before")

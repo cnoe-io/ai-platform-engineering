@@ -53,8 +53,13 @@ class Settings(BaseSettings):
 
     # GridFS store (for agent file storage outside checkpoints)
     gridfs_bucket_name: str = "agent_files"
-    gridfs_ttl_seconds: int = 172800  # 48 hours
-    use_gridfs_backend: bool = True  # False = StateBackend (in-checkpoint files)
+
+    # Runtime backend: "store" = GridFS-backed filesystem, "state" = in-checkpoint
+    default_runtime_backend: str = "store"
+    # Default TTL for filesystem documents (0 = infinite, never expires)
+    default_fs_ttl_seconds: int = 21600  # 6 hours
+    # Maximum allowed TTL (0 = no cap, infinite allowed)
+    max_fs_ttl_seconds: int = 0
 
     # Runtime
     agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes

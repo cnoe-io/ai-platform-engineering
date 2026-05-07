@@ -33,6 +33,7 @@ from pymongo import MongoClient
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
+    BACKEND_STORE,
     AgentContext,
     ClientContext,
     DynamicAgentConfig,
@@ -59,7 +60,7 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
-from dynamic_agents.services.skills import build_skills_files, load_skills
+from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -186,9 +187,11 @@ class AgentRuntime:
                 writes_collection_name=self.settings.checkpoint_writes_collection,
             )
             # GridFS-backed store for large file content (avoids 16MB checkpoint limit)
+            fs_ttl = self._resolve_fs_ttl()
             self._store = MongoDBGridFSStore(
                 db=self._mongo_client[self.settings.mongodb_database],
                 bucket_name=self.settings.gridfs_bucket_name,
+                ttl_seconds=fs_ttl,
             )
         self._initialized = False
         self._is_streaming = False  # guards LRU eviction — never evict mid-stream
@@ -228,6 +231,31 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+
+    def _resolve_backend_type(self) -> str:
+        """Resolve effective backend type from agent config or server default."""
+        if self.config.backend and self.config.backend.type:
+            return self.config.backend.type
+        return self.settings.default_runtime_backend
+
+    def _resolve_fs_ttl(self) -> int:
+        """Resolve filesystem TTL from agent config or server default.
+
+        Returns 0 for infinite. Validates against max_fs_ttl_seconds.
+        """
+        ttl = None
+        if self.config.backend and self.config.backend.config:
+            ttl = self.config.backend.config.fs_ttl_seconds
+        if ttl is None:
+            ttl = self.settings.default_fs_ttl_seconds
+
+        max_ttl = self.settings.max_fs_ttl_seconds
+        if max_ttl != 0 and ttl != 0 and ttl > max_ttl:
+            logger.warning(
+                f"Agent '{self.config.name}': fs_ttl_seconds={ttl} exceeds max_fs_ttl_seconds={max_ttl}, capping to max"
+            )
+            ttl = max_ttl
+        return ttl
 
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
@@ -336,31 +364,7 @@ class AgentRuntime:
                     mongodb_database=self.settings.mongodb_database,
                 )
 
-                # Track skills that were requested but not found.
-                # When SKILL_SCANNER_GATE=strict is active and a skill
-                # has scan_status != "passed", the loader silently
-                # filters it out — same observable result as "not in
-                # DB" but a very different fix. Surface that distinction
-                # in the user-visible warning so operators can tell
-                # whether they need to (a) re-pick the skill, (b) run
-                # the scanner, or (c) loosen the gate.
-                loaded_ids = {s["id"] for s in skills_data}
-                missing = [sid for sid in self.config.skills if sid not in loaded_ids]
-                if missing:
-                    self._failed_skills = missing
-                    # Vendored — see services/scan_gate.py docstring for
-                    # why this isn't ai_platform_engineering.skills_middleware.
-                    from dynamic_agents.services.scan_gate import (
-                        get_scan_gate,
-                    )
-
-                    if get_scan_gate() == "strict":
-                        self._failed_skills_error = (
-                            f"Skills unavailable (not found in DB or blocked by scan gate "
-                            f"under SKILL_SCANNER_GATE=strict): {', '.join(missing)}"
-                        )
-                    else:
-                        self._failed_skills_error = f"Skills not found: {', '.join(missing)}"
+                self._failed_skills, self._failed_skills_error = detect_missing_skills(self.config.skills, skills_data)
 
                 if skills_data:
                     self._skills_files, skills_sources = build_skills_files(skills_data)
@@ -368,7 +372,7 @@ class AgentRuntime:
                         # Backend for SkillsMiddleware: use StoreBackend (GridFS) when
                         # enabled so skills are read from the same store as read_file;
                         # otherwise fall back to StateBackend (reads from state["files"]).
-                        if self.settings.use_gridfs_backend:
+                        if self._resolve_backend_type() == BACKEND_STORE:
                             agent_id = self.config.id
                             session_id = self._session_id
 
@@ -376,6 +380,18 @@ class AgentRuntime:
                                 return StoreBackend(
                                     rt,
                                     namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                                )
+
+                            # Seed skill files into GridFS so SkillsMiddleware and
+                            # read_file can find them via StoreBackend.
+                            if self._store:
+                                namespace = (agent_id, session_id, "filesystem")
+                                self._store.delete_by_key_prefix(namespace, "/skills/")
+                                for path, file_data in self._skills_files.items():
+                                    self._store.put(namespace, path, file_data)
+                                logger.info(
+                                    f"Agent '{self.config.name}': seeded "
+                                    f"{len(self._skills_files)} skill files in GridFS"
                                 )
                         else:
                             skills_backend = StateBackend
@@ -414,8 +430,9 @@ class AgentRuntime:
         session_id = self._session_id
 
         # Backend selection: GridFS-backed StoreBackend or in-checkpoint StateBackend
-        logger.info(f"use_gridfs_backend={self.settings.use_gridfs_backend}")
-        if self.settings.use_gridfs_backend:
+        backend_type = self._resolve_backend_type()
+        logger.info(f"resolved backend_type={backend_type}")
+        if backend_type == BACKEND_STORE:
 
             def backend(rt):
                 return StoreBackend(
@@ -438,15 +455,6 @@ class AgentRuntime:
             interrupt_on=interrupt_config,
             middleware=middleware_stack,
         )
-
-        # 12. Pre-populate skills in GridFS so SkillsMiddleware and read_file
-        # can find them. This runs once per runtime init (not per message).
-        if self._skills_files and self.settings.use_gridfs_backend and self._store:
-            namespace = (self.config.id, self._session_id, "filesystem")
-            self._store.delete_by_key_prefix(namespace, "/skills/")
-            for path, file_data in self._skills_files.items():
-                self._store.put(namespace, path, file_data)
-            logger.info(f"Agent '{self.config.name}': wrote {len(self._skills_files)} skill files to GridFS")
 
         self._initialized = True
         init_duration = time.monotonic() - t_start
@@ -532,7 +540,7 @@ class AgentRuntime:
             config_summary["self_identity"] = {}
 
         # format_file tool — always available when using GridFS backend
-        if self.settings.use_gridfs_backend and self._store:
+        if self._resolve_backend_type() == BACKEND_STORE and self._store:
             agent_id = config.id
             session_id = self._session_id
             tools.append(
@@ -861,7 +869,7 @@ class AgentRuntime:
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.
-        if getattr(self, "_skills_files", None) and not self.settings.use_gridfs_backend:
+        if getattr(self, "_skills_files", None) and self._resolve_backend_type() != BACKEND_STORE:
             state_input["files"] = dict(self._skills_files)
         async for chunk in self._graph.astream(
             state_input,

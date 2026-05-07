@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from gridfs import GridFS
 from langgraph.store.base import (
@@ -34,6 +34,7 @@ class MongoDBGridFSStore(BaseStore):
     Args:
         db: A pymongo Database instance.
         bucket_name: GridFS bucket/collection prefix.
+        ttl_seconds: Per-document TTL in seconds. 0 means infinite (no expiry).
     """
 
     def __init__(
@@ -41,9 +42,11 @@ class MongoDBGridFSStore(BaseStore):
         *,
         db: Database,
         bucket_name: str = "agent_files",
+        ttl_seconds: int = 0,
     ) -> None:
         self._db = db
         self._bucket_name = bucket_name
+        self._ttl_seconds = ttl_seconds
         self._fs = GridFS(db, collection=bucket_name)
         self._files_collection = db[f"{bucket_name}.files"]
 
@@ -98,10 +101,13 @@ class MongoDBGridFSStore(BaseStore):
             return
 
         content = _serialize_value(op.value)
+        metadata = {"namespace": namespace, "key": op.key}
+        if self._ttl_seconds > 0:
+            metadata["expireAt"] = datetime.now(timezone.utc) + timedelta(seconds=self._ttl_seconds)
         self._fs.put(
             content.encode("utf-8"),
             filename=op.key,
-            metadata={"namespace": namespace, "key": op.key},
+            metadata=metadata,
         )
         logger.debug(f"[gridfs] PUT namespace={op.namespace} key={op.key} size={len(content)}")
 
@@ -221,19 +227,26 @@ class MongoDBGridFSStore(BaseStore):
             count += 1
         return count
 
-    def ensure_ttl_index(self, ttl_seconds: int = 604800) -> None:
-        """Create TTL index on uploadDate for automatic expiry.
+    def ensure_ttl_index(self) -> None:
+        """Create TTL index on metadata.expireAt for automatic per-document expiry.
 
+        Documents with expireAt=null or missing never expire.
         If an index with the same key already exists but with different
-        options (e.g. a different expireAfterSeconds value from a prior
-        deployment), drop it first and recreate with the new TTL.
+        options, drop it first and recreate.
         """
+        # Remove legacy uploadDate-based TTL index if present
         try:
-            self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
+            self._files_collection.drop_index("uploadDate_1")
+            logger.info("Dropped legacy uploadDate TTL index")
+        except OperationFailure:
+            pass  # Index doesn't exist
+
+        try:
+            self._files_collection.create_index("metadata.expireAt", expireAfterSeconds=0)
         except OperationFailure as e:
             if e.code == 85:  # IndexOptionsConflict
-                self._files_collection.drop_index("uploadDate_1")
-                self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
+                self._files_collection.drop_index("metadata.expireAt_1")
+                self._files_collection.create_index("metadata.expireAt", expireAfterSeconds=0)
             else:
                 raise
 

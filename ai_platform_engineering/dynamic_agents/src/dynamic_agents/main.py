@@ -93,8 +93,8 @@ async def lifespan(app: FastAPI):
         from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 
         store = MongoDBGridFSStore(db=mongo._db, bucket_name=settings.gridfs_bucket_name)
-        store.ensure_ttl_index(ttl_seconds=settings.gridfs_ttl_seconds)
-        logger.info(f"GridFS TTL index ensured ({settings.gridfs_ttl_seconds}s)")
+        store.ensure_ttl_index()
+        logger.info("GridFS TTL index ensured (per-document expireAt)")
 
     yield
 
