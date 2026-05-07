@@ -1,6 +1,7 @@
 """MCP Client wrapper for Dynamic Agents."""
 
 import asyncio
+import base64
 import logging
 import os
 from typing import Any
@@ -12,6 +13,15 @@ from dynamic_agents.models import MCPAuthProvider, MCPAuthType, MCPServerConfig,
 from dynamic_agents.services.vendor_tokens import VendorTokenError, get_webex_access_token
 
 logger = logging.getLogger(__name__)
+
+_TEXT_FILE_MIME_TYPES = {
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "text/vtt",
+}
+_INLINE_TEXT_FILE_MAX_BYTES = 1_000_000
 
 
 def _resolve_user_oauth_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
@@ -352,6 +362,61 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _maybe_inline_text_file_blocks(result: Any) -> Any:
+    """Turn small MCP embedded text files into visible tool text.
+
+    Some MCP servers return text attachments as ``EmbeddedResource`` blob
+    blocks. The LangChain MCP adapter converts those into multimodal ``file``
+    blocks, which are useful for model file upload paths but poor for tool
+    chaining: the agent cannot reliably pass the hidden base64/text into a
+    follow-up parser tool. For small text files, expose decoded text directly.
+    """
+    if not isinstance(result, tuple) or len(result) != 2:
+        return result
+
+    content, artifact = result
+    if not isinstance(content, list):
+        return result
+
+    inlined: list[str] = []
+    changed = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "file":
+            inlined.append(str(block))
+            continue
+
+        mime_type = (block.get("mime_type") or "").lower()
+        is_text = mime_type.startswith("text/") or mime_type in _TEXT_FILE_MIME_TYPES
+        encoded = block.get("base64")
+        if not is_text or not isinstance(encoded, str):
+            inlined.append(str(block))
+            continue
+
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except Exception:  # noqa: BLE001
+            inlined.append(str(block))
+            continue
+
+        if len(raw) > _INLINE_TEXT_FILE_MAX_BYTES:
+            inlined.append(
+                f"Downloaded {mime_type or 'text'} file is {len(raw)} bytes; too large to inline."
+            )
+            continue
+
+        text = raw.decode("utf-8-sig", errors="replace")
+        inlined.append(
+            "Downloaded text attachment content follows. "
+            "Pass it to the appropriate parser as text if needed.\n\n"
+            f"{text}"
+        )
+        changed = True
+
+    if not changed:
+        return result
+    return ("\n\n".join(inlined), artifact)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -392,7 +457,8 @@ def wrap_tools_with_error_handling(
             **kwargs: Any,
         ) -> Any:
             try:
-                return await _orig(*args, **kwargs)
+                result = await _orig(*args, **kwargs)
+                return _maybe_inline_text_file_blocks(result)
             except Exception as exc:
                 msg = _format_tool_error(_name, exc)
                 logger.error(f"[{agent_name}] Tool '{_name}' failed", exc_info=exc)
