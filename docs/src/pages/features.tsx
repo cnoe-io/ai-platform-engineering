@@ -4,22 +4,33 @@ import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import styles from './features.module.css';
 
-const DEEP_DIVES = [
+const FEATURES = [
   {
     title: 'Custom Agents',
     icon: '🛠️',
-    description: 'Build agents with custom system prompts, tool access, and personas. Deploy via the no-code Agent Builder UI or the dynamic-agents Helm chart.',
+    color: '#0284c7',
     to: '/docs/features/custom-agents',
+    items: [
+      'No-code Agent Builder UI — configure system prompt, model, and tools interactively',
+      'dynamic-agents Helm chart — deploy independently of the main supervisor',
+      'Seed config: pre-wire agents and MCP servers at chart install time',
+      'Per-agent system prompts, personas, and multi-model targeting',
+      'MongoDB-backed persistence, Prometheus metrics, ExternalSecrets integration',
+    ],
   },
   {
-    title: 'BYO A2A Agents & MCP Servers',
+    title: 'BYO A2A & MCP Servers',
     icon: '🔌',
-    description: 'Plug your own A2A agents and MCP servers into CAIPE via the supervisor agent registry, dynamic-agents seed config, or Docker Compose.',
+    color: '#7c3aed',
     to: '/docs/features/byo-agents',
+    items: [
+      'multiAgentConfig.agents — register any A2A-compatible agent with the supervisor',
+      'seedConfig.mcp_servers — plug in external MCP servers at chart install time',
+      'Docker Compose: A2A_TRANSPORT env var for p2p or hub-based routing',
+      'Supported protocols: A2A, MCP, AG-UI/SSE, SLIM, OpenAI-compatible',
+      'LiteLLM proxy support — any LLM provider through a single endpoint',
+    ],
   },
-];
-
-const FEATURES = [
   {
     title: 'Multi-Agent Orchestration',
     icon: '🤖',
@@ -141,40 +152,26 @@ export default function FeaturesPage() {
           </div>
         </section>
 
-        <section className={styles.grid} style={{paddingBottom: '1rem'}}>
-          <div style={{maxWidth: '1200px', margin: '0 auto 2rem', padding: '0 1.5rem'}}>
-            <p className={styles.cardTitle} style={{fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '1rem', color: 'var(--ifm-color-primary)'}}>Feature Deep Dives</p>
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem'}}>
-              {DEEP_DIVES.map((d) => (
-                <Link key={d.title} to={d.to} style={{textDecoration: 'none'}}>
-                  <div className={styles.card} style={{height: '100%'}}>
-                    <div className={styles.cardHeader} style={{'--card-color': '#0284c7'} as React.CSSProperties}>
-                      <span className={styles.cardIcon}>{d.icon}</span>
-                      <Heading as="h2" className={styles.cardTitle}>{d.title}</Heading>
-                    </div>
-                    <p className={styles.cardItem} style={{padding: '1rem 1.4rem', margin: 0}}>{d.description}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <section className={styles.grid}>
           <div className={styles.gridInner}>
-            {FEATURES.map((f) => (
-              <div key={f.title} className={styles.card}>
-                <div className={styles.cardHeader} style={{'--card-color': f.color} as React.CSSProperties}>
-                  <span className={styles.cardIcon}>{f.icon}</span>
-                  <Heading as="h2" className={styles.cardTitle}>{f.title}</Heading>
+            {FEATURES.map((f) => {
+              const card = (
+                <div key={f.title} className={styles.card} style={f.to ? {cursor: 'pointer'} : undefined}>
+                  <div className={styles.cardHeader} style={{'--card-color': f.color} as React.CSSProperties}>
+                    <span className={styles.cardIcon}>{f.icon}</span>
+                    <Heading as="h2" className={styles.cardTitle}>{f.title}</Heading>
+                  </div>
+                  <ul className={styles.cardList}>
+                    {f.items.map((item) => (
+                      <li key={item} className={styles.cardItem}>{item}</li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className={styles.cardList}>
-                  {f.items.map((item) => (
-                    <li key={item} className={styles.cardItem}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+              );
+              return f.to
+                ? <Link key={f.title} to={f.to} style={{textDecoration: 'none', color: 'inherit'}}>{card}</Link>
+                : card;
+            })}
           </div>
         </section>
 
