@@ -10,10 +10,10 @@ You've completed the CAIPE Labs series. This page summarizes what you learned an
 
 | Part | Module | What you did |
 |------|--------|----------------|
-| 1 | [Introduction to AI Agents](/workshop/agent) | Built a ReAct agent with LangChain and MCP tools |
-| 2 | [Multi-Agent Systems](/workshop/mas) | Deployed CAIPE on Kubernetes and coordinated weather and NetUtils agents |
-| 3 | [RAG and Git Agents](/workshop/rag) | Added a RAG stack, ingested docs, and queried the knowledge base |
-| 4 | [Tracing](/workshop/tracing) | Deployed Langfuse and traced multi-agent requests |
+| 1 | [Introduction to AI Agents](/docs/workshop/agent) | Built a ReAct agent with LangChain and MCP tools |
+| 2 | [Multi-Agent Systems](/docs/workshop/mas) | Deployed CAIPE on Kubernetes and coordinated weather and NetUtils agents |
+| 3 | [RAG and Git Agents](/docs/workshop/rag) | Added a RAG stack, ingested docs, and queried the knowledge base |
+| 4 | [Tracing](/docs/workshop/tracing) | Deployed Langfuse and traced multi-agent requests |
 
 Together, these modules gave you hands-on experience with the ReAct pattern, MCP, A2A, RAG, and observability—the core building blocks of production agent systems.
 
@@ -31,7 +31,7 @@ It guides you through cluster choice, LLM provider, credentials, and optional RA
 ./setup-caipe.sh --non-interactive --create-cluster --rag --tracing
 ```
 
-See [Run with KinD](/getting-started/kind/setup) for full options and reference.
+See [Run with KinD](/docs/getting-started/kind/setup) for full options and reference.
 
 ## Canonical Test Prompts
 
@@ -77,7 +77,7 @@ Run 1–4 in the CAIPE UI (and optionally in the agent-chat CLI). In Langfuse yo
 ## Next Steps
 
 - Explore more agents and MCP servers in the [CAIPE repo](https://github.com/cnoe-io/ai-platform-engineering).
-- Read the [KinD setup](/getting-started/kind/setup) and [LLM configuration](/getting-started/kind/configure-llms) docs for production-like options.
+- Read the [KinD setup](/docs/getting-started/kind/setup) and [LLM configuration](/docs/getting-started/kind/configure-llms) docs for production-like options.
 - Join the [CNOE community](https://github.com/cnoe-io/ai-platform-engineering#community) for support and roadmap updates.
 
 Thank you for completing CAIPE Labs.

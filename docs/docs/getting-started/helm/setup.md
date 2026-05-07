@@ -8,7 +8,7 @@ This guide helps you deploy **CAIPE** (Community AI Platform Engineering) on any
 
 **What is CAIPE?** CAIPE is an open-source platform for building and running **AI agents** that use tools, LLMs (e.g. Claude or GPT), and multi-agent orchestration. The Helm chart deploys the supervisor, UI, and optional agents (ArgoCD, GitHub, Backstage, RAG, etc.) on your cluster.
 
-**When to use Helm:** Use this path when you already have a Kubernetes cluster (EKS, GKE, AKS, KinD, etc.) and want to install CAIPE from the official chart. For a one-command local setup, see [Run CAIPE with KinD](/getting-started/kind/setup) instead.
+**When to use Helm:** Use this path when you already have a Kubernetes cluster (EKS, GKE, AKS, KinD, etc.) and want to install CAIPE from the official chart. For a one-command local setup, see [Run CAIPE with KinD](/docs/getting-started/kind/setup) instead.
 
 ---
 
@@ -271,5 +271,5 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
 
 - [Configure Agent Secrets](../eks/configure-agent-secrets) — Create secrets for GitHub, ArgoCD, LLMs, etc.
 - [Configure LLMs for EKS](../eks/configure-llms) — LLM provider and API keys
-- [Run with KinD](/getting-started/kind/setup) — One-command local setup with `setup-caipe.sh`
-- [Run with EKS](/getting-started/eks/setup) — Create an EKS cluster and deploy CAIPE
+- [Run with KinD](/docs/getting-started/kind/setup) — One-command local setup with `setup-caipe.sh`
+- [Run with EKS](/docs/getting-started/eks/setup) — Create an EKS cluster and deploy CAIPE

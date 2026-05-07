@@ -10,37 +10,67 @@ const FEATURES = [
     icon: '🤖',
     title: 'Multi-Agent Orchestration',
     description:
-      'A supervisor agent routes tasks to specialized sub-agents — ArgoCD, PagerDuty, GitHub, Jira, Kubernetes, and more — using the AG-UI protocol.',
+      '10+ first-party sub-agents and MCP servers. Create custom agents, customize system prompts, and chain workflows with the deterministic task builder.',
   },
   {
-    icon: '🔌',
-    title: '15+ Platform Integrations',
+    icon: '🎨',
+    title: 'Rich Web UI',
     description:
-      'Pre-built agents for the tools your team already uses: Slack, Webex, Backstage, Confluence, Splunk, VictorOps, Komodor, and growing.',
-  },
-  {
-    icon: '⚡',
-    title: 'Deploy in Minutes',
-    description:
-      'One-line install via Helm or Docker Compose. Bring your own LLM (OpenAI, Anthropic, Azure, or any OpenAI-compatible endpoint).',
-  },
-  {
-    icon: '🏢',
-    title: 'Enterprise Ready',
-    description:
-      'OIDC/SSO auth, RBAC, Kubernetes PSS Baseline security, ExternalSecrets integration, and multi-cluster support out of the box.',
+      'Live streaming chat, custom agent builder, task builder, and Skills Gateway with AI-assisted skill authoring, security scanning, and GitHub crawling.',
   },
   {
     icon: '🧠',
-    title: 'Skills & RAG',
+    title: 'Integrated Knowledge Bases',
     description:
-      'Author custom Skills in plain Markdown. Built-in RAG server with vector search gives your agents context from internal docs and runbooks.',
+      'Unified RAG (unstructured and Graph RAG) with ingestors for Web, ArgoCD, AWS, Backstage, Confluence, Jira, GitHub, Webex, and Slack.',
   },
   {
-    icon: '🌐',
-    title: 'Open Source & Community',
+    icon: '💾',
+    title: 'Agent Memory',
     description:
-      'CNOE Agentic AI SIG project. Weekly community meetings, CNCF Slack, and a growing ecosystem of contributors and integrations.',
+      'Multi-turn chat persistence and cross-session fact extraction — agents remember context across conversations for each user.',
+  },
+  {
+    icon: '🔒',
+    title: 'Enterprise Security',
+    description:
+      'OAuth 2.0 / OIDC SSO, OIDC/Okta group-based RBAC, team-based access control, and policy-based tool restrictions.',
+  },
+  {
+    icon: '🚀',
+    title: 'Flexible Deployment',
+    description:
+      'Kubernetes Helm charts, Docker Compose, ExternalSecrets, LLM tracing via Langfuse, and Prometheus metrics — bring any OpenAI-compatible LLM.',
+  },
+];
+
+const USE_CASES = [
+  {
+    title: 'How Splunk Built Forge on CAIPE',
+    description:
+      'Splunk Cloud Platform team used CAIPE to build an always-on internal AI assistant, cutting engineer response times by 99% and automating support triage across 90+ channels.',
+    image: 'https://outshift-headless-cms-s3.s3.us-east-2.amazonaws.com/ai-default-img-1.png',
+    href: 'https://outshift.cisco.com/blog/ai-ml/how-splunk-built-forge-on-caipe',
+    label: 'Splunk',
+    external: true,
+  },
+  {
+    title: 'JARVIS: Multi-Agent System Design Deep Dive',
+    description:
+      "A technical deep dive into how JARVIS — Cisco's internal platform AI assistant — is architected as a multi-agent system using CAIPE for superior performance and scalability.",
+    image: 'https://outshift-headless-cms-s3.s3.us-east-2.amazonaws.com/CREA-989.png',
+    href: 'https://outshift.cisco.com/blog/ai-ml/jarvis-technical-deep-dive-multi-agent-design',
+    label: 'Cisco Outshift',
+    external: true,
+  },
+  {
+    title: 'CAIPE Hands-On Workshop',
+    description:
+      'Step-by-step labs covering single-agent design, multi-agent orchestration, RAG knowledge bases, and distributed tracing — learn by building.',
+    image: 'https://outshift-headless-cms-s3.s3.us-east-2.amazonaws.com/INSIDEOUTSHIFT_1.png',
+    href: '/docs/workshop/caipeintro',
+    label: 'CAIPE Labs',
+    external: false,
   },
 ];
 
@@ -86,8 +116,8 @@ function HeroSection() {
             <span className={styles.heroStatLabel}>Integrations</span>
           </div>
           <div className={styles.heroStat}>
-            <span className={styles.heroStatNumber}>AG-UI</span>
-            <span className={styles.heroStatLabel}>Protocol</span>
+            <span className={styles.heroStatNumber}>Multi</span>
+            <span className={styles.heroStatLabel}>Agent System</span>
           </div>
           <div className={styles.heroStat}>
             <span className={styles.heroStatNumber}>OSS</span>
@@ -119,12 +149,55 @@ function FeaturesSection() {
       </div>
       <div className={styles.featuresGrid}>
         {FEATURES.map((f) => (
-          <div key={f.title} className={styles.featureCard}>
+          <Link key={f.title} to="/features" className={styles.featureCard}>
             <span className={styles.featureIcon}>{f.icon}</span>
             <Heading as="h3" className={styles.featureTitle}>{f.title}</Heading>
             <p className={styles.featureDesc}>{f.description}</p>
-          </div>
+          </Link>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function InTheWildSection() {
+  return (
+    <section className={styles.inTheWild}>
+      <div className={styles.sectionHeader}>
+        <p className={styles.sectionLabel}>Real World Usage</p>
+        <Heading as="h2" className={styles.sectionTitle}>
+          Used in production
+        </Heading>
+        <p className={styles.sectionSubtitle}>
+          Teams building with CAIPE — from always-on AI assistants to
+          enterprise-scale multi-agent platform automation.
+        </p>
+      </div>
+      <div className={styles.useCasesGrid}>
+        {USE_CASES.map((uc) => {
+          const inner = (
+            <>
+              <div className={styles.useCaseImg}>
+                <img src={uc.image} alt={uc.title} loading="lazy" />
+              </div>
+              <div className={styles.useCaseBody}>
+                <span className={styles.useCaseCompany}>{uc.label}</span>
+                <h3 className={styles.useCaseTitle}>{uc.title}</h3>
+                <p className={styles.useCaseDesc}>{uc.description}</p>
+                <span className={styles.useCaseLink}>{uc.external ? 'Read more ↗' : 'Start learning →'}</span>
+              </div>
+            </>
+          );
+          return uc.external ? (
+            <a key={uc.title} href={uc.href} target="_blank" rel="noopener noreferrer" className={styles.useCaseCard}>
+              {inner}
+            </a>
+          ) : (
+            <Link key={uc.title} to={uc.href} className={styles.useCaseCard}>
+              {inner}
+            </Link>
+          );
+        })}
       </div>
     </section>
   );
@@ -226,6 +299,7 @@ export default function Home() {
       <main>
         <HeroSection />
         <FeaturesSection />
+        <InTheWildSection />
         <AgentsSection />
         <QuickStartSection />
         <CtaSection />

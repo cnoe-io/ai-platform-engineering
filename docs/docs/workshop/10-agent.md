@@ -648,9 +648,9 @@ Congratulations! You've completed Part 1 of the AI Agents lab series. Here's wha
 
 In the upcoming parts of this lab series, you'll explore:
 
-- **Part 2**: [Multi-Agent Systems and CAIPE](/workshop/mas) — Deploy CAIPE and coordinate multiple agents
-- **Part 3**: [RAG and Git Agents](/workshop/rag) — Knowledge retrieval and version control automation
-- **Part 4**: [Tracing and Observability](/workshop/tracing) — Observe agent interactions with Langfuse
+- **Part 2**: [Multi-Agent Systems and CAIPE](/docs/workshop/mas) — Deploy CAIPE and coordinate multiple agents
+- **Part 3**: [RAG and Git Agents](/docs/workshop/rag) — Knowledge retrieval and version control automation
+- **Part 4**: [Tracing and Observability](/docs/workshop/tracing) — Observe agent interactions with Langfuse
 
 ### Additional Resources
 

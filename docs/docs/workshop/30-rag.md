@@ -553,7 +553,7 @@ Congratulations! You've completed Part 3 of the AI Agents lab series. Here's wha
 
 ### What's Next?
 
-- **Part 4**: [Tracing and Observability](/workshop/tracing) — Add Langfuse and observe agent interactions end-to-end.
+- **Part 4**: [Tracing and Observability](/docs/workshop/tracing) — Add Langfuse and observe agent interactions end-to-end.
 
 Then explore advanced topics:
 

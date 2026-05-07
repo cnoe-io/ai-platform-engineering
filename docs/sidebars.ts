@@ -265,31 +265,69 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         {
-          type: 'doc',
-          id: 'features/skills/README',
+          type: 'category',
+          label: 'Rich Web UI',
+          items: [
+            { type: 'doc', id: 'ui/index', label: 'Overview' },
+            { type: 'doc', id: 'ui/features', label: 'Features' },
+            { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
+            { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
+            { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },
+            { type: 'doc', id: 'ui/development', label: 'Development Guide' },
+            { type: 'doc', id: 'ui/api-reference', label: 'API Reference' },
+            { type: 'doc', id: 'ui/troubleshooting', label: 'Troubleshooting' },
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Knowledge Bases',
+          items: [
+            { type: 'doc', id: 'knowledge_bases/index', label: 'Overview' },
+            { type: 'doc', id: 'knowledge_bases/architecture', label: 'Architecture' },
+            { type: 'doc', id: 'knowledge_bases/ingestors', label: 'Ingestors' },
+            { type: 'doc', id: 'knowledge_bases/ontology-agent', label: 'Ontology Agent' },
+            { type: 'doc', id: 'knowledge_bases/mcp-tools', label: 'MCP Tools' },
+            { type: 'doc', id: 'knowledge_bases/authentication-overview', label: 'Authentication' },
+          ],
+        },
+        {
+          type: 'category',
           label: 'Skills',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Security',
-      items: [
-        {
-          type: 'doc',
-          id: 'security/index',
-          label: 'Overview',
+          items: [
+            { type: 'doc', id: 'features/skills/README', label: 'Overview' },
+          ],
         },
         {
-          type: 'doc',
-          id: 'security/a2a-auth',
-          label: 'A2A Authentication',
+          type: 'category',
+          label: 'Integrations',
+          items: [
+            { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
+            { type: 'doc', id: 'integrations/backstage-plugin', label: 'Agent Forge (Backstage)' },
+            { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
+            { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
+          ],
         },
         {
-          type: 'doc',
-          id: 'security/supply-chain',
-          label: 'Supply Chain Security',
+          type: 'category',
+          label: 'Security',
+          items: [
+            { type: 'doc', id: 'security/index', label: 'Overview' },
+            { type: 'doc', id: 'security/a2a-auth', label: 'A2A Authentication' },
+            { type: 'doc', id: 'security/supply-chain', label: 'Supply Chain Security' },
+          ],
         },
+        { type: 'doc', id: 'prompt-library/index', label: 'Prompt Library' },
+        {
+          type: 'category',
+          label: 'Tracing & Evaluations',
+          items: [
+            { type: 'doc', id: 'evaluations/index', label: 'Overview' },
+            { type: 'doc', id: 'evaluations/distributed-tracing-info', label: 'Distributed Tracing' },
+            { type: 'doc', id: 'evaluations/tracing-implementation-guide', label: 'Tracing Implementation Guide' },
+            { type: 'doc', id: 'evaluations/slack-streaming-conformance', label: 'Slack Streaming Conformance' },
+          ],
+        },
+        { type: 'doc', id: 'agent-ops/index', label: 'AgentOps' },
       ],
     },
     {
@@ -365,145 +403,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Integrations',
-      items: [
-        {
-          type: 'doc',
-          id: 'integrations/slack-bot',
-          label: 'Slack Bot',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/backstage-plugin',
-          label: 'Agent Forge (Backstage)',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/webex-bot',
-          label: 'Webex Bot',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/cli',
-          label: 'CAIPE CLI',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Knowledge Bases',
-      items: [
-        {
-          type: 'doc',
-          id: 'knowledge_bases/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/architecture',
-          label: 'Architecture',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ingestors',
-          label: 'Ingestors',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ontology-agent',
-          label: 'Ontology Agent',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/mcp-tools',
-          label: 'MCP Tools',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/authentication-overview',
-          label: 'Authentication',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: '🎨 CAIPE UI',
-      items: [
-        {
-          type: 'doc',
-          id: 'ui/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'ui/features',
-          label: 'Features',
-        },
-        {
-          type: 'doc',
-          id: 'ui/auth-flow',
-          label: 'Authentication Flow',
-        },
-        {
-          type: 'doc',
-          id: 'ui/configuration',
-          label: 'Configuration',
-        },
-        {
-          type: 'doc',
-          id: 'ui/customization',
-          label: 'Customization & Branding',
-        },
-        {
-          type: 'doc',
-          id: 'ui/development',
-          label: 'Development Guide',
-        },
-        {
-          type: 'doc',
-          id: 'ui/api-reference',
-          label: 'API Reference',
-        },
-        {
-          type: 'doc',
-          id: 'ui/troubleshooting',
-          label: 'Troubleshooting',
-        },
-      ],
-    },
-    {
-      type: 'doc',
-      id: 'prompt-library/index',
-      label: 'Prompt Library',
-    },
-    {
-      type: 'category',
-      label: 'Tracing & Evaluations',
-      items: [
-        {
-          type: 'doc',
-          id: 'evaluations/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/distributed-tracing-info',
-          label: 'Distributed Tracing Architecture',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/tracing-implementation-guide',
-          label: 'Tracing Implementation Guide',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/slack-streaming-conformance',
-          label: 'Slack Streaming Conformance',
-        },
-      ],
-    },
-    {
-      type: 'category',
       label: 'Tools & Utilities',
       items: [
         {
@@ -523,11 +422,6 @@ const sidebars: SidebarsConfig = {
           id: 'tools-utils/jira-mcp-implementations-comparison',
         }
       ],
-    },
-    {
-      type: 'doc',
-      id: 'agent-ops/index',
-      label: 'AgentOps',
     },
     {
       type: 'category',

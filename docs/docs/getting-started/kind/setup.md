@@ -230,4 +230,4 @@ You can monitor progress in the CAIPE UI under the Knowledge Base tab.
 
 - [Configure LLM providers for KinD](./configure-llms) — More detail on keys and providers
 - [Configure agent secrets for KinD](./configure-agent-secrets) — Agent-specific secrets
-- [CAIPE Labs: Introduction](/workshop/caipeintro) — Guided labs to learn CAIPE step by step
+- [CAIPE Labs: Introduction](/docs/workshop/caipeintro) — Guided labs to learn CAIPE step by step

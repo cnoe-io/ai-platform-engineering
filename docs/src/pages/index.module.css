@@ -226,6 +226,9 @@
   border-radius: 12px;
   padding: 1.75rem;
   transition: transform 0.15s, box-shadow 0.15s;
+  text-decoration: none !important;
+  display: block;
+  cursor: pointer;
 }
 
 .featureCard:hover {
@@ -259,6 +262,106 @@
 
 [data-theme='dark'] .featureDesc {
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── In the Wild ────────────────────────────────────────────────── */
+.inTheWild {
+  padding: 5rem 1.5rem;
+  background: #f8fafc;
+}
+
+[data-theme='dark'] .inTheWild {
+  background: #0f172a;
+}
+
+.useCasesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.useCaseCard {
+  background: var(--ifm-card-background-color, #fff);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  overflow: hidden;
+  text-decoration: none !important;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.useCaseCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(2, 132, 199, 0.14);
+}
+
+[data-theme='dark'] .useCaseCard {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.useCaseImg {
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.useCaseImg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s;
+}
+
+.useCaseCard:hover .useCaseImg img {
+  transform: scale(1.03);
+}
+
+.useCaseBody {
+  padding: 1.25rem 1.4rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.useCaseCompany {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+  margin-bottom: 0.4rem;
+}
+
+.useCaseTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+  line-height: 1.35;
+  color: var(--ifm-font-color-base);
+}
+
+.useCaseDesc {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #64748b;
+  margin: 0 0 1rem;
+  flex: 1;
+}
+
+[data-theme='dark'] .useCaseDesc {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.useCaseLink {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ifm-color-primary);
 }
 
 /* ── Integrations band ──────────────────────────────────────────── */
