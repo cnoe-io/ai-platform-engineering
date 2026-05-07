@@ -414,7 +414,7 @@ python scripts/migrations/0.4.0/migrate_slack_meta_to_metadata.py --dry-run
 python scripts/migrations/0.4.0/migrate_slack_meta_to_metadata.py --verbose
 ```
 
-All scripts are **idempotent** and **non-destructive** — the original `messages`, `slack_sessions`, and `slack_meta` data are never deleted. See [`scripts/migrations/0.4.0/RUN.md`](../../../../scripts/migrations/0.4.0/RUN.md) for full verification commands and expected output.
+All scripts are **idempotent** and **non-destructive** — the original `messages`, `slack_sessions`, and `slack_meta` data are never deleted. See [`scripts/migrations/0.4.0/RUN.md`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/scripts/migrations/0.4.0/RUN.md) for full verification commands and expected output.
 
 **New collections created:** `turns`, `stream_events`
 **Collections deprecated (not deleted):** `messages`, `slack_sessions`
