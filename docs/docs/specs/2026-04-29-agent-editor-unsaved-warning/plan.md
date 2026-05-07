@@ -19,7 +19,7 @@ Dirty-state detection is value-based: snapshot the editor's initial form values 
 **Testing**: Jest + React Testing Library (UI tests). Manual verification via the quickstart for the three navigation paths.
 **Target Platform**: Browser (modern evergreen — same as the rest of the CAIPE UI)
 **Project Type**: Web application — frontend changes only (`ui/` workspace)
-**Performance Goals**: Dirty-state comparison runs on every render of the editor; must remain O(fields) and complete in <1ms for the realistic agent-config payload (≤50 fields, ≤a few KB total). No noticeable input lag on form changes.
+**Performance Goals**: Dirty-state comparison runs on every render of the editor; must remain O(fields) and complete in under 1ms for the realistic agent-config payload (50 fields or fewer, a few KB total). No noticeable input lag on form changes.
 **Constraints**:
 - No native browser dialogs (no `window.confirm`, no `beforeunload` hooks).
 - Must reuse the existing `UnsavedChangesDialog` to keep visual parity with the Task Builder warning.
