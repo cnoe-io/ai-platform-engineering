@@ -1,5 +1,7 @@
 # Migration Guide: 0.3.x to 0.4.0
 
+> ⚠️ **Data migrations required** — run the four scripts in `scripts/migrations/0.4.0/` once after deploying. See [Data Migrations](#data-migrations) below.
+
 This guide covers all breaking changes, Helm value restructuring, and environment variable changes when upgrading from **0.3.x** to **0.4.0**.
 
 ---
@@ -384,6 +386,38 @@ in the new AG-UI-based slack bot.
 active users, and message volumes for Slack interactions.
 
 **Tracking:** This must be resolved before the 0.4.0 GA release.
+
+---
+
+## Data Migrations
+
+Run these four scripts **once** after deploying 0.4.0, in order. All scripts require `MONGODB_URI` and support `--dry-run`.
+
+```bash
+export MONGODB_URI="mongodb://..."
+export MONGODB_DATABASE="caipe"
+
+# Step 1 — convert messages collection to turns + stream_events (run first)
+python scripts/migrations/0.4.0/migrate_messages_to_turns.py --dry-run
+python scripts/migrations/0.4.0/migrate_messages_to_turns.py --verbose
+
+# Step 2 — set client_type on all conversations
+python scripts/migrations/0.4.0/migrate_conversations_schema.py --dry-run
+python scripts/migrations/0.4.0/migrate_conversations_schema.py --verbose
+
+# Step 3 — merge slack_sessions into conversations
+python scripts/migrations/0.4.0/migrate_slack_sessions.py --dry-run
+python scripts/migrations/0.4.0/migrate_slack_sessions.py --verbose
+
+# Step 4 — flatten slack_meta sub-document into metadata.*
+python scripts/migrations/0.4.0/migrate_slack_meta_to_metadata.py --dry-run
+python scripts/migrations/0.4.0/migrate_slack_meta_to_metadata.py --verbose
+```
+
+All scripts are **idempotent** and **non-destructive** — the original `messages`, `slack_sessions`, and `slack_meta` data are never deleted. See [`scripts/migrations/0.4.0/RUN.md`](../../../../scripts/migrations/0.4.0/RUN.md) for full verification commands and expected output.
+
+**New collections created:** `turns`, `stream_events`
+**Collections deprecated (not deleted):** `messages`, `slack_sessions`
 
 ---
 
