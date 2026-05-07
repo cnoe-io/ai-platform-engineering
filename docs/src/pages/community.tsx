@@ -64,6 +64,12 @@ const CHANNELS = [
 
 const CONTRIBUTE = [
   {
+    icon: '🌱',
+    title: 'Pick a Good First Issue',
+    description: 'New to the project? Browse issues tagged for first-time contributors — bite-sized and well-scoped.',
+    href: 'https://github.com/cnoe-io/ai-platform-engineering/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22',
+  },
+  {
     icon: '🛠️',
     title: 'Build an Agent',
     description: 'Add a new platform agent — pick a tool you use and follow the agent template.',
@@ -72,8 +78,8 @@ const CONTRIBUTE = [
   {
     icon: '📝',
     title: 'Write a Skill',
-    description: 'Skills are plain Markdown files. Author a skill for your team\'s runbooks.',
-    href: '/docs/getting-started',
+    description: 'Skills are plain Markdown files that give coding agents a repeatable playbook. Author one for your team\'s runbooks.',
+    href: '/docs/repo-ops/skills/create-skill',
   },
   {
     icon: '🐛',

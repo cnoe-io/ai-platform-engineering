@@ -161,6 +161,12 @@ export default function FeaturesPage() {
               <Link className={styles.secondaryBtn} to="/roadmap">
                 View Roadmap
               </Link>
+              <Link
+                className={styles.secondaryBtn}
+                href="https://github.com/cnoe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
+              >
+                Submit a Feature Request ↗
+              </Link>
             </div>
           </div>
         </section>
@@ -197,6 +203,12 @@ export default function FeaturesPage() {
             </Link>
             <Link className={styles.secondaryBtn} href="https://github.com/cnoe-io/ai-platform-engineering">
               GitHub ↗
+            </Link>
+            <Link
+              className={styles.secondaryBtn}
+              href="https://github.com/cnoe-io/ai-platform-engineering/issues/new?labels=enhancement&template=feature_request.md"
+            >
+              Submit a Feature Request ↗
             </Link>
           </div>
         </section>

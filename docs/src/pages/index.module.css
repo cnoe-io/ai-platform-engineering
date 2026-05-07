@@ -81,6 +81,86 @@
   color: #64748b;
   font-family: monospace;
   margin-left: 0.4rem;
+  flex: 1;
+}
+
+.heroDemoFullscreen {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #475569;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  line-height: 1;
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+}
+
+.heroDemoFullscreen:hover {
+  color: #94a3b8;
+}
+
+/* ── GIF fullscreen overlay ─────────────────────────────────────── */
+.gifOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.gifOverlayInner {
+  position: relative;
+  max-width: min(90vw, 1100px);
+  max-height: 90vh;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.gifOverlayClose {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.7rem;
+  z-index: 1;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.gifOverlayClose:hover {
+  background: rgba(15, 23, 42, 0.95);
+  color: #fff;
+}
+
+.gifOverlayImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 90vh;
+  object-fit: contain;
 }
 
 .heroDemoGif {
@@ -611,10 +691,23 @@
   font-size: 1rem;
   color: rgba(255, 255, 255, 0.65);
   margin-bottom: 2.5rem;
-  max-width: 480px;
+  max-width: 560px;
   margin-left: auto;
   margin-right: auto;
-  line-height: 1.6;
+  line-height: 1.7;
+}
+
+.ctaLink {
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.ctaLink:hover {
+  color: #fff;
+  text-decoration-color: rgba(255, 255, 255, 0.7);
 }
 
 .ctaButtons {

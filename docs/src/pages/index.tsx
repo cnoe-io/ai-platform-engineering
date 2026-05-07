@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
@@ -7,6 +7,57 @@ import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
 const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.4.8 -f your-values.yaml';
+const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
+
+function DemoGif() {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, close]);
+
+  return (
+    <>
+      <div className={styles.heroCenter}>
+        <div className={styles.heroDemoFrame}>
+          <div className={styles.heroDemoBar}>
+            <span className={styles.heroDemoDot} style={{background:'#ff5f57'}} />
+            <span className={styles.heroDemoDot} style={{background:'#ffbd2e'}} />
+            <span className={styles.heroDemoDot} style={{background:'#28c840'}} />
+            <span className={styles.heroDemoTitle}>CAIPE Setup</span>
+            <button
+              className={styles.heroDemoFullscreen}
+              onClick={() => setOpen(true)}
+              aria-label="View fullscreen"
+              title="View fullscreen"
+            >
+              ⛶
+            </button>
+          </div>
+          <img
+            src={GIF_URL}
+            alt="CAIPE setup walkthrough"
+            className={styles.heroDemoGif}
+            loading="eager"
+          />
+        </div>
+      </div>
+
+      {open && (
+        <div className={styles.gifOverlay} onClick={close} role="dialog" aria-modal="true">
+          <div className={styles.gifOverlayInner} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.gifOverlayClose} onClick={close} aria-label="Close">✕</button>
+            <img src={GIF_URL} alt="CAIPE setup walkthrough" className={styles.gifOverlayImg} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -177,28 +228,13 @@ function HeroSection() {
           </div>
 
           {/* Center: product demo GIF */}
-          <div className={styles.heroCenter}>
-            <div className={styles.heroDemoFrame}>
-              <div className={styles.heroDemoBar}>
-                <span className={styles.heroDemoDot} style={{background:'#ff5f57'}} />
-                <span className={styles.heroDemoDot} style={{background:'#ffbd2e'}} />
-                <span className={styles.heroDemoDot} style={{background:'#28c840'}} />
-                <span className={styles.heroDemoTitle}>CAIPE Setup</span>
-              </div>
-              <img
-                src="https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif"
-                alt="CAIPE setup walkthrough"
-                className={styles.heroDemoGif}
-                loading="eager"
-              />
-            </div>
-          </div>
+          <DemoGif />
 
           {/* Right: Quick Install — two independently copyable blocks */}
           <div className={styles.heroRight}>
             <div className={styles.codeBlock}>
               <div className={styles.codeHeader}>
-                <span className={styles.codeTab}>Script · curl</span>
+                <span className={styles.codeTab}>curl · Kind cluster or existing K8s</span>
                 <CopyButton text={CURL_CMD} />
               </div>
               <pre className={styles.codePre}>
@@ -212,7 +248,7 @@ function HeroSection() {
             </div>
             <div className={styles.codeBlock}>
               <div className={styles.codeHeader}>
-                <span className={styles.codeTab}>Helm</span>
+                <span className={styles.codeTab}>Kubernetes · Helm</span>
                 <CopyButton text={HELM_CMD} />
               </div>
               <pre className={styles.codePre}>
@@ -431,8 +467,18 @@ function CtaSection() {
         Built by the platform engineering community, for the community
       </Heading>
       <p className={styles.ctaSubtitle}>
-        CAIPE is an open-source project by CAIPE.io OSS Contributors.
-        Join weekly meetings, contribute agents, or share your deployment.
+        An open-source project built by platform engineers, for platform engineers.
+        Governed under the{' '}
+        <a
+          href="https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.ctaLink}
+        >
+          CNOE Agentic AI SIG
+        </a>
+        {' '}— a community focused on platform engineering through shared guidance,
+        tooling, and IDP reference architectures.
       </p>
       <div className={styles.ctaButtons}>
         <Link className={styles.heroPrimary} to="/community">
@@ -458,9 +504,9 @@ export default function Home() {
     >
       <main>
         <HeroSection />
+        <InTheWildSection />
         <VisionSection />
         <FeaturesSection />
-        <InTheWildSection />
         <AgentsSection />
         <CtaSection />
       </main>
