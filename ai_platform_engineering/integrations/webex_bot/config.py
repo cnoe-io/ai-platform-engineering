@@ -34,9 +34,13 @@ class Settings(BaseSettings):
             (e.g. ``http://autonomous-agents:8002``). The bot calls
             ``<base>/api/v1/hooks/<task_id>/follow-up`` and queries
             the thread map collection in MongoDB it shares.
-        MONGODB_URI / MONGODB_DATABASE: same Mongo the autonomous-agents
-            service writes the thread map into. We read-only query it
-            to resolve a Webex parentId to (task_id, run_id).
+        MONGODB_URI: same Mongo the autonomous-agents service writes
+            the thread map into. We read-only query it to resolve a
+            Webex parentId to (task_id, run_id).
+
+    Defaulted (override only when the autonomous-agents service was
+    customised away from the same defaults):
+        MONGODB_DATABASE: database name (default ``caipe``).
 
     Optional:
         WEBEX_WEBHOOK_SECRET: HMAC secret used to sign incoming Webex
@@ -55,9 +59,11 @@ class Settings(BaseSettings):
     webex_bot_public_url: AnyHttpUrl = Field(...)
     autonomous_agents_url: AnyHttpUrl = Field(...)
 
-    # Mongo (read-only access to the shared thread map collection)
+    # Mongo (read-only access to the shared thread map collection).
+    # Defaults match the autonomous-agents service so a stock dev
+    # stack just works; override either to point at a different DB.
     mongodb_uri: str = Field(...)
-    mongodb_database: str = Field(...)
+    mongodb_database: str = "caipe"
     mongodb_webex_thread_map_collection: str = "webex_thread_map"
 
     # Optional security

@@ -25,6 +25,7 @@ from __future__ import annotations
 import enum
 import hashlib
 import hmac
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping
@@ -32,7 +33,7 @@ from typing import Any, Awaitable, Callable, Mapping
 import httpx
 
 
-logger = logging.getLogger("webex_bot")
+logger = logging.getLogger(__name__)
 
 
 class Verdict(str, enum.Enum):
@@ -242,6 +243,17 @@ async def dispatch_message_event(
 # ---------------------------------------------------------------------------
 
 
+def httpx_json_compact(payload: Mapping[str, Any]) -> bytes:
+    """Compact, deterministic JSON encoding for HMAC signing.
+
+    Using ``json.dumps`` with sorted keys + no whitespace makes the
+    signature reproducible regardless of dict ordering on either side.
+    """
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
 async def forward_followup(
     payload: FollowUpPayload,
     *,
@@ -287,17 +299,3 @@ async def forward_followup(
         f"/api/v1/hooks/{payload.task_id}/follow-up"
     )
     return await http_client.post(url, content=body, headers=headers)
-
-
-def httpx_json_compact(payload: Mapping[str, Any]) -> bytes:
-    """Compact, deterministic JSON encoding for HMAC signing.
-
-    Using ``json.dumps`` with sorted keys + no whitespace makes the
-    signature reproducible regardless of dict ordering on either
-    side. Imported lazily to keep the module's import cost trivial.
-    """
-    import json
-
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )

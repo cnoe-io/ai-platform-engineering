@@ -52,14 +52,26 @@ def _make_message(
     return body
 
 
-async def _fetch(messages: dict[str, dict]):
+def _fetch(messages: dict[str, dict]):
+    """Build an async ``fetch_message`` stub backed by a dict.
+
+    Returned coroutine function matches the dispatcher's
+    ``fetch_message`` contract: ``async (id) -> dict``.
+    """
+
     async def _impl(message_id: str) -> dict:
         return messages[message_id]
 
     return _impl
 
 
-async def _lookup(rows: dict[str, dict | None]):
+def _lookup(rows: dict[str, dict | None]):
+    """Build an async ``lookup_thread`` stub backed by a dict.
+
+    Returned coroutine function matches the dispatcher's
+    ``lookup_thread`` contract: ``async (id) -> dict | None``.
+    """
+
     async def _impl(parent_id: str):
         return rows.get(parent_id)
 
@@ -108,8 +120,8 @@ async def test_drops_event_authored_by_bot_via_fetched_message():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup({}),
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup({}),
     )
 
     assert result.verdict is Verdict.DROP_LOOPGUARD
@@ -123,8 +135,8 @@ async def test_drops_top_level_message_with_no_parent():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup({}),
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup({}),
     )
 
     assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
@@ -138,8 +150,8 @@ async def test_drops_when_parent_not_in_thread_map():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup({}),  # empty map
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup({}),  # empty map
     )
 
     assert result.verdict is Verdict.DROP_NO_MAPPING
@@ -155,8 +167,8 @@ async def test_drops_when_thread_map_row_is_malformed():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup(
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup(
             {"msg-task-1": {"_id": "msg-task-1"}}  # missing task_id, run_id
         ),
     )
@@ -172,8 +184,8 @@ async def test_drops_when_message_text_is_empty():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup(
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup(
             {"msg-task-1": {"task_id": "T", "run_id": "R"}}
         ),
     )
@@ -189,8 +201,8 @@ async def test_forwards_legitimate_followup():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup(
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup(
             {
                 "msg-task-1": {
                     "_id": "msg-task-1",
@@ -219,8 +231,8 @@ async def test_forward_payload_strips_whitespace_and_omits_optional_user_ref():
     result = await dispatch_message_event(
         event,
         bot_person_id="BOT",
-        fetch_message=await _fetch({msg["id"]: msg}),
-        lookup_thread=await _lookup(
+        fetch_message=_fetch({msg["id"]: msg}),
+        lookup_thread=_lookup(
             {"msg-task-1": {"task_id": "T", "run_id": "R"}}
         ),
     )
@@ -239,8 +251,8 @@ async def test_drops_event_with_no_data_id():
     result = await dispatch_message_event(
         {"data": {}},
         bot_person_id="BOT",
-        fetch_message=await _fetch({}),
-        lookup_thread=await _lookup({}),
+        fetch_message=_fetch({}),
+        lookup_thread=_lookup({}),
     )
     assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
 
