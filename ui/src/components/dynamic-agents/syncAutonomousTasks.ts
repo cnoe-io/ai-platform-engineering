@@ -69,6 +69,7 @@ function normalizeTriggerForDiff(trigger: AutonomousTask["trigger"]): unknown {
     const secret = trigger.secret;
     return {
       type: "webhook",
+      provider: trigger.provider ?? "github",
       secret: secret && secret.length > 0 ? secret : undefined,
     };
   }

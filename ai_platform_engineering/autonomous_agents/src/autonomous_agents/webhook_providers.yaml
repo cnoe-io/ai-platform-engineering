@@ -98,6 +98,24 @@ providers:
     payload_template: "{body}"
 
   # ---------------------------------------------------------------------------
+  # Jira Cloud — issue callbacks contain top-level timestamp, webhookEvent,
+  # issue_event_type_name, user, issue, and optionally changelog/comment. When
+  # a webhook secret is configured, Jira signs the raw JSON body with HMAC and
+  # sends it as X-Hub-Signature: sha256=<hex>. The Atlassian webhook identifier
+  # is stable across retries and is the preferred dedup key.
+  # https://developer.atlassian.com/cloud/jira/software/webhooks/
+  # ---------------------------------------------------------------------------
+  jira:
+    signature:
+      header: X-Hub-Signature
+      scheme: prefixed_hex
+      prefix: "sha256="
+      algorithm: sha256
+      encoding: hex
+    payload_template: "{body}"
+    dedup_header: X-Atlassian-Webhook-Identifier
+
+  # ---------------------------------------------------------------------------
   # Generic HMAC — vendor-neutral default for in-house upstreams. Same shape
   # as github but with non-GitHub-flavoured header names so operators don't
   # have to pretend their internal sender is GitHub.

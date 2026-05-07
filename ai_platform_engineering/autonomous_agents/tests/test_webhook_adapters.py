@@ -158,10 +158,12 @@ def _set_settings(monkeypatch, **overrides: Any) -> Settings:
 def test_bundled_yaml_loads_all_advertised_providers():
     webhook_adapters.reset_adapters()
     adapters = webhook_adapters.load_adapters()
-    # The four providers we ship with — github, slack, pagerduty,
+    # The providers we ship with — github, slack, pagerduty, jira,
     # generic_hmac — must always be present so a fresh checkout works
     # without operator config.
-    assert {"github", "slack", "pagerduty", "generic_hmac"} <= set(adapters.keys())
+    assert {"github", "slack", "pagerduty", "jira", "generic_hmac"} <= set(
+        adapters.keys()
+    )
 
 
 def test_unknown_provider_id_raises_500_at_route(client, monkeypatch):
@@ -265,6 +267,35 @@ def test_slack_provider_signature_mismatch_returns_generic_401(client, monkeypat
     )
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid webhook signature"
+
+
+# ---------------------------------------------------------------------------
+# Jira adapter — WebSub-style X-Hub-Signature over the raw body
+# ---------------------------------------------------------------------------
+
+
+def test_jira_provider_accepts_documented_signed_request(client, monkeypatch):
+    _set_settings(monkeypatch)
+    _register(_make_task(provider="jira", secret="It's a Secret to Everybody"))
+
+    body = b"Hello World!"
+    resp = client.post(
+        "/api/v1/hooks/wh-1",
+        content=body,
+        headers={
+            "X-Hub-Signature": (
+                "sha256="
+                "a4771c39fbe90f317c7824e83ddef3caae9cb3d976c214ace1f2937e133263c9"
+            ),
+            "X-Atlassian-Webhook-Identifier": "tenant-local-delivery-1",
+        },
+    )
+
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["dedup_strategy"] == "header"
+    row = next(iter(client.mongo._rows.values()))
+    assert row["_id"].endswith(":hdr:tenant-local-delivery-1")
+    assert len(client.captured["calls"]) == 1
 
 
 # ---------------------------------------------------------------------------
