@@ -48,25 +48,25 @@ _MAX_DETAILS_LEN = 200
 _STATUS_PREFIX = ""
 _STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
 _DEFAULT_LOADING_MESSAGES = [
-  "thinking...",
+  "Thinking...",
   "Convincing the AI to stop overthinking...",
   "Resorting to magic...",
 ]
 _raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
 _INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
-_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "response is low confidence, not responding")
-_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "letting a human handle this")
-_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "something went wrong")
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "Response is low confidence, not responding")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "Letting a human handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "Something went wrong")
 _OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
 
 # Overthink-mode keepalive: cycle these messages when no SSE events arrive.
 _OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
 _OVERTHINK_KEEPALIVE_MESSAGES = [
-  "still working on it...",
-  "taking longer than expected...",
-  "really overthinking this...",
+  "Still working on it...",
+  "Taking longer than expected...",
+  "Really overthinking this...",
 ]
-_STATUS_OVERTHINK_WRITE_TODOS = "checking notes..."
+_STATUS_OVERTHINK_WRITE_TODOS = "Checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 

@@ -133,9 +133,9 @@ _WORKFLOW_TOOL_NAMES = frozenset(
 # Listed by stable Traceloop / OTel-GenAI semantic-convention
 # prefixes so future minor-version attribute additions are caught.
 _PROMPT_ATTR_PREFIXES = (
-    "gen_ai.prompt.",        # OTel GenAI semconv (any role)
-    "gen_ai.completion.",    # rarely contains skill text but cheap to check
-    "llm.prompts.",          # Traceloop legacy
+    "gen_ai.prompt.",  # OTel GenAI semconv (any role)
+    "gen_ai.completion.",  # rarely contains skill text but cheap to check
+    "llm.prompts.",  # Traceloop legacy
     "llm.completions.",
 )
 
@@ -153,15 +153,16 @@ _LANGCHAIN_IO_ATTR_KEYS = (
 # stamped onto every node span by the LangChain instrumentor.
 _SENSITIVE_STATE_CHANNELS = (
     "skills_metadata",
-    "skills",       # alternate name some middlewares use
-    "tasks",        # task_config: list of dicts with full llm_prompt
-    "todos",        # mirrors `tasks` (display_text + status)
+    "skills",  # alternate name some middlewares use
+    "tasks",  # task_config: list of dicts with full llm_prompt
+    "todos",  # mirrors `tasks` (display_text + status)
 )
 
 
 # ---------------------------------------------------------------------------
 # Redaction primitives
 # ---------------------------------------------------------------------------
+
 
 def _strip_marker_section(text: str, header: str) -> str:
     """Remove a ``## <header>`` block from a markdown-shaped string.
@@ -202,8 +203,6 @@ def _strip_known_sections(text: str) -> str:
     text = _strip_marker_section(text, _WORKFLOW_SECTION_HEADER)
     text = _strip_marker_section(text, _WORKFLOW_DEFN_HEADER)
     return text
-
-
 
 
 def _looks_like_skill_read(value: str) -> bool:
@@ -292,9 +291,7 @@ def _scrub_json(obj: Any, placeholder: str) -> Any:
         if len(obj) > 200 and _looks_like_skill_read(obj):
             return placeholder
         if len(obj) > 200 and (
-            _SKILLS_SECTION_HEADER in obj
-            or _WORKFLOW_SECTION_HEADER in obj
-            or _WORKFLOW_DEFN_HEADER in obj
+            _SKILLS_SECTION_HEADER in obj or _WORKFLOW_SECTION_HEADER in obj or _WORKFLOW_DEFN_HEADER in obj
         ):
             return _strip_known_sections(obj)
     return obj
@@ -303,6 +300,7 @@ def _scrub_json(obj: Any, placeholder: str) -> Any:
 # ---------------------------------------------------------------------------
 # SpanProcessor
 # ---------------------------------------------------------------------------
+
 
 class SkillContentScrubbingProcessor:
     """OpenTelemetry ``SpanProcessor`` that scrubs skill content.
@@ -331,6 +329,10 @@ class SkillContentScrubbingProcessor:
     def on_start(self, span, parent_context=None) -> None:  # noqa: D401, ARG002
         return None
 
+    def _on_ending(self, span) -> None:  # noqa: D401, ARG002
+        """Called by OTel SDK _MultiSpanProcessor before on_end."""
+        return None
+
     def on_end(self, span) -> None:  # noqa: D401
         try:
             attrs = getattr(span, "attributes", None)
@@ -343,22 +345,15 @@ class SkillContentScrubbingProcessor:
             # one of our task_config workflow tools we redact its
             # I/O wholesale — those payloads always carry llm_prompt
             # bodies regardless of any markdown markers.
-            entity_name = attrs.get("traceloop.entity.name") or getattr(
-                span, "name", None
-            )
-            workflow_tool = (
-                isinstance(entity_name, str)
-                and entity_name in _WORKFLOW_TOOL_NAMES
-            )
+            entity_name = attrs.get("traceloop.entity.name") or getattr(span, "name", None)
+            workflow_tool = isinstance(entity_name, str) and entity_name in _WORKFLOW_TOOL_NAMES
 
             updates: dict[str, Any] = {}
             for key, value in attrs.items():
                 if not isinstance(key, str):
                     continue
                 in_io_attr = key in _LANGCHAIN_IO_ATTR_KEYS
-                in_prompt_attr = any(
-                    key.startswith(p) for p in _PROMPT_ATTR_PREFIXES
-                )
+                in_prompt_attr = any(key.startswith(p) for p in _PROMPT_ATTR_PREFIXES)
                 # Skill / workflow scrubbing path — same as before.
                 if in_io_attr or in_prompt_attr:
                     if workflow_tool and in_io_attr:
@@ -391,10 +386,7 @@ class SkillContentScrubbingProcessor:
                     # attribute on the hot path.
                     if len(candidate) > self._max_attr_bytes:
                         truncated = candidate[: self._max_attr_bytes]
-                        marker = (
-                            f"\n[truncated: original={len(candidate)} chars, "
-                            f"cap={self._max_attr_bytes}]"
-                        )
+                        marker = f"\n[truncated: original={len(candidate)} chars, cap={self._max_attr_bytes}]"
                         updates[key] = truncated + marker
             if updates:
                 # We're inside ``on_end``: the span's ``_end_time``
@@ -438,6 +430,7 @@ class SkillContentScrubbingProcessor:
 # Installer
 # ---------------------------------------------------------------------------
 
+
 def install_skill_content_scrubber() -> bool:
     """Attach the scrubber to the global TracerProvider.
 
@@ -479,8 +472,7 @@ def install_skill_content_scrubber() -> bool:
         max_attr_bytes = int(raw_cap) if raw_cap is not None else DEFAULT_MAX_ATTR_BYTES
     except ValueError:
         logger.warning(
-            "[skill-scrubber] SKILL_TRACE_MAX_ATTR_BYTES=%r is not an int; "
-            "falling back to default %d",
+            "[skill-scrubber] SKILL_TRACE_MAX_ATTR_BYTES=%r is not an int; falling back to default %d",
             raw_cap,
             DEFAULT_MAX_ATTR_BYTES,
         )

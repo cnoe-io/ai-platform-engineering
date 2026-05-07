@@ -522,6 +522,7 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
         conversationId={selectedConversationId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        onDeleted={() => fetchAuditLogs(1)}
       />
     </>
   );

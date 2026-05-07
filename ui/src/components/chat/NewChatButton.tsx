@@ -5,7 +5,7 @@ import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
@@ -238,7 +238,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
             {/* Dynamic agents list */}
             {!loading && !error && filteredAgents.map((agent) => {
-              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme) : null;
+              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme, agent.ui.custom_theme_config) : null;
               return (
                 <button
                   key={agent._id}
@@ -252,7 +252,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                     )}
                     style={gradientStyle || undefined}
                   >
-                    <Bot className="h-4 w-4 text-white" />
+                    <Bot className="h-4 w-4" style={{ color: getAccentColor(agent.ui?.gradient_theme, agent.ui?.custom_theme_config) || "white" }} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{agent.name}</div>

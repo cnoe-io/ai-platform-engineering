@@ -42,6 +42,18 @@ class ConversationContextFilter(logging.Filter):
         return True
 
 
+class HealthEndpointFilter(logging.Filter):
+    """Suppress INFO-level access logs for health check endpoints."""
+
+    _HEALTH_PATHS = ("/healthz", "/health", "/ready", "/metrics")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        msg = record.getMessage()
+        return not any(path in msg for path in self._HEALTH_PATHS)
+
+
 def setup_logging() -> logging.Logger:
     """Configure logging for the dynamic_agents package.
 
@@ -69,5 +81,16 @@ def setup_logging() -> logging.Logger:
 
     # Don't propagate to root logger (cnoe-agent-utils configures root with [llm_factory])
     pkg_logger.propagate = False
+
+    # Suppress health endpoint access logs from uvicorn
+    logging.getLogger("uvicorn.access").addFilter(HealthEndpointFilter())
+
+    # Suppress noisy langfuse media parsing errors (non-fatal, upstream bug:
+    # langfuse tries to parse strings starting with "data:" as base64 URIs)
+    class _LangfuseMediaFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "Error parsing base64 data URI" not in record.getMessage()
+
+    logging.getLogger("langfuse").addFilter(_LangfuseMediaFilter())
 
     return pkg_logger
