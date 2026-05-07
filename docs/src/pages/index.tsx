@@ -186,7 +186,7 @@ function HeroSection() {
                 <span className={styles.heroDemoTitle}>CAIPE Setup</span>
               </div>
               <img
-                src="/ai-platform-engineering/img/caipe-setup.gif"
+                src="https://github.com/cnoe-io/ai-platform-engineering/assets/placeholder/caipe-setup.gif"
                 alt="CAIPE setup walkthrough"
                 className={styles.heroDemoGif}
                 loading="eager"
