@@ -88,7 +88,7 @@ export class CustomStreamAdapter implements StreamAdapter {
     const body = JSON.stringify({
       conversation_id: params.conversationId,
       agent_id: params.agentId,
-      form_data: params.formData,
+      resume_data: params.resumeData,
       protocol: "custom",
       ...(params.clientContext && { client_context: params.clientContext }),
     });
@@ -184,18 +184,30 @@ export class CustomStreamAdapter implements StreamAdapter {
             undefined, // custom protocol doesn't include tool_name in tool_end
             parsed.error,
             parsed.namespace ?? [],
+            undefined, // args (not sent in custom protocol tool_end)
+            parsed.result,
           );
           return false;
         }
 
         case "input_required": {
           const parsed = JSON.parse(data);
-          callbacks.onInputRequired?.(
-            parsed.interrupt_id,
-            parsed.prompt,
-            parsed.fields as InputFieldDefinition[],
-            parsed.agent,
-          );
+          if (parsed.type === "tool_approval") {
+            callbacks.onToolApprovalRequired?.(
+              parsed.interrupt_id,
+              parsed.tool_name,
+              parsed.tool_args,
+              parsed.allowed_decisions,
+              parsed.agent,
+            );
+          } else {
+            callbacks.onInputRequired?.(
+              parsed.interrupt_id,
+              parsed.prompt,
+              parsed.fields as InputFieldDefinition[],
+              parsed.agent,
+            );
+          }
           return true; // terminal — stream pauses for user input
         }
 

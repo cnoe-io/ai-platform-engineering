@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { toYaml } from "@/lib/yaml-serializer";
 
 export function DynamicAgentsTab() {
@@ -90,10 +90,11 @@ export function DynamicAgentsTab() {
   };
 
   /**
-   * Export agent configuration as YAML file
+   * Export agent configuration as YAML file.
    */
   const handleExportYaml = (agent: DynamicAgentConfig) => {
-    // Build a clean config object for export (excluding internal fields)
+    // Build a complete config object for export (excluding only internal metadata)
+    const agentRecord = agent as unknown as Record<string, unknown>;
     const exportConfig = {
       id: agent._id,
       name: agent.name,
@@ -106,6 +107,8 @@ export function DynamicAgentsTab() {
       builtin_tools: agent.builtin_tools,
       subagents: agent.subagents?.length ? agent.subagents : undefined,
       skills: agent.skills?.length ? agent.skills : undefined,
+      features: agent.features,
+      interrupt_on: agentRecord.interrupt_on || undefined,
       ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
     };
@@ -242,9 +245,9 @@ export function DynamicAgentsTab() {
                     <div className="flex items-center gap-3">
                       <div 
                         className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={getGradientStyle(agent.ui?.gradient_theme)}
+                        style={getGradientStyle(agent.ui?.gradient_theme, agent.ui?.custom_theme_config)}
                       >
-                        <Bot className="h-5 w-5 text-white" />
+                        <Bot className="h-5 w-5" style={{ color: getAccentColor(agent.ui?.gradient_theme, agent.ui?.custom_theme_config) || "white" }} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm truncate">{agent.name}</div>
