@@ -6,6 +6,9 @@ on:
     paths:
       - "docs/**"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build Docusaurus site
