@@ -85,4 +85,12 @@ def setup_logging() -> logging.Logger:
     # Suppress health endpoint access logs from uvicorn
     logging.getLogger("uvicorn.access").addFilter(HealthEndpointFilter())
 
+    # Suppress noisy langfuse media parsing errors (non-fatal, upstream bug:
+    # langfuse tries to parse strings starting with "data:" as base64 URIs)
+    class _LangfuseMediaFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "Error parsing base64 data URI" not in record.getMessage()
+
+    logging.getLogger("langfuse").addFilter(_LangfuseMediaFilter())
+
     return pkg_logger
