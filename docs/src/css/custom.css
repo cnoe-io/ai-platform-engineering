@@ -3,6 +3,8 @@
 :root {
   /* Primary teal palette */
   --ifm-color-primary: #0284c7;
+
+  --ifm-container-width-xl: 1640px;
   --ifm-color-primary-dark: #0272a8;
   --ifm-color-primary-darker: #026b9e;
   --ifm-color-primary-darkest: #025882;

@@ -24,83 +24,72 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-const FEATURES = [
+const HOME_FEATURES = [
   {
     icon: '🤖',
     title: 'Multi-Agent Orchestration',
-    description:
-      '10+ first-party sub-agents and MCP servers. Create custom agents, customize system prompts, and chain workflows with the deterministic task builder.',
-    to: '/docs/architecture',
+    description: '10+ agents and MCP servers with a deterministic task builder.',
+    to: '/features',
   },
   {
     icon: '🎨',
     title: 'Rich Web UI',
-    description:
-      'Live streaming chat, custom agent builder, task builder, and Skills Gateway with AI-assisted skill authoring, security scanning, and GitHub crawling.',
-    to: '/docs/ui',
+    description: 'Streaming chat, agent builder, task builder, and skills gateway.',
+    to: '/features',
   },
   {
     icon: '🧠',
     title: 'Integrated Knowledge Bases',
-    description:
-      'Unified RAG (unstructured and Graph RAG) with ingestors for Web, ArgoCD, AWS, Backstage, Confluence, Jira, GitHub, Webex, and Slack.',
-    to: '/docs/knowledge_bases',
+    description: 'RAG + Graph RAG across ArgoCD, AWS, Jira, GitHub, Slack, and more.',
+    to: '/features',
   },
   {
     icon: '💾',
     title: 'Agent Memory',
-    description:
-      'Multi-turn chat persistence and cross-session fact extraction — agents remember context across conversations for each user.',
-    to: '/docs/architecture',
+    description: 'Cross-session fact extraction and per-user context persistence.',
+    to: '/features',
   },
   {
     icon: '🔒',
     title: 'Enterprise Security',
-    description:
-      'OAuth 2.0 / OIDC SSO, OIDC/Okta group-based RBAC, team-based access control, and policy-based tool restrictions.',
-    to: '/docs/security',
+    description: 'OIDC SSO, Okta RBAC, and policy-based tool restrictions.',
+    to: '/features',
   },
   {
     icon: '🚀',
     title: 'Flexible Deployment',
-    description:
-      'Kubernetes Helm charts, Docker Compose, ExternalSecrets, LLM tracing via Langfuse, and Prometheus metrics — bring any OpenAI-compatible LLM.',
-    to: '/docs/installation',
+    description: 'Helm, Docker Compose, Langfuse tracing — bring any OpenAI-compatible LLM.',
+    to: '/features',
   },
   {
     icon: '⚙️',
     title: 'Deterministic Workflows',
-    description:
-      'Task Builder lets you define sequential, reliable agent pipelines — no hallucinated steps, just structured execution you can audit and repeat.',
-    to: '/docs/architecture',
+    description: 'Sequential agent pipelines with no hallucinated steps.',
+    to: '/features',
   },
   {
     icon: '🛠️',
     title: 'Custom Agents',
-    description:
-      'Build and deploy your own agents with the Agent Builder UI. Customize system prompts, tool access, and personas without writing boilerplate.',
-    to: '/docs/features/custom-agents',
+    description: 'Build agents with custom prompts, tools, and personas — no boilerplate.',
+    to: '/features',
   },
   {
     icon: '🔌',
-    title: 'BYO A2A Agents & MCP Servers',
-    description:
-      'Plug in your own A2A-compatible agents or MCP servers. CAIPE acts as the orchestration layer — your tools, your protocols.',
-    to: '/docs/features/byo-agents',
+    title: 'BYO A2A & MCP',
+    description: 'Plug in your own A2A agents or MCP servers as first-class participants.',
+    to: '/features',
   },
   {
     icon: '🌐',
     title: 'Multi-Model Support',
-    description:
-      'Works with Claude (Anthropic), OpenAI GPT models, Google Vertex AI Gemini, and any OpenAI-compatible endpoint — switch models without rewiring agents.',
-    to: '/docs/getting-started/quick-start',
+    description: 'Claude, OpenAI, Gemini, or any compatible endpoint — swap without rewiring.',
+    to: '/features',
   },
   {
     icon: '💻',
     title: 'Multiple Clients',
-    description:
-      'Access CAIPE from anywhere — Web UI, Backstage Agent Forge plugin, Chat CLI, Slack Bot, and Webex Bot. One platform, every interface your team already uses.',
-    to: '/docs/integrations/backstage-plugin',
+    description: 'Web UI, Backstage plugin, Chat CLI, Slack Bot, and Webex Bot.',
+    to: '/features',
   },
 ];
 
@@ -146,8 +135,10 @@ function HeroSection() {
     fetch('https://api.github.com/repos/cnoe-io/ai-platform-engineering')
       .then((r) => r.json())
       .then((d) => {
-        const n = d.stargazers_count as number;
-        setStars(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+        const n = d.stargazers_count;
+        if (typeof n === 'number') {
+          setStars(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+        }
       })
       .catch(() => {});
   }, []);
@@ -185,6 +176,24 @@ function HeroSection() {
             </div>
           </div>
 
+          {/* Center: product demo GIF */}
+          <div className={styles.heroCenter}>
+            <div className={styles.heroDemoFrame}>
+              <div className={styles.heroDemoBar}>
+                <span className={styles.heroDemoDot} style={{background:'#ff5f57'}} />
+                <span className={styles.heroDemoDot} style={{background:'#ffbd2e'}} />
+                <span className={styles.heroDemoDot} style={{background:'#28c840'}} />
+                <span className={styles.heroDemoTitle}>CAIPE Setup</span>
+              </div>
+              <img
+                src="/ai-platform-engineering/img/caipe-setup.gif"
+                alt="CAIPE setup walkthrough"
+                className={styles.heroDemoGif}
+                loading="eager"
+              />
+            </div>
+          </div>
+
           {/* Right: Quick Install — two independently copyable blocks */}
           <div className={styles.heroRight}>
             <div className={styles.codeBlock}>
@@ -201,7 +210,7 @@ function HeroSection() {
                 </code>
               </pre>
             </div>
-            <div className={styles.codeBlock} style={{marginTop: '0.75rem'}}>
+            <div className={styles.codeBlock}>
               <div className={styles.codeHeader}>
                 <span className={styles.codeTab}>Helm</span>
                 <CopyButton text={HELM_CMD} />
@@ -265,22 +274,27 @@ function FeaturesSection() {
       <div className={styles.sectionHeader}>
         <p className={styles.sectionLabel}>Why CAIPE</p>
         <Heading as="h2" className={styles.sectionTitle}>
-          Everything you need to automate platform ops
+          Built for platform teams
         </Heading>
         <p className={styles.sectionSubtitle}>
-          Purpose-built for Platform Engineering, SRE, and DevOps teams who
-          want to move from manual, task-driven processes to intelligent
-          agentic workflows.
+          From incident response to deployments — CAIPE turns manual platform ops into intelligent agentic workflows.
         </p>
       </div>
       <div className={styles.featuresGrid}>
-        {FEATURES.map((f) => (
+        {HOME_FEATURES.map((f) => (
           <Link key={f.title} to={f.to} className={styles.featureCard}>
-            <span className={styles.featureIcon}>{f.icon}</span>
-            <Heading as="h3" className={styles.featureTitle}>{f.title}</Heading>
+            <div className={styles.featureCardHeader}>
+              <span className={styles.featureIcon}>{f.icon}</span>
+              <Heading as="h3" className={styles.featureTitle}>{f.title}</Heading>
+            </div>
             <p className={styles.featureDesc}>{f.description}</p>
           </Link>
         ))}
+      </div>
+      <div className={styles.featuresCta}>
+        <Link className={styles.heroPrimary} to="/features">
+          Explore all features →
+        </Link>
       </div>
     </section>
   );
@@ -394,8 +408,7 @@ function VisionSection() {
   return (
     <section className={styles.vision}>
       <div className={styles.visionInner}>
-        <p className={styles.sectionLabel}>Our Mission</p>
-        <Heading as="h2" className={styles.visionTitle}>The CAIPE Vision</Heading>
+        <Heading as="h2" className={styles.visionTitle}>Our Mission</Heading>
         <p className={styles.visionBody}>
           To redefine platform engineering by creating{' '}
           <strong className={styles.visionHighlight}>
@@ -410,43 +423,6 @@ function VisionSection() {
   );
 }
 
-const PALETTES = [
-  {
-    label: 'Ocean Blue (current)',
-    gradient: 'linear-gradient(150deg, #0f172a 0%, #0c4a6e 55%, #0e7490 100%)',
-  },
-  {
-    label: 'Deep Violet',
-    gradient: 'linear-gradient(150deg, #0f0a1e 0%, #3b0764 55%, #6d28d9 100%)',
-  },
-  {
-    label: 'Emerald Forest',
-    gradient: 'linear-gradient(150deg, #021a10 0%, #064e3b 55%, #059669 100%)',
-  },
-  {
-    label: 'Midnight Slate',
-    gradient: 'linear-gradient(150deg, #020617 0%, #1e293b 55%, #334155 100%)',
-  },
-];
-
-function PaletteSection() {
-  return (
-    <section className={styles.paletteSection}>
-      <p className={styles.sectionLabel}>Design Reference</p>
-      <Heading as="h2" className={styles.sectionTitle} style={{color: '#f1f5f9', margin: '0.5rem 0 0'}}>
-        Hero Background Options
-      </Heading>
-      <div className={styles.paletteGrid}>
-        {PALETTES.map((p) => (
-          <div key={p.label} className={styles.paletteSwatch}>
-            <div className={styles.palettePreview} style={{background: p.gradient}} />
-            <div className={styles.paletteLabel}>{p.label}</div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function CtaSection() {
   return (
@@ -486,7 +462,6 @@ export default function Home() {
         <FeaturesSection />
         <InTheWildSection />
         <AgentsSection />
-        <PaletteSection />
         <CtaSection />
       </main>
     </Layout>
