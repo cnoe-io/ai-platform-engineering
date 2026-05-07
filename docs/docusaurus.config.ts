@@ -5,8 +5,8 @@ import type * as Preset from '@docusaurus/preset-classic';
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'CAIPE (Community AI Platform Engineering)',
-  tagline: 'Community AI Platform Engineering Multi-Agent Systems',
+  title: 'CAIPE',
+  tagline: 'AI-powered Platform Engineering — deploy intelligent agents for your platform stack.',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -50,12 +50,16 @@ const config: Config = {
       'classic',
       {
         docs: {
-          routeBasePath: '/', // Serve the docs at the site's root
+          routeBasePath: '/docs',
           sidebarPath: './sidebars.ts',
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
+          versions: {
+            current: {
+              label: '0.4.8 (Latest)',
+              path: '',
+            },
+          },
         },
         blog: {
           showReadingTime: true,
@@ -83,7 +87,7 @@ const config: Config = {
     // Replace with your project's social card
     image: 'img/logo.svg',
     navbar: {
-      title: 'CAIPE (Community AI Platform Engineering)',
+      title: 'CAIPE',
       logo: {
         alt: 'CAIPE Logo',
         src: 'img/logo.svg',
@@ -96,37 +100,30 @@ const config: Config = {
           label: 'Docs',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
+        {to: '/community', label: 'Community', position: 'left'},
         {
-          type: 'docSidebar',
-          sidebarId: 'communitySidebar',
+          type: 'docsVersionDropdown',
           position: 'left',
-          label: 'Community',
         },
-        // Uncomment the following lines to enable versioning
-        // {
-        //   type: 'docsVersionDropdown',
-        // },
-        // --- START: GITHUB BADGES ---
         {
           type: 'html',
           position: 'right',
-          value: `
-            <a href="https://github.com/cnoe-io/ai-platform-engineering" target="_blank" rel="noopener" style="margin-right: 8px;">
-              <img alt="GitHub stars" src="https://img.shields.io/github/stars/cnoe-io/ai-platform-engineering?style=social" style="vertical-align: middle;" />
-            </a>
-            <a href="https://github.com/cnoe-io/ai-platform-engineering/issues" target="_blank" rel="noopener">
-              <img alt="GitHub issues" src="https://img.shields.io/github/issues/cnoe-io/ai-platform-engineering?style=social" style="vertical-align: middle;" />
-            </a>
-          `,
+          value: `<a href="https://github.com/cnoe-io/ai-platform-engineering" target="_blank" rel="noopener" class="navbar-stars-badge" aria-label="GitHub stars">
+            <img alt="GitHub stars" src="https://img.shields.io/github/stars/cnoe-io/ai-platform-engineering?style=social" />
+          </a>`,
         },
-        // --- END: GITHUB BADGES ---
         {
           href: 'https://github.com/cnoe-io/ai-platform-engineering',
-          label: 'GitHub',
+          label: '⭐ Star Repo',
+          position: 'right',
+          className: 'navbar-star-btn',
+        },
+        {
+          href: 'https://github.com/cnoe-io/ai-platform-engineering',
           position: 'right',
           className: 'header-github-link',
           'aria-label': 'GitHub repository',
-        }
+        },
       ],
     },
     footer: {
@@ -137,19 +134,19 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              to: '/getting-started',
+              to: '/docs/getting-started',
             },
             {
               label: 'Architecture',
-              to: '/architecture',
+              to: '/docs/architecture',
             },
             {
               label: 'Installation',
-              to: '/installation',
+              to: '/docs/installation',
             },
             {
               label: 'Contributing',
-              to: '/contributing',
+              to: '/docs/contributing',
             },
           ],
         },
