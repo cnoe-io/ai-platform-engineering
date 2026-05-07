@@ -41,12 +41,12 @@ Required (set in `.env` or compose environment):
 | `WEBEX_BOT_PUBLIC_URL` | Externally-reachable base URL of THIS service. Webex POSTs to `<public_url>/webex/events`. In dev, an ngrok / cloudflared tunnel; in prod, the real hostname. Localhost does not work. |
 | `AUTONOMOUS_AGENTS_URL`| URL of the autonomous-agents service (e.g. `http://autonomous-agents:8002`). |
 | `MONGODB_URI`          | Connection string for the same MongoDB the autonomous-agents service writes to. |
-| `MONGODB_DATABASE`     | Database name (default `caipe`).                         |
 
 Optional:
 
 | Variable                                   | Default              | Description                                                                                                          |
 | ------------------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_DATABASE`                         | `caipe`              | Database name. Override only if the autonomous-agents service was pointed at a different DB.                         |
 | `MONGODB_WEBEX_THREAD_MAP_COLLECTION`      | `webex_thread_map`   | Override only if the autonomous-agents Settings of the same name was overridden.                                     |
 | `WEBEX_WEBHOOK_SECRET`                     | _none_               | HMAC-SHA1 secret Webex signs every event with. Strongly recommended in production.                                   |
 | `WEBHOOK_SECRET`                           | _none_               | Service-wide HMAC shared with autonomous-agents so the bot can sign its outbound `/follow-up` POSTs (HMAC-SHA256).   |
@@ -108,6 +108,8 @@ URL and restart the `webex-bot` service.
 ```bash
 cd ai_platform_engineering/integrations/webex_bot
 uv venv --python python3.13 --clear .venv
-uv sync
+# ``--group unittest`` pulls in pytest etc. -- they live under
+# ``[dependency-groups]`` and are excluded from production images.
+uv sync --group unittest
 uv run pytest
 ```
