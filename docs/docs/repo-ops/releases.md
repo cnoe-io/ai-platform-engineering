@@ -91,7 +91,7 @@ This checks and fixes:
 - Docusaurus version snapshot (`versioned_docs/version-x.y.z/`)
 - Navbar version label
 
-See [Skills → update-docs](./skills/update-docs) for the full checklist.
+See [Skills → Overview](./skills/) for the full checklist.
 
 ---
 
