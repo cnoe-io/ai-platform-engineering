@@ -36,14 +36,30 @@ const config: Config = {
     locales: ['en'],
   },
 
-  plugins: [[
-    require.resolve('docusaurus-lunr-search'), {
-      languages: ['en'],
-      title: { boost: 200 },
-      content: { boost: 2 },
-      keywords: { boost: 100 }
-    }
-  ]],
+  plugins: [
+    [
+      require.resolve('docusaurus-lunr-search'), {
+        languages: ['en'],
+        title: { boost: 200 },
+        content: { boost: 2 },
+        keywords: { boost: 100 }
+      }
+    ],
+    [
+      '@docusaurus/plugin-content-blog',
+      {
+        id: 'releases',
+        path: 'releases',
+        routeBasePath: 'blog/releases',
+        blogTitle: 'Releases',
+        blogDescription: 'CAIPE release notes and changelog',
+        showReadingTime: false,
+        onInlineTags: 'warn',
+        onInlineAuthors: 'warn',
+        onUntruncatedBlogPosts: 'warn',
+      },
+    ],
+  ],
 
   presets: [
     [
@@ -84,8 +100,12 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
     image: 'img/logo.svg',
+    colorMode: {
+      defaultMode: 'dark',
+      disableSwitch: false,
+      respectPrefersColorScheme: false,
+    },
     navbar: {
       title: 'CAIPE',
       logo: {
@@ -100,6 +120,7 @@ const config: Config = {
           label: 'Docs',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
+        {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
@@ -110,7 +131,7 @@ const config: Config = {
         {
           type: 'html',
           position: 'right',
-          value: `<a href="https://github.com/cnoe-io/ai-platform-engineering" target="_blank" rel="noopener" class="navbar-stars-badge" aria-label="GitHub stars">
+          value: `<a href="https://github.com/cnoe-io/ai-platform-engineering/stargazers" target="_blank" rel="noopener" class="navbar-stars-badge" aria-label="GitHub stars">
             <img alt="GitHub stars" src="https://img.shields.io/github/stars/cnoe-io/ai-platform-engineering?style=social" />
           </a>`,
         },
@@ -203,7 +224,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} CNOE.io Agentic AI SIG Contributors. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} CAIPE.io OSS Contributors. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,

@@ -21,10 +21,25 @@
 }
 
 .heroInner {
-  max-width: 760px;
+  max-width: 1180px;
   margin: 0 auto;
   position: relative;
   z-index: 1;
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3.5rem;
+  align-items: center;
+  margin-bottom: 2.5rem;
+  text-align: left;
+}
+
+.heroLeft {}
+
+.heroRight .codeBlock {
+  margin-top: 0;
 }
 
 .heroBadge {
@@ -63,8 +78,16 @@
   font-size: 1.15rem;
   color: rgba(255, 255, 255, 0.72);
   max-width: 580px;
-  margin: 0 auto 2.5rem;
+  margin: 0 auto 1rem;
   line-height: 1.65;
+}
+
+.heroPronunciation {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 1.75rem;
+  line-height: 1.5;
+  font-style: italic;
 }
 
 .heroButtons {
@@ -441,13 +464,34 @@
   font-family: monospace;
 }
 
+.copyBtn {
+  margin-left: auto;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #7dd3fc;
+  border-radius: 5px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  letter-spacing: 0.03em;
+}
+
+.copyBtn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #e0f2fe;
+}
+
 .codePre {
   margin: 0;
   padding: 1.5rem;
   background: transparent;
   font-size: 0.875rem;
   line-height: 1.7;
-  overflow-x: auto;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .codePre code {
@@ -502,6 +546,15 @@
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .heroGrid {
+    grid-template-columns: 1fr;
+    text-align: center;
+    gap: 2rem;
+  }
+  .heroButtons { justify-content: center; }
+}
+
 @media (max-width: 640px) {
   .hero { padding: 4rem 1rem 3.5rem; }
   .heroButtons, .ctaButtons { flex-direction: column; align-items: center; }

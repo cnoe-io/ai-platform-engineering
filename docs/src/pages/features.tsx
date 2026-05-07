@@ -4,6 +4,21 @@ import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import styles from './features.module.css';
 
+const DEEP_DIVES = [
+  {
+    title: 'Custom Agents',
+    icon: '🛠️',
+    description: 'Build agents with custom system prompts, tool access, and personas. Deploy via the no-code Agent Builder UI or the dynamic-agents Helm chart.',
+    to: '/custom-agents',
+  },
+  {
+    title: 'BYO A2A Agents & MCP Servers',
+    icon: '🔌',
+    description: 'Plug your own A2A agents and MCP servers into CAIPE via the supervisor agent registry, dynamic-agents seed config, or Docker Compose.',
+    to: '/byo-agents',
+  },
+];
+
 const FEATURES = [
   {
     title: 'Multi-Agent Orchestration',
@@ -122,6 +137,25 @@ export default function FeaturesPage() {
               <Link className={styles.secondaryBtn} to="/roadmap">
                 View Roadmap
               </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.grid} style={{paddingBottom: '1rem'}}>
+          <div style={{maxWidth: '1200px', margin: '0 auto 2rem', padding: '0 1.5rem'}}>
+            <p className={styles.cardTitle} style={{fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '1rem', color: 'var(--ifm-color-primary)'}}>Feature Deep Dives</p>
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem'}}>
+              {DEEP_DIVES.map((d) => (
+                <Link key={d.title} to={d.to} style={{textDecoration: 'none'}}>
+                  <div className={styles.card} style={{height: '100%'}}>
+                    <div className={styles.cardHeader} style={{'--card-color': '#0284c7'} as React.CSSProperties}>
+                      <span className={styles.cardIcon}>{d.icon}</span>
+                      <Heading as="h2" className={styles.cardTitle}>{d.title}</Heading>
+                    </div>
+                    <p className={styles.cardItem} style={{padding: '1rem 1.4rem', margin: 0}}>{d.description}</p>
+                  </div>
+                </Link>
+              ))}
             </div>
           </div>
         </section>

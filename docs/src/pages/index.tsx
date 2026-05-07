@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import styles from './index.module.css';
+
+const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.4.8 -f your-values.yaml';
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={styles.copyBtn}
+      onClick={() => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+    >
+      {copied ? '✓ Copied' : 'Copy'}
+    </button>
+  );
+}
 
 const FEATURES = [
   {
@@ -11,36 +30,70 @@ const FEATURES = [
     title: 'Multi-Agent Orchestration',
     description:
       '10+ first-party sub-agents and MCP servers. Create custom agents, customize system prompts, and chain workflows with the deterministic task builder.',
+    to: '/docs/architecture',
   },
   {
     icon: '🎨',
     title: 'Rich Web UI',
     description:
       'Live streaming chat, custom agent builder, task builder, and Skills Gateway with AI-assisted skill authoring, security scanning, and GitHub crawling.',
+    to: '/docs/ui',
   },
   {
     icon: '🧠',
     title: 'Integrated Knowledge Bases',
     description:
       'Unified RAG (unstructured and Graph RAG) with ingestors for Web, ArgoCD, AWS, Backstage, Confluence, Jira, GitHub, Webex, and Slack.',
+    to: '/docs/knowledge_bases',
   },
   {
     icon: '💾',
     title: 'Agent Memory',
     description:
       'Multi-turn chat persistence and cross-session fact extraction — agents remember context across conversations for each user.',
+    to: '/docs/architecture',
   },
   {
     icon: '🔒',
     title: 'Enterprise Security',
     description:
       'OAuth 2.0 / OIDC SSO, OIDC/Okta group-based RBAC, team-based access control, and policy-based tool restrictions.',
+    to: '/docs/security',
   },
   {
     icon: '🚀',
     title: 'Flexible Deployment',
     description:
       'Kubernetes Helm charts, Docker Compose, ExternalSecrets, LLM tracing via Langfuse, and Prometheus metrics — bring any OpenAI-compatible LLM.',
+    to: '/docs/installation',
+  },
+  {
+    icon: '⚙️',
+    title: 'Deterministic Workflows',
+    description:
+      'Task Builder lets you define sequential, reliable agent pipelines — no hallucinated steps, just structured execution you can audit and repeat.',
+    to: '/docs/architecture',
+  },
+  {
+    icon: '🛠️',
+    title: 'Custom Agents',
+    description:
+      'Build and deploy your own agents with the Agent Builder UI. Customize system prompts, tool access, and personas without writing boilerplate.',
+    to: '/custom-agents',
+  },
+  {
+    icon: '🔌',
+    title: 'BYO A2A Agents & MCP Servers',
+    description:
+      'Plug in your own A2A-compatible agents or MCP servers. CAIPE acts as the orchestration layer — your tools, your protocols.',
+    to: '/byo-agents',
+  },
+  {
+    icon: '🌐',
+    title: 'Multi-Model Support',
+    description:
+      'Works with Claude (Anthropic), OpenAI GPT models, Google Vertex AI Gemini, and any OpenAI-compatible endpoint — switch models without rewiring agents.',
+    to: '/docs/getting-started/quick-start',
   },
 ];
 
@@ -84,32 +137,72 @@ function HeroSection() {
   return (
     <section className={styles.hero}>
       <div className={styles.heroInner}>
-        <div className={styles.heroBadge}>
-          ⛵ CNOE Agentic AI SIG · v0.4.8
+        <div className={styles.heroGrid}>
+          {/* Left: copy + CTAs */}
+          <div className={styles.heroLeft}>
+            <div className={styles.heroBadge}>
+              Community AI Platform Engineering
+            </div>
+            <Heading as="h1" className={styles.heroTitle}>
+              AI-powered{' '}
+              <span className={styles.heroAccent}>Platform Engineering</span>
+            </Heading>
+            <p className={styles.heroSubtitle}>
+              CAIPE is an open-source multi-agent system that automates platform
+              operations — incident response, deployments, runbooks, and more —
+              so your team can focus on building.
+            </p>
+            <p className={styles.heroPronunciation}>
+              💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero, CAIPE empowers platform engineers with 🤖 agentic AI automation.
+            </p>
+            <div className={styles.heroButtons}>
+              <Link className={styles.heroPrimary} to="/docs/getting-started/quick-start">
+                Get Started →
+              </Link>
+              <Link className={styles.heroSecondary} to="/docs">
+                Read the Docs
+              </Link>
+              <Link className={styles.heroSecondary} href="https://github.com/cnoe-io/ai-platform-engineering">
+                GitHub ↗
+              </Link>
+            </div>
+          </div>
+
+          {/* Right: Quick Install — two independently copyable blocks */}
+          <div className={styles.heroRight}>
+            <div className={styles.codeBlock}>
+              <div className={styles.codeHeader}>
+                <span className={styles.codeTab}>Script · curl</span>
+                <CopyButton text={CURL_CMD} />
+              </div>
+              <pre className={styles.codePre}>
+                <code>
+                  <span className={styles.codeComment}># Install CAIPE via setup script</span>{'\n'}
+                  <span className={styles.codePrompt}>$</span>{' '}
+                  {'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/'}{'\n'}
+                  {'    ai-platform-engineering/main/setup-caipe.sh)'}
+                </code>
+              </pre>
+            </div>
+            <div className={styles.codeBlock} style={{marginTop: '0.75rem'}}>
+              <div className={styles.codeHeader}>
+                <span className={styles.codeTab}>Helm</span>
+                <CopyButton text={HELM_CMD} />
+              </div>
+              <pre className={styles.codePre}>
+                <code>
+                  <span className={styles.codeComment}># Or via Helm</span>{'\n'}
+                  <span className={styles.codePrompt}>$</span>{' '}
+                  {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
+                  {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
+                  {'    --version 0.4.8 -f your-values.yaml'}
+                </code>
+              </pre>
+            </div>
+          </div>
         </div>
-        <Heading as="h1" className={styles.heroTitle}>
-          AI-powered{' '}
-          <span className={styles.heroAccent}>Platform Engineering</span>
-        </Heading>
-        <p className={styles.heroSubtitle}>
-          CAIPE is an open-source multi-agent system that automates platform
-          operations — incident response, deployments, runbooks, and more —
-          so your team can focus on building.
-        </p>
-        <div className={styles.heroButtons}>
-          <Link className={styles.heroPrimary} to="/docs/getting-started/quick-start">
-            Get Started →
-          </Link>
-          <Link className={styles.heroSecondary} to="/docs">
-            Read the Docs
-          </Link>
-          <Link
-            className={styles.heroSecondary}
-            href="https://github.com/cnoe-io/ai-platform-engineering"
-          >
-            GitHub ↗
-          </Link>
-        </div>
+
+        {/* Stats row — full width below both columns */}
         <div className={styles.heroStats}>
           <div className={styles.heroStat}>
             <span className={styles.heroStatNumber}>15+</span>
@@ -123,10 +216,16 @@ function HeroSection() {
             <span className={styles.heroStatNumber}>OSS</span>
             <span className={styles.heroStatLabel}>Apache 2.0</span>
           </div>
-          <div className={styles.heroStat}>
+          <a
+            href="https://github.com/cncf/sandbox/issues/475"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.heroStat}
+            style={{textDecoration: 'none'}}
+          >
             <span className={styles.heroStatNumber}>CNCF</span>
             <span className={styles.heroStatLabel}>Sandbox Candidate</span>
-          </div>
+          </a>
         </div>
       </div>
     </section>
@@ -149,7 +248,7 @@ function FeaturesSection() {
       </div>
       <div className={styles.featuresGrid}>
         {FEATURES.map((f) => (
-          <Link key={f.title} to="/features" className={styles.featureCard}>
+          <Link key={f.title} to={f.to} className={styles.featureCard}>
             <span className={styles.featureIcon}>{f.icon}</span>
             <Heading as="h3" className={styles.featureTitle}>{f.title}</Heading>
             <p className={styles.featureDesc}>{f.description}</p>
@@ -207,7 +306,7 @@ function AgentsSection() {
   return (
     <section className={styles.integrations}>
       <p className={styles.integrationsTitle}>
-        Pre-built agents for your platform stack
+        Pre-built agents for your platform stack — or bring your own A2A agent, MCP server, and build custom agents
       </p>
       <div className={styles.integrationsList}>
         {AGENTS.map((a) => (
@@ -271,7 +370,7 @@ function CtaSection() {
         Built by the platform engineering community, for the community
       </Heading>
       <p className={styles.ctaSubtitle}>
-        CAIPE is an open-source project under the CNOE Agentic AI SIG.
+        CAIPE is an open-source project by CAIPE.io OSS Contributors.
         Join weekly meetings, contribute agents, or share your deployment.
       </p>
       <div className={styles.ctaButtons}>
@@ -301,7 +400,6 @@ export default function Home() {
         <FeaturesSection />
         <InTheWildSection />
         <AgentsSection />
-        <QuickStartSection />
         <CtaSection />
       </main>
     </Layout>
