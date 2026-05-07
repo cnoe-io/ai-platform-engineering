@@ -228,6 +228,32 @@
           "type": "doc",
           "id": "development/ci-cd-and-releases",
           "label": "CI/CD & Releases"
+        },
+        {
+          "type": "doc",
+          "id": "repo-ops/ci",
+          "label": "CI Workflows"
+        },
+        {
+          "type": "doc",
+          "id": "repo-ops/releases",
+          "label": "How to Cut a Release"
+        },
+        {
+          "type": "category",
+          "label": "Skills",
+          "items": [
+            {
+              "type": "doc",
+              "id": "repo-ops/skills/index",
+              "label": "Overview"
+            },
+            {
+              "type": "doc",
+              "id": "repo-ops/skills/create-skill",
+              "label": "Create a Skill"
+            }
+          ]
         }
       ]
     },
