@@ -225,6 +225,12 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class AgenticSdlcQueryToolConfig(BaseModel):
+    """Configuration for the Agentic SDLC read-only query tool."""
+
+    enabled: bool = Field(False, description="Whether the tool is enabled")
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
@@ -254,6 +260,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
+    )
+    agentic_sdlc_query: AgenticSdlcQueryToolConfig | None = Field(
+        None,
+        description="Configuration for the Agentic SDLC read-only query tool",
     )
 
     @model_validator(mode="before")

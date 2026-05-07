@@ -21,6 +21,7 @@ A GitHub repository connected to the Ship Loop.
 | `webhook_secret_hash` | `string` | SHA-256 hash of the webhook secret (the secret itself stored in the env-managed secret store, **never** in this collection) |
 | `webhook_status` | `"healthy" \| "degraded" \| "missing" \| "unknown"` | Last observed |
 | `webhook_last_event_at` | `Date \| null` | Last event delivery time |
+| `last_reconciled_at` | `Date \| null` | Last GitHub issues/PRs reconciliation pull |
 | `label_to_stage_overrides` | `Record<string, ShipLoopStage>` | Per-repo overrides on top of defaults |
 | `onboarded_by_user_id` | `string` | The user who onboarded |
 | `onboarded_at` | `Date` | |
@@ -131,7 +132,7 @@ ShipLoopArtifact[kind=subtask] (1) ────< ShipLoopArtifact[kind=pull_requ
 
 ## Stage resolution rules
 
-The pure function `resolveStage(events, labels, githubState) → ShipLoopStage` lives in `ui/src/lib/ship-loop/stage-resolver.ts`. The rules, in order of precedence (highest first):
+The pure function `resolveStage(events, labels, githubState) → ShipLoopStage` lives in `ui/src/lib/agentic-sdlc/stage-resolver.ts`. The rules, in order of precedence (highest first):
 
 1. **Native GitHub terminal states** — e.g., a PR with `state="merged"` and a successful `deployment_status` for the configured environment ⇒ `deploy` (or `observe` if a follow-up "verified" signal is present). A `deployment_status` of `failure` ⇒ `blocked` (annotated as a deploy failure).
 2. **Agent labels** (configurable prefix, default `agent:`) — `agent:specify` → `specify`, `agent:plan` → `plan`, `agent:tasks` → `tasks`, `agent:implement` → `implement`, `agent:awaiting-review` → `review_hitl`, `agent:deploy-sandbox` → `deploy`, `agent:blocked` → `blocked`.

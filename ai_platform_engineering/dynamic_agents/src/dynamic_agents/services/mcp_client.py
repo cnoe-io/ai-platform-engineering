@@ -1,8 +1,12 @@
 """MCP Client wrapper for Dynamic Agents."""
 
+# assisted-by Codex Codex-sonnet-4-6
+
 import asyncio
 import logging
+import os
 from typing import Any
+from urllib.parse import urlparse
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -10,6 +14,8 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from dynamic_agents.models import MCPServerConfig, TransportType
 
 logger = logging.getLogger(__name__)
+
+GITHUB_MCP_HOSTS = {"github-mcp-server", "api.githubcopilot.com"}
 
 
 def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
@@ -27,10 +33,14 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
             "transport": "sse",
         }
     elif server.transport == TransportType.HTTP:
-        return {
+        config = {
             "url": server.endpoint,
             "transport": "streamable_http",
         }
+        headers = _build_http_headers(server)
+        if headers:
+            config["headers"] = headers
+        return config
     else:  # stdio
         config: dict[str, Any] = {
             "command": server.command,
@@ -41,6 +51,31 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
         if server.env:
             config["env"] = server.env
         return config
+
+
+def _build_http_headers(server: MCPServerConfig) -> dict[str, str]:
+    """Build auth headers for known HTTP MCP endpoints without persisting secrets."""
+    if not server.endpoint:
+        return {}
+
+    host = urlparse(server.endpoint).hostname
+    if host not in GITHUB_MCP_HOSTS:
+        return {}
+
+    token = _github_token_from_env()
+    if not token:
+        return {}
+
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _github_token_from_env() -> str | None:
+    """Return a usable GitHub token, ignoring local placeholder values."""
+    for key in ("GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_TOKEN"):
+        token = os.environ.get(key)
+        if token and token.strip().lower() not in {"dummy", "not_set", "none", "null"}:
+            return token
+    return None
 
 
 def build_mcp_connections(

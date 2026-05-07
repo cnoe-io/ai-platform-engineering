@@ -6,7 +6,7 @@ Implementation reuses `ui/src/lib/sse-streaming-client.ts` and the streaming pat
 
 ## Channel 1 — Per-Epic stream
 
-**Endpoint**: `GET /api/ship-loop/repos/{owner}/{repo}/epics/{epicId}/events`
+**Endpoint**: `GET /api/agentic-sdlc/repos/{owner}/{repo}/epics/{epicId}/events`
 **Content-Type**: `text/event-stream`
 
 ### Events emitted
@@ -32,7 +32,7 @@ Server may close on:
 
 ## Channel 2 — Needs-you inbox
 
-**Endpoint**: `GET /api/ship-loop/needs-you`
+**Endpoint**: `GET /api/agentic-sdlc/needs-you`
 **Content-Type**: `text/event-stream`
 
 A single per-user firehose of artifacts that require the caller's review/approval across **all** repos visible to them.

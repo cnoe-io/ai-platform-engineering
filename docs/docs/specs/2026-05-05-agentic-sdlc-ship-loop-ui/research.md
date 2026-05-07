@@ -8,7 +8,7 @@ This document resolves the technical unknowns identified in `plan.md`. Each item
 
 - **Layer A — server kill switch**: `SHIP_LOOP_ENABLED` env var (default `false`) → `Config.shipLoopEnabled` (set in `ui/src/lib/config.ts`, exposed to client via `window.__APP_CONFIG__` allow-list). When `false`:
   - The `(app)/ship-loop/**` route group `layout.tsx` calls `notFound()` → returns Next.js 404.
-  - Every `/api/ship-loop/**` route returns `404` (not `403`) to avoid disclosing feature existence to non-pilot users.
+  - Every `/api/agentic-sdlc/**` route returns `404` (not `403`) to avoid disclosing feature existence to non-pilot users.
   - The nav tab in `AppHeader.tsx` is not rendered.
 - **Layer B — per-user opt-in (pilot)**: Add `shipLoop` to `FEATURE_FLAGS` in `ui/src/store/feature-flag-store.ts` with `defaultValue: false`, category `developer`, `preferencesKey: "ship_loop_enabled"`. The nav tab and route guard show the feature only when `useFeatureFlagStore.isEnabled('shipLoop') === true`. The flag persists to MongoDB user preferences (existing `apiClient.updatePreferences` pipeline).
 
@@ -48,7 +48,7 @@ A user sees the feature only when **both** layers are on. Operators can globally
 
 ## R3. Webhook ingestion path
 
-**Decision**: Single shared Next.js API route `POST /api/ship-loop/webhooks/github` serves **every** onboarded repository. It verifies the HMAC **synchronously** and writes to MongoDB **asynchronously** via an in-process async worker.
+**Decision**: Single shared Next.js API route `POST /api/agentic-sdlc/webhooks/github` serves **every** onboarded repository. It verifies the HMAC **synchronously** and writes to MongoDB **asynchronously** via an in-process async worker.
 
 Per-repo isolation is by **secret**, not by route: each onboarded repo has its own webhook secret (we store the SHA-256 hash in `ship_loop_repos.webhook_secret_hash`; the secret itself lives in the platform secret store). The receiver looks up the repo by `repository.id` from the parsed payload and re-derives the HMAC against that repo's secret. Mismatch → `401`, never enqueued.
 
@@ -128,7 +128,7 @@ The "Deploy" stage transition fires when:
 
 ## R7. Authorization model
 
-**Decision**: Reuse the existing `next-auth` session and the user's GitHub OAuth token (already required for other GitHub-touching features in the app). On every `/api/ship-loop/**` call:
+**Decision**: Reuse the existing `next-auth` session and the user's GitHub OAuth token (already required for other GitHub-touching features in the app). On every `/api/agentic-sdlc/**` call:
 
 1. Authenticate the session via existing middleware (`api-middleware.ts`).
 2. For repo-scoped routes, call GitHub `GET /repos/{owner}/{repo}` with the user's token to verify read access. Cache the result per `(user_id, repo_id)` for 5 minutes.

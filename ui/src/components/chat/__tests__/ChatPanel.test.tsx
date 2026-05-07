@@ -653,7 +653,11 @@ describe('SupervisorChatPanel', () => {
       // Scroll far from bottom (2000 - 500 - 800 = 700 > 100px threshold)
       simulateScrollTo(viewport, 800)
 
-      expect(screen.getByText('New messages')).toBeInTheDocument()
+      const button = screen.getByRole('button', { name: /new messages/i })
+      expect(button).toBeInTheDocument()
+      expect(screen.getByText('New')).toBeInTheDocument()
+      expect(screen.queryByText('New messages')).not.toBeInTheDocument()
+      expect(button).toHaveClass('bg-background/70')
     })
 
     it('should NOT show scroll button when near bottom', () => {
@@ -680,7 +684,7 @@ describe('SupervisorChatPanel', () => {
       simulateScrollTo(viewport, 500)
 
       // This was the bug — before the fix, handleScroll bailed out during streaming
-      expect(screen.getByText('New messages')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /new messages/i })).toBeInTheDocument()
     })
 
     it('should NOT show scroll button during streaming when near bottom', () => {
@@ -707,7 +711,7 @@ describe('SupervisorChatPanel', () => {
 
       // At 1380px: distance = 120px > 100px non-streaming threshold → scrolled up
       simulateScrollTo(viewport, 1380)
-      expect(screen.getByText('New messages')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /new messages/i })).toBeInTheDocument()
     })
 
     it('should call scrollIntoView when scrollToBottom button is clicked', () => {
@@ -719,14 +723,14 @@ describe('SupervisorChatPanel', () => {
 
       // Scroll far up
       simulateScrollTo(viewport, 200)
-      expect(screen.getByText('New messages')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /new messages/i })).toBeInTheDocument()
 
       // Clear global mock
       const scrollIntoViewMock = Element.prototype.scrollIntoView as jest.Mock
       scrollIntoViewMock.mockClear()
 
       // Click the scroll-to-bottom button
-      fireEvent.click(screen.getByText('New messages'))
+      fireEvent.click(screen.getByRole('button', { name: /new messages/i }))
 
       expect(scrollIntoViewMock).toHaveBeenCalledWith({
         behavior: 'smooth',

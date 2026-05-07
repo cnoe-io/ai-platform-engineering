@@ -254,6 +254,9 @@ data/
 !.cursor/commands/
 !.cursor/rules/
 
+# Superpowers local brainstorming/session artifacts
+.superpowers/
+
 # Claude Code — track commands and skills, ignore everything else
 .claude/*
 !.claude/commands/

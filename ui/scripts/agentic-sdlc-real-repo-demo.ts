@@ -1,0 +1,422 @@
+#!/usr/bin/env -S node --enable-source-maps
+/**
+ * Drive a real GitHub repository through the Agentic SDLC UI.
+ *
+ * Dry-run is the default. Use `--apply` to create labels, an Epic issue,
+ * child task issues, demo spec files, a branch, and a PR in the target repo.
+ */
+
+const DEFAULT_REPO = "cisco-eti/sri-speckit-test";
+const DEFAULT_DELAY_MS = 1_500;
+
+export interface DemoOptions {
+  repo: string;
+  runId: string;
+  apply: boolean;
+  delayMs: number;
+}
+
+export interface DemoPlan {
+  owner: string;
+  repo: string;
+  runId: string;
+  branchName: string;
+  labels: string[];
+  epic: {
+    title: string;
+    body: string;
+  };
+  tasks: Array<{
+    title: string;
+    body: string;
+    labels: string[];
+  }>;
+  files: Array<{
+    path: string;
+    content: string;
+  }>;
+  pullRequest: {
+    title: string;
+    body: string;
+  };
+}
+
+interface DemoResult {
+  applied: boolean;
+  operations: string[];
+}
+
+type DemoOctokit = {
+  issues: {
+    create: (params: Record<string, unknown>) => Promise<any>;
+    addLabels: (params: Record<string, unknown>) => Promise<any>;
+    createLabel: (params: Record<string, unknown>) => Promise<any>;
+    getLabel: (params: Record<string, unknown>) => Promise<any>;
+    updateLabel: (params: Record<string, unknown>) => Promise<any>;
+  };
+  repos: {
+    get: (params: Record<string, unknown>) => Promise<any>;
+    getBranch: (params: Record<string, unknown>) => Promise<any>;
+    createOrUpdateFileContents: (params: Record<string, unknown>) => Promise<any>;
+  };
+  git: {
+    createRef: (params: Record<string, unknown>) => Promise<any>;
+    getRef: (params: Record<string, unknown>) => Promise<any>;
+  };
+  pulls: {
+    create: (params: Record<string, unknown>) => Promise<any>;
+  };
+};
+
+export function parseDemoArgs(argv: string[]): DemoOptions {
+  let repo = DEFAULT_REPO;
+  let runId = `agentic-sdlc-demo-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  let apply = false;
+  let delayMs = DEFAULT_DELAY_MS;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--apply") {
+      apply = true;
+      continue;
+    }
+    if (arg === "--repo") {
+      repo = requiredValue(argv, ++i, "--repo");
+      continue;
+    }
+    if (arg === "--run-id") {
+      runId = requiredValue(argv, ++i, "--run-id");
+      continue;
+    }
+    if (arg === "--delay-ms") {
+      delayMs = Number(requiredValue(argv, ++i, "--delay-ms"));
+      if (!Number.isFinite(delayMs) || delayMs < 0) {
+        throw new Error("--delay-ms must be a non-negative number");
+      }
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") {
+      printHelp();
+      process.exit(0);
+    }
+    throw new Error(`Unknown argument: ${arg}`);
+  }
+
+  return { repo, runId, apply, delayMs };
+}
+
+export function buildDemoPlan(input: {
+  repo: string;
+  runId?: string;
+}): DemoPlan {
+  const [owner, repo] = input.repo.split("/");
+  if (!owner || !repo) {
+    throw new Error(`--repo must be in owner/repo form (got "${input.repo}")`);
+  }
+
+  const runId = input.runId ?? "agentic-sdlc-demo";
+  const branchName = `agentic-sdlc/${runId}`;
+  const runLabel = `agentic-sdlc:run-${runId}`.slice(0, 50);
+
+  const labels = [
+    "epic",
+    "agent:specify",
+    "agent:plan",
+    "agent:tasks",
+    "agent:implement",
+    "agent:unit-test",
+    "agent:awaiting-review",
+    "agent:deploy-sandbox",
+    "agent:validate",
+    "agent:observe",
+    "agentic-sdlc:demo",
+    runLabel,
+  ];
+
+  const epicTitle = `Epic: Agentic SDLC demo ${runId}`;
+  const epicBody = [
+    "This Epic was created by the Agentic SDLC real-repo demo script.",
+    "",
+    "Acceptance criteria:",
+    "- Create child task issues linked to this Epic.",
+    "- Create demo spec and task files on a branch.",
+    "- Open a PR linked back to this Epic.",
+    "- Drive agent labels so the Agentic SDLC UI advances.",
+  ].join("\n");
+
+  return {
+    owner,
+    repo,
+    runId,
+    branchName,
+    labels,
+    epic: {
+      title: epicTitle,
+      body: epicBody,
+    },
+    tasks: [
+      {
+        title: `Task: specify Agentic SDLC demo ${runId}`,
+        body: "Parent-Epic: {{EPIC_NODE_ID}}\n\nWrite the intent and acceptance criteria.",
+        labels: ["agent:specify", "agentic-sdlc:demo", runLabel],
+      },
+      {
+        title: `Task: implement Agentic SDLC demo ${runId}`,
+        body: "Parent-Epic: {{EPIC_NODE_ID}}\n\nCreate the demo files and PR.",
+        labels: ["agent:implement", "agentic-sdlc:demo", runLabel],
+      },
+      {
+        title: `Task: validate Agentic SDLC demo ${runId}`,
+        body: "Parent-Epic: {{EPIC_NODE_ID}}\n\nValidate the UI projection and webhook flow.",
+        labels: ["agent:validate", "agentic-sdlc:demo", runLabel],
+      },
+    ],
+    files: [
+      {
+        path: `docs/docs/specs/${runId}/spec.md`,
+        content: `# ${epicTitle}\n\nGenerated by the Agentic SDLC real-repo demo script.\n`,
+      },
+      {
+        path: `docs/docs/specs/${runId}/tasks.md`,
+        content: `# Tasks for ${epicTitle}\n\n- [ ] Specify\n- [ ] Implement\n- [ ] Validate\n`,
+      },
+    ],
+    pullRequest: {
+      title: `feat(agentic-sdlc): add Agentic SDLC demo ${runId}`,
+      body: `Parent-Epic: {{EPIC_NODE_ID}}\n\nGenerated by the Agentic SDLC real-repo demo script.`,
+    },
+  };
+}
+
+export async function runDemoPlan({
+  plan,
+  apply,
+  octokit,
+  delayMs = DEFAULT_DELAY_MS,
+}: {
+  plan: DemoPlan;
+  apply: boolean;
+  octokit: Partial<DemoOctokit>;
+  delayMs?: number;
+}): Promise<DemoResult> {
+  const operations = [
+    `ensure labels in ${plan.owner}/${plan.repo}`,
+    `create Epic issue "${plan.epic.title}"`,
+    "create child task issues linked to the Epic",
+    `create branch ${plan.branchName}`,
+    "create spec files",
+    `create pull request "${plan.pullRequest.title}"`,
+    "advance Epic through agent labels",
+  ];
+
+  if (!apply) {
+    return { applied: false, operations };
+  }
+
+  const client = requireOctokit(octokit);
+  await ensureLabels(client, plan);
+
+  const epic = await client.issues.create({
+    owner: plan.owner,
+    repo: plan.repo,
+    title: plan.epic.title,
+    body: plan.epic.body,
+    labels: ["epic", "agent:specify", "agentic-sdlc:demo"],
+  });
+  const epicNodeId = epic.data.node_id as string;
+  const epicLinkLabel = `epic:${epicNodeId}`;
+  await ensureLabel(client, plan.owner, plan.repo, epicLinkLabel, "8B5CF6");
+
+  for (const task of plan.tasks) {
+    await client.issues.create({
+      owner: plan.owner,
+      repo: plan.repo,
+      title: task.title,
+      body: task.body.replaceAll("{{EPIC_NODE_ID}}", epicNodeId),
+      labels: [...task.labels, epicLinkLabel],
+    });
+  }
+
+  const repoInfo = await client.repos.get({ owner: plan.owner, repo: plan.repo });
+  const defaultBranch = repoInfo.data.default_branch as string;
+  const branch = await client.repos.getBranch({
+    owner: plan.owner,
+    repo: plan.repo,
+    branch: defaultBranch,
+  });
+  const sha = branch.data.commit.sha as string;
+  await createBranchIfMissing(client, plan, sha);
+
+  for (const file of plan.files) {
+    await client.repos.createOrUpdateFileContents({
+      owner: plan.owner,
+      repo: plan.repo,
+      path: file.path,
+      message: `docs(agentic-sdlc): add demo ${plan.runId}`,
+      content: Buffer.from(file.content).toString("base64"),
+      branch: plan.branchName,
+    });
+  }
+
+  const pr = await client.pulls.create({
+    owner: plan.owner,
+    repo: plan.repo,
+    title: plan.pullRequest.title,
+    body: plan.pullRequest.body.replaceAll("{{EPIC_NODE_ID}}", epicNodeId),
+    head: plan.branchName,
+    base: defaultBranch,
+  });
+  await client.issues.addLabels({
+    owner: plan.owner,
+    repo: plan.repo,
+    issue_number: pr.data.number,
+    labels: ["agent:awaiting-review", "agentic-sdlc:demo", epicLinkLabel],
+  });
+
+  for (const label of [
+    "agent:plan",
+    "agent:tasks",
+    "agent:implement",
+    "agent:unit-test",
+    "agent:awaiting-review",
+  ]) {
+    await sleep(delayMs);
+    await client.issues.addLabels({
+      owner: plan.owner,
+      repo: plan.repo,
+      issue_number: epic.data.number,
+      labels: [label],
+    });
+  }
+
+  return { applied: true, operations };
+}
+
+async function ensureLabels(client: DemoOctokit, plan: DemoPlan): Promise<void> {
+  for (const label of plan.labels) {
+    await ensureLabel(client, plan.owner, plan.repo, label, colorForLabel(label));
+  }
+}
+
+async function ensureLabel(
+  client: DemoOctokit,
+  owner: string,
+  repo: string,
+  name: string,
+  color: string,
+): Promise<void> {
+  try {
+    await client.issues.getLabel({ owner, repo, name });
+  } catch {
+    await client.issues.createLabel({
+      owner,
+      repo,
+      name,
+      color,
+      description: "Agentic SDLC demo label",
+    });
+  }
+}
+
+async function createBranchIfMissing(
+  client: DemoOctokit,
+  plan: DemoPlan,
+  sha: string,
+): Promise<void> {
+  try {
+    await client.git.getRef({
+      owner: plan.owner,
+      repo: plan.repo,
+      ref: `heads/${plan.branchName}`,
+    });
+  } catch {
+    await client.git.createRef({
+      owner: plan.owner,
+      repo: plan.repo,
+      ref: `refs/heads/${plan.branchName}`,
+      sha,
+    });
+  }
+}
+
+function colorForLabel(label: string): string {
+  if (label === "epic") return "7B61FF";
+  if (label.startsWith("agent:")) return "00BCD4";
+  if (label.startsWith("epic:")) return "8B5CF6";
+  return "475569";
+}
+
+function requireOctokit(octokit: Partial<DemoOctokit>): DemoOctokit {
+  const required = ["issues", "repos", "git", "pulls"] as const;
+  for (const key of required) {
+    if (!octokit[key]) {
+      throw new Error(`Octokit client is missing ${key}`);
+    }
+  }
+  return octokit as DemoOctokit;
+}
+
+function requiredValue(argv: string[], index: number, flag: string): string {
+  const value = argv[index];
+  if (!value) {
+    throw new Error(`${flag} requires a value`);
+  }
+  return value;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function printHelp(): void {
+  console.log(`Usage:
+  npm run agentic-sdlc:demo-real-repo -- [--repo owner/name] [--run-id id] [--apply]
+
+Defaults:
+  --repo ${DEFAULT_REPO}
+  dry-run unless --apply is provided
+`);
+}
+
+async function main(): Promise<void> {
+  const options = parseDemoArgs(process.argv.slice(2));
+  const plan = buildDemoPlan({ repo: options.repo, runId: options.runId });
+
+  console.log(`Agentic SDLC real-repo demo for ${plan.owner}/${plan.repo}`);
+  console.log(options.apply ? "Mode: APPLY" : "Mode: DRY RUN");
+
+  const token = process.env.GITHUB_TOKEN;
+  if (options.apply && !token) {
+    throw new Error("GITHUB_TOKEN is required when using --apply");
+  }
+
+  const { Octokit } = options.apply
+    ? await import("@octokit/rest")
+    : { Octokit: null };
+  const octokit = options.apply && Octokit
+    ? (new Octokit({ auth: token }) as unknown as Partial<DemoOctokit>)
+    : {};
+
+  const result = await runDemoPlan({
+    plan,
+    apply: options.apply,
+    delayMs: options.delayMs,
+    octokit,
+  });
+
+  for (const op of result.operations) {
+    console.log(`- ${op}`);
+  }
+
+  if (!result.applied) {
+    console.log("");
+    console.log("No GitHub changes were made. Re-run with --apply to mutate the repo.");
+  }
+}
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("Fatal:", err);
+    process.exit(1);
+  });
+}

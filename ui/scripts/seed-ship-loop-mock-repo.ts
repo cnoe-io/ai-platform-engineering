@@ -51,7 +51,7 @@ const DEFAULT_FULL_NAME = "demoorg/agentic-demo";
 const DEFAULT_SANDBOX_ENV = "sandbox-eks";
 
 function hashWebhookSecret(secret: string): string {
-  // Mirrors ui/src/lib/ship-loop/webhook-verify.ts hashWebhookSecret().
+  // Mirrors ui/src/lib/agentic-sdlc/webhook-verify.ts hashWebhookSecret().
   // Kept inline here so the script has zero src/ imports and runs
   // under plain ts-node without the Next.js path-alias resolver.
   return createHmac("sha256", "ship-loop-secret-fingerprint")

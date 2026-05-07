@@ -42,6 +42,22 @@ interface ChatViewProps {
   adminOrigin?: "audit-logs" | "feedback" | null;
   /** Whether messages are still loading (show skeleton) */
   isLoadingMessages?: boolean;
+  /** Extra page/module context sent through the existing dynamic-agent backend path. */
+  clientContext?: Record<string, unknown>;
+  /** Optional prompt chips rendered by the chat composer. */
+  suggestedPrompts?: string[];
+  /** Start suggested prompts collapsed behind the compact Suggestions pill. */
+  suggestedPromptsInitiallyHidden?: boolean;
+  /** Hide the right-side agent info/tools panel for constrained embedded views. */
+  hideContextPanel?: boolean;
+  /** Optional empty-state title for embedded or specialized chat surfaces. */
+  emptyStateTitle?: string;
+  /** Optional empty-state subtitle shown above the selected agent name. */
+  emptyStateSubtitle?: string;
+  /** Optional visual surface treatment for embedded chat surfaces. */
+  surface?: "default" | "glass";
+  /** Optional font-size scale for embedded chat surfaces. */
+  fontScale?: "compact" | "default" | "large";
 }
 
 /**
@@ -67,6 +83,14 @@ export function ChatView({
   readOnlyReason,
   adminOrigin,
   isLoadingMessages,
+  clientContext,
+  suggestedPrompts,
+  suggestedPromptsInitiallyHidden,
+  hideContextPanel,
+  emptyStateTitle,
+  emptyStateSubtitle,
+  surface = "default",
+  fontScale = "default",
 }: ChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
 
@@ -85,26 +109,35 @@ export function ChatView({
           agentName={agentName}
           agentSkills={agentSkills}
           isLoadingMessages={isLoadingMessages}
+          clientContext={clientContext}
+          suggestedPrompts={suggestedPrompts}
+          suggestedPromptsInitiallyHidden={suggestedPromptsInitiallyHidden}
+          emptyStateTitle={emptyStateTitle}
+          emptyStateSubtitle={emptyStateSubtitle}
+          surface={surface}
+          fontScale={fontScale}
         />
       </div>
 
       {/* Context Panel - Dynamic Agent variant */}
-      <DynamicAgentContext
-        conversationId={conversationId}
-        agentId={selectedAgentId}
-        agentName={agentName}
-        agentDescription={agentDescription}
-        agentModel={agentModel}
-        agentVisibility={agentVisibility}
-        agentGradient={agentGradient}
-        allowedTools={allowedTools}
-        subagents={subagents}
-        agentSkills={agentSkills}
-        agentNotFound={agentNotFound}
-        agentDisabled={agentDisabled}
-        collapsed={contextPanelCollapsed}
-        onCollapse={setContextPanelCollapsed}
-      />
+      {!hideContextPanel && (
+        <DynamicAgentContext
+          conversationId={conversationId}
+          agentId={selectedAgentId}
+          agentName={agentName}
+          agentDescription={agentDescription}
+          agentModel={agentModel}
+          agentVisibility={agentVisibility}
+          agentGradient={agentGradient}
+          allowedTools={allowedTools}
+          subagents={subagents}
+          agentSkills={agentSkills}
+          agentNotFound={agentNotFound}
+          agentDisabled={agentDisabled}
+          collapsed={contextPanelCollapsed}
+          onCollapse={setContextPanelCollapsed}
+        />
+      )}
     </div>
   );
 }

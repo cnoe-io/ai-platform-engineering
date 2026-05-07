@@ -1,6 +1,6 @@
 # HTTP API Contract — Ship Loop
 
-All routes live under `ui/src/app/api/ship-loop/**` and follow the existing CAIPE Next.js route-handler conventions. Every route enforces:
+All routes live under `ui/src/app/api/agentic-sdlc/**` and follow the existing CAIPE Next.js route-handler conventions. Every route enforces:
 
 1. **Server-side toggle**: if `Config.shipLoopEnabled === false`, return **`404 Not Found`** with empty body. Do not branch on Authorization header before this check.
 2. **Authentication**: requires a valid `next-auth` session (via existing `api-middleware.ts`). Otherwise `401`.
@@ -11,7 +11,7 @@ Request/response bodies are JSON unless noted. All times are ISO-8601 UTC. Error
 
 ---
 
-## `GET /api/ship-loop/repos`
+## `GET /api/agentic-sdlc/repos`
 
 List repos onboarded by the calling user (or visible to them).
 
@@ -37,7 +37,7 @@ List repos onboarded by the calling user (or visible to them).
 }
 ```
 
-## `POST /api/ship-loop/repos`
+## `POST /api/agentic-sdlc/repos`
 
 Onboard a new repo.
 
@@ -53,15 +53,37 @@ Onboard a new repo.
 
 **Response 201** — same shape as `GET` item. **409** on duplicate active onboarding.
 
-## `GET /api/ship-loop/repos/{owner}/{repo}`
+## `GET /api/agentic-sdlc/repos/{owner}/{repo}`
 
 Repo detail + webhook health. **404** if not onboarded or caller lacks access.
 
-## `DELETE /api/ship-loop/repos/{owner}/{repo}`
+## `POST /api/agentic-sdlc/repos/{owner}/{repo}/sync`
+
+Reconcile current GitHub issue and pull request state into the derived artifact
+store. Used after onboarding, on stale repo-detail reloads, and from the manual
+"Refresh from GitHub" control when webhook forwarding may have missed events.
+Pulls issues and PRs with `per_page=100`, stores UI-origin reconciliation
+events in `ship_loop_events`, upserts projected rows in `ship_loop_artifacts`,
+and updates `last_reconciled_at` on the repo.
+
+**Response 200**
+```json
+{
+  "synced": true,
+  "repo": "cisco-eti/sri-react-app",
+  "issues_seen": 42,
+  "pull_requests_seen": 8,
+  "artifacts_upserted": 47,
+  "events_recorded": 47,
+  "last_reconciled_at": "2026-05-07T08:30:00.000Z"
+}
+```
+
+## `DELETE /api/agentic-sdlc/repos/{owner}/{repo}`
 
 Offboard. Sets `offboarded_at`. Read-only state preserved (FR-004). Idempotent.
 
-## `GET /api/ship-loop/repos/{owner}/{repo}/epics`
+## `GET /api/agentic-sdlc/repos/{owner}/{repo}/epics`
 
 List Epics. Supports `?stage=`, `?needs_me=true`, `?stalled=true`, `?limit=`, `?cursor=`.
 
@@ -84,7 +106,7 @@ List Epics. Supports `?stage=`, `?needs_me=true`, `?stalled=true`, `?limit=`, `?
 }
 ```
 
-## `GET /api/ship-loop/repos/{owner}/{repo}/epics/{epicId}`
+## `GET /api/agentic-sdlc/repos/{owner}/{repo}/epics/{epicId}`
 
 Full Epic view (Epic + every child sub-task, PR, deploy, recent events).
 
@@ -100,11 +122,11 @@ Full Epic view (Epic + every child sub-task, PR, deploy, recent events).
 }
 ```
 
-## `GET /api/ship-loop/repos/{owner}/{repo}/epics/{epicId}/events` *(SSE)*
+## `GET /api/agentic-sdlc/repos/{owner}/{repo}/epics/{epicId}/events` *(SSE)*
 
 Server-Sent Events stream for live updates. See [`sse-channels.md`](./sse-channels.md). Returns `text/event-stream`.
 
-## `GET /api/ship-loop/needs-you` *(SSE)*
+## `GET /api/agentic-sdlc/needs-you` *(SSE)*
 
 Per-user "Needs you" inbox stream. See [`sse-channels.md`](./sse-channels.md).
 
@@ -116,31 +138,31 @@ All HITL routes are `POST` and require **write** permission on the target repo (
 
 Every successful action writes a `ship_loop_events` row with `source="ui"` recording actor, target, timestamp, and outcome.
 
-### `POST /api/ship-loop/actions/approve-pr`
+### `POST /api/agentic-sdlc/actions/approve-pr`
 ```json
 { "owner": "...", "repo": "...", "pr_number": 42, "comment": "LGTM" }
 ```
 On success: forwards to GitHub as `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` with `event=APPROVE`.
 
-### `POST /api/ship-loop/actions/request-changes`
+### `POST /api/agentic-sdlc/actions/request-changes`
 ```json
 { "owner": "...", "repo": "...", "pr_number": 42, "comment": "Please address X" }
 ```
 Forwards as `event=REQUEST_CHANGES`. **`comment` is required**.
 
-### `POST /api/ship-loop/actions/comment`
+### `POST /api/agentic-sdlc/actions/comment`
 ```json
 { "owner": "...", "repo": "...", "pr_number": 42, "comment": "..." }
 ```
 Forwards as a PR review comment.
 
-### `POST /api/ship-loop/actions/retry-deploy`
+### `POST /api/agentic-sdlc/actions/retry-deploy`
 ```json
 { "owner": "...", "repo": "...", "deployment_id": 9876543 }
 ```
 Forwards as `POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs` (or equivalent — actual GitHub call resolved by the server based on which mechanism produced the deploy).
 
-### `POST /api/ship-loop/actions/pause-loop` / `POST /api/ship-loop/actions/resume-loop`
+### `POST /api/agentic-sdlc/actions/pause-loop` / `POST /api/agentic-sdlc/actions/resume-loop`
 ```json
 { "owner": "...", "repo": "...", "epic_id": "I_kwDOAB1234" }
 ```
@@ -148,7 +170,7 @@ Adds/removes the `agent:paused` label on the Epic and on every open child sub-ta
 
 ---
 
-## `POST /api/ship-loop/webhooks/github`
+## `POST /api/agentic-sdlc/webhooks/github`
 
 Inbound GitHub webhook. **Public** (no session), but every request must:
 

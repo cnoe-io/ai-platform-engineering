@@ -46,7 +46,7 @@ You should now see the **Ship Loop** tab in the top nav. (If you don't, double-c
 
 The UI will:
 - Verify your `read` access via the GitHub API.
-- Create or reuse a webhook on the repo, scoped to the events listed in [`contracts/github-webhook-events.md`](./contracts/github-webhook-events.md), pointed at `https://<your-host>/api/ship-loop/webhooks/github`.
+- Create or reuse a webhook on the repo, scoped to the events listed in [`contracts/github-webhook-events.md`](./contracts/github-webhook-events.md), pointed at `https://<your-host>/api/agentic-sdlc/webhooks/github`.
 - Insert a row in `ship_loop_repos`.
 
 ## 5. Verify the webhook
@@ -89,5 +89,5 @@ To roll back the schema entirely, see [`mongodb-migration.md`](./mongodb-migrati
 | No "Ship Loop" tab in nav | Server toggle off, or user flag off, or session not authenticated | Set `SHIP_LOOP_ENABLED=true`, restart, log in, toggle the per-user flag |
 | Webhook health "missing" | Webhook not registered on the repo, or wrong URL | Use Reconnect on the repo detail page |
 | Webhook health "degraded" | Last delivery older than threshold | Check GitHub repo settings → Webhooks → Recent deliveries; redeliver and inspect any errors |
-| `401` from `/api/ship-loop/webhooks/github` | Signature mismatch | Confirm `GITHUB_WEBHOOK_SECRET` matches the secret configured on the GitHub webhook |
+| `401` from `/api/agentic-sdlc/webhooks/github` | Signature mismatch | Confirm `GITHUB_WEBHOOK_SECRET` matches the secret configured on the GitHub webhook |
 | All routes return 404 | Server toggle off | `SHIP_LOOP_ENABLED=true` and restart |

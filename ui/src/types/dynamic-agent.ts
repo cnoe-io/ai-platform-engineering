@@ -131,6 +131,13 @@ export interface SleepToolConfig {
 }
 
 /**
+ * Configuration for the Agentic SDLC read-only query tool.
+ */
+export interface AgenticSdlcQueryToolConfig {
+  enabled: boolean;
+}
+
+/**
  * Configuration for all built-in tools available to dynamic agents.
  * Each tool config is optional - if not present, tool uses defaults.
  */
@@ -139,6 +146,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  agentic_sdlc_query?: AgenticSdlcQueryToolConfig;
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }

@@ -37,6 +37,7 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    create_agentic_sdlc_query_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_request_user_input_tool,
@@ -478,6 +479,16 @@ class AgentRuntime(StreamingMixin):
                 )
             )
             config_summary["self_identity"] = {}
+
+        agentic_sdlc_query_config = config.builtin_tools.agentic_sdlc_query
+        if agentic_sdlc_query_config and agentic_sdlc_query_config.enabled:
+            tools.append(
+                create_agentic_sdlc_query_tool(
+                    client_context=client_context,
+                    mongo_client=self._mongo_client,
+                )
+            )
+            config_summary["agentic_sdlc_query"] = {}
 
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")

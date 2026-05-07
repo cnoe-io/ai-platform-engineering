@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Brain, Bug, Eye, ArrowDownToLine, Clock, Info, ExternalLink, Settings, Ship, MessagesSquare } from "lucide-react";
+import { Brain, Bug, Eye, ArrowDownToLine, Clock, Info, ExternalLink, Settings, Ship, MessagesSquare, Sparkles } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ const FLAG_ICONS: Record<FeatureFlagIcon, React.ReactNode> = {
   Clock: <Clock className="h-4 w-4" />,
   Ship: <Ship className="h-4 w-4" />,
   MessagesSquare: <MessagesSquare className="h-4 w-4" />,
+  Sparkles: <Sparkles className="h-4 w-4" />,
 };
 
 const CATEGORY_ORDER: FeatureFlagCategory[] = ["ai", "chat", "developer"];

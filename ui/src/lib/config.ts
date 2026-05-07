@@ -168,9 +168,9 @@ export interface Config {
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
   /**
-   * Whether the Agentic SDLC Ship Loop UI tab is available.
+   * Whether the Agentic SDLC UI is available.
    * When false (default), the entire feature is gated off — nav tab hidden,
-   * `/api/ship-loop/**` routes return 404, and `/ship-loop` pages call
+   * `/api/agentic-sdlc/**` routes return 404, and `/agentic-sdlc` pages call
    * `notFound()`. Set SHIP_LOOP_ENABLED=true to enable.
    *
    * This is the **server-side** half of the two-layer toggle. A per-user
@@ -179,8 +179,8 @@ export interface Config {
    */
   shipLoopEnabled: boolean;
   /**
-   * Whether the "Talk to the loop" AG-UI assistant side panel is enabled.
-   * Independent sub-toggle of the Ship Loop feature; allows shipping the
+   * Whether the Agentic SDLC assistant chat bubble is enabled.
+   * Independent sub-toggle of the Agentic SDLC feature; allows shipping the
    * dashboard without the assistant. Set SHIP_LOOP_ASSISTANT_ENABLED=true
    * (default false) to enable. Has no effect when `shipLoopEnabled` is false.
    */

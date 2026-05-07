@@ -32,7 +32,7 @@ A user only sees the feature when **both** flags are on. This gives operators a 
 - Portfolio dashboard handles 100 onboarded repos and 1,000 in-flight Epics without virtualization issues.
 **Constraints**:
 - **Feature toggle gating**: every entry point (nav tab, route, API routes, SSE channel) must check both `Config.shipLoopEnabled` (server) and the per-user `shipLoop` flag (client) before rendering or returning data. Disabled-state must return 404 from API routes (not 403) to avoid disclosing the feature's existence to non-pilot users.
-- **Webhook security**: every inbound `/api/ship-loop/webhooks/github` request must verify `X-Hub-Signature-256` HMAC against a per-installation secret stored in MongoDB; reject unsigned/mismatched payloads (FR-025).
+- **Webhook security**: every inbound `/api/agentic-sdlc/webhooks/github` request must verify `X-Hub-Signature-256` HMAC against a per-installation secret stored in MongoDB; reject unsigned/mismatched payloads (FR-025).
 - **Untrusted content rendering**: all user/agent-supplied text from GitHub (titles, comments, branch names, labels) is treated as untrusted. Render via existing `markdown-components.tsx` + DOMPurify allow-list. No `dangerouslySetInnerHTML` of raw payloads. Encode attribute contexts and block `javascript:` URLs (FR-027, FR-028).
 - **Authorization**: every API route checks the caller has GitHub read access to the requested repo (cached on the server), and HITL action routes additionally check write/triage access. Deny-by-default; return 404 for repos the user can't see.
 - **No production deploys** are visualized or actionable (out of scope per spec).
@@ -106,7 +106,7 @@ ui/
 │   ├── components/
 │   │   └── ship-loop/                           # NEW
 │   │       ├── ShipLoopGuard.tsx                # Reads config + feature flag; renders disabled-state or 404
-│   │       ├── ShipLoopHome.tsx                 # Portfolio dashboard
+│   │       ├── AgenticSdlcHome.tsx                 # Portfolio dashboard
 │   │       ├── OnboardRepoDialog.tsx
 │   │       ├── EpicView.tsx                     # Hosts the active visualization mode
 │   │       ├── visualizations/
@@ -139,7 +139,7 @@ ui/
 └── env.example                                   # MODIFY — document SHIP_LOOP_ENABLED + GITHUB_WEBHOOK_SECRET
 ```
 
-**Structure Decision**: This is a UI-led feature. All code lives under `ui/` using the Next.js App Router patterns already established in the repo. The new `(app)/ship-loop/` route group, `components/ship-loop/`, `hooks/`, `store/`, and `lib/ship-loop/` directories follow the existing convention used by `dynamic-agents`, `knowledge-bases`, and `task-builder`. No backend Python service is added in MVP — webhook ingestion is handled by a Next.js API route, persisted to MongoDB, and pushed to clients via SSE.
+**Structure Decision**: This is a UI-led feature. All code lives under `ui/` using the Next.js App Router patterns already established in the repo. The new `(app)/ship-loop/` route group, `components/agentic-sdlc/`, `hooks/`, `store/`, and `lib/agentic-sdlc/` directories follow the existing convention used by `dynamic-agents`, `knowledge-bases`, and `task-builder`. No backend Python service is added in MVP — webhook ingestion is handled by a Next.js API route, persisted to MongoDB, and pushed to clients via SSE.
 
 ## Database migrations
 
@@ -165,7 +165,7 @@ See [`research.md`](./research.md). Topics resolved:
 
 1. **Feature-toggle pattern for "entire feature behind a toggle"** — adopt the two-layer pattern already used by `ragEnabled` and `dynamicAgentsEnabled`. Server kill switch (`SHIP_LOOP_ENABLED` env → `Config.shipLoopEnabled`) + per-user `shipLoop` entry in `feature-flag-store`. API routes return **404** (not 403) when disabled, to match RAG/dynamic-agents precedent and avoid feature-existence disclosure.
 2. **Visualization library choices** — React Flow (`@xyflow/react`) for the dependency graph mode only. All other modes use plain SVG + Tailwind/CSS Grid. Rejected: full d3.js (overkill), recharts/visx (don't model graph layouts), nivo (heavyweight).
-3. **Webhook ingestion path** — Next.js API route (`/api/ship-loop/webhooks/github`) using `@octokit/webhooks` for HMAC SHA-256 signature verification. Rejected: a separate Python FastAPI service for MVP (adds ops surface for no MVP win).
+3. **Webhook ingestion path** — Next.js API route (`/api/agentic-sdlc/webhooks/github`) using `@octokit/webhooks` for HMAC SHA-256 signature verification. Rejected: a separate Python FastAPI service for MVP (adds ops surface for no MVP win).
 4. **Live updates transport** — SSE (matches existing `sse-streaming-client.ts`). Rejected: WebSocket (no bidirectional need; server-pushed events are sufficient).
 5. **Sandbox EKS deploy visualization** — read GitHub `deployment` + `deployment_status` events for environments matching the configured-at-onboard environment string (e.g., `sandbox-eks`). No direct EKS API calls in MVP. Rejected: Argo CD MCP integration (out-of-scope and requires separate auth).
 6. **Idempotency / out-of-order webhook handling** — store every event with `(repo_id, github_event_id, delivered_at)` as a unique compound key; derive current stage from the event log on read, not on write. Re-delivery is harmless.
@@ -176,7 +176,7 @@ See [`research.md`](./research.md). Topics resolved:
 Generated artifacts:
 
 - **[`data-model.md`](./data-model.md)** — TypeScript-shaped entity definitions (Onboarded Repository, Epic, Sub-task, Pull Request, Comment/Review Event, Label, Webhook Event, Deploy Record, Stage Transition, HITL Action, Ship-loop Stage), with state-transition table for stages.
-- **[`contracts/http-api.md`](./contracts/http-api.md)** — Every `/api/ship-loop/**` route, its method, request/response JSON shape, and the gating behavior (404 when disabled).
+- **[`contracts/http-api.md`](./contracts/http-api.md)** — Every `/api/agentic-sdlc/**` route, its method, request/response JSON shape, and the gating behavior (404 when disabled).
 - **[`contracts/sse-channels.md`](./contracts/sse-channels.md)** — SSE event schema for the per-Epic stream and per-user "Needs you" stream.
 - **[`contracts/github-webhook-events.md`](./contracts/github-webhook-events.md)** — Subset of GitHub webhook events consumed (`issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `push`, `check_run`, `check_suite`, `deployment`, `deployment_status`, `label`), the fields we read, and the rejection rules.
 - **[`mongodb-migration.md`](./mongodb-migration.md)** — Collection schemas, compound indexes (with query justification), and rollback.

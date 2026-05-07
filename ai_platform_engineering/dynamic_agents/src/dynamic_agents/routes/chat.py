@@ -34,6 +34,7 @@ class ResumeStreamRequest(BaseModel):
     form_data: str  # JSON string of form values, or rejection message
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    client_context: ClientContext | None = Field(None, description="Opaque client context for resumed turns")
 
 
 async def _generate_sse_events(
@@ -163,6 +164,7 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    client_context: ClientContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -184,6 +186,7 @@ async def _generate_resume_sse_events(
             mcp_servers,
             session_id,
             user=user,
+            client_context=client_context,
         )
 
         # Resume streaming with form data
@@ -246,6 +249,7 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            client_context=request.client_context,
         ),
         media_type="text/event-stream",
         headers={

@@ -1773,16 +1773,17 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 10 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10"
+            className="absolute bottom-28 right-5 z-10"
           >
             <Button
+              aria-label="New messages"
               onClick={() => scrollToBottom("smooth")}
               size="sm"
               variant="secondary"
-              className="rounded-full shadow-lg border border-border/50 gap-1.5 px-4 hover:bg-primary hover:text-primary-foreground transition-colors"
+              className="h-7 rounded-full border border-border/40 bg-background/70 px-2.5 text-muted-foreground shadow-sm backdrop-blur-md gap-1 hover:bg-background/90 hover:text-foreground transition-colors"
             >
-              <ArrowDown className="h-4 w-4" />
-              <span className="text-xs font-medium">New messages</span>
+              <ArrowDown className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-medium leading-none">New</span>
             </Button>
           </motion.div>
         )}
