@@ -31,14 +31,25 @@ if A2A_AUTH_OAUTH2:
   JWKS_URI = os.environ["JWKS_URI"]
   AUDIENCE = os.environ["AUDIENCE"]  # expected 'aud' claim in token
   ISSUER = os.environ["ISSUER"]
-  # Comma-separated list of allowed client IDs for cid claim validation.
+  # Comma-separated list of allowed client IDs.
   OAUTH2_CLIENT_IDS = {cid.strip() for cid in os.environ["OAUTH2_CLIENT_ID"].split(",") if cid.strip()}
   DEBUG_UNMASK_AUTH_HEADER = os.environ.get("DEBUG_UNMASK_AUTH_HEADER", "false").lower() == "true"
+  # When true, tokens lacking a client-identity claim (azp/client_id/cid) are
+  # rejected. Default false preserves backward compatibility for tokens issued
+  # by IdPs that don't emit one of those claims (e.g. older configurations).
+  # Set to true for production deployments that mint tokens via Keycloak (or
+  # any RFC8693-conformant IdP) — both `azp` and `client_id` are emitted by
+  # default for confidential clients in those flows.
+  REQUIRE_CLIENT_CLAIM = os.environ.get("OAUTH2_REQUIRE_CLIENT_CLAIM", "false").lower() == "true"
   _jwks_cache = JwksCache(JWKS_URI)
 
   print("\n" + "="*40)
   print(f"JWKS_URI: {JWKS_URI}")
+  print(f"ISSUER: {ISSUER}")
+  print(f"AUDIENCE: {AUDIENCE}")
   print(f"ALLOWED_ALGORITHMS: {ALGORITHMS}")
+  print(f"OAUTH2_CLIENT_IDS (allowlist): {sorted(OAUTH2_CLIENT_IDS)}")
+  print(f"OAUTH2_REQUIRE_CLIENT_CLAIM: {REQUIRE_CLIENT_CLAIM}")
   print("="*40 + "\n")
 
 
@@ -109,26 +120,49 @@ def verify_token(token: str) -> bool:
             },
             leeway=CLOCK_SKEW_LEEWAY,    # small clock skew tolerance (seconds)
         )
-        # Check if 'cid' claim exists and validate it against the allowed set.
-        if "cid" in payload:
-            token_cid = payload["cid"]
-            if token_cid in OAUTH2_CLIENT_IDS:
-                logger.debug(f"Token CID matches allowed client ID: {token_cid}")
+        # Validate the token's client identity against OAUTH2_CLIENT_IDS.
+        # Accepts azp (RFC 7519 § 4.1.7 standard, emitted by Keycloak and most
+        # OIDC providers), client_id (Keycloak custom claim), or cid (legacy
+        # naming). When OAUTH2_REQUIRE_CLIENT_CLAIM=true (recommended for
+        # production), tokens missing all three claims are rejected. When
+        # false (default, preserves existing behavior), tokens missing the
+        # claim are accepted to avoid breaking deployments that rely on the
+        # current permissive behavior.
+        client_claim = (
+            payload.get('azp')
+            or payload.get('client_id')
+            or payload.get('cid')
+        )
+        if client_claim is not None:
+            if client_claim in OAUTH2_CLIENT_IDS:
+                logger.debug("Token authorized for client %r", client_claim)
                 return True
-            else:
-                logger.warning("Token CID not in allowed client IDs")
-                return False
-        else:
-            print("\n" + "="*40)
-            print("Token missing 'cid' claim. Moving on and return True")
-            print("="*40 + "\n")
+            logger.warning(
+                "Token client claim %r not in allowed client IDs %s",
+                client_claim,
+                sorted(OAUTH2_CLIENT_IDS),
+            )
+            return False
+
+        # No client-identity claim present.
+        if REQUIRE_CLIENT_CLAIM:
+            logger.warning(
+                "Token missing client identity claim (azp/client_id/cid). "
+                "Rejecting because OAUTH2_REQUIRE_CLIENT_CLAIM=true."
+            )
+            return False
+        logger.warning(
+            "Token missing client identity claim (azp/client_id/cid). "
+            "Accepting under permissive default — set OAUTH2_REQUIRE_CLIENT_CLAIM=true "
+            "to require the claim and reject anonymous-client tokens."
+        )
+        return True
     except InvalidTokenError as e:
         logger.warning("Token validation failed: %s", e)
         return False
     except Exception as e:
         logger.warning("Token verification error: %s", e)
         return False
-    return True
 
 class OAuth2Middleware(BaseHTTPMiddleware):
     """Starlette middleware that authenticates A2A access using an OAuth2 bearer token."""
