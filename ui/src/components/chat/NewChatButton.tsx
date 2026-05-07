@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Check, Search } from "lucide-react";
+import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
