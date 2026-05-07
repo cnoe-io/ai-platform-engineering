@@ -499,7 +499,7 @@ def register_tools(server) -> None:
             except Exception as e:  # noqa: BLE001
                 raise ValueError(f"Invalid vtt_base64 payload: {e}") from e
         if not text and args.url:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
                 r = await client.get(args.url)
                 r.raise_for_status()
                 text = r.text
