@@ -46,14 +46,45 @@ const config: Config = {
       }
     ],
     [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          // Old docs-based release notes → new blog posts
+          {from: '/releases/release-0.4.8', to: '/blog/releases/release-0.4.8'},
+          {from: '/releases/release-0.4.7', to: '/blog/releases/release-0.4.7'},
+          {from: '/releases/release-0.4.6', to: '/blog/releases/release-0.4.6'},
+          {from: '/releases/release-0.4.5', to: '/blog/releases/release-0.4.5'},
+          {from: '/releases/release-0.4.4', to: '/blog/releases/release-0.4.4'},
+          {from: '/releases/release-0.4.3', to: '/blog/releases/release-0.4.3'},
+          {from: '/releases/release-0.4.2', to: '/blog/releases/release-0.4.2'},
+          {from: '/releases/release-0.4.1', to: '/blog/releases/release-0.4.1'},
+          {from: '/releases/release-0.4.0', to: '/blog/releases/release-0.4.0'},
+          // Old migration guide docs → embedded in release blog posts
+          {from: '/releases/migration-0.4.7-to-0.4.8', to: '/blog/releases/release-0.4.8'},
+          {from: '/releases/migration-0.4.6-to-0.4.7', to: '/blog/releases/release-0.4.7'},
+          {from: '/releases/migration-0.4.5-to-0.4.6', to: '/blog/releases/release-0.4.6'},
+          {from: '/releases/migration-0.4.4-to-0.4.5', to: '/blog/releases/release-0.4.5'},
+          {from: '/releases/migration-0.4.3-to-0.4.4', to: '/blog/releases/release-0.4.4'},
+          {from: '/releases/migration-0.4.2-to-0.4.3', to: '/blog/releases/release-0.4.3'},
+          {from: '/releases/migration-0.4.1-to-0.4.2', to: '/blog/releases/release-0.4.2'},
+          {from: '/releases/migration-0.4.0-to-0.4.1', to: '/blog/releases/release-0.4.1'},
+          {from: '/releases/migration-0.3.x-to-0.4.0', to: '/blog/releases/release-0.4.0'},
+          {from: '/releases/migration-0.2.41-to-0.3.2', to: '/blog/releases/release-0.3.2'},
+          {from: '/releases', to: '/blog/releases'},
+        ],
+      },
+    ],
+    [
       '@docusaurus/plugin-content-blog',
       {
         id: 'releases',
         path: 'releases',
         routeBasePath: 'blog/releases',
         blogTitle: 'Releases',
-        blogDescription: 'CAIPE release notes and changelog',
+        blogDescription: 'CAIPE release notes and upgrade guides',
         showReadingTime: false,
+        blogSidebarCount: 'ALL',
+        blogSidebarTitle: 'All Releases',
         onInlineTags: 'warn',
         onInlineAuthors: 'warn',
         onUntruncatedBlogPosts: 'warn',
@@ -121,7 +152,16 @@ const config: Config = {
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {to: '/blog/releases', label: 'Releases', position: 'left'},
-        {to: '/features', label: 'Features', position: 'left'},
+        {
+          type: 'dropdown',
+          label: 'Features',
+          position: 'left',
+          items: [
+            {to: '/features', label: 'All Features'},
+            {to: '/docs/features/custom-agents', label: 'Custom Agents'},
+            {to: '/docs/features/byo-agents', label: 'BYO A2A & MCP'},
+          ],
+        },
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
         {
@@ -170,6 +210,10 @@ const config: Config = {
             {
               label: 'Contributing',
               to: '/docs/contributing',
+            },
+            {
+              label: 'Releases',
+              to: '/blog/releases',
             },
           ],
         },

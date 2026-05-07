@@ -9,13 +9,13 @@ const DEEP_DIVES = [
     title: 'Custom Agents',
     icon: '🛠️',
     description: 'Build agents with custom system prompts, tool access, and personas. Deploy via the no-code Agent Builder UI or the dynamic-agents Helm chart.',
-    to: '/custom-agents',
+    to: '/docs/features/custom-agents',
   },
   {
     title: 'BYO A2A Agents & MCP Servers',
     icon: '🔌',
     description: 'Plug your own A2A agents and MCP servers into CAIPE via the supervisor agent registry, dynamic-agents seed config, or Docker Compose.',
-    to: '/byo-agents',
+    to: '/docs/features/byo-agents',
   },
 ];
 

@@ -79,14 +79,14 @@ const FEATURES = [
     title: 'Custom Agents',
     description:
       'Build and deploy your own agents with the Agent Builder UI. Customize system prompts, tool access, and personas without writing boilerplate.',
-    to: '/custom-agents',
+    to: '/docs/features/custom-agents',
   },
   {
     icon: '🔌',
     title: 'BYO A2A Agents & MCP Servers',
     description:
       'Plug in your own A2A-compatible agents or MCP servers. CAIPE acts as the orchestration layer — your tools, your protocols.',
-    to: '/byo-agents',
+    to: '/docs/features/byo-agents',
   },
   {
     icon: '🌐',

@@ -264,6 +264,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Features',
       items: [
+        { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
+        { type: 'doc', id: 'features/byo-agents', label: 'BYO A2A & MCP Servers' },
         {
           type: 'category',
           label: 'Rich Web UI',
@@ -421,52 +423,6 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'tools-utils/jira-mcp-implementations-comparison',
         }
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Releases',
-      items: [
-        {
-          type: 'doc',
-          id: 'releases/index',
-          label: 'Overview',
-        },
-        {
-          type: 'category',
-          label: '0.4.x Release Notes',
-          items: [
-            { type: 'doc', id: 'releases/release-0.4.8', label: '0.4.8' },
-            { type: 'doc', id: 'releases/release-0.4.7', label: '0.4.7' },
-            { type: 'doc', id: 'releases/release-0.4.6', label: '0.4.6' },
-            { type: 'doc', id: 'releases/release-0.4.5', label: '0.4.5' },
-            { type: 'doc', id: 'releases/release-0.4.4', label: '0.4.4' },
-            { type: 'doc', id: 'releases/release-0.4.3', label: '0.4.3' },
-            { type: 'doc', id: 'releases/release-0.4.2', label: '0.4.2' },
-            { type: 'doc', id: 'releases/release-0.4.1', label: '0.4.1' },
-            { type: 'doc', id: 'releases/release-0.4.0', label: '0.4.0' },
-          ],
-        },
-        {
-          type: 'category',
-          label: '0.4.x Migration Guides',
-          items: [
-            { type: 'doc', id: 'releases/migration-0.4.7-to-0.4.8', label: '0.4.7 → 0.4.8' },
-            { type: 'doc', id: 'releases/migration-0.4.6-to-0.4.7', label: '0.4.6 → 0.4.7' },
-            { type: 'doc', id: 'releases/migration-0.4.5-to-0.4.6', label: '0.4.5 → 0.4.6' },
-            { type: 'doc', id: 'releases/migration-0.4.4-to-0.4.5', label: '0.4.4 → 0.4.5' },
-            { type: 'doc', id: 'releases/migration-0.4.3-to-0.4.4', label: '0.4.3 → 0.4.4' },
-            { type: 'doc', id: 'releases/migration-0.4.2-to-0.4.3', label: '0.4.2 → 0.4.3' },
-            { type: 'doc', id: 'releases/migration-0.4.1-to-0.4.2', label: '0.4.1 → 0.4.2' },
-            { type: 'doc', id: 'releases/migration-0.4.0-to-0.4.1', label: '0.4.0 → 0.4.1' },
-            { type: 'doc', id: 'releases/migration-0.3.x-to-0.4.0', label: '0.3.x → 0.4.0' },
-          ],
-        },
-        {
-          type: 'doc',
-          id: 'releases/migration-0.2.41-to-0.3.2',
-          label: 'Migration: 0.2.41 → 0.3.2',
-        },
       ],
     },
     {
