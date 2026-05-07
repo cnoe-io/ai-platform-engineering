@@ -152,16 +152,7 @@ const config: Config = {
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {to: '/blog/releases', label: 'Releases', position: 'left'},
-        {
-          type: 'dropdown',
-          label: 'Features',
-          position: 'left',
-          items: [
-            {to: '/features', label: 'All Features'},
-            {to: '/docs/features/custom-agents', label: 'Custom Agents'},
-            {to: '/docs/features/byo-agents', label: 'BYO A2A & MCP'},
-          ],
-        },
+        {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
         {
