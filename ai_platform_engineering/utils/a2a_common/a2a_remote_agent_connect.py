@@ -158,20 +158,18 @@ class A2ARemoteAgentConnectTool(BaseTool):
         # Tolerate odd shapes (e.g. SecurityRequirement objects)
         pass
     if 'oauth2' in required_scheme_names and 'oauth2' in schemes:
-      try:
-        from a2a.client.auth import AuthInterceptor
-        from ai_platform_engineering.utils.a2a_common.oauth2_client_credentials_service import (
-          OAuth2ClientCredentialsService,
-        )
-        interceptors = [AuthInterceptor(OAuth2ClientCredentialsService())]
-        logger.info(
-          f"Outbound A2A auth enabled for {self._agent_card.name} (scheme=oauth2)"
-        )
-      except Exception as exc:  # noqa: BLE001
-        logger.warning(
-          f"Remote {self._agent_card.name} advertises oauth2 but local "
-          f"interceptor wiring failed: {exc}. Calls will be unauthenticated."
-        )
+      # Fail fast if interceptor wiring breaks rather than silently sending
+      # unauthenticated requests that the remote agent will (correctly)
+      # 401-reject. A clear startup error is much easier to diagnose than
+      # a chain of 401s in production.
+      from a2a.client.auth import AuthInterceptor
+      from ai_platform_engineering.utils.a2a_common.oauth2_client_credentials_service import (
+        OAuth2ClientCredentialsService,
+      )
+      interceptors = [AuthInterceptor(OAuth2ClientCredentialsService())]
+      logger.info(
+        f"Outbound A2A auth enabled for {self._agent_card.name} (scheme=oauth2)"
+      )
     else:
       logger.debug(
         f"Outbound A2A auth not enabled for {self._agent_card.name} "
