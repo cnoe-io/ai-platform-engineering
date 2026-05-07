@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 import { getServerConfig } from "@/lib/config";
 import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
@@ -23,6 +24,58 @@ import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 export interface AuthResult {
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
   userContextHeader?: string;
+}
+
+function schedulerTokenMatches(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function authenticateSchedulerRunner(request: NextRequest): AuthResult | NextResponse | null {
+  const schedulerToken = request.headers.get("X-Scheduler-Token");
+  const ownerUser = request.headers.get("X-CAIPE-User");
+
+  if (!schedulerToken && !ownerUser) return null;
+
+  const expectedToken =
+    process.env.SCHEDULER_SERVICE_TOKEN ||
+    process.env.CAIPE_SCHEDULER_SERVICE_TOKEN ||
+    "";
+
+  if (!expectedToken) {
+    console.error("[gateway] Scheduler auth requested but SCHEDULER_SERVICE_TOKEN is not configured");
+    return NextResponse.json(
+      { success: false, error: "Scheduler service token is not configured" },
+      { status: 500 },
+    );
+  }
+
+  if (!schedulerToken || !ownerUser || !schedulerTokenMatches(schedulerToken, expectedToken)) {
+    return NextResponse.json(
+      { success: false, error: "Invalid scheduler authentication" },
+      { status: 401 },
+    );
+  }
+
+  const userContext = {
+    email: ownerUser,
+    name: ownerUser,
+    is_admin: false,
+    is_authorized: true,
+    can_view_admin: false,
+    can_access_dynamic_agents: true,
+    scheduler_run: true,
+  };
+
+  console.log(
+    `[gateway] ${request.method} ${request.nextUrl.pathname} — auth=scheduler user=${ownerUser} client=caipe-cron-runner`,
+  );
+
+  return {
+    userContextHeader: Buffer.from(JSON.stringify(userContext)).toString("base64"),
+  };
 }
 
 /**
@@ -48,6 +101,9 @@ export async function authenticateRequest(
     ?? request.headers.get("x-real-ip")
     ?? "unknown";
   const ua = request.headers.get("user-agent") ?? "unknown";
+
+  const schedulerAuth = authenticateSchedulerRunner(request);
+  if (schedulerAuth) return schedulerAuth;
 
   try {
     const { user, session } = await getAuthFromBearerOrSession(request);

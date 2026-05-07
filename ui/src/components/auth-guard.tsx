@@ -60,7 +60,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, []);
 
   // Enhanced timeout mechanism - if stuck for more than 5 seconds, show cancel button
-  // If stuck for more than 15 seconds, auto-reset and redirect
+  // If stuck for more than 15s (60s in dev — Turbopack's first compile of /api/auth
+  // is slow), auto-reset and redirect.
   useEffect(() => {
     if ((status === "authenticated" || status === "loading") && !authChecked) {
       // Show cancel button after 5 seconds
@@ -69,10 +70,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
         setLoadingTimeout(true);
       }, 5000); // 5 seconds
 
-      // Auto-reset after 15 seconds if still stuck
+      // Auto-reset after 15s in prod, 60s in dev (Turbopack first compile)
+      const autoResetMs = process.env.NODE_ENV === "development" ? 60000 : 15000;
       const timeoutReset = setTimeout(() => {
         if (!authChecked && !autoResetInitiated) {
-          console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
+          console.error(`[AuthGuard] Authorization stuck for ${autoResetMs / 1000}s - auto-resetting session...`);
           setAutoResetInitiated(true);
 
           // Clear everything
@@ -88,7 +90,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           // Force redirect to login
           window.location.href = loginUrl('session_reset=auto');
         }
-      }, 15000); // 15 seconds
+      }, autoResetMs);
 
       return () => {
         clearTimeout(timeoutButton);
@@ -170,6 +172,34 @@ export function AuthGuard({ children }: AuthGuardProps) {
   // If SSO is not enabled, render children directly
   if (!getConfig('ssoEnabled')) {
     return <>{children}</>;
+  }
+
+  // Already authenticated — render children immediately. Avoids the
+  // "Checking authentication..." flash on every client-side navigation while
+  // the auth-check effect runs. Token-expiry / unauth handling still runs
+  // inside the effect above and will redirect if needed.
+  if (status === "authenticated" && !session?.error && session?.isAuthorized !== false) {
+    return <>{children}</>;
+  }
+
+  // Optimistic render during NextAuth's initial /api/auth/session fetch.
+  // In dev mode Turbopack's first compile of that route takes 20-40s, which
+  // would otherwise show "Checking authentication..." for that entire time.
+  // If a session cookie exists, assume the user is logged in and render the
+  // app; the effect above will redirect if the session turns out invalid.
+  if (status === "loading" && typeof window !== "undefined") {
+    const hasSessionCookie = document.cookie
+      .split(";")
+      .some((c) => {
+        const t = c.trim();
+        return (
+          t.startsWith("next-auth.session-token=") ||
+          t.startsWith("__Secure-next-auth.session-token=")
+        );
+      });
+    if (hasSessionCookie) {
+      return <>{children}</>;
+    }
   }
 
   // Show loading while checking authentication/authorization

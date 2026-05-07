@@ -65,6 +65,23 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 
+volumePermissions:
+  enabled: false
+  image:
+    repository: redis
+    pullPolicy: IfNotPresent
+    tag: "7.2-alpine"
+  command:
+    - chown
+    - -R
+    - "999:999"
+    - /data
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: false
+    runAsUser: 0
+  resources: {}
+
 # This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
 service:
   # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types

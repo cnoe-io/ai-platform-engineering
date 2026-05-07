@@ -111,7 +111,7 @@ Get Redis URL combining host, port and db index
             {{- end -}}
         {{- end -}}
     {{- end -}}
-    {{- printf "redis://%s:%s/%d" $host ($port | toString) $db -}}
+    {{- printf "redis://%s:%s/%d" $host ($port | toString) ($db | int) -}}
 {{- end -}}
 
 {{/*

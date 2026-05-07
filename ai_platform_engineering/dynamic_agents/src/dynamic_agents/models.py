@@ -18,6 +18,58 @@ class TransportType(str, Enum):
     HTTP = "http"
 
 
+class MCPAuthType(str, Enum):
+    """How the MCP server is authenticated.
+
+    - ``user_oauth``: per-user OAuth bearer resolved at runtime from the
+      ``vendor_connections`` collection (populated by the UI's OAuth flow).
+    - ``bot_token``: shared bot/service token resolved at runtime from a
+      named environment variable / k8s Secret. Same MCP pod can serve N
+      bot identities (e.g., one ``mcp_webex`` pod, multiple Webex bot
+      tokens — Pam, Jarvis, etc.) by pointing different ``mcp_servers``
+      Mongo entries at the same endpoint with different ``secret_ref``.
+    """
+
+    USER_OAUTH = "user_oauth"
+    BOT_TOKEN = "bot_token"
+
+
+class MCPAuthProvider(str, Enum):
+    """OAuth provider used to mint the bearer for ``user_oauth`` auth."""
+
+    WEBEX = "webex"
+
+
+class MCPServerAuth(BaseModel):
+    """Per-server auth configuration.
+
+    Used for HTTP/SSE transports that need a server-injected bearer token.
+    The actual token lookup happens in ``services/mcp_client.py`` at
+    connection time and is sent as ``Authorization: Bearer <token>``.
+    """
+
+    type: MCPAuthType = Field(..., description="Auth resolution strategy")
+    provider: MCPAuthProvider | None = Field(
+        default=None,
+        description="OAuth provider (required when type=user_oauth)",
+    )
+    secret_ref: str | None = Field(
+        default=None,
+        description=(
+            "Env var / k8s Secret name holding the bot token "
+            "(required when type=bot_token)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_auth_fields(self) -> "MCPServerAuth":
+        if self.type == MCPAuthType.USER_OAUTH and self.provider is None:
+            raise ValueError("auth.provider is required when auth.type=user_oauth")
+        if self.type == MCPAuthType.BOT_TOKEN and not self.secret_ref:
+            raise ValueError("auth.secret_ref is required when auth.type=bot_token")
+        return self
+
+
 class VisibilityType(str, Enum):
     """Agent visibility types."""
 
@@ -63,6 +115,10 @@ class MCPServerConfigBase(BaseModel):
     command: str | None = Field(None, description="Command for stdio transport")
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
+    auth: MCPServerAuth | None = Field(
+        None,
+        description="Auth strategy. When set to user_oauth, the runtime injects a per-user bearer token at connection time.",
+    )
     enabled: bool = Field(True, description="Whether the server is enabled")
 
 
@@ -82,6 +138,7 @@ class MCPServerConfigUpdate(BaseModel):
     command: str | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None
+    auth: MCPServerAuth | None = None
     enabled: bool | None = None
 
 

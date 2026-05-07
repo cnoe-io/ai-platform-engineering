@@ -14,6 +14,28 @@ export type VisibilityType = 'private' | 'team' | 'global';
 // MCP Server Types
 // =============================================================================
 
+/**
+ * Per-server auth configuration. Mirrors the Python `MCPServerAuth` model in
+ * `dynamic_agents/models.py`.
+ *
+ * - `user_oauth`: per-user OAuth bearer (e.g. Webex Meetings — token resolved
+ *   from `vendor_connections` keyed by the chatting user's email).
+ * - `bot_token`: shared bot/service token resolved at runtime from the
+ *   environment variable named in `secret_ref`. Lets a single MCP
+ *   deployment (e.g. `mcp_webex`) serve N bot identities — each persona
+ *   gets its own `mcp_servers` Mongo entry pointing at the same endpoint
+ *   but with a different `secret_ref`.
+ */
+export type MCPAuthType = 'user_oauth' | 'bot_token';
+
+export interface MCPServerAuth {
+  type: MCPAuthType;
+  /** Required when `type=user_oauth`. */
+  provider?: 'webex';
+  /** Env var name holding the bot token. Required when `type=bot_token`. */
+  secret_ref?: string;
+}
+
 export interface MCPServerConfig {
   _id: string;
   name: string;
@@ -23,6 +45,7 @@ export interface MCPServerConfig {
   command?: string;   // For stdio transport
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
+  auth?: MCPServerAuth;  // Per-user OAuth (e.g. Webex Meetings)
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   created_at: string;
@@ -38,6 +61,7 @@ export interface MCPServerConfigCreate {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  auth?: MCPServerAuth;
   enabled?: boolean;
 }
 
@@ -49,6 +73,7 @@ export interface MCPServerConfigUpdate {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  auth?: MCPServerAuth;
   enabled?: boolean;
 }
 
@@ -98,7 +123,7 @@ export interface BuiltinToolDefinition {
  */
 export interface FetchUrlToolConfig {
   enabled: boolean;
-  /** 
+  /**
    * Comma-separated domain patterns.
    * - "*" allows all domains
    * - "*.cisco.com" allows any subdomain of cisco.com

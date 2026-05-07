@@ -43,6 +43,19 @@ class Settings(BaseSettings):
     # Collections
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
+    vendor_connections_collection: str = "vendor_connections"
+
+    # Webex OAuth (per-user) — used by MCP servers with auth.type=user_oauth, provider=webex.
+    # Refresh tokens are written by the UI on initial /api/integrations/webex/callback;
+    # backend may rotate them via WEBEX_OAUTH_REFRESH_ENABLED.
+    webex_oauth_client_id: str = ""
+    webex_oauth_client_secret: str = ""
+    webex_oauth_token_url: str = "https://webexapis.com/v1/access_token"
+    # If true, backend will refresh near-expiry Webex tokens itself.
+    # If false, backend treats expired tokens as "not connected" and surfaces an error.
+    webex_oauth_refresh_enabled: bool = True
+    # Refresh threshold: refresh when fewer than this many seconds remain.
+    webex_oauth_refresh_threshold_seconds: int = 120
 
     # CORS
     cors_origins: list[str] = ["*"]

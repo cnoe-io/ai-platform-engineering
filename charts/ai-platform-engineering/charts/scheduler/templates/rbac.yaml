@@ -1,0 +1,36 @@
+{{- /*
+Namespace-scoped Role granting caipe-scheduler the ability to manage CronJobs
+in this release's namespace. This is the *only* component in CAIPE with these
+verbs — dynamic-agents and the scheduler MCP both reach k8s exclusively
+through caipe-scheduler's REST API.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "scheduler.fullname" . }}
+  labels:
+    {{- include "scheduler.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  # Read-only access to Jobs created by the CronJobs (for diagnostics + the
+  # `last_run` reporting fallback when the runner can't reach back).
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "scheduler.fullname" . }}
+  labels:
+    {{- include "scheduler.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "scheduler.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "scheduler.fullname" . }}

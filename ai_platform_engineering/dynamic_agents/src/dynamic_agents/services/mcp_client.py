@@ -1,38 +1,134 @@
 """MCP Client wrapper for Dynamic Agents."""
 
 import asyncio
+import base64
 import logging
+import os
 from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.models import MCPAuthProvider, MCPAuthType, MCPServerConfig, TransportType
+from dynamic_agents.services.vendor_tokens import VendorTokenError, get_webex_access_token
 
 logger = logging.getLogger(__name__)
 
+_TEXT_FILE_MIME_TYPES = {
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "text/vtt",
+}
+_INLINE_TEXT_FILE_MAX_BYTES = 1_000_000
 
-def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
+
+def _resolve_user_oauth_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with user_oauth auth.
+
+    Raises:
+        VendorTokenError: if the user has not connected the vendor or the
+            token cannot be refreshed. Caller is expected to surface this
+            as a per-server connection failure (handled in
+            ``get_tools_with_resilience``).
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.USER_OAUTH:
+        return {}
+    if not user_email:
+        raise VendorTokenError(
+            f"MCP server '{server.id}' requires user OAuth but no user is bound to this session"
+        )
+    if server.auth.provider == MCPAuthProvider.WEBEX:
+        token = get_webex_access_token(user_email)
+        return {"Authorization": f"Bearer {token}"}
+    raise VendorTokenError(
+        f"MCP server '{server.id}' has unsupported user_oauth provider: {server.auth.provider}"
+    )
+
+
+def _resolve_bot_token_headers(server: MCPServerConfig) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with bot_token auth.
+
+    Reads the bot token from the environment variable named in
+    ``server.auth.secret_ref``. The MCP server itself must be patched to
+    honor the inbound ``Authorization`` header (rather than reading the
+    token from its own env at boot) for this to do anything useful —
+    otherwise the upstream MCP will use whatever token it was started
+    with regardless.
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.BOT_TOKEN:
+        return {}
+    secret_ref = server.auth.secret_ref
+    if not secret_ref:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': auth.secret_ref is required for bot_token"
+        )
+    token = os.environ.get(secret_ref)
+    if not token:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': env var '{secret_ref}' is not set"
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _resolve_auth_headers(
+    server: MCPServerConfig, user_email: str | None
+) -> dict[str, str]:
+    """Dispatch to the right auth resolver based on ``server.auth.type``."""
+    if server.auth is None:
+        return {}
+    if server.auth.type == MCPAuthType.USER_OAUTH:
+        return _resolve_user_oauth_headers(server, user_email)
+    if server.auth.type == MCPAuthType.BOT_TOKEN:
+        return _resolve_bot_token_headers(server)
+    raise VendorTokenError(
+        f"MCP server '{server.id}': unsupported auth.type: {server.auth.type}"
+    )
+
+
+def build_mcp_connection_config(
+    server: MCPServerConfig,
+    *,
+    user_email: str | None = None,
+) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email (required when the server
+            uses ``auth.type=user_oauth``).
 
     Returns:
         Connection config dict compatible with langchain_mcp_adapters
     """
     if server.transport == TransportType.SSE:
-        return {
+        config: dict[str, Any] = {
             "url": server.endpoint,
             "transport": "sse",
         }
+        headers = _resolve_auth_headers(server, user_email)
+        if headers:
+            config["headers"] = headers
+        return config
     elif server.transport == TransportType.HTTP:
-        return {
+        config = {
             "url": server.endpoint,
             "transport": "streamable_http",
         }
+        headers = _resolve_auth_headers(server, user_email)
+        if headers:
+            config["headers"] = headers
+        return config
     else:  # stdio
-        config: dict[str, Any] = {
+        if server.auth is not None and server.auth.type in (
+            MCPAuthType.USER_OAUTH,
+            MCPAuthType.BOT_TOKEN,
+        ):
+            raise VendorTokenError(
+                f"MCP server '{server.id}': auth.type={server.auth.type.value} is not supported on stdio transport"
+            )
+        config = {
             "command": server.command,
             "transport": "stdio",
         }
@@ -46,17 +142,27 @@ def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
 def build_mcp_connections(
     servers: list[MCPServerConfig],
     server_ids: list[str],
-) -> dict[str, dict[str, Any]]:
+    *,
+    user_email: str | None = None,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
     Args:
         servers: List of all available MCP server configs
         server_ids: List of server IDs to include
+        user_email: Authenticated user's email (required for any server
+            with ``auth.type=user_oauth``).
 
     Returns:
-        Dict mapping server_id to connection config
+        Tuple of:
+        - connections dict (server_id -> connection config)
+        - auth_errors dict (server_id -> error message) for servers that
+          could not be resolved because the user has not connected the
+          vendor or the token refresh failed. The caller is expected to
+          merge these into the overall failed_errors map.
     """
     connections: dict[str, dict[str, Any]] = {}
+    auth_errors: dict[str, str] = {}
 
     server_map = {s.id: s for s in servers}
 
@@ -69,9 +175,13 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
-        connections[server_id] = build_mcp_connection_config(server)
+        try:
+            connections[server_id] = build_mcp_connection_config(server, user_email=user_email)
+        except VendorTokenError as exc:
+            logger.warning(f"MCP server '{server_id}' auth resolution failed: {exc}")
+            auth_errors[server_id] = str(exc)
 
-    return connections
+    return connections, auth_errors
 
 
 def filter_tools_by_allowed(
@@ -252,6 +362,61 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _maybe_inline_text_file_blocks(result: Any) -> Any:
+    """Turn small MCP embedded text files into visible tool text.
+
+    Some MCP servers return text attachments as ``EmbeddedResource`` blob
+    blocks. The LangChain MCP adapter converts those into multimodal ``file``
+    blocks, which are useful for model file upload paths but poor for tool
+    chaining: the agent cannot reliably pass the hidden base64/text into a
+    follow-up parser tool. For small text files, expose decoded text directly.
+    """
+    if not isinstance(result, tuple) or len(result) != 2:
+        return result
+
+    content, artifact = result
+    if not isinstance(content, list):
+        return result
+
+    inlined: list[str] = []
+    changed = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "file":
+            inlined.append(str(block))
+            continue
+
+        mime_type = (block.get("mime_type") or "").lower()
+        is_text = mime_type.startswith("text/") or mime_type in _TEXT_FILE_MIME_TYPES
+        encoded = block.get("base64")
+        if not is_text or not isinstance(encoded, str):
+            inlined.append(str(block))
+            continue
+
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except Exception:  # noqa: BLE001
+            inlined.append(str(block))
+            continue
+
+        if len(raw) > _INLINE_TEXT_FILE_MAX_BYTES:
+            inlined.append(
+                f"Downloaded {mime_type or 'text'} file is {len(raw)} bytes; too large to inline."
+            )
+            continue
+
+        text = raw.decode("utf-8-sig", errors="replace")
+        inlined.append(
+            "Downloaded text attachment content follows. "
+            "Pass it to the appropriate parser as text if needed.\n\n"
+            f"{text}"
+        )
+        changed = True
+
+    if not changed:
+        return result
+    return ("\n\n".join(inlined), artifact)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -292,7 +457,8 @@ def wrap_tools_with_error_handling(
             **kwargs: Any,
         ) -> Any:
             try:
-                return await _orig(*args, **kwargs)
+                result = await _orig(*args, **kwargs)
+                return _maybe_inline_text_file_blocks(result)
             except Exception as exc:
                 msg = _format_tool_error(_name, exc)
                 logger.error(f"[{agent_name}] Tool '{_name}' failed", exc_info=exc)
