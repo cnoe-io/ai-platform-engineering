@@ -41,6 +41,8 @@ RUN if [ -z "$AGENT_NAME" ]; then \
 # cgr.dev/chainguard/wolfi-base defaults to apk.cgr.dev/chainguard which
 # requires Chainguard credentials; packages.wolfi.dev/os is free and public.
 ARG INSTALL_NETUTILS=false
+ARG INSTALL_AWS_CLI=false
+ARG INSTALL_KUBECTL=false
 
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
     for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
@@ -52,7 +54,44 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
             [ $i -lt 3 ] && sleep $((i * 10)); \
         done; \
     fi && \
+    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        for i in 1 2 3; do apk add --no-cache curl unzip bash && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
+    fi && \
     apk upgrade --no-cache
+
+# Install AWS CLI v2 (opt-in: --build-arg INSTALL_AWS_CLI=true)
+RUN if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+            AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"; \
+        else \
+            AWS_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"; \
+        fi && \
+        for i in 1 2 3 4 5; do \
+            curl -sL --connect-timeout 30 --max-time 300 --retry 3 --retry-all-errors --retry-delay 5 "$AWS_URL" -o "awscliv2.zip" && break; \
+            echo "Download attempt $i/5 failed, retrying..."; \
+            sleep $((i * 10)); \
+        done && \
+        [ -s awscliv2.zip ] || (echo "Failed to download AWS CLI after 5 attempts" && exit 1) && \
+        unzip -q awscliv2.zip && \
+        ./aws/install && \
+        rm -rf awscliv2.zip aws; \
+    fi
+
+# Install kubectl (opt-in: --build-arg INSTALL_KUBECTL=true)
+RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+            KUBECTL_ARCH="arm64"; \
+        else \
+            KUBECTL_ARCH="amd64"; \
+        fi && \
+        KUBECTL_VERSION=$(curl -sfL --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 https://dl.k8s.io/release/stable.txt) && \
+        if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
+        curl -sfLO --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
+        chmod +x kubectl && \
+        mv kubectl /usr/local/bin/kubectl; \
+    fi
 
 # The builder stage uses python:3.13-slim which places Python at
 # /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13.
