@@ -160,13 +160,6 @@ const config: Config = {
           position: 'left',
         },
         {
-          type: 'html',
-          position: 'right',
-          value: `<a href="https://github.com/cnoe-io/ai-platform-engineering/stargazers" target="_blank" rel="noopener" class="navbar-stars-badge" aria-label="GitHub stars">
-            <img alt="GitHub stars" src="https://img.shields.io/github/stars/cnoe-io/ai-platform-engineering?style=social" />
-          </a>`,
-        },
-        {
           href: 'https://github.com/cnoe-io/ai-platform-engineering',
           label: '⭐ Star Repo',
           position: 'right',
