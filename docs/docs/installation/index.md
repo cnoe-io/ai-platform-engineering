@@ -1,13 +1,63 @@
 ---
 sidebar_position: 1
+sidebar_label: Overview
 ---
 
-# Installation
+# Installation Overview
 
-To get started with the installation process, you can choose from the following deployment options based on your environment and requirements:
+CAIPE ships as a set of containerized services deployable via Helm or Docker Compose.
+Pick the path that matches your environment:
 
-- [Docker Compose](./docker-compose.md): Ideal for local development and testing.
-- [Kind](./kind.md): A lightweight Kubernetes solution for local clusters.
-- [EKS](./eks.md): For deploying on Amazon Elastic Kubernetes Service (EKS) in production environments.
-- [Helm](./helm.md): Full Helm chart reference — agents, profiles, secrets, ingress, and optional components.
-- [Persistence](./persistence.md): Enable durable conversation checkpoints and cross-thread memory with Redis, PostgreSQL, or MongoDB.
+| Environment | Best for | Guide |
+|---|---|---|
+| **Docker Compose** | Local development and quick evaluation | [Docker Compose →](./docker-compose.md) |
+| **KinD** | Local Kubernetes cluster (CI / laptop) | [KinD →](./kind.md) |
+| **Helm (production)** | Any Kubernetes cluster — EKS, GKE, AKS, on-prem | [Helm →](./helm.md) |
+| **EKS** | AWS-managed Kubernetes | [EKS →](./eks.md) |
+
+## Prerequisites
+
+- **LLM provider** — any OpenAI-compatible endpoint (Anthropic Claude, OpenAI, Google Vertex AI Gemini, local Ollama, LiteLLM proxy, etc.)
+- **Kubernetes 1.27+** (for Helm / KinD / EKS paths) or **Docker Compose v2** (for local path)
+- `kubectl`, `helm` 3.x, and optionally `kind` installed on your workstation
+
+## What gets deployed
+
+A full CAIPE stack includes:
+
+- **supervisor-agent** — orchestrates all sub-agent calls
+- **caipe-ui** — web interface (React / Next.js)
+- **MongoDB** — chat and agent-config persistence  
+- **dynamic-agents** — runtime for user-built custom agents
+- **RAG stack** *(optional)* — ingestors, vector store, graph RAG server
+- **Slack / Webex bots** *(optional)*
+
+The minimal install (supervisor + UI + MongoDB) is enough to run the pre-built agent fleet.
+
+## Quickest path
+
+```bash
+# Interactive setup script — detects Docker or Kubernetes automatically
+bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)
+```
+
+Or via Helm directly:
+
+```bash
+helm upgrade --install ai-platform-engineering \
+    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+    --version 0.4.8 -f your-values.yaml
+```
+
+See [Getting Started → Quick Start](/docs/getting-started/quick-start) for a full walkthrough.
+
+## Persistence
+
+To enable durable conversation checkpoints and cross-session memory, see the
+[Persistence guide](./persistence.md) — it covers Redis, PostgreSQL, and MongoDB options.
+
+## Helm Chart Reference
+
+The [Helm section](./helm.md) contains the full `values.yaml` reference for every
+sub-chart, including agent profiles, ingress, ExternalSecrets, and LLM configuration.
+Individual chart references are in the sidebar under **Chart Reference**.

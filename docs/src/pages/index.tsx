@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
@@ -95,6 +95,13 @@ const FEATURES = [
       'Works with Claude (Anthropic), OpenAI GPT models, Google Vertex AI Gemini, and any OpenAI-compatible endpoint — switch models without rewiring agents.',
     to: '/docs/getting-started/quick-start',
   },
+  {
+    icon: '💻',
+    title: 'Multiple Clients',
+    description:
+      'Access CAIPE from anywhere — Web UI, Backstage Agent Forge plugin, Chat CLI, Slack Bot, and Webex Bot. One platform, every interface your team already uses.',
+    to: '/docs/integrations/backstage-plugin',
+  },
 ];
 
 const USE_CASES = [
@@ -134,6 +141,16 @@ const AGENTS = [
 ];
 
 function HeroSection() {
+  const [stars, setStars] = useState<string | null>(null);
+  useEffect(() => {
+    fetch('https://api.github.com/repos/cnoe-io/ai-platform-engineering')
+      .then((r) => r.json())
+      .then((d) => {
+        const n = d.stargazers_count as number;
+        setStars(n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+      })
+      .catch(() => {});
+  }, []);
   return (
     <section className={styles.hero}>
       <div className={styles.heroInner}>
@@ -225,6 +242,16 @@ function HeroSection() {
           >
             <span className={styles.heroStatNumber}>CNCF</span>
             <span className={styles.heroStatLabel}>Sandbox Candidate</span>
+          </a>
+          <a
+            href="https://github.com/cnoe-io/ai-platform-engineering"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.heroStat}
+            style={{textDecoration: 'none'}}
+          >
+            <span className={styles.heroStatNumber}>⭐ {stars ?? '—'}</span>
+            <span className={styles.heroStatLabel}>GitHub Stars</span>
           </a>
         </div>
       </div>
@@ -363,6 +390,64 @@ function QuickStartSection() {
   );
 }
 
+function VisionSection() {
+  return (
+    <section className={styles.vision}>
+      <div className={styles.visionInner}>
+        <p className={styles.sectionLabel}>Our Mission</p>
+        <Heading as="h2" className={styles.visionTitle}>The CAIPE Vision</Heading>
+        <p className={styles.visionBody}>
+          To redefine platform engineering by creating{' '}
+          <strong className={styles.visionHighlight}>
+            intelligent, secure, and scalable multi-agent systems
+          </strong>{' '}
+          that empower teams to focus on innovation, seamlessly manage complex
+          infrastructures, and shape the future of cloud-native operations
+          through the Internet of Agents.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+const PALETTES = [
+  {
+    label: 'Ocean Blue (current)',
+    gradient: 'linear-gradient(150deg, #0f172a 0%, #0c4a6e 55%, #0e7490 100%)',
+  },
+  {
+    label: 'Deep Violet',
+    gradient: 'linear-gradient(150deg, #0f0a1e 0%, #3b0764 55%, #6d28d9 100%)',
+  },
+  {
+    label: 'Emerald Forest',
+    gradient: 'linear-gradient(150deg, #021a10 0%, #064e3b 55%, #059669 100%)',
+  },
+  {
+    label: 'Midnight Slate',
+    gradient: 'linear-gradient(150deg, #020617 0%, #1e293b 55%, #334155 100%)',
+  },
+];
+
+function PaletteSection() {
+  return (
+    <section className={styles.paletteSection}>
+      <p className={styles.sectionLabel}>Design Reference</p>
+      <Heading as="h2" className={styles.sectionTitle} style={{color: '#f1f5f9', margin: '0.5rem 0 0'}}>
+        Hero Background Options
+      </Heading>
+      <div className={styles.paletteGrid}>
+        {PALETTES.map((p) => (
+          <div key={p.label} className={styles.paletteSwatch}>
+            <div className={styles.palettePreview} style={{background: p.gradient}} />
+            <div className={styles.paletteLabel}>{p.label}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function CtaSection() {
   return (
     <section className={styles.cta}>
@@ -397,9 +482,11 @@ export default function Home() {
     >
       <main>
         <HeroSection />
+        <VisionSection />
         <FeaturesSection />
         <InTheWildSection />
         <AgentsSection />
+        <PaletteSection />
         <CtaSection />
       </main>
     </Layout>

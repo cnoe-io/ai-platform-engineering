@@ -491,7 +491,8 @@
   line-height: 1.7;
   overflow-x: hidden;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .codePre code {
@@ -543,6 +544,81 @@
   gap: 0.75rem;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* ── Vision ─────────────────────────────────────────────────────── */
+.vision {
+  padding: 5rem 1.5rem;
+  background: #0f172a;
+  text-align: center;
+  border-top: 1px solid rgba(56, 189, 248, 0.1);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.1);
+}
+
+.visionInner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.visionTitle {
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  font-weight: 700;
+  color: #f1f5f9;
+  margin: 0.5rem 0 1.5rem;
+}
+
+.visionBody {
+  font-size: clamp(1.05rem, 2vw, 1.2rem);
+  line-height: 1.85;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.visionHighlight {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* ── Color Palette Preview (dev/design reference) ────────────────── */
+.paletteSection {
+  padding: 4rem 1.5rem;
+  background: #080f1a;
+  text-align: center;
+}
+
+.paletteGrid {
+  display: flex;
+  gap: 1.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+}
+
+.paletteSwatch {
+  width: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.paletteSwatch:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.palettePreview {
+  height: 80px;
+}
+
+.paletteLabel {
+  background: #1e293b;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 /* ── Responsive ─────────────────────────────────────────────────── */

@@ -112,6 +112,19 @@ const FEATURES = [
     ],
   },
   {
+    title: 'Multiple Clients',
+    icon: '💻',
+    color: '#0891b2',
+    to: '/docs/integrations/backstage-plugin',
+    items: [
+      'Web UI — rich chat interface with live agent/tool status via streaming',
+      'Backstage Agent Forge plugin — surface agents in your Internal Developer Portal',
+      'Chat CLI — invoke any agent from the terminal',
+      'Slack Bot — conversational interface for your team\'s existing workflow',
+      'Webex Bot — enterprise messaging integration',
+    ],
+  },
+  {
     title: 'Integrations',
     icon: '🔌',
     color: '#7c3aed',
