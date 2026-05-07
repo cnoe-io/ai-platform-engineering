@@ -101,10 +101,17 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
+          lastVersion: '0.4.8',
           versions: {
             current: {
+              label: 'main 🚧',
+              path: 'next',
+              badge: true,
+            },
+            '0.4.8': {
               label: '0.4.8 (Latest)',
               path: '',
+              badge: false,
             },
           },
         },
@@ -150,11 +157,11 @@ const config: Config = {
           position: 'left',
           label: 'Docs',
         },
-        {to: '/blog', label: 'Blog', position: 'left'},
         {to: '/blog/releases', label: 'Releases', position: 'left'},
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
+        {to: '/blog', label: 'Blog', position: 'left'},
         {
           type: 'docsVersionDropdown',
           position: 'left',

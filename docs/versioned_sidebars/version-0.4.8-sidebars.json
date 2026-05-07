@@ -1,0 +1,603 @@
+{
+  "docsSidebar": [
+    {
+      "type": "doc",
+      "id": "index",
+      "label": "Introduction"
+    },
+    {
+      "type": "category",
+      "label": "Getting Started",
+      "items": [
+        {
+          "type": "doc",
+          "id": "getting-started/quick-start"
+        },
+        {
+          "type": "doc",
+          "id": "getting-started/user-interfaces"
+        },
+        {
+          "type": "doc",
+          "id": "getting-started/next-steps"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Setup",
+      "items": [
+        {
+          "type": "category",
+          "label": "Docker",
+          "items": [
+            {
+              "type": "doc",
+              "id": "getting-started/docker-compose/setup"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/docker-compose/configure-llms"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/docker-compose/configure-agent-secrets"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "KinD",
+          "items": [
+            {
+              "type": "doc",
+              "id": "getting-started/kind/setup"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/kind/configure-llms"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/kind/configure-agent-secrets"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Helm",
+          "items": [
+            {
+              "type": "doc",
+              "id": "getting-started/helm/setup"
+            },
+            {
+              "type": "category",
+              "label": "Chart Reference",
+              "items": [
+                {
+                  "type": "category",
+                  "label": "ai-platform-engineering",
+                  "items": [
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/ai-platform-engineering-chart",
+                      "label": "Overview (parent chart)"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/supervisor-agent-chart",
+                      "label": "supervisor-agent"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/agent-chart",
+                      "label": "agent"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/caipe-ui-chart",
+                      "label": "caipe-ui"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/caipe-ui-mongodb-chart",
+                      "label": "caipe-ui-mongodb"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/dynamic-agents-chart",
+                      "label": "dynamic-agents"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/langgraph-redis-chart",
+                      "label": "langgraph-redis"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/ai-platform-engineering/slack-bot-chart",
+                      "label": "slack-bot"
+                    }
+                  ]
+                },
+                {
+                  "type": "category",
+                  "label": "rag-stack",
+                  "items": [
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/rag-stack/rag-stack-chart",
+                      "label": "Overview (parent chart)"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/rag-stack/rag-server-chart",
+                      "label": "rag-server"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/rag-stack/rag-redis-chart",
+                      "label": "rag-redis"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/rag-stack/rag-ingestors-chart",
+                      "label": "rag-ingestors"
+                    },
+                    {
+                      "type": "doc",
+                      "id": "installation/helm-charts/rag-stack/agent-ontology-chart",
+                      "label": "agent-ontology"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "IDP Builder",
+          "items": [
+            {
+              "type": "doc",
+              "id": "getting-started/idpbuilder/setup"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/idpbuilder/ubuntu-prerequisites"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/idpbuilder/manual-vault-secret-setup",
+              "label": "Manual Vault Secret Setup"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "EKS",
+          "items": [
+            {
+              "type": "doc",
+              "id": "getting-started/eks/setup"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/eks/configure-agent-secrets"
+            },
+            {
+              "type": "doc",
+              "id": "getting-started/eks/configure-llms"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Development",
+      "items": [
+        {
+          "type": "doc",
+          "id": "development/index",
+          "label": "Overview"
+        },
+        {
+          "type": "doc",
+          "id": "development/development-environment",
+          "label": "Development Environment"
+        },
+        {
+          "type": "doc",
+          "id": "development/creating-an-agent",
+          "label": "Creating an Agent"
+        },
+        {
+          "type": "doc",
+          "id": "development/creating-mcp-server",
+          "label": "Creating an MCP Server"
+        },
+        {
+          "type": "doc",
+          "id": "development/spec-driven-development",
+          "label": "Spec-Driven Development"
+        },
+        {
+          "type": "doc",
+          "id": "development/ci-cd-and-releases",
+          "label": "CI/CD & Releases"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Architecture",
+      "items": [
+        {
+          "type": "doc",
+          "id": "architecture/index"
+        },
+        {
+          "type": "doc",
+          "id": "architecture/gateway"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Features",
+      "items": [
+        {
+          "type": "doc",
+          "id": "features/custom-agents",
+          "label": "Custom Agents"
+        },
+        {
+          "type": "doc",
+          "id": "features/byo-agents",
+          "label": "BYO A2A & MCP Servers"
+        },
+        {
+          "type": "category",
+          "label": "Rich Web UI",
+          "items": [
+            {
+              "type": "doc",
+              "id": "ui/index",
+              "label": "Overview"
+            },
+            {
+              "type": "doc",
+              "id": "ui/features",
+              "label": "Features"
+            },
+            {
+              "type": "doc",
+              "id": "ui/auth-flow",
+              "label": "Authentication Flow"
+            },
+            {
+              "type": "doc",
+              "id": "ui/configuration",
+              "label": "Configuration"
+            },
+            {
+              "type": "doc",
+              "id": "ui/customization",
+              "label": "Customization & Branding"
+            },
+            {
+              "type": "doc",
+              "id": "ui/development",
+              "label": "Development Guide"
+            },
+            {
+              "type": "doc",
+              "id": "ui/api-reference",
+              "label": "API Reference"
+            },
+            {
+              "type": "doc",
+              "id": "ui/troubleshooting",
+              "label": "Troubleshooting"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Knowledge Bases",
+          "items": [
+            {
+              "type": "doc",
+              "id": "knowledge_bases/index",
+              "label": "Overview"
+            },
+            {
+              "type": "doc",
+              "id": "knowledge_bases/architecture",
+              "label": "Architecture"
+            },
+            {
+              "type": "doc",
+              "id": "knowledge_bases/ingestors",
+              "label": "Ingestors"
+            },
+            {
+              "type": "doc",
+              "id": "knowledge_bases/ontology-agent",
+              "label": "Ontology Agent"
+            },
+            {
+              "type": "doc",
+              "id": "knowledge_bases/mcp-tools",
+              "label": "MCP Tools"
+            },
+            {
+              "type": "doc",
+              "id": "knowledge_bases/authentication-overview",
+              "label": "Authentication"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Skills",
+          "items": [
+            {
+              "type": "doc",
+              "id": "features/skills/README",
+              "label": "Overview"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Integrations",
+          "items": [
+            {
+              "type": "doc",
+              "id": "integrations/slack-bot",
+              "label": "Slack Bot"
+            },
+            {
+              "type": "doc",
+              "id": "integrations/backstage-plugin",
+              "label": "Agent Forge (Backstage)"
+            },
+            {
+              "type": "doc",
+              "id": "integrations/webex-bot",
+              "label": "Webex Bot"
+            },
+            {
+              "type": "doc",
+              "id": "integrations/cli",
+              "label": "CAIPE CLI"
+            }
+          ]
+        },
+        {
+          "type": "category",
+          "label": "Security",
+          "items": [
+            {
+              "type": "doc",
+              "id": "security/index",
+              "label": "Overview"
+            },
+            {
+              "type": "doc",
+              "id": "security/a2a-auth",
+              "label": "A2A Authentication"
+            },
+            {
+              "type": "doc",
+              "id": "security/supply-chain",
+              "label": "Supply Chain Security"
+            }
+          ]
+        },
+        {
+          "type": "doc",
+          "id": "prompt-library/index",
+          "label": "Prompt Library"
+        },
+        {
+          "type": "category",
+          "label": "Tracing & Evaluations",
+          "items": [
+            {
+              "type": "doc",
+              "id": "evaluations/index",
+              "label": "Overview"
+            },
+            {
+              "type": "doc",
+              "id": "evaluations/distributed-tracing-info",
+              "label": "Distributed Tracing"
+            },
+            {
+              "type": "doc",
+              "id": "evaluations/tracing-implementation-guide",
+              "label": "Tracing Implementation Guide"
+            },
+            {
+              "type": "doc",
+              "id": "evaluations/slack-streaming-conformance",
+              "label": "Slack Streaming Conformance"
+            }
+          ]
+        },
+        {
+          "type": "doc",
+          "id": "agent-ops/index",
+          "label": "AgentOps"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Agents & MCP Servers",
+      "items": [
+        {
+          "type": "doc",
+          "id": "agents/README",
+          "label": "Overview"
+        },
+        {
+          "type": "doc",
+          "id": "agents/argocd"
+        },
+        {
+          "type": "doc",
+          "id": "agents/aws"
+        },
+        {
+          "type": "doc",
+          "id": "agents/backstage"
+        },
+        {
+          "type": "doc",
+          "id": "agents/confluence"
+        },
+        {
+          "type": "doc",
+          "id": "agents/github"
+        },
+        {
+          "type": "doc",
+          "id": "agents/gitlab"
+        },
+        {
+          "type": "doc",
+          "id": "agents/jira"
+        },
+        {
+          "type": "doc",
+          "id": "agents/komodor"
+        },
+        {
+          "type": "doc",
+          "id": "agents/pagerduty"
+        },
+        {
+          "type": "doc",
+          "id": "agents/slack"
+        },
+        {
+          "type": "doc",
+          "id": "agents/splunk"
+        },
+        {
+          "type": "doc",
+          "id": "agents/template"
+        },
+        {
+          "type": "doc",
+          "id": "agents/weather"
+        },
+        {
+          "type": "doc",
+          "id": "agents/victorops"
+        },
+        {
+          "type": "doc",
+          "id": "agents/webex"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Tools & Utilities",
+      "items": [
+        {
+          "type": "doc",
+          "id": "tools-utils/openapi-mcp-codegen"
+        },
+        {
+          "type": "doc",
+          "id": "tools-utils/cnoe-agent-utils"
+        },
+        {
+          "type": "doc",
+          "id": "tools-utils/agent-chat-cli"
+        },
+        {
+          "type": "doc",
+          "id": "tools-utils/jira-mcp-implementations-comparison"
+        }
+      ]
+    },
+    {
+      "type": "doc",
+      "id": "contributing/index",
+      "label": "Contributing"
+    },
+    {
+      "type": "category",
+      "label": "Specifications",
+      "items": [
+        {
+          "type": "autogenerated",
+          "dirName": "specs"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "CAIPE Labs",
+      "items": [
+        {
+          "type": "doc",
+          "id": "workshop/caipeintro",
+          "label": "Introduction to CAIPE"
+        },
+        {
+          "type": "doc",
+          "id": "workshop/agent",
+          "label": "Introduction to AI Agents"
+        },
+        {
+          "type": "doc",
+          "id": "workshop/mas",
+          "label": "Multi-Agent System"
+        },
+        {
+          "type": "doc",
+          "id": "workshop/rag",
+          "label": "RAG (Retrieval-Augmented Generation)"
+        },
+        {
+          "type": "doc",
+          "id": "workshop/tracing",
+          "label": "Tracing"
+        },
+        {
+          "type": "doc",
+          "id": "workshop/conclusion",
+          "label": "Conclusion"
+        }
+      ]
+    }
+  ],
+  "communitySidebar": [
+    {
+      "type": "category",
+      "label": "Community",
+      "items": [
+        {
+          "type": "doc",
+          "id": "community/index",
+          "label": "Community Overview"
+        },
+        {
+          "type": "doc",
+          "id": "community/meeting-recordings",
+          "label": "Meeting Recordings"
+        }
+      ]
+    }
+  ]
+}
