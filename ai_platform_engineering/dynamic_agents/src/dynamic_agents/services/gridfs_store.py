@@ -20,6 +20,7 @@ from langgraph.store.base import (
     SearchOp,
 )
 from pymongo.database import Database
+from pymongo.errors import OperationFailure
 
 logger = logging.getLogger(__name__)
 
@@ -207,9 +208,34 @@ class MongoDBGridFSStore(BaseStore):
             count += 1
         return count
 
+    def delete_by_key_prefix(self, namespace: tuple[str, ...], prefix: str) -> int:
+        """Delete all files in a namespace whose key starts with prefix."""
+        namespace_list = list(namespace)
+        query = {
+            "metadata.namespace": namespace_list,
+            "metadata.key": {"$regex": f"^{prefix}"},
+        }
+        count = 0
+        for doc in self._files_collection.find(query):
+            self._fs.delete(doc["_id"])
+            count += 1
+        return count
+
     def ensure_ttl_index(self, ttl_seconds: int = 604800) -> None:
-        """Create TTL index on uploadDate for automatic expiry."""
-        self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
+        """Create TTL index on uploadDate for automatic expiry.
+
+        If an index with the same key already exists but with different
+        options (e.g. a different expireAfterSeconds value from a prior
+        deployment), drop it first and recreate with the new TTL.
+        """
+        try:
+            self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
+        except OperationFailure as e:
+            if e.code == 85:  # IndexOptionsConflict
+                self._files_collection.drop_index("uploadDate_1")
+                self._files_collection.create_index("uploadDate", expireAfterSeconds=ttl_seconds)
+            else:
+                raise
 
 
 def _serialize_value(value: dict) -> str:

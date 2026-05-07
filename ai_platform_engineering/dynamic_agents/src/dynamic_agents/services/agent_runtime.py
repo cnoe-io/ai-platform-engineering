@@ -365,7 +365,21 @@ class AgentRuntime:
                 if skills_data:
                     self._skills_files, skills_sources = build_skills_files(skills_data)
                     if skills_sources:
-                        skills_middleware = SkillsMiddleware(backend=StateBackend, sources=skills_sources)
+                        # Backend for SkillsMiddleware: use StoreBackend (GridFS) when
+                        # enabled so skills are read from the same store as read_file;
+                        # otherwise fall back to StateBackend (reads from state["files"]).
+                        if self.settings.use_gridfs_backend:
+                            agent_id = self.config.id
+                            session_id = self._session_id
+
+                            def skills_backend(rt):
+                                return StoreBackend(
+                                    rt,
+                                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                                )
+                        else:
+                            skills_backend = StateBackend
+                        skills_middleware = SkillsMiddleware(backend=skills_backend, sources=skills_sources)
                         logger.info(
                             f"Agent '{self.config.name}': loaded {len(skills_data)} skills "
                             f"({len(self._skills_files)} files, {len(skills_sources)} sources)"
@@ -424,6 +438,15 @@ class AgentRuntime:
             interrupt_on=interrupt_config,
             middleware=middleware_stack,
         )
+
+        # 12. Pre-populate skills in GridFS so SkillsMiddleware and read_file
+        # can find them. This runs once per runtime init (not per message).
+        if self._skills_files and self.settings.use_gridfs_backend and self._store:
+            namespace = (self.config.id, self._session_id, "filesystem")
+            self._store.delete_by_key_prefix(namespace, "/skills/")
+            for path, file_data in self._skills_files.items():
+                self._store.put(namespace, path, file_data)
+            logger.info(f"Agent '{self.config.name}': wrote {len(self._skills_files)} skill files to GridFS")
 
         self._initialized = True
         init_duration = time.monotonic() - t_start
@@ -836,8 +859,9 @@ class AgentRuntime:
 
         # ── Core lifecycle: chunks ──
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
-        # Inject skills files for SkillsMiddleware / StateBackend
-        if getattr(self, "_skills_files", None):
+        # Inject skills files into state for StateBackend (non-GridFS mode).
+        # In GridFS mode, skills are pre-populated in the store at init time.
+        if getattr(self, "_skills_files", None) and not self.settings.use_gridfs_backend:
             state_input["files"] = dict(self._skills_files)
         async for chunk in self._graph.astream(
             state_input,
