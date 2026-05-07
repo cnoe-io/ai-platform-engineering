@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Check } from "lucide-react";
+import { Plus, ChevronDown, Bot, Loader2, Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
@@ -18,7 +18,9 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const [agents, setAgents] = useState<DynamicAgentConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
 
@@ -84,12 +86,29 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const handleDropdownToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     setDropdownOpen(!dropdownOpen);
+    if (!dropdownOpen) setSearchQuery("");
   };
 
   const handleSelectAgent = (agentId?: string) => {
     setDropdownOpen(false);
+    setSearchQuery("");
     onNewChat(agentId);
   };
+
+  // Auto-focus search input when dropdown opens
+  useEffect(() => {
+    if (dropdownOpen && searchInputRef.current) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+  }, [dropdownOpen]);
+
+  const query = searchQuery.toLowerCase();
+  const showPlatformEngineer = "platform engineer".includes(query) || "default ai assistant".includes(query);
+  const filteredAgents = agents.filter(
+    (a) =>
+      a.name.toLowerCase().includes(query) ||
+      (a.description?.toLowerCase().includes(query) ?? false)
+  );
 
   // Collapsed mode: simple button without dropdown
   if (collapsed) {
@@ -161,25 +180,44 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
       {/* Dropdown menu */}
       {dropdownOpen && (
         <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md bg-popover border border-border shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
-          <div className="py-1">
+          {/* Search input */}
+          <div className="px-2 pt-2 pb-1">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 border border-border/50">
+              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search agents..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+            </div>
+          </div>
+
+          {/* Scrollable agent list */}
+          <div className="overflow-y-auto max-h-64 py-1">
             {/* Platform Engineer option */}
-            <button
-              onClick={() => handleSelectAgent(undefined)}
-              className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
-                <Bot className="h-4 w-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">Platform Engineer</div>
-                <div className="text-xs text-muted-foreground truncate">
-                  Default AI assistant
+            {showPlatformEngineer && (
+              <button
+                onClick={() => handleSelectAgent(undefined)}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">
+                  <Bot className="h-4 w-4 text-white" />
                 </div>
-              </div>
-            </button>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">Platform Engineer</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    Default AI assistant
+                  </div>
+                </div>
+              </button>
+            )}
 
             {/* Divider if there are dynamic agents */}
-            {(loading || agents.length > 0 || error) && (
+            {showPlatformEngineer && (loading || filteredAgents.length > 0 || error) && (
               <div className="h-px bg-border my-1" />
             )}
 
@@ -199,7 +237,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
             )}
 
             {/* Dynamic agents list */}
-            {!loading && !error && agents.map((agent) => {
+            {!loading && !error && filteredAgents.map((agent) => {
               const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme) : null;
               return (
                 <button
@@ -207,7 +245,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                   onClick={() => handleSelectAgent(agent._id)}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
                 >
-                  <div 
+                  <div
                     className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
                       !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
@@ -228,8 +266,15 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
               );
             })}
 
-            {/* No dynamic agents */}
-            {!loading && !error && agents.length === 0 && (
+            {/* No results */}
+            {!loading && !error && !showPlatformEngineer && filteredAgents.length === 0 && (
+              <div className="px-3 py-2 text-sm text-muted-foreground">
+                No agents match &quot;{searchQuery}&quot;
+              </div>
+            )}
+
+            {/* No dynamic agents (and no search active) */}
+            {!loading && !error && !searchQuery && agents.length === 0 && (
               <div className="px-3 py-2 text-sm text-muted-foreground">
                 No custom agents configured
               </div>
