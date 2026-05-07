@@ -231,6 +231,11 @@
         },
         {
           "type": "doc",
+          "id": "development/prebuild-flow",
+          "label": "Prebuild Flow"
+        },
+        {
+          "type": "doc",
           "id": "repo-ops/ci",
           "label": "CI Workflows"
         },

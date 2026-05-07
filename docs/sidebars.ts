@@ -244,6 +244,11 @@ const sidebars: SidebarsConfig = {
           id: 'development/ci-cd-and-releases',
           label: 'CI/CD & Releases',
         },
+        {
+          type: 'doc',
+          id: 'development/prebuild-flow',
+          label: 'Prebuild Flow',
+        },
         { type: 'doc', id: 'repo-ops/ci', label: 'CI Workflows' },
         { type: 'doc', id: 'repo-ops/releases', label: 'How to Cut a Release' },
         {
