@@ -45,7 +45,7 @@ class ConversationContextFilter(logging.Filter):
 class HealthEndpointFilter(logging.Filter):
     """Suppress INFO-level access logs for health check endpoints."""
 
-    _HEALTH_PATHS = ("/healthz", "/health", "/ready")
+    _HEALTH_PATHS = ("/healthz", "/health", "/ready", "/metrics")
 
     def filter(self, record: logging.LogRecord) -> bool:
         if record.levelno >= logging.WARNING:
