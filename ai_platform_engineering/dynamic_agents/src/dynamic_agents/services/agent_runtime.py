@@ -82,6 +82,15 @@ def _sanitize_agent_name(name: str) -> str:
     return re.sub(r"[\s<|\\/>]+", "_", name)
 
 
+OVERTHINK_BOILERPLATE = (
+    "If the message is only asking a human to take an action (review, approve, intervene)"
+    " — not directed at you — output ONLY: [DEFER]\n"
+    "If the message is asking you to take an action, do it directly.\n"
+    "Otherwise, search your knowledge base before responding."
+    " If you cannot find relevant sources, output ONLY: [LOW_CONFIDENCE]\n"
+    "Always end with a Sources section linking what you found."
+)
+
 # Module-level restricted Jinja2 sandbox for system prompt rendering.
 # - ChainableUndefined: missing/nested keys return "" instead of raising.
 # - Built-in globals stripped: agent prompts only need conditionals and
@@ -133,6 +142,7 @@ def _render_system_prompt(
             attempts unsafe attribute access, or otherwise fails to render.
     """
     ctx = client_context.model_dump() if client_context else {}
+    ctx.setdefault("overthink_boilerplate", OVERTHINK_BOILERPLATE)
     user_ctx = user.model_dump(exclude={"raw_claims"}) if user else {}
     try:
         template = _jinja_env.from_string(template_str)
