@@ -197,7 +197,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           </div>
 
           {/* Scrollable agent list */}
-          <div className="overflow-y-auto max-h-64 py-1">
+          <div className="overflow-y-auto max-h-96 py-1">
             {/* Platform Engineer option */}
             {showPlatformEngineer && (
               <button
