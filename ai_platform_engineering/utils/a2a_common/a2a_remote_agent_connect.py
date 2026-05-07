@@ -141,9 +141,47 @@ class A2ARemoteAgentConnectTool(BaseTool):
       self._agent_card.url = self._remote_agent_card
 
     logger.info(f"Agent Card: {self._agent_card}")
+
+    # If the remote agent advertises an OAuth2 security scheme on its
+    # AgentCard, attach a2a-sdk's AuthInterceptor + OAuth2ClientCredentialsService
+    # so every outbound request carries a fresh Bearer token. Cards that don't
+    # declare oauth2 (i.e. {"public": []}) get the existing unauthenticated
+    # client unchanged — fully backward-compatible.
+    interceptors = []
+    schemes = self._agent_card.security_schemes or {}
+    required = self._agent_card.security or []
+    required_scheme_names = set()
+    for req in required:
+      try:
+        required_scheme_names.update(req.keys())
+      except AttributeError:
+        # Tolerate odd shapes (e.g. SecurityRequirement objects)
+        pass
+    if 'oauth2' in required_scheme_names and 'oauth2' in schemes:
+      try:
+        from a2a.client.auth import AuthInterceptor
+        from ai_platform_engineering.utils.a2a_common.oauth2_client_credentials_service import (
+          OAuth2ClientCredentialsService,
+        )
+        interceptors = [AuthInterceptor(OAuth2ClientCredentialsService())]
+        logger.info(
+          f"Outbound A2A auth enabled for {self._agent_card.name} (scheme=oauth2)"
+        )
+      except Exception as exc:  # noqa: BLE001
+        logger.warning(
+          f"Remote {self._agent_card.name} advertises oauth2 but local "
+          f"interceptor wiring failed: {exc}. Calls will be unauthenticated."
+        )
+    else:
+      logger.debug(
+        f"Outbound A2A auth not enabled for {self._agent_card.name} "
+        f"(remote advertises no oauth2 scheme)"
+      )
+
     self._client = A2AClient(
         httpx_client=self._httpx_client,
-        agent_card=self._agent_card
+        agent_card=self._agent_card,
+        interceptors=interceptors,
     )
     logger.info("A2AClient initialized.")
     logger.info("*" * 80)
