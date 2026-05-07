@@ -1,0 +1,43 @@
+flowchart TD
+  %% ===========================
+  %% Client Layer
+  %% ===========================
+  subgraph CL[💻 Client Layer]
+    A["🧑‍💻 Agent Client<br/>(Chat UI, CLI, or App)"]
+  end
+
+  %% ===========================
+  %% Transport Layer
+  %% ===========================
+  subgraph TL[🔗 Agent Transport Layer]
+    B["📡 A2A Protocol<br/>(Agent-to-Agent communication)"]
+  end
+
+  %% ===========================
+  %% Agent Layer
+  %% ===========================
+  subgraph AL[🧠 Agent Layer]
+    C["🤖 ReAct Agent<br/>(Reason + Action + <br/> Control Flow)"]
+    G["🧩 Context Engineering<br/>(System Prompts,<br/> Long-term Memory,<br/>Semantic Cache)"]
+    D["🔌 MCP Tool Bindings<br/>(Standardized Tool Adapters)"]
+  end
+
+  %% ===========================
+  %% Tools Layer
+  %% ===========================
+  subgraph Tools[🛠️ Tools & Integrations Layer]
+    E["🌐 MCP Server / Endpoint<br/>(Tool/Prompt Context)"]
+    F["📦 API Resource Servers<br/>(External APIs, Databases,</br> SaaS)"]
+  end
+
+  %% ===========================
+  %% LLM Layer
+  %% ===========================
+  LLM["🧠 LLM<br/>(Reasoning, Generation, </br> Planning)"]
+
+  %% ===========================
+  %% Simplified Flows
+  %% ===========================
+  A --> B --> C
+  C --> LLM
+  C --> D --> E --> F

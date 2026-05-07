@@ -1,0 +1,133 @@
+---
+id: caipe-ui-chart
+sidebar_label: caipe-ui
+---
+
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
+# caipe-ui
+
+A Helm chart for CAIPE UI - A2A-powered chat interface for AI Platform Engineering
+
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
+
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install caipe-ui oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` |  |
+| autoscaling.enabled | bool | `false` |  |
+| autoscaling.maxReplicas | int | `100` |  |
+| autoscaling.minReplicas | int | `1` |  |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
+| config.APP_NAME | string | `"CAIPE"` |  |
+| config.DESCRIPTION | string | `"Where Humans and AI agents collaborate to deliver high quality outcomes."` |  |
+| config.DYNAMIC_AGENTS_ENABLED | string | `"false"` |  |
+| config.ENABLE_SUBAGENT_CARDS | string | `"true"` |  |
+| config.ENV_BADGE | string | `""` |  |
+| config.LOGO_STYLE | string | `"default"` |  |
+| config.LOGO_URL | string | `"/logo.svg"` |  |
+| config.MONGODB_DATABASE | string | `"caipe"` |  |
+| config.NEXTAUTH_URL | string | `"http://localhost:3000"` |  |
+| config.NODE_ENV | string | `"production"` |  |
+| config.OIDC_ENABLE_REFRESH_TOKEN | string | `"true"` |  |
+| config.OIDC_REQUIRED_ADMIN_GROUP | string | `"app-admins"` |  |
+| config.OIDC_REQUIRED_ADMIN_VIEW_GROUP | string | `""` |  |
+| config.OIDC_REQUIRED_GROUP | string | `"app-users"` |  |
+| config.SHOW_POWERED_BY | string | `"false"` |  |
+| config.SSO_ENABLED | string | `"true"` |  |
+| config.SUPPORT_EMAIL | string | `"support@example.com"` |  |
+| config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
+| config.WORKFLOW_RUNNER_ENABLED | string | `"false"` |  |
+| env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| existingSecret | string | `""` |  |
+| externalSecrets.apiVersion | string | `"v1beta1"` |  |
+| externalSecrets.data | list | `[]` |  |
+| externalSecrets.enabled | bool | `false` |  |
+| externalSecrets.secretStoreRef.kind | string | `"ClusterSecretStore"` |  |
+| externalSecrets.secretStoreRef.name | string | `"vault"` |  |
+| fullnameOverride | string | `""` |  |
+| image.pullPolicy | string | `"Always"` |  |
+| image.repository | string | `"ghcr.io/cnoe-io/caipe-ui"` |  |
+| image.tag | string | `""` |  |
+| imagePullSecrets | list | `[]` |  |
+| ingress.annotations | object | `{}` |  |
+| ingress.className | string | `"nginx"` |  |
+| ingress.enabled | bool | `false` |  |
+| ingress.hosts[0].host | string | `"caipe-ui.local"` |  |
+| ingress.hosts[0].paths[0].path | string | `"/"` |  |
+| ingress.hosts[0].paths[0].pathType | string | `"Prefix"` |  |
+| ingress.tls | list | `[]` |  |
+| livenessProbe.failureThreshold | int | `3` |  |
+| livenessProbe.httpGet.path | string | `"/api/health"` |  |
+| livenessProbe.httpGet.port | string | `"http"` |  |
+| livenessProbe.initialDelaySeconds | int | `30` |  |
+| livenessProbe.periodSeconds | int | `10` |  |
+| livenessProbe.timeoutSeconds | int | `5` |  |
+| nameOverride | string | `""` |  |
+| nodeSelector | object | `{}` |  |
+| podAnnotations | object | `{}` |  |
+| podLabels | object | `{}` |  |
+| podSecurityContext | object | `{}` |  |
+| readinessProbe.failureThreshold | int | `3` |  |
+| readinessProbe.httpGet.path | string | `"/api/health"` |  |
+| readinessProbe.httpGet.port | string | `"http"` |  |
+| readinessProbe.initialDelaySeconds | int | `5` |  |
+| readinessProbe.periodSeconds | int | `5` |  |
+| readinessProbe.timeoutSeconds | int | `3` |  |
+| replicaCount | int | `1` |  |
+| resources | object | `{}` |  |
+| revisionHistoryLimit | int | `3` |  |
+| securityContext | object | `{}` |  |
+| service.port | int | `3000` |  |
+| service.type | string | `"ClusterIP"` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| tolerations | list | `[]` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |
+
