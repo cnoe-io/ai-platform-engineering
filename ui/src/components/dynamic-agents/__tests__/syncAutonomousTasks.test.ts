@@ -218,11 +218,11 @@ describe("syncAutonomousTasks", () => {
     const api = makeApi();
     const serverWebhook: AutonomousTask = {
       ...cronTask("hook"),
-      trigger: { type: "webhook", has_secret: true },
+      trigger: { type: "webhook", provider: "github", has_secret: true },
     };
     const draftWebhook: AutonomousTask = {
       ...cronTask("hook"),
-      trigger: { type: "webhook", secret: null },
+      trigger: { type: "webhook", provider: "github", secret: null },
     };
 
     await syncAutonomousTasks({
@@ -233,6 +233,27 @@ describe("syncAutonomousTasks", () => {
     });
 
     expect(api.updateTask).not.toHaveBeenCalled();
+  });
+
+  it("updates webhook task when provider changes", async () => {
+    const api = makeApi();
+    const serverWebhook: AutonomousTask = {
+      ...cronTask("hook"),
+      trigger: { type: "webhook", provider: "github", has_secret: true },
+    };
+    const draftWebhook: AutonomousTask = {
+      ...cronTask("hook"),
+      trigger: { type: "webhook", provider: "jira", secret: null },
+    };
+
+    await syncAutonomousTasks({
+      agentId: "my_agent",
+      drafts: [draftWebhook],
+      serverTasks: [serverWebhook],
+      api,
+    });
+
+    expect(api.updateTask).toHaveBeenCalledTimes(1);
   });
 
   it("updates webhook task when a new secret is typed", async () => {

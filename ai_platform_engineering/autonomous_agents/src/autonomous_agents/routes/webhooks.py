@@ -26,7 +26,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.models import (
@@ -43,6 +43,11 @@ from autonomous_agents.services.trigger_instances import (
     TriggerClaim,
     claim_trigger_instance,
     derive_dedup_key,
+)
+from autonomous_agents.services.webhook_adapters import (
+    VerificationResult,
+    WebhookAdapter,
+    get_adapter,
 )
 
 logger = logging.getLogger("autonomous_agents")
@@ -135,9 +140,10 @@ def _resolve_secret(task: TaskDefinition) -> tuple[str | None, str]:
 def _validate_timestamp(raw: str | None, window: int) -> float:
     """Parse + range-check the ``X-Webhook-Timestamp`` header.
 
-    ``raw`` must be a Unix epoch (int or float, seconds). Rejects
-    requests whose timestamp lies more than ``window`` seconds before
-    *or* after ``now``. Returns parsed timestamp on success.
+    Retained as a public shim for callers / tests that pre-date the
+    YAML adapter layer; the github adapter delegates to
+    :func:`services.webhook_adapters._validate_timestamp_window` for the
+    same behaviour.
     """
     if not raw:
         raise HTTPException(
@@ -152,7 +158,6 @@ def _validate_timestamp(raw: str | None, window: int) -> float:
             status_code=400, detail="X-Webhook-Timestamp must be a numeric epoch"
         ) from exc
 
-    # Reject NaN and infinities (float() can parse them).
     if not math.isfinite(ts):
         raise HTTPException(
             status_code=400, detail="X-Webhook-Timestamp must be a finite number"
@@ -169,10 +174,12 @@ def _validate_timestamp(raw: str | None, window: int) -> float:
 
 
 def _expected_signature(secret: str, body: bytes, timestamp_header: str | None) -> str:
-    """Compute the expected ``sha256=...`` signature.
+    """Compute the legacy GitHub-shaped ``sha256=...`` signature.
 
-    If ``timestamp_header`` is provided, sign ``f"{ts}.{body}"``.
-    Otherwise, sign the body alone.
+    Public shim retained for tests and library callers that signed
+    payloads against the original hard-coded contract. The github
+    adapter computes the same value internally; new code should call
+    the adapter rather than this helper.
     """
     signed = (
         timestamp_header.encode("utf-8") + b"." + body
@@ -181,6 +188,22 @@ def _expected_signature(secret: str, body: bytes, timestamp_header: str | None) 
     )
     digest = hmac.new(secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
+
+
+def _resolve_adapter(task: TaskDefinition) -> WebhookAdapter:
+    """Look up the adapter for ``task``'s webhook provider.
+
+    Centralised so the route, the follow-up route, and any future
+    helpers all hit the same registry. Raises :class:`HTTPException`
+    (status 500) when the operator references an unknown provider id —
+    that's a configuration mistake, not a sender error.
+    """
+    if not isinstance(task.trigger, WebhookTrigger):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Task '{task.id}' is not a webhook task",
+        )
+    return get_adapter(task.trigger.provider)
 
 
 def _parse_context(body: bytes) -> dict[str, Any]:
@@ -208,19 +231,20 @@ async def receive_webhook(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
-    x_hub_signature_256: str | None = Header(None),
-    x_github_event: str | None = Header(None),
-    x_webhook_timestamp: str | None = Header(None),
 ) -> dict:
     """Accept an incoming webhook and dispatch the matching task asynchronously.
 
     Flow:
 
     1. Look up the webhook task; 404 on unknown ids.
-    2. Read body, verify HMAC + replay-window if a secret is configured.
-    3. Short-circuit GitHub ``ping`` deliveries with HTTP 200 (no run, no row).
-    4. Derive a dedup key (header > signature > none) and try to claim a
-       row in the ``trigger_instances`` collection.
+    2. Resolve the provider adapter (github / slack / pagerduty /
+       generic_hmac / operator-supplied) and verify HMAC + replay-window
+       per that adapter's contract when a secret is configured.
+    3. Short-circuit provider-recognised ping deliveries with HTTP 200
+       (no run, no row) — e.g. GitHub's ``X-GitHub-Event: ping``.
+    4. Derive a dedup key (per-task header > adapter default header >
+       verified signature > none) and try to claim a row in the
+       ``trigger_instances`` collection.
     5. If the claim collided with an existing row -> the sender retried;
        return HTTP 200 with the original ``run_id`` and *do not* run
        the task again.
@@ -232,65 +256,53 @@ async def receive_webhook(
     task = _webhook_tasks.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail=f"No webhook task found for id '{task_id}'")
-    if not isinstance(task.trigger, WebhookTrigger):
-        raise HTTPException(status_code=500, detail=f"Task '{task_id}' is not a webhook task")
+    adapter = _resolve_adapter(task)
 
     body = await request.body()
 
     # Track the *verified* signature so the dedup helper can use it as
     # a dedup key when no per-task header is configured. We only set
-    # this AFTER ``hmac.compare_digest`` confirms the sender's value
-    # matches; using an unverified signature would let an attacker
+    # this AFTER the adapter's compare_digest confirms the sender's
+    # value matches; using an unverified signature would let an attacker
     # poison the dedup table.
-    verified_signature: str | None = None
-
     secret, source = _resolve_secret(task)
+    settings = get_settings()
+    result: VerificationResult = adapter.verify(
+        secret=secret,
+        body=body,
+        headers=request.headers,
+        replay_window_seconds=settings.webhook_replay_window_seconds,
+    )
     if secret:
-        settings = get_settings()
-        replay_window = settings.webhook_replay_window_seconds
-
-        timestamp_for_signing: str | None = None
-        if replay_window > 0:
-            _validate_timestamp(x_webhook_timestamp, replay_window)
-            timestamp_for_signing = x_webhook_timestamp
-
-        if not x_hub_signature_256:
-            raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
-
-        expected = _expected_signature(secret, body, timestamp_for_signing)
-        if not hmac.compare_digest(expected, x_hub_signature_256):
-            # Do not reveal expected signature in response/logs.
-            logger.warning(
-                "Webhook signature mismatch for task '%s' (secret_source=%s)",
-                task_id,
-                source,
-            )
-            raise HTTPException(status_code=401, detail="Invalid webhook signature")
-
         logger.debug(
-            "Webhook signature OK for task '%s' (secret_source=%s)",
+            "Webhook signature OK for task '%s' (provider=%s, secret_source=%s)",
             task_id,
+            adapter.provider_id,
             source,
         )
-        # Use the server-computed ``expected`` rather than the
-        # sender-provided header. They are equal at this point
-        # (compare_digest just confirmed it) and using the locally
-        # computed value guarantees a canonical wire format
-        # regardless of how the sender capitalised the prefix.
-        verified_signature = expected
+    verified_signature = result.canonical_signature
 
-    if (x_github_event or "").lower() == "ping":
-        # GitHub ping deliveries should never produce a run AND should
-        # never create a dedup row -- a ping is a one-off configuration
-        # check, not an event the task should react to.
-        logger.info("Ignoring GitHub ping delivery for webhook task '%s'", task_id)
-        return {"status": "ignored", "reason": "github_ping", "task_id": task_id}
+    if result.is_ping:
+        # Provider-recognised ping (e.g. GitHub's X-GitHub-Event: ping):
+        # never produce a run AND never create a dedup row -- it's a
+        # one-off configuration check, not a real event.
+        logger.info(
+            "Ignoring %s ping delivery for webhook task '%s'",
+            adapter.provider_id,
+            task_id,
+        )
+        return {
+            "status": "ignored",
+            "reason": f"{adapter.provider_id}_ping",
+            "task_id": task_id,
+        }
 
     # ---- Dedup attempt -------------------------------------------------
     dedup_key = derive_dedup_key(
         task=task,
         headers=request.headers,
         verified_signature=verified_signature,
+        default_dedup_header=result.default_dedup_header,
     )
 
     context = _parse_context(body)
@@ -418,42 +430,27 @@ async def _claim_or_log(
 async def _verify_followup_signature(
     task: TaskDefinition,
     body: bytes,
-    signature: str | None,
-    timestamp_header: str | None,
-) -> str | None:
+    headers: Any,
+) -> tuple[str | None, str | None]:
     """Shared HMAC + replay-window check for follow-up requests.
 
-    Same scheme as ``receive_webhook`` so the inbound bridge can use a
-    single signing routine for both the initial fire and follow-ups.
-    Raises :class:`HTTPException` on any failure; returns the verified
-    signature (or ``None`` when no secret is configured) so the caller
-    can use it as a dedup key without re-deriving it.
+    Delegates to the same provider adapter the initial-fire route uses
+    so an inbound bridge can sign follow-ups with the same key (and
+    same scheme) it uses for primary deliveries. Returns
+    ``(verified_signature, default_dedup_header)`` so the caller can
+    feed both into :func:`derive_dedup_key` without re-deriving them.
+    Raises :class:`HTTPException` on verification failure.
     """
-    secret, source = _resolve_secret(task)
-    if not secret:
-        return None
-
+    secret, _source = _resolve_secret(task)
+    adapter = _resolve_adapter(task)
     settings = get_settings()
-    replay_window = settings.webhook_replay_window_seconds
-
-    timestamp_for_signing: str | None = None
-    if replay_window > 0:
-        _validate_timestamp(timestamp_header, replay_window)
-        timestamp_for_signing = timestamp_header
-
-    if not signature:
-        raise HTTPException(status_code=401, detail="Missing X-Hub-Signature-256 header")
-
-    expected = _expected_signature(secret, body, timestamp_for_signing)
-    if not hmac.compare_digest(expected, signature):
-        # Do not reveal expected signature in response/logs.
-        logger.warning(
-            "Follow-up signature mismatch for task '%s' (secret_source=%s)",
-            task.id,
-            source,
-        )
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-    return expected
+    result = adapter.verify(
+        secret=secret,
+        body=body,
+        headers=headers,
+        replay_window_seconds=settings.webhook_replay_window_seconds,
+    )
+    return result.canonical_signature, result.default_dedup_header
 
 
 @router.post("/hooks/{task_id}/follow-up")
@@ -462,8 +459,6 @@ async def receive_followup(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
-    x_hub_signature_256: str | None = Header(None),
-    x_webhook_timestamp: str | None = Header(None),
 ) -> dict:
     """Re-fire an existing webhook task with operator follow-up text.
 
@@ -491,14 +486,11 @@ async def receive_followup(
             status_code=404,
             detail=f"No webhook task found for id '{task_id}'",
         )
-    if not isinstance(task.trigger, WebhookTrigger):
-        raise HTTPException(
-            status_code=500, detail=f"Task '{task_id}' is not a webhook task"
-        )
+    _resolve_adapter(task)  # 500 early on misconfigured provider id
 
     body = await request.body()
-    verified_signature = await _verify_followup_signature(
-        task, body, x_hub_signature_256, x_webhook_timestamp
+    verified_signature, default_dedup_header = await _verify_followup_signature(
+        task, body, request.headers
     )
 
     try:
@@ -550,6 +542,7 @@ async def receive_followup(
         task=task,
         headers=request.headers,
         verified_signature=verified_signature,
+        default_dedup_header=default_dedup_header,
     )
     dedup_key = (
         DedupKey(

@@ -52,6 +52,23 @@ class IntervalTrigger(BaseModel):
 class WebhookTrigger(BaseModel):
     type: Literal[TriggerType.WEBHOOK] = TriggerType.WEBHOOK
     secret: str | None = Field(None, description="Optional HMAC secret for payload validation")
+    # Provider id from ``webhook_providers.yaml`` -- selects the
+    # signature header, scheme, algorithm, payload template, and ping
+    # short-circuit for this task's webhook. Defaults to ``"github"`` so
+    # tasks authored before this field existed (and the entire test
+    # suite, which signs with ``X-Hub-Signature-256``) keep working
+    # without migration. Operators add new upstreams (Slack, PagerDuty,
+    # an internal generic-HMAC sender, ...) by setting this to the
+    # matching adapter id rather than by forking the route.
+    provider: str = Field(
+        default="github",
+        description=(
+            "Webhook provider adapter id (e.g. 'github', 'slack', "
+            "'pagerduty', 'generic_hmac'). Must match an entry in "
+            "webhook_providers.yaml. Defaults to 'github' for "
+            "backward compatibility."
+        ),
+    )
     # Optional name of an HTTP header that uniquely identifies a delivery
     # (e.g. ``X-GitHub-Delivery``, ``X-PagerDuty-Webhook-Id``). When set
     # and present on the request, the dedup key for the
