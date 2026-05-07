@@ -53,16 +53,21 @@ describe("formState.toFormState", () => {
     );
   });
 
-  it("leaves webhook secret blank even when has_secret=true on the server", () => {
+  it("maps webhook provider and leaves secret blank even when has_secret=true on the server", () => {
     const task: AutonomousTask = {
       id: "hook",
       name: "N",
       agent: null,
       prompt: "p",
-      trigger: { type: "webhook", has_secret: true },
+      trigger: { type: "webhook", provider: "jira", has_secret: true },
       enabled: true,
     };
-    expect(toFormState(task).webhookSecret).toBe("");
+    expect(toFormState(task)).toEqual(
+      expect.objectContaining({
+        webhookProvider: "jira",
+        webhookSecret: "",
+      }),
+    );
   });
 });
 
@@ -121,16 +126,21 @@ describe("formState.fromFormState", () => {
     const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "   " });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", secret: null },
+        trigger: { type: "webhook", provider: "github", secret: null },
       }),
     });
   });
 
-  it("maps webhook with secret verbatim", () => {
-    const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "s3cret" });
+  it("maps webhook provider and secret verbatim", () => {
+    const result = fromFormState({
+      ...base,
+      triggerType: "webhook",
+      webhookProvider: "jira",
+      webhookSecret: "s3cret",
+    });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", secret: "s3cret" },
+        trigger: { type: "webhook", provider: "jira", secret: "s3cret" },
       }),
     });
   });
@@ -173,7 +183,7 @@ describe("formState.summarizeTrigger", () => {
     ).toBe("Every 2h 15m");
   });
   it("summarises webhook with/without secret", () => {
-    expect(summarizeTrigger({ type: "webhook", has_secret: true })).toBe("Webhook (signed)");
-    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook");
+    expect(summarizeTrigger({ type: "webhook", provider: "jira", has_secret: true })).toBe("Webhook: jira (signed)");
+    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
   });
 });

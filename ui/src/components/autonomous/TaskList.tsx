@@ -40,7 +40,7 @@ function describeTrigger(trigger: Trigger): string {
     if (trigger.seconds) parts.push(`${trigger.seconds}s`);
     return `every ${parts.join(" ") || "—"}`;
   }
-  return "webhook";
+  return `webhook · ${trigger.provider ?? "github"}`;
 }
 
 function TriggerIcon({ type }: { type: Trigger["type"] }) {

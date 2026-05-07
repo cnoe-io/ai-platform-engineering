@@ -146,6 +146,17 @@ class Settings(BaseSettings):
     # timestamp header. See README.md for the signing contract.
     webhook_replay_window_seconds: int = Field(default=0, ge=0)
 
+    # Path to the YAML file describing webhook provider adapters
+    # (signature header, scheme, algorithm, payload template, etc.).
+    # ``None`` (the default) means use the bundled
+    # ``autonomous_agents/webhook_providers.yaml`` shipped with the
+    # package -- which already covers github, slack, pagerduty, and
+    # generic_hmac. Operators add private upstreams by pointing
+    # ``WEBHOOK_PROVIDERS_FILE`` at a custom file; that file fully
+    # replaces the bundled defaults, so include any built-in providers
+    # you still want when overriding.
+    webhook_providers_file: str | None = None
+
     # CORS — stored as a raw string so Docker ``CORS_ORIGINS=`` (empty) does
     # not trip pydantic-settings' JSON decode for ``list[str]``. Expose the
     # parsed list via the ``cors_origins`` property (same name as before).

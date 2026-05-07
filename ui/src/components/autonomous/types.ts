@@ -28,6 +28,13 @@ export interface IntervalTrigger {
 export interface WebhookTrigger {
   type: 'webhook';
   /**
+   * Backend adapter id from autonomous_agents/webhook_providers.yaml.
+   * Defaults to "github" server-side for older tasks, but writes should
+   * include it so Jira/Slack/PagerDuty webhooks verify against their own
+   * signature headers instead of the GitHub default.
+   */
+  provider?: string | null;
+  /**
    * Optional HMAC secret. The backend NEVER echoes the secret on
    * read paths -- ``_serialize_trigger`` in ``routes/tasks.py``
    * strips the value and replaces it with ``has_secret`` (below) so
@@ -169,6 +176,7 @@ export interface TaskFormState {
   intervalSeconds: string;
   intervalMinutes: string;
   intervalHours: string;
+  webhookProvider: string;
   webhookSecret: string;
   timeoutSeconds: string;
   maxRetries: string;

@@ -22,6 +22,14 @@ import { useAgentTools } from "@/hooks/use-agent-tools";
 import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
 import { fromFormState, toFormState } from "./formState";
 
+const WEBHOOK_PROVIDER_OPTIONS = [
+  { value: "github", label: "GitHub" },
+  { value: "jira", label: "Jira" },
+  { value: "slack", label: "Slack" },
+  { value: "pagerduty", label: "PagerDuty" },
+  { value: "generic_hmac", label: "Generic HMAC" },
+];
+
 interface TaskFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -296,24 +304,48 @@ export function TaskFormDialog({ open, onOpenChange, task, onSubmit }: TaskFormD
             )}
 
             {form.triggerType === "webhook" && (
-              <div className="space-y-1">
-                <Label htmlFor="task-webhook-secret">HMAC secret (optional)</Label>
-                <Input
-                  id="task-webhook-secret"
-                  value={form.webhookSecret}
-                  onChange={(e) => update("webhookSecret", e.target.value)}
-                  type="password"
-                  placeholder={
-                    isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret
-                      ? "secret already configured — type to replace"
-                      : "leave blank to accept unsigned payloads"
-                  }
-                />
-                {isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret && (
-                  <p className="text-xs text-muted-foreground">
-                    The existing secret is hidden for security. Leave this field blank to keep it unchanged.
-                  </p>
-                )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="task-webhook-provider">Provider</Label>
+                  <select
+                    id="task-webhook-provider"
+                    value={form.webhookProvider}
+                    onChange={(e) => update("webhookProvider", e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {WEBHOOK_PROVIDER_OPTIONS.map((opt) => (
+                      <option
+                        key={opt.value}
+                        value={opt.value}
+                        style={{
+                          backgroundColor: "hsl(var(--background))",
+                          color: "hsl(var(--foreground))",
+                        }}
+                      >
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="task-webhook-secret">HMAC secret (optional)</Label>
+                  <Input
+                    id="task-webhook-secret"
+                    value={form.webhookSecret}
+                    onChange={(e) => update("webhookSecret", e.target.value)}
+                    type="password"
+                    placeholder={
+                      isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret
+                        ? "secret already configured — type to replace"
+                        : "leave blank to accept unsigned payloads"
+                    }
+                  />
+                  {isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret && (
+                    <p className="text-xs text-muted-foreground">
+                      The existing secret is hidden for security. Leave this field blank to keep it unchanged.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>

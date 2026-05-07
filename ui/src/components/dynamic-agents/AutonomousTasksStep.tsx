@@ -54,6 +54,14 @@ const TRIGGER_OPTIONS: { value: TriggerType; label: string; icon: React.ReactNod
   { value: "webhook", label: "Webhook", icon: <WebhookIcon className="h-3.5 w-3.5" /> },
 ];
 
+const WEBHOOK_PROVIDER_OPTIONS = [
+  { value: "github", label: "GitHub" },
+  { value: "jira", label: "Jira" },
+  { value: "slack", label: "Slack" },
+  { value: "pagerduty", label: "PagerDuty" },
+  { value: "generic_hmac", label: "Generic HMAC" },
+];
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -267,25 +275,50 @@ function TaskInlineEditor({
         )}
 
         {form.triggerType === "webhook" && (
-          <div className="space-y-1">
-            <Label htmlFor="at-hook-secret">HMAC secret (optional)</Label>
-            <Input
-              id="at-hook-secret"
-              value={form.webhookSecret}
-              onChange={(e) => update("webhookSecret", e.target.value)}
-              type="password"
-              placeholder={
-                isEditing && initial?.trigger.type === "webhook" && initial.trigger.has_secret
-                  ? "secret already configured — type to replace"
-                  : "leave blank to accept unsigned payloads"
-              }
-              disabled={disabled}
-            />
-            {isEditing && initial?.trigger.type === "webhook" && initial.trigger.has_secret && (
-              <p className="text-[11px] text-muted-foreground">
-                Existing secret is hidden for security. Leave blank to keep it unchanged.
-              </p>
-            )}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="at-hook-provider">Provider</Label>
+              <select
+                id="at-hook-provider"
+                value={form.webhookProvider}
+                onChange={(e) => update("webhookProvider", e.target.value)}
+                disabled={disabled}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {WEBHOOK_PROVIDER_OPTIONS.map((opt) => (
+                  <option
+                    key={opt.value}
+                    value={opt.value}
+                    style={{
+                      backgroundColor: "hsl(var(--background))",
+                      color: "hsl(var(--foreground))",
+                    }}
+                  >
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="at-hook-secret">HMAC secret (optional)</Label>
+              <Input
+                id="at-hook-secret"
+                value={form.webhookSecret}
+                onChange={(e) => update("webhookSecret", e.target.value)}
+                type="password"
+                placeholder={
+                  isEditing && initial?.trigger.type === "webhook" && initial.trigger.has_secret
+                    ? "secret already configured — type to replace"
+                    : "leave blank to accept unsigned payloads"
+                }
+                disabled={disabled}
+              />
+              {isEditing && initial?.trigger.type === "webhook" && initial.trigger.has_secret && (
+                <p className="text-[11px] text-muted-foreground">
+                  Existing secret is hidden for security. Leave blank to keep it unchanged.
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
