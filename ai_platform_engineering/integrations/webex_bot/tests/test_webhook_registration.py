@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from webex_bot.app import ensure_webhook_registered  # type: ignore[import-not-found]
+from webex_bot.webhook_setup import ensure_webhook_registered  # type: ignore[import-not-found]
 
 
 class FakeWebexClient:

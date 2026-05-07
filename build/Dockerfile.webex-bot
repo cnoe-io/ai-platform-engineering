@@ -47,13 +47,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Copy the package itself under ``/app/webex_bot/`` so the container
 # can do ``python -m webex_bot`` without dragging in the whole monorepo.
-COPY ai_platform_engineering/integrations/webex_bot/__init__.py     /app/webex_bot/__init__.py
-COPY ai_platform_engineering/integrations/webex_bot/__main__.py     /app/webex_bot/__main__.py
-COPY ai_platform_engineering/integrations/webex_bot/app.py          /app/webex_bot/app.py
-COPY ai_platform_engineering/integrations/webex_bot/config.py       /app/webex_bot/config.py
-COPY ai_platform_engineering/integrations/webex_bot/dispatcher.py   /app/webex_bot/dispatcher.py
-COPY ai_platform_engineering/integrations/webex_bot/thread_store.py /app/webex_bot/thread_store.py
-COPY ai_platform_engineering/integrations/webex_bot/webex_client.py /app/webex_bot/webex_client.py
+# Listed explicitly (rather than ``COPY <dir>/`` or a wildcard) so a
+# new module can't be added without a Dockerfile review, and so we
+# never accidentally pack tests / __pycache__ into the image.
+COPY ai_platform_engineering/integrations/webex_bot/__init__.py      /app/webex_bot/__init__.py
+COPY ai_platform_engineering/integrations/webex_bot/__main__.py      /app/webex_bot/__main__.py
+COPY ai_platform_engineering/integrations/webex_bot/app.py           /app/webex_bot/app.py
+COPY ai_platform_engineering/integrations/webex_bot/config.py        /app/webex_bot/config.py
+COPY ai_platform_engineering/integrations/webex_bot/dispatcher.py    /app/webex_bot/dispatcher.py
+COPY ai_platform_engineering/integrations/webex_bot/lifespan.py      /app/webex_bot/lifespan.py
+COPY ai_platform_engineering/integrations/webex_bot/thread_store.py  /app/webex_bot/thread_store.py
+COPY ai_platform_engineering/integrations/webex_bot/webex_client.py  /app/webex_bot/webex_client.py
+COPY ai_platform_engineering/integrations/webex_bot/webhook_setup.py /app/webex_bot/webhook_setup.py
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     UV_PROJECT_ENVIRONMENT="/app/.venv" \

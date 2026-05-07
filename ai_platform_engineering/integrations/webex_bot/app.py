@@ -17,234 +17,30 @@ End-to-end flow on receipt of a Webex ``messages.created`` event:
 
 Webhook registration is idempotent and runs on application startup
 so a fresh deploy doesn't require any manual ``curl /webhooks``
-ceremony.
+ceremony. The registration helper itself lives in
+:mod:`webex_bot.webhook_setup`; the lifespan that wires up Mongo,
+httpx, and the Webex client lives in :mod:`webex_bot.lifespan`.
 """
 
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from .config import Settings, get_settings
+from .config import get_settings
 from .dispatcher import (
     Verdict,
     dispatch_message_event,
     forward_followup,
     verify_webex_signature,
 )
-from .thread_store import WebexThreadStore
-from .webex_client import WebexClient
+from .lifespan import AppState, lifespan
 
 
-logger = logging.getLogger("webex_bot")
-
-
-# ---------------------------------------------------------------------------
-# App state container
-# ---------------------------------------------------------------------------
-
-
-class AppState:
-    """Resources held for the lifetime of the FastAPI app.
-
-    Stashed on ``app.state`` rather than in module-level globals so a
-    single test process can spin up multiple isolated apps.
-    """
-
-    settings: Settings
-    webex: WebexClient
-    thread_store: WebexThreadStore
-    http: httpx.AsyncClient
-    bot_person_id: str
-    # ``motor.motor_asyncio.AsyncIOMotorClient`` in production, but
-    # we keep the type loose so unit tests can substitute a fake
-    # without paying motor's import cost.
-    mongo_client: object | None
-
-
-# ---------------------------------------------------------------------------
-# Webhook registration on startup
-# ---------------------------------------------------------------------------
-
-
-async def ensure_webhook_registered(
-    webex: WebexClient,
-    *,
-    target_url: str,
-    name: str = "caipe-autonomous-followups",
-    secret: str | None = None,
-) -> dict[str, Any]:
-    """Make sure exactly one ``messages.created`` webhook points at us.
-
-    Idempotent strategy:
-        * If a webhook with our ``name`` exists pointing at the same
-          ``target_url`` AND its signed/unsigned state matches our
-          current ``secret`` argument -- leave it.
-        * Otherwise (stale URL OR signed/unsigned mismatch) -- delete
-          it and recreate with the current settings. This keeps the
-          dev-loop on ngrok painless (rotating the public URL just
-          needs a service restart) AND prevents the silent-rejection
-          trap where we add a ``WEBEX_WEBHOOK_SECRET`` to ``.env``
-          on a second restart but the webhook already exists in
-          Webex without a secret -- every event then arrives without
-          ``X-Spark-Signature`` and the bot 401s them.
-        * If none exist -- create a fresh one.
-
-    We deliberately do NOT scan for "any webhook pointing at this
-    target_url" because operators may manage several caipe instances
-    against one Webex bot; only webhooks matching ``name`` are ours
-    to manage.
-
-    Returns the surviving webhook record.
-    """
-    existing = await webex.list_webhooks()
-    ours = [w for w in existing if w.get("name") == name]
-
-    # Webex's GET /webhooks list response returns ``"secret": ""`` for
-    # unsigned webhooks (and omits the field on some tenant flavours);
-    # treat both as "no secret configured" for the comparison below.
-    desired_signed = bool(secret)
-
-    for wh in ours:
-        existing_signed = bool(wh.get("secret"))
-        if (
-            wh.get("targetUrl") == target_url
-            and existing_signed == desired_signed
-        ):
-            logger.info(
-                "Webex webhook %s already points at %s (signed=%s) -- reusing",
-                wh.get("id"),
-                target_url,
-                desired_signed,
-            )
-            return wh
-        # Stale registration (URL changed OR signing posture flipped);
-        # nuke and re-create. Logging the precise mismatch reason
-        # makes the "I added a secret and now nothing arrives"
-        # situation immediately obvious in the startup log.
-        reason_bits: list[str] = []
-        if wh.get("targetUrl") != target_url:
-            reason_bits.append(
-                f"url {wh.get('targetUrl')!r} -> {target_url!r}"
-            )
-        if existing_signed != desired_signed:
-            reason_bits.append(
-                f"signed {existing_signed} -> {desired_signed}"
-            )
-        try:
-            await webex.delete_webhook(wh["id"])
-            logger.info(
-                "Deleted stale Webex webhook %s (%s)",
-                wh["id"],
-                "; ".join(reason_bits) or "no reason captured",
-            )
-        except httpx.HTTPError as exc:
-            logger.warning("Failed to delete stale webhook %s: %s", wh["id"], exc)
-
-    created = await webex.create_webhook(
-        name=name,
-        target_url=target_url,
-        resource="messages",
-        event="created",
-        secret=secret,
-    )
-    logger.info(
-        "Registered Webex webhook %s -> %s (signed=%s)",
-        created.get("id"),
-        target_url,
-        secret is not None,
-    )
-    return created
-
-
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Wire up dependencies and register the Webex webhook."""
-    # Imported lazily so unit tests that import this module don't
-    # need motor on PYTHONPATH (the dispatcher and webhook helpers
-    # are exercised without ever touching Mongo).
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    settings = get_settings()
-    logging.basicConfig(level=settings.log_level.upper())
-
-    webex = WebexClient(
-        token=settings.webex_bot_token,
-        base_url=str(settings.webex_api_base),
-        timeout=settings.http_timeout_seconds,
-    )
-
-    me = await webex.get_me()
-    bot_person_id = me.get("id")
-    if not bot_person_id:
-        # Without our own personId we cannot enforce the loop guard,
-        # so fail closed rather than risk an infinite trigger loop.
-        await webex.aclose()
-        raise RuntimeError(
-            "Webex /people/me did not return an id; check WEBEX_BOT_TOKEN"
-        )
-    logger.info("Webex bot identified as personId=%s", bot_person_id)
-
-    # Mongo (read-only)
-    mongo_client = AsyncIOMotorClient(settings.mongodb_uri)
-    collection = (
-        mongo_client[settings.mongodb_database][
-            settings.mongodb_webex_thread_map_collection
-        ]
-    )
-    thread_store = WebexThreadStore(collection)
-
-    http = httpx.AsyncClient(timeout=settings.http_timeout_seconds)
-
-    target_url = f"{str(settings.webex_bot_public_url).rstrip('/')}/webex/events"
-    try:
-        await ensure_webhook_registered(
-            webex,
-            target_url=target_url,
-            secret=settings.webex_webhook_secret,
-        )
-    except httpx.HTTPError as exc:
-        # Don't crash the bridge if registration fails -- operators
-        # may want to register webhooks manually, or the Webex API
-        # may be flaky during startup. We log loudly and continue;
-        # the /webex/events route still works as long as something
-        # else has registered the webhook for us.
-        logger.error(
-            "Webex webhook registration failed (%s); continuing without "
-            "auto-registration. Existing webhooks (if any) will keep "
-            "delivering events.",
-            exc,
-        )
-
-    state = AppState()
-    state.settings = settings
-    state.webex = webex
-    state.thread_store = thread_store
-    state.http = http
-    state.bot_person_id = bot_person_id
-    state.mongo_client = mongo_client
-    app.state.bridge = state
-
-    try:
-        yield
-    finally:
-        await webex.aclose()
-        await http.aclose()
-        mongo_client.close()
-
-
-# ---------------------------------------------------------------------------
-# App + routes
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
