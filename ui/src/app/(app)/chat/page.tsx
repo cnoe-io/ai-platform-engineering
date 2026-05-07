@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useChatStore } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
+import { getConfig } from "@/lib/config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ function ChatRedirectPage() {
   const { data: session } = useSession();
   const redirected = useRef(false);
   const autonomousOnly = searchParams.get("source") === "autonomous";
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   const [showAutonomousEmpty, setShowAutonomousEmpty] = React.useState(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
@@ -39,6 +41,11 @@ function ChatRedirectPage() {
 
   useEffect(() => {
     if (redirected.current) return;
+    if (autonomousOnly && !autonomousAgentsEnabled) {
+      redirected.current = true;
+      router.replace("/chat");
+      return;
+    }
     setShowAutonomousEmpty(false);
 
     const resolve = async () => {
@@ -108,7 +115,7 @@ function ChatRedirectPage() {
         router.replace(`/chat/${newId}`);
       }
     });
-  }, [autonomousOnly, createConversation, loadAutonomousConversationsFromService, loadConversationsFromServer, router, session?.user?.email]);
+  }, [autonomousOnly, autonomousAgentsEnabled, createConversation, loadAutonomousConversationsFromService, loadConversationsFromServer, router, session?.user?.email]);
 
   if (showAutonomousEmpty) {
     return (

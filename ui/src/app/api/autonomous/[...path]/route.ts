@@ -10,6 +10,7 @@ import {
   requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
+import { getConfig } from '@/lib/config';
 
 /**
  * Autonomous Agents API Proxy.
@@ -128,6 +129,10 @@ async function forward(
   pathSegments: string[],
   method: SupportedMethod,
 ): Promise<NextResponse> {
+  if (!getConfig('autonomousAgentsEnabled')) {
+    throw new ApiError('Autonomous agents are disabled', 404);
+  }
+
   return await withAuth(request, async (_req, _user, session) => {
     enforceRole(method, session);
 

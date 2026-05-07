@@ -45,6 +45,7 @@ Usage:
 """
 
 import argparse
+import ast
 import hashlib
 import os
 import sys
@@ -61,9 +62,19 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# A2A artifact name → stream_events type
+# A2A event type mappings
 # ---------------------------------------------------------------------------
 
+# Top-level event types that are already normalized (pass through as-is).
+A2A_EVENT_TYPE_PASSTHROUGH: set[str] = {
+    "tool_start",
+    "tool_end",
+    "execution_plan",
+    "task",
+    "status",
+}
+
+# artifact.name → stream_events type (used when top-level type is "artifact").
 A2A_ARTIFACT_TYPE_MAP: dict[str, str] = {
     "tool_notification_start": "tool_start",
     "tool_notification_end": "tool_end",
@@ -126,21 +137,48 @@ def parse_dt(value) -> Optional[datetime]:
     return None
 
 
+def _parse_artifact(raw_artifact) -> dict:
+    """
+    Coerce the artifact field to a plain dict.
+
+    Legacy documents stored the artifact as a Python repr string
+    (e.g. "{'name': 'streaming_result', 'parts': [...]}") rather than
+    a proper sub-document.  ast.literal_eval handles that case safely.
+    """
+    if isinstance(raw_artifact, dict):
+        return raw_artifact
+    if isinstance(raw_artifact, str):
+        try:
+            parsed = ast.literal_eval(raw_artifact)
+            if isinstance(parsed, dict):
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+    return {}
+
+
 def normalize_a2a_event(raw: dict, turn_id: str, conversation_id: str, seq: int) -> dict:
     """Convert a serialised A2A event to a stream_events document."""
-    artifact = raw.get("artifact") or {}
+    raw_type = raw.get("type", "")
+    artifact = _parse_artifact(raw.get("artifact"))
     artifact_name = artifact.get("name", "")
-    event_type = A2A_ARTIFACT_TYPE_MAP.get(artifact_name, "a2a_raw")
 
-    # Namespace: prefer the artifact's own namespace, fall back to sourceAgent
+    # Top-level type is already normalised for tool_start/tool_end/etc.
+    # For "artifact" events derive the type from artifact.name instead.
+    if raw_type in A2A_EVENT_TYPE_PASSTHROUGH:
+        event_type = raw_type
+    else:
+        event_type = A2A_ARTIFACT_TYPE_MAP.get(artifact_name, "a2a_raw")
+
+    # Namespace: prefer sourceAgent field
     namespace: list[str] = []
     if raw.get("sourceAgent"):
         namespace = [raw["sourceAgent"]]
 
-    # Data payload: include artifact parts and metadata
+    # Data payload
     data: dict = {}
     if artifact:
-        data["artifact_name"] = artifact_name
+        data["artifact_name"] = artifact.get("name", "")
         parts = artifact.get("parts") or []
         if parts:
             data["parts"] = parts
@@ -153,7 +191,7 @@ def normalize_a2a_event(raw: dict, turn_id: str, conversation_id: str, seq: int)
 
     ts = parse_dt(raw.get("timestamp")) or datetime.now(timezone.utc)
 
-    event_id = stable_event_id(turn_id, f"a2a:{artifact_name}", seq)
+    event_id = stable_event_id(turn_id, f"a2a:{raw_type}:{artifact_name}", seq)
 
     return {
         "_id": event_id,

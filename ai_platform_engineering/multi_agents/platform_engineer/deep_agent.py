@@ -109,6 +109,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.response_format impo
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+ENABLE_AUTONOMOUS_AGENTS = os.getenv("ENABLE_AUTONOMOUS_AGENTS", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
@@ -1424,6 +1425,26 @@ class PlatformEngineerDeepAgent:
             # room, investigation depth) are substituted at fetch time.
             get_webhook_task_template,
         ]
+
+        if not ENABLE_AUTONOMOUS_AGENTS:
+            autonomous_tool_names = {
+                "list_autonomous_tasks",
+                "create_autonomous_task",
+                "update_autonomous_task",
+                "delete_autonomous_task",
+                "trigger_autonomous_task_now",
+                "validate_cron_expression",
+                "register_github_webhook",
+                "list_github_webhooks",
+                "delete_github_webhook",
+                "test_github_webhook",
+                "get_webhook_task_template",
+            }
+            utility_tools = [
+                tool for tool in utility_tools
+                if getattr(tool, "name", None) not in autonomous_tool_names
+            ]
+            logger.info("Autonomous task tools disabled; set ENABLE_AUTONOMOUS_AGENTS=true to enable")
 
         # Self-service task tools
         invoke_task_tool = create_invoke_self_service_task_tool()

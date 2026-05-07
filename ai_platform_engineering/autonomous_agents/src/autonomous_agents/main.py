@@ -20,12 +20,14 @@ from autonomous_agents.scheduler import (
     register_tasks,
     set_chat_history_publisher,
     set_run_store,
+    set_webex_thread_map,
 )
 from autonomous_agents.services.chat_history import NoopChatHistoryPublisher
 from autonomous_agents.services.mongo import (
     MongoChatHistoryPublisherAdapter,
     MongoRunStoreAdapter,
     MongoTaskStoreAdapter,
+    MongoWebexThreadMapAdapter,
     get_mongo_service,
     reset_mongo_service,
 )
@@ -125,6 +127,22 @@ async def lifespan(app: FastAPI):
     set_task_store(task_store)
     set_run_store(run_store)
     set_chat_history_publisher(chat_publisher)
+
+    # Webex thread map: lets the scheduler record (messageId -> run_id)
+    # for every Webex post_message tool call on a successful run, so a
+    # later in-thread reply (delivered by the Webex bot bridge as a
+    # /hooks/{task_id}/follow-up POST) can be routed back to the same
+    # task. Plain Mongo-backed adapter -- no extra config required when
+    # MongoDB is up, and the scheduler treats this as opt-in so tests
+    # / deployments without a bot pay nothing for the seam.
+    webex_thread_map = MongoWebexThreadMapAdapter(mongo)
+    set_webex_thread_map(webex_thread_map)
+    logger.info(
+        "WebexThreadMap: MongoDB (db=%s, collection=%s, ttl_days=%d)",
+        settings.mongodb_database,
+        settings.mongodb_webex_thread_map_collection,
+        settings.webex_thread_map_ttl_days,
+    )
 
     # MongoDB is the single source of truth for task definitions.
     # At startup we read the persisted task set and register it with

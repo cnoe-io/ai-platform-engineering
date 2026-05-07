@@ -118,6 +118,7 @@ services:
       # or tunnel in production.
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       - AUTONOMOUS_AGENTS_PUBLIC_URL=${AUTONOMOUS_AGENTS_PUBLIC_URL:-}
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
     command: platform-engineer
 
   ####################################################################################################
@@ -755,6 +756,7 @@ services:
       # Add the autonomous-agents profile to start the upstream service.
       # The Autonomous tab is admin-gated; in production grant the OIDC admin
       # group, or set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true ONLY for local dev.
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]

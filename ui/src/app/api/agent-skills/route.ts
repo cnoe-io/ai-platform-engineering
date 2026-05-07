@@ -289,8 +289,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("At least one team must be selected when visibility is 'team'", 400);
     }
 
-    // Generate ID
-    const id = `agent-config-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Generate ID with skill- prefix and slugified name
+    const nameSlug = (body.name as string).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const id = `skill-${nameSlug}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
 
     const ancillaryCheck = validateAncillaryFiles(body.ancillary_files);

@@ -127,8 +127,20 @@ export class TimelineManager {
     if (toolData.tool_name === SUBAGENT_TOOL_NAME) {
       const subagentId = toolData.tool_call_id;
 
-      // DEDUP GUARD: Skip if we already have this subagent (HITL resume replays events)
+      // DEDUP GUARD: If we already have this subagent, update its info if args
+      // are now available (AG-UI: args arrive in TOOL_CALL_ARGS after TOOL_CALL_START)
       if (this.subagents.has(subagentId)) {
+        const existing = this.subagents.get(subagentId)!;
+        const args = toolData.args || {};
+        const subagentType = args.subagent_type as string | undefined;
+        const description = args.description as string | undefined;
+        if (subagentType && (!existing.info.agentId || existing.info.name === "subagent")) {
+          existing.info.name = subagentType;
+          existing.info.agentId = subagentType;
+        }
+        if (description && !existing.info.purpose) {
+          existing.info.purpose = description;
+        }
         return;
       }
 
@@ -172,8 +184,13 @@ export class TimelineManager {
         startedAt: now,
       });
     } else if (namespace.length === 0) {
-      // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+      // DEDUP GUARD: If we already have this tool, update its args if they
+      // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
       if (this.rootToolMap.has(toolData.tool_call_id)) {
+        const existing = this.rootToolMap.get(toolData.tool_call_id)!;
+        if (toolData.args) {
+          existing.args = toolData.args;
+        }
         return;
       }
 
@@ -200,8 +217,13 @@ export class TimelineManager {
       const subagentId = namespace[0];
       const subagent = this.subagents.get(subagentId);
       if (subagent) {
-        // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+        // DEDUP GUARD: If we already have this tool, update its args if they
+        // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
         if (subagent.toolMap.has(toolData.tool_call_id)) {
+          const existing = subagent.toolMap.get(toolData.tool_call_id)!;
+          if (toolData.args) {
+            existing.args = toolData.args;
+          }
           return;
         }
 
@@ -248,6 +270,21 @@ export class TimelineManager {
       const subagent = this.subagents.get(toolCallId);
       if (subagent) {
         subagent.info.status = "completed";
+
+        // AG-UI protocol: args arrive at TOOL_CALL_END, not TOOL_CALL_START.
+        // Update subagent name/agentId/purpose from args if they were missing.
+        if (args) {
+          const subagentType = args.subagent_type as string | undefined;
+          const description = args.description as string | undefined;
+          if (subagentType && (!subagent.info.agentId || subagent.info.name === "subagent")) {
+            subagent.info.name = subagentType;
+            subagent.info.agentId = subagentType;
+          }
+          if (description && !subagent.info.purpose) {
+            subagent.info.purpose = description;
+          }
+        }
+
         // Flush any remaining subagent content
         this.flushSubagentContent(toolCallId);
         

@@ -47,8 +47,13 @@ jest.mock('@/lib/mongodb', () => ({
 // `getConfig('ssoEnabled')` controls the anonymous fallback inside
 // `withAuth`. Force SSO=on so missing sessions reliably 401, mirroring
 // production.
+let mockAutonomousAgentsEnabled = true;
 jest.mock('@/lib/config', () => ({
-  getConfig: (key: string) => (key === 'ssoEnabled' ? true : undefined),
+  getConfig: (key: string) => {
+    if (key === 'ssoEnabled') return true;
+    if (key === 'autonomousAgentsEnabled') return mockAutonomousAgentsEnabled;
+    return undefined;
+  },
 }));
 
 // Upstream HTTP client -- the proxy uses global `fetch`. We replace it
@@ -138,6 +143,7 @@ function okJsonResponse(body: unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAutonomousAgentsEnabled = true;
 });
 
 // ---------------------------------------------------------------------------
@@ -145,6 +151,14 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/autonomous/[...path]', () => {
+  it('404 when the autonomous agents feature flag is disabled', async () => {
+    mockAutonomousAgentsEnabled = false;
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));
+    expect(res.status).toBe(404);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('401 when there is no session', async () => {
     mockGetServerSession.mockResolvedValue(null);
     const res = await GET(makeRequest('GET', 'tasks'), paramsFor('tasks'));

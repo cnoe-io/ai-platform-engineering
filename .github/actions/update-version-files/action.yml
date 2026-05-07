@@ -3,7 +3,9 @@ description: >
   Updates version files to a given version string. Behaviour is inferred from
   the version string:
     - No -chart.M suffix → FULL UPDATE: set version+appVersion+deps in ALL
-      Chart.yaml, update pyproject.toml and regenerate uv.lock.
+      Chart.yaml, update pyproject.toml (x.y.z-hotfix.N becomes
+      x.y.z+hotfix.N because PEP 440/uv rejects -hotfix.N), and
+      regenerate uv.lock.
     - Has -chart.M suffix → CHART-ONLY: detect which specific charts changed
       (using diff_target), cascade to parent charts, and per-chart increment
       the -chart.M suffix on version field in Chart.yaml files of changed charts.
@@ -244,7 +246,8 @@ runs:
         else
           # ─────────────────────────────────────────────────────────────
           # FULL UPDATE: pyproject.toml + uv.lock + ALL Chart.yaml
-          # version + appVersion + local dep refs — all set to $VERSION.
+          # Charts and tags keep $VERSION. For hotfix artifact tags, pyproject.toml uses x.y.z+hotfix.N because PEP 440/uv rejects
+          # x.y.z-hotfix.N as invalid Python package metadata. -rc and -dev keep the same $VERSION since they're valid PEP 440 versions.
           # ─────────────────────────────────────────────────────────────
           echo ""
           echo "skip_commit=false" >> $GITHUB_OUTPUT
@@ -253,14 +256,20 @@ runs:
           # Build list of local chart names
           LOCAL_CHART_NAMES=$(for f in $CHART_FILES; do yq '.name' "$f"; done | sort -u)
 
+          PYPROJECT_VERSION="$VERSION"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-hotfix\.([0-9]+)$ ]]; then
+            PYPROJECT_VERSION="${BASH_REMATCH[1]}+hotfix.${BASH_REMATCH[2]}"
+            echo "  📦 Python metadata version: $VERSION → $PYPROJECT_VERSION"
+          fi
+
           # Update pyproject.toml
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          sed -i "s/^version = \".*\"/version = \"$PYPROJECT_VERSION\"/" pyproject.toml
           UPDATED=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          if [[ "$UPDATED" != "$VERSION" ]]; then
+          if [[ "$UPDATED" != "$PYPROJECT_VERSION" ]]; then
             echo "❌ Failed to update pyproject.toml (got '$UPDATED')"
             exit 1
           fi
-          echo "  ✅ pyproject.toml → $VERSION"
+          echo "  ✅ pyproject.toml → $PYPROJECT_VERSION"
 
           # Regenerate uv.lock
           echo "  🔒 Regenerating uv.lock..."

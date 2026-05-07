@@ -103,6 +103,7 @@ jest.mock('@/lib/config', () => ({
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
     envBadge: '',
+    autonomousAgentsEnabled: true,
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
   },
@@ -111,6 +112,7 @@ jest.mock('@/lib/config', () => ({
       appName: 'Test App',
       ssoEnabled: true,
       envBadge: '',
+      autonomousAgentsEnabled: true,
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
     }

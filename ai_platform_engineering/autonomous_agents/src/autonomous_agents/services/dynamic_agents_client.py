@@ -35,6 +35,7 @@ from typing import Any
 import httpx
 
 from autonomous_agents.config import get_settings
+from autonomous_agents.services.a2a_client import build_prompt_with_routing
 from autonomous_agents.services.preflight import Acknowledgement
 
 logger = logging.getLogger("autonomous_agents")
@@ -103,6 +104,7 @@ async def invoke_dynamic_agent(
     task_id: str,
     agent_id: str,
     conversation_id: str | None = None,
+    context: dict[str, Any] | None = None,
     timeout: float | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Invoke a dynamic agent synchronously and return (content, events).
@@ -117,6 +119,10 @@ async def invoke_dynamic_agent(
         agent_id: Dynamic-agents service agent id (``ChatRequest.agent_id``).
         conversation_id: Optional explicit conversation id (UUID5-derived
             elsewhere). When ``None``, derived from ``task_id``.
+        context: Optional webhook/scheduler context appended to the message
+            in the same ``Context:\n{...}`` format used by the supervisor
+            path. Dynamic agents do not need a supervisor routing directive,
+            so the formatter is called with ``agent=None``.
         timeout: Per-call HTTP timeout in seconds. Defaults to
             ``Settings.dynamic_agents_timeout_seconds`` when ``None``.
 
@@ -158,8 +164,9 @@ async def invoke_dynamic_agent(
     # env-var stays a plain base URL aligned with all other consumers
     # (UI proxy, slack-bot SSE client).
     url = f"{base}/api/v1/chat/invoke"
+    full_prompt = build_prompt_with_routing(prompt, agent=None, context=context)
     body = {
-        "message": prompt,
+        "message": full_prompt,
         "conversation_id": conversation_id,
         "agent_id": agent_id,
         "trace_id": task_id,

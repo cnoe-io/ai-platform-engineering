@@ -81,6 +81,8 @@ services:
       # AUTONOMOUS_AGENTS_URL above because GitHub can't resolve
       # ``autonomous-agents`` from the public internet.
       - AUTONOMOUS_AGENTS_PUBLIC_URL=${AUTONOMOUS_AGENTS_PUBLIC_URL:-}
+      # Feature gate for autonomous-task supervisor tools.
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
 
       # A2A transport configuration (p2p or slim)
       - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
@@ -1246,6 +1248,8 @@ services:
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Feature gate for autonomous-task UI surfaces and /api/autonomous proxy.
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
       # Autonomous Agents - URL the UI's /api/autonomous proxy targets.
       # Add the autonomous-agents profile when starting compose to enable the service:
       #   docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile autonomous-agents \
@@ -1269,7 +1273,8 @@ services:
       # App config: loaded at Next.js startup via instrumentation.ts
       - APP_CONFIG_PATH=/app/config/app-config.yaml
     volumes:
-      - ./config/app-config.yaml:/app/config/app-config.yaml:ro
+      # Override host path with CAIPE_APP_CONFIG_FILE (e.g. ./config/app-config.local.yaml)
+      - ${CAIPE_APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
@@ -1421,6 +1426,70 @@ services:
     restart: unless-stopped
     profiles:
       - autonomous-agents
+
+  ####################################################################################################
+  #                                  Webex Inbound Bridge (PR #3)                                    #
+  ####################################################################################################
+  #
+  # The Webex bot translates in-thread Webex replies into follow-up
+  # runs of an autonomous task. It does this by:
+  #
+  #   1. Registering a Webex ``messages.created`` webhook on startup.
+  #   2. Looking up incoming reply ``parentId`` values in the shared
+  #      ``webex_thread_map`` Mongo collection (written by the
+  #      autonomous-agents service whenever a task posts to Webex).
+  #   3. Forwarding hits as a follow-up to
+  #      ``${AUTONOMOUS_AGENTS_URL}/api/v1/hooks/<task_id>/follow-up``.
+  #
+  # Required env in .env:
+  #   - WEBEX_BOT_TOKEN          # bot access token from developer.webex.com
+  #   - WEBEX_BOT_PUBLIC_URL     # e.g. https://abcd.ngrok-free.app
+  #
+  # Optional env:
+  #   - WEBEX_WEBHOOK_SECRET     # HMAC-SHA1 secret signed into events by Webex
+  #   - WEBHOOK_SECRET           # shared with autonomous-agents to sign /follow-up
+  #
+  # Profiles:
+  #   --profile webex-bot
+  #
+  # Note: pulls in MongoDB + autonomous-agents implicitly via
+  # depends_on so a single ``--profile webex-bot`` is enough to
+  # exercise the inbound bridge in isolation.
+  webex-bot:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.webex-bot
+    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-localtag}
+    container_name: webex-bot
+    ports: ["8003:8003"]
+    env_file: [.env]
+    environment:
+      - WEBEX_BOT_TOKEN=${WEBEX_BOT_TOKEN:-}
+      - WEBEX_BOT_PUBLIC_URL=${WEBEX_BOT_PUBLIC_URL:-}
+      - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - MONGODB_WEBEX_THREAD_MAP_COLLECTION=${MONGODB_WEBEX_THREAD_MAP_COLLECTION:-webex_thread_map}
+      # Optional security knobs -- empty in dev, REQUIRED in prod.
+      - WEBEX_WEBHOOK_SECRET=${WEBEX_WEBHOOK_SECRET:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - LOG_LEVEL=${WEBEX_BOT_LOG_LEVEL:-INFO}
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      autonomous-agents:
+        condition: service_started
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - webex-bot
 
   ####################################################################################################
   #                                      RAG Services                                                #
@@ -2107,7 +2176,8 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
-      - ./config/slack-bot-config.yaml:/etc/caipe/bot-config.yaml:ro
+      # Override host path with CAIPE_SLACK_BOT_CONFIG_FILE (e.g. ./config/slack-bot-config.local.yaml)
+      - ${CAIPE_SLACK_BOT_CONFIG_FILE:-./config/slack-bot-config.yaml}:/etc/caipe/bot-config.yaml:ro
     command: ["sh", "-c", "uv sync --no-dev && exec python -m app"]
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)

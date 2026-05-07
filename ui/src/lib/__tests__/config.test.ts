@@ -74,6 +74,7 @@ describe('getServerConfig', () => {
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
+        'AUTONOMOUS_AGENTS_ENABLED', 'ENABLE_AUTONOMOUS_AGENTS',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -107,6 +108,7 @@ describe('getServerConfig', () => {
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.autonomousAgentsEnabled).toBe(false);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -144,6 +146,7 @@ describe('getServerConfig', () => {
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+        'autonomousAgentsEnabled',
         'reportProblemEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -160,6 +163,22 @@ describe('getServerConfig', () => {
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
+    });
+
+    it('should read AUTONOMOUS_AGENTS_ENABLED=true', () => {
+      process.env.AUTONOMOUS_AGENTS_ENABLED = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(true);
+    });
+
+    it('should read ENABLE_AUTONOMOUS_AGENTS=true as a compose-friendly alias', () => {
+      process.env.ENABLE_AUTONOMOUS_AGENTS = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(true);
+    });
+
+    it('should let ENABLE_AUTONOMOUS_AGENTS=false override the legacy UI alias', () => {
+      process.env.ENABLE_AUTONOMOUS_AGENTS = 'false';
+      process.env.AUTONOMOUS_AGENTS_ENABLED = 'true';
+      expect(getServerConfig().autonomousAgentsEnabled).toBe(false);
     });
 
     it('should treat SSO_ENABLED=false as false', () => {
@@ -916,6 +935,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'autonomousAgentsEnabled',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',

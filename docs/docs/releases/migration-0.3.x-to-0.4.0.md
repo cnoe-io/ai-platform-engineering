@@ -15,7 +15,7 @@ This guide covers all breaking changes, Helm value restructuring, and environmen
 | Helm (slack-bot) | `slack.tokenSecretRef` replaced by `existingSecret` | **Breaking** |
 | Helm (slack-bot) | `CAIPE_BOT_CONFIG` env var replaced by `SLACK_INTEGRATION_BOT_CONFIG` | **Breaking** |
 | Helm (slack-bot) | Bot config file renamed: `/etc/caipe/caipe-bot-config.yaml` -> `/etc/caipe/bot-config.yaml` | **Breaking** |
-| Helm (slack-bot) | `botConfig.*.default` renamed to `botConfig.*.other` | Medium |
+| Helm (slack-bot) | `botConfig` restructured: `qanda`/`ai_alerts`/`ai_enabled` replaced by flat `agents` list | **Breaking** |
 | Helm (dynamic-agents) | `env:` block removed, `AUTH_ENABLED` removed | **High** |
 | Env (dynamic-agents) | `AUTH_ENABLED` replaced by `DEBUG=true` for dev bypass | Medium |
 
@@ -192,23 +192,22 @@ slack-bot:
     MONGODB_URI: "mongodb://admin:changeme@mongodb:27017"
     MONGODB_DATABASE: "caipe"
     SLACK_INTEGRATION_ENABLE_AUTH: "true"
+    SLACK_INTEGRATION_DEFAULT_AGENT_ID: "my-agent"
     OAUTH2_TOKEN_URL: "https://idp.example.com/oauth2/v1/token"
     OAUTH2_CLIENT_ID: "my-client-id"
     OAUTH2_SCOPE: "api://caipe"
     # OAUTH2_AUDIENCE: ""  # omit if empty
     SLACK_INTEGRATION_PROMPT_RESPONSE_STYLE: "Be concise"
-    # CUSTOM_VAR: "value"  # any custom env vars go here too
 
   existingSecret: "slack-bot-secrets"
 
   botConfig:
     C012345678:
       name: "#my-channel"
-      ai_enabled: true
-      other:
-        jira:
-          project_key: MYPROJ
-          issue_type: Bug
+      agents:
+        - agent_id: "my-agent"
+          users: { enabled: true, listen: "mention" }
+          bots: { enabled: false }
 ```
 
 #### Field-by-field mapping reference
@@ -255,26 +254,45 @@ The chart sets `SLACK_INTEGRATION_BOT_CONFIG` automatically when `botConfig` is 
 
 **Fallback behavior:** If neither `SLACK_INTEGRATION_BOT_CONFIG` nor the well-known path `/etc/caipe/bot-config.yaml` exists, the bot starts with no channel configuration and logs a warning. It will not crash.
 
-#### `botConfig.*.default` renamed to `botConfig.*.other`
+#### `botConfig` restructured to flat agents list
 
-Per-channel extra data (Jira project keys, etc.) moved from `default:` to `other:` to avoid confusion with "default settings."
+The old `ai_enabled`/`qanda`/`ai_alerts`/`default` keys are replaced by a flat `agents` list. The bot rejects old-format keys with a clear error.
 
 **Before:**
 ```yaml
 botConfig:
   C012345678:
-    default:
-      project_key: MYPROJ
+    name: "#my-channel"
+    ai_enabled: true
+    qanda:
+      enabled: true
+      overthink: false
+      include_bots:
+        enabled: true
+        bot_list: ["AlertBot"]
+    ai_alerts:
+      enabled: false
 ```
 
 **After:**
 ```yaml
 botConfig:
   C012345678:
-    other:
-      jira:
-        project_key: MYPROJ
+    name: "#my-channel"
+    agents:
+      - agent_id: "my-agent"
+        users:
+          enabled: true
+          listen: "mention"     # "mention" | "message" | "all"
+          overthink:
+            enabled: false
+        bots:
+          enabled: true
+          listen: "message"     # "mention" | "message" | "all"
+          bot_list: ["AlertBot"]
 ```
+
+See the [Slack Bot docs](../integrations/slack-bot.md#channel-configuration) for full field reference.
 
 ---
 
@@ -376,7 +394,7 @@ active users, and message volumes for Slack interactions.
 - [ ] **Migrate dynamic-agents values:** merge `env:` into `config:`, remove `AUTH_ENABLED`, remove OIDC/CORS keys
 - [ ] **Migrate slack-bot values:** restructure all named keys into `config:` flat map (see mapping table above)
 - [ ] **Verify secret name:** `existingSecret` points to the correct K8s Secret containing Slack tokens
-- [ ] **Verify botConfig structure:** rename `default:` to `other:` if used
+- [ ] **Migrate botConfig:** replace `qanda`/`ai_alerts`/`ai_enabled` with flat `agents` list
 - [ ] **Helm diff:** `helm diff upgrade ai-platform-engineering ./charts/ai-platform-engineering -f new-values.yaml`
 - [ ] **Deploy and verify:** check pod logs for config loading messages
 

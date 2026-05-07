@@ -282,3 +282,6 @@ tests/reports/
 
 # We no longer have a separate docker-compose directory.
 docker-compose/*
+
+# Local-only CAIPE / Slack YAML overrides (see CAIPE_APP_CONFIG_FILE / CAIPE_SLACK_BOT_CONFIG_FILE)
+config/*.local.yaml

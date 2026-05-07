@@ -11,6 +11,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import {
@@ -34,6 +35,7 @@ function AutonomousAgentsView() {
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   // IMP-19: gate writes behind the OIDC admin role. ``canViewAdmin``
   // covers ops/on-call who need to see what's scheduled and inspect
   // run history; only ``isAdmin`` is allowed to create / edit /
@@ -93,6 +95,12 @@ function AutonomousAgentsView() {
   // the spinner so the polling loop (spec #099 FR-011) doesn't flicker
   // the UI every 30 seconds.
   const fetchTasks = useCallback(async (silent: boolean) => {
+    if (!autonomousAgentsEnabled) {
+      setTasks([]);
+      setLoading(false);
+      setLoadError(null);
+      return;
+    }
     if (!silent) setLoading(true);
     try {
       const data = await autonomousApi.listTasks();
@@ -119,7 +127,7 @@ function AutonomousAgentsView() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [autonomousAgentsEnabled]);
 
   const reload = useCallback(() => fetchTasks(false), [fetchTasks]);
 
@@ -132,6 +140,7 @@ function AutonomousAgentsView() {
     //     spinning icon forever (the page itself is replaced with the
     //     forbidden banner below, but the header is still rendered).
     //     Caught by Copilot review.
+    if (!autonomousAgentsEnabled) return;
     if (roleLoading) return;
     if (!hasViewAccess) {
       setLoading(false);
@@ -139,7 +148,7 @@ function AutonomousAgentsView() {
       return;
     }
     reload();
-  }, [reload, roleLoading, hasViewAccess]);
+  }, [reload, roleLoading, hasViewAccess, autonomousAgentsEnabled]);
 
   // Spec #099 FR-011: poll for ack + next-run updates so the badge
   // refreshes after a background preflight resolves and the next-run
@@ -147,12 +156,12 @@ function AutonomousAgentsView() {
   // the spec-recommended cadence; cheap enough for the UI, infrequent
   // enough to avoid unnecessary load on the autonomous-agents service.
   useEffect(() => {
-    if (roleLoading || !hasViewAccess) return;
+    if (!autonomousAgentsEnabled || roleLoading || !hasViewAccess) return;
     const interval = window.setInterval(() => {
       fetchTasks(true);
     }, 30_000);
     return () => window.clearInterval(interval);
-  }, [fetchTasks, roleLoading, hasViewAccess]);
+  }, [fetchTasks, roleLoading, hasViewAccess, autonomousAgentsEnabled]);
 
   // Spec #099 Iteration A — when the chat sidebar's "+ New Chat" is
   // clicked while the Autonomous chip is active, that handler routes
@@ -161,12 +170,12 @@ function AutonomousAgentsView() {
   // Strip the query param immediately so a refresh doesn't re-open
   // the dialog if the operator dismissed it.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!autonomousAgentsEnabled || !isAdmin) return;
     if (searchParams.get('new') !== '1') return;
     setEditingTask(null);
     setDialogOpen(true);
     router.replace('/autonomous');
-  }, [searchParams, isAdmin, router]);
+  }, [searchParams, isAdmin, router, autonomousAgentsEnabled]);
 
   const markBusy = (id: string, busy: boolean) => {
     setBusyIds((prev) => {
@@ -245,6 +254,22 @@ function AutonomousAgentsView() {
       markBusy(task.id, false);
     }
   };
+
+  if (!autonomousAgentsEnabled) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background p-6">
+        <div className="max-w-md text-center">
+          <h1 className="text-lg font-semibold text-foreground">Autonomous Agents Disabled</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This deployment has autonomous scheduling and webhook automation turned off.
+          </p>
+          <Button type="button" size="sm" className="mt-4" onClick={() => router.push("/")}>
+            Back to Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

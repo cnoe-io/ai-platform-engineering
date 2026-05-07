@@ -17,6 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger as APSIntervalTrigger
 
 from autonomous_agents.models import (
     CronTrigger,
+    FollowUpContext,
     IntervalTrigger,
     TaskDefinition,
     TaskRun,
@@ -24,19 +25,25 @@ from autonomous_agents.models import (
     TriggerType,
 )
 from autonomous_agents.services.a2a_client import invoke_agent_streaming
-from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent
 from autonomous_agents.services.chat_history import (
     ChatHistoryPublisher,
     NoopChatHistoryPublisher,
     _conversation_id_for_task,
 )
+from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent
 from autonomous_agents.services.mongo import RunStore
+from autonomous_agents.services.webex_threads import (
+    WebexThreadEntry,
+    WebexThreadMap,
+    extract_webex_message_ids,
+)
 
 logger = logging.getLogger("autonomous_agents")
 
 _scheduler: AsyncIOScheduler | None = None
 _run_store: RunStore | None = None
 _chat_history_publisher: ChatHistoryPublisher | None = None
+_webex_thread_map: WebexThreadMap | None = None
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -91,6 +98,24 @@ def set_chat_history_publisher(publisher: ChatHistoryPublisher) -> None:
     _chat_history_publisher = publisher
 
 
+def get_webex_thread_map() -> WebexThreadMap | None:
+    """Return the active :class:`WebexThreadMap`, or None if unconfigured.
+
+    The thread map is **optional** -- deployments without a Webex bot
+    have nothing to record and we want their scheduler to skip the
+    write entirely instead of erroring or storing rows that nothing
+    ever queries. Returning ``None`` here is a deliberate signal to
+    :func:`_record_webex_threads` that this responsibility is opt-in.
+    """
+    return _webex_thread_map
+
+
+def set_webex_thread_map(thread_map: WebexThreadMap | None) -> None:
+    """Inject the active :class:`WebexThreadMap` -- called from the FastAPI lifespan."""
+    global _webex_thread_map
+    _webex_thread_map = thread_map
+
+
 async def _record_safely(store: RunStore, run: TaskRun) -> None:
     """Persist ``run`` and swallow store-side exceptions.
 
@@ -107,6 +132,89 @@ async def _record_safely(store: RunStore, run: TaskRun) -> None:
             f"[{run.task_id}] Failed to persist run {run.run_id} "
             f"(status={run.status}): {exc}"
         )
+
+
+async def _attach_run_to_trigger_safely(
+    trigger_instance_id: str | None, run_id: str
+) -> None:
+    """Best-effort back-link from a webhook delivery row to its run id.
+
+    The ``trigger_instances`` collection records every webhook delivery
+    we accepted (see ``services.trigger_instances``). When the scheduler
+    actually starts the run we want the dedup row to point at the
+    resulting ``run_id`` so audit tooling can navigate "delivery X ->
+    run Y" without join hopping.
+
+    Failures here are *never* allowed to abort the task: the dedup row
+    is observability, the task already ran. ``attach_run_to_trigger_instance``
+    on :class:`MongoService` already swallows exceptions; we add an
+    extra guard here in case the singleton itself isn't connected (unit
+    tests, in-memory test setups).
+    """
+    if not trigger_instance_id:
+        return
+    try:
+        # Deferred import keeps scheduler.py importable in unit tests
+        # that never wire up MongoDB at all -- the import alone would
+        # otherwise pull in motor.
+        from autonomous_agents.services.mongo import get_mongo_service
+
+        mongo = get_mongo_service()
+        if not mongo.is_connected:
+            return
+        await mongo.attach_run_to_trigger_instance(trigger_instance_id, run_id)
+    except Exception as exc:  # noqa: BLE001 -- audit-only path
+        logger.warning(
+            "[%s] attach_run_to_trigger_instance(%s) swallowed: %s",
+            run_id,
+            trigger_instance_id,
+            exc,
+        )
+
+
+async def _record_webex_threads_safely(
+    thread_map: WebexThreadMap | None,
+    task_id: str,
+    run_id: str,
+    events: list[dict[str, Any]] | None,
+) -> None:
+    """Best-effort scan-and-record of Webex messageIds the run produced.
+
+    Walks ``events`` for the ``post_message`` tool descriptor we
+    inject in the Webex MCP server, then upserts each
+    ``messageId -> (task_id, run_id, room_id)`` into the configured
+    :class:`WebexThreadMap`. This is the seam that lets a later
+    in-thread reply (Webex delivers it as a webhook with
+    ``parentId=<that messageId>``) be routed back to the originating
+    task as a follow-up.
+
+    Same contract as :func:`_record_safely` and :func:`_publish_safely`:
+    thread-map writes are observability/routing infrastructure, not
+    the source of truth for whether a task ran. Failures here MUST
+    NEVER abort task execution -- log loudly, return, move on.
+    """
+    if thread_map is None:
+        # No bot deployed -> nothing to do. Common case.
+        return
+    pairs = extract_webex_message_ids(events)
+    if not pairs:
+        return
+    for message_id, room_id in pairs:
+        try:
+            await thread_map.record(
+                WebexThreadEntry(
+                    message_id=message_id,
+                    task_id=task_id,
+                    run_id=run_id,
+                    room_id=room_id,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 -- best-effort
+            logger.error(
+                "[%s] Failed to record Webex thread map entry "
+                "(message_id=%s, run_id=%s): %s",
+                task_id, message_id, run_id, exc,
+            )
 
 
 async def _publish_safely(
@@ -150,15 +258,40 @@ async def _publish_safely(
         )
 
 
-async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = None) -> TaskRun:
+async def execute_task(
+    task: TaskDefinition,
+    context: dict[str, Any] | None = None,
+    follow_up: FollowUpContext | None = None,
+    *,
+    run_id: str | None = None,
+    trigger_instance_id: str | None = None,
+) -> TaskRun:
     """Run a single task, record the result, and return the TaskRun.
 
     Public entry point used both by APScheduler (cron/interval) and by
     the routes layer (manual trigger, webhook). Keeping this public is
     intentional — it's part of the contract with the FastAPI handlers
     that drive ad-hoc execution. Don't add a leading underscore back.
+
+    ``follow_up`` is set when an inbound bridge (e.g. the Webex bot)
+    re-fires this task with operator feedback in response to a prior
+    run. The follow-up text is appended to the task prompt under a
+    clearly-labelled section, and ``TaskRun.parent_run_id`` is
+    populated so the chat-thread synthesiser can render a single
+    threaded timeline.
+
+    ``run_id`` is normally generated here, but the webhook handler
+    pre-allocates one before spawning the background task so it can
+    return the id to the sender in the 202 response without waiting
+    for the task to finish. If supplied it is used verbatim; otherwise
+    a fresh UUIDv4 is minted.
+
+    ``trigger_instance_id`` is the ``_id`` of the row in
+    ``trigger_instances`` that recorded the originating webhook
+    delivery. When set we back-link the run id onto that row in the
+    finally block so audit tooling can navigate delivery -> run.
     """
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
     # Pre-compute the deterministic per-task conversation id so it lands
     # in ``autonomous_runs`` from the very first RUNNING write -- the
     # UI can then deep-link from a run row to ``/chat/<id>`` as soon
@@ -171,6 +304,8 @@ async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = No
         task_name=task.name,
         status=TaskStatus.RUNNING,
         conversation_id=conversation_id,
+        parent_run_id=follow_up.parent_run_id if follow_up else None,
+        trigger_instance_id=trigger_instance_id,
     )
 
     store = get_run_store()
@@ -179,11 +314,27 @@ async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = No
     # task — see _record_safely.
     await _record_safely(store, run)
 
-    logger.info(f"[{task.id}] Starting run {run_id}")
+    logger.info(
+        "[%s] Starting run %s%s",
+        task.id,
+        run_id,
+        f" (follow-up to {follow_up.parent_run_id})" if follow_up else "",
+    )
     response_text: str | None = None
     error_text: str | None = None
+    # Materialise the prompt the agent will actually see. For follow-up
+    # runs we splice the operator reply into a clearly-labelled section
+    # so the LLM treats it as new instructions rather than confusing it
+    # with the original webhook payload context. The original task
+    # definition is left untouched (we work off a model_copy) so this
+    # has no persistence side-effects.
+    effective_task = (
+        task.model_copy(update={"prompt": _augment_prompt_for_followup(task.prompt, follow_up)})
+        if follow_up is not None
+        else task
+    )
     try:
-        if task.dynamic_agent_id:
+        if effective_task.dynamic_agent_id:
             # Custom (dynamic) agent path: invoke the dynamic-agents
             # service directly so the prompt actually executes through
             # the user's custom agent (its tools / system prompt /
@@ -193,11 +344,12 @@ async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = No
             # can swap in /chat/stream/start parsing for richer chat
             # replay parity. The synthesiser tolerates an empty list.
             response, events = await invoke_dynamic_agent(
-                prompt=task.prompt,
-                task_id=task.id,
-                agent_id=task.dynamic_agent_id,
+                prompt=effective_task.prompt,
+                task_id=effective_task.id,
+                agent_id=effective_task.dynamic_agent_id,
                 conversation_id=conversation_id,
-                timeout=task.timeout_seconds,
+                context=context,
+                timeout=effective_task.timeout_seconds,
             )
         else:
             # Phase B (spec #099 Story 2): use the streaming variant so we
@@ -207,12 +359,12 @@ async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = No
             # fires render with the same rich plan + tools + timeline a
             # typed chat reply gets.
             response, events = await invoke_agent_streaming(
-                prompt=task.prompt,
-                task_id=task.id,
-                agent=task.agent,
-                llm_provider=task.llm_provider,
+                prompt=effective_task.prompt,
+                task_id=effective_task.id,
+                agent=effective_task.agent,
+                llm_provider=effective_task.llm_provider,
                 context=context,
-                timeout_seconds=task.timeout_seconds,
+                timeout_seconds=effective_task.timeout_seconds,
             )
         response_text = response
         run.status = TaskStatus.SUCCESS
@@ -254,8 +406,50 @@ async def execute_task(task: TaskDefinition, context: dict[str, Any] | None = No
             # supervisor sub-agent hint for legacy tasks.
             agent=task.dynamic_agent_id or task.agent,
         )
+        # Webex thread map: only worth scanning on a successful run --
+        # a FAILED run usually didn't get far enough to call any
+        # tools, and even when it did the message we'd record points
+        # to a half-completed conversation that the bot wouldn't want
+        # to continue. The helper is a no-op when no thread map has
+        # been injected (i.e. no Webex bot deployed).
+        if run.status == TaskStatus.SUCCESS:
+            await _record_webex_threads_safely(
+                get_webex_thread_map(),
+                task_id=task.id,
+                run_id=run_id,
+                events=run.events,
+            )
+        # Back-link the dedup row to its run id (best-effort, no-op
+        # for cron / interval / manual fires that have no
+        # trigger_instance_id). Done last so a flaky update never
+        # masks a successful run; the helper is itself no-raise.
+        await _attach_run_to_trigger_safely(trigger_instance_id, run_id)
 
     return run
+
+
+def _augment_prompt_for_followup(
+    base_prompt: str, follow_up: FollowUpContext | None
+) -> str:
+    """Splice an operator follow-up reply into the task prompt.
+
+    The follow-up is rendered as a clearly-labelled trailing section
+    so the task-runtime LLM treats it as new instructions rather than
+    blending it into the original webhook context. We deliberately do
+    NOT rewrite or summarise the operator's text -- the LLM is the
+    judge of what the feedback means.
+    """
+    if follow_up is None:
+        return base_prompt
+
+    who = follow_up.user_ref or "operator"
+    transport = follow_up.transport or "follow-up"
+    return (
+        f"{base_prompt}\n\n"
+        f"Operator follow-up ({transport}, from {who}, "
+        f"in reply to run {follow_up.parent_run_id}):\n"
+        f"{follow_up.user_text}"
+    )
 
 
 def _prompt_for_publish(
@@ -402,6 +596,28 @@ def register_tasks(tasks: list[TaskDefinition]) -> None:
     logger.info(f"Scheduler started with {len(scheduler.get_jobs())} job(s)")
 
 
-async def fire_webhook_task(task: TaskDefinition, context: dict[str, Any]) -> TaskRun:
-    """Immediately execute a webhook-triggered task and return the completed run."""
-    return await execute_task(task, context=context)
+async def fire_webhook_task(
+    task: TaskDefinition,
+    context: dict[str, Any],
+    follow_up: FollowUpContext | None = None,
+    *,
+    run_id: str | None = None,
+    trigger_instance_id: str | None = None,
+) -> TaskRun:
+    """Immediately execute a webhook-triggered task and return the completed run.
+
+    ``follow_up`` is forwarded to :func:`execute_task` so the inbound
+    bridge can re-fire the same task with operator feedback. ``None``
+    for the original webhook fire and for the test-trigger button.
+
+    ``run_id`` / ``trigger_instance_id`` are forwarded so the webhook
+    route can pre-allocate a run id (returned in the 202 response) and
+    link the resulting run back to its dedup row.
+    """
+    return await execute_task(
+        task,
+        context=context,
+        follow_up=follow_up,
+        run_id=run_id,
+        trigger_instance_id=trigger_instance_id,
+    )

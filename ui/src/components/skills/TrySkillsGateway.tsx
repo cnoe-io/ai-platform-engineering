@@ -434,18 +434,6 @@ export function TrySkillsGateway() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
-          <div className="inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
-            <span className="font-semibold text-primary uppercase tracking-wide">
-              Hint
-            </span>
-            <span className="text-muted-foreground">
-              Try <code className="font-mono text-foreground">github</code> in
-              Search and pick an{" "}
-              <code className="font-mono text-foreground">example</code>{" "}
-              repository from the Repository dropdown to see what a real result
-              set looks like.
-            </span>
-          </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="relative">
               <label className="text-xs font-medium text-muted-foreground">Search (q)</label>
@@ -519,6 +507,13 @@ export function TrySkillsGateway() {
                 ))}
               </select>
             </div>
+          </div>
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer hover:text-foreground flex items-center gap-1">
+              <ChevronRight className="h-3 w-3 transition-transform [details[open]_&]:rotate-90" />
+              Advanced filters
+            </summary>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             <div className="relative">
               <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
               <input
@@ -549,7 +544,6 @@ export function TrySkillsGateway() {
                         className="px-3 py-1.5 cursor-pointer hover:bg-accent"
                         onMouseDown={() => {
                           const parts = queryTags.split(",").map(t => t.trim()).filter(Boolean);
-                          // Replace the last partial entry with the selected tag
                           if (queryTags.includes(",")) {
                             parts[parts.length - 1] = tag;
                           } else {
@@ -601,7 +595,8 @@ export function TrySkillsGateway() {
                 include_content
               </label>
             </div>
-          </div>
+            </div>
+          </details>
 
           <div>
             <p className="font-medium text-foreground mb-1 text-xs">Live URL</p>
@@ -696,7 +691,7 @@ export function TrySkillsGateway() {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="text-sm font-medium text-foreground">
                   Install these {previewData.skills.length} skill
-                  {previewData.skills.length === 1 ? "" : "s"} as slash commands
+                  {previewData.skills.length === 1 ? "" : "s"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   agent:{" "}
@@ -791,9 +786,7 @@ export function TrySkillsGateway() {
             Step 2: Generate API Key
           </CardTitle>
           <CardDescription>
-            Create a catalog API key so scripts and installers can call the same catalog as
-            the UI and supervisor. Invalid authentication returns <strong>401</strong> with a
-            generic body (no account enumeration).
+            Create an API key for scripts and installers to authenticate with the catalog.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -808,10 +801,6 @@ export function TrySkillsGateway() {
 
           <div>
             <p className="font-medium text-foreground mb-1">Catalog API key</p>
-            <p className="text-muted-foreground mb-2">
-              Header name: <code>{DEFAULT_KEY_HEADER}</code> (configure server-side; do not log key
-              values).
-            </p>
             <div className="relative group">
               <pre className="rounded-md bg-muted p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
                 {curlKey}
@@ -830,11 +819,6 @@ export function TrySkillsGateway() {
                 {copiedKey ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
             </div>
-            <p className="text-muted-foreground mt-2 text-xs">
-              Optional query params: <code>q</code>, <code>page</code>, <code>page_size</code>,{" "}
-              <code>source</code>, <code>visibility</code> (global | team | personal),{" "}
-              <code>include_content</code>.
-            </p>
           </div>
 
           <div className="flex flex-wrap gap-2 items-center pt-2">
@@ -884,10 +868,9 @@ export function TrySkillsGateway() {
             Step 3: Install skills
           </CardTitle>
           <CardDescription>
-            Create a <code>/skills</code> slash command that lets your coding
-            agent browse and install skills from this gateway. Works with
-            Claude Code, Cursor, Codex, Gemini CLI, and more — pick your agent
-            below.
+            Install the <code>/skills</code> skill so your coding agent can
+            browse and run skills from this gateway. Works with Claude Code,
+            Cursor, Codex, Gemini CLI, and more.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm space-y-8 text-muted-foreground">
@@ -897,10 +880,6 @@ export function TrySkillsGateway() {
                 1
               </span>
               Configure your API key
-            </p>
-            <p className="text-xs text-muted-foreground mb-3 ml-8">
-              Stores your catalog credentials so any coding agent on this
-              machine can authenticate to the gateway.
             </p>
             <CopyableBlock
               className="p-4"
@@ -922,20 +901,6 @@ EOF`}
               </span>
               Install the bootstrap skill
             </p>
-            <p className="ml-8 leading-relaxed">
-              Most users should hit{" "}
-              <span className="font-semibold text-foreground">
-                Quick install
-              </span>{" "}
-              — pick agent + scope, copy one curl command, done. Need a
-              custom slash command name, description, or want to inspect the
-              rendered file first? Open{" "}
-              <span className="font-semibold text-foreground">
-                Advanced
-              </span>{" "}
-              below.
-            </p>
-
             {/* PRIMARY ACTION — Quick install. Per Shubham Bakshi's review
                 feedback (PR #1268): the per-agent customization grid is
                 overwhelming for the common case, so we surface Quick install
@@ -945,12 +910,7 @@ EOF`}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                   <Zap className="h-4 w-4 text-primary" />
-                  Recommended: Quick install
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Opens a single-screen dialog: pick agent + scope → get one
-                  curl command. Uses sensible defaults for the slash command
-                  name and description.
+                  Quick install
                 </p>
               </div>
               <Button
@@ -968,25 +928,13 @@ EOF`}
             <details className="ml-8 group rounded-md border border-border bg-background/40 [&[open]>summary]:border-b [&[open]>summary]:border-border">
               <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-2">
                 <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
-                Advanced — customize the slash command (name, description,
-                preview the rendered file)
+                Advanced — customize the skill (name, description, preview)
               </summary>
               <div className="p-4 space-y-5">
-            <div className="inline-flex items-start gap-2 rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-[11px] leading-relaxed">
-              <span className="font-semibold text-primary uppercase tracking-wide">
-                Tip
-              </span>
-              <span className="text-muted-foreground">
-                Pick an agent <span className="text-foreground">→</span> pick a
-                scope <span className="text-foreground">→</span> copy the
-                highlighted install command.
-              </span>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">
-                  Slash command name
+                  Skill name
                 </label>
                 <div className="flex items-center mt-1">
                   <span className="px-2 py-2 text-sm bg-muted border border-r-0 border-border rounded-l-md text-muted-foreground">
@@ -1001,7 +949,7 @@ EOF`}
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Becomes <code>{safeCommandName}.md</code> in your commands directory.
+                  Installs as <code>{safeCommandName}.md</code> in your skills directory.
                 </p>
               </div>
 
@@ -1015,7 +963,7 @@ EOF`}
                   className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Shown in the slash-command picker.
+                  Shown in the skills picker.
                 </p>
               </div>
             </div>
@@ -1066,25 +1014,13 @@ EOF`}
                   );
                 })}
               </select>
-              <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-                Selected agent determines the install path, file format
-                ({bootstrap?.format ?? "markdown-frontmatter"}), and the
-                argument syntax baked into the prompt.
-                {agentDocsUrl ? (
-                  <>
-                    {" "}
-                    <a
-                      href={agentDocsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary underline"
-                    >
-                      {agentLabel} docs
-                    </a>
-                    .
-                  </>
-                ) : null}
-              </p>
+              {agentDocsUrl ? (
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  <a href={agentDocsUrl} target="_blank" rel="noreferrer" className="text-primary underline">
+                    {agentLabel} docs
+                  </a>
+                </p>
+              ) : null}
             </div>
 
             {/* Layout toggle: skills/<name>/SKILL.md (Claude Code Oct 2025
@@ -1291,25 +1227,15 @@ EOF`}
                  */}
                 {installerSnippets && !isFragment ? (
                   <div className="mt-2 rounded-lg border border-primary/40 bg-primary/5 p-4 shadow-sm space-y-4">
-                    <div>
-                      <p className="flex items-center gap-2 text-sm font-semibold text-foreground mb-1">
-                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
-                          c
-                        </span>
-                        Install with one command
-                        <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
-                          Recommended
-                        </span>
-                      </p>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed ml-6">
-                        Runs an install script that fetches the latest
-                        rendered template from this gateway and writes it to{" "}
-                        <code className="text-foreground">
-                          {installPath}
-                        </code>
-                        .
-                      </p>
-                    </div>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                        c
+                      </span>
+                      Install with one command
+                      <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary-foreground">
+                        Recommended
+                      </span>
+                    </p>
 
                     <div className="relative group">
                       <pre className="rounded-md bg-background p-4 pr-10 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap">
@@ -1341,16 +1267,7 @@ EOF`}
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground py-1">
                         Already installed? Upgrade to the latest version
                       </summary>
-                      <div className="mt-3 space-y-3 pl-4 border-l-2 border-primary/20">
-                        <p className="text-[11px] text-muted-foreground">
-                          Adds <code>--upgrade</code>, which only overwrites
-                          a file that this installer wrote previously
-                          (recognized by a <code>caipe-skill</code> marker).
-                          Falls back to a clear error if the file at the
-                          target path wasn&apos;t installed by this script —
-                          use <code>--force</code> in that case if you
-                          really want to clobber it.
-                        </p>
+                      <div className="mt-3 pl-4 border-l-2 border-primary/20">
                         <div className="relative group">
                           <pre className="rounded-md bg-background p-3 pr-10 text-xs overflow-x-auto whitespace-pre-wrap">
                             {installerSnippets.oneLinerUpgrade}

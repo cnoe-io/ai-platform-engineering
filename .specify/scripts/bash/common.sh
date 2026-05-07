@@ -32,16 +32,13 @@ get_current_branch() {
 
     if [[ -d "$specs_dir" ]]; then
         local latest_feature=""
-        local highest=0
 
         for dir in "$specs_dir"/*; do
             if [[ -d "$dir" ]]; then
                 local dirname=$(basename "$dir")
-                if [[ "$dirname" =~ ^([0-9]{3})- ]]; then
-                    local number=${BASH_REMATCH[1]}
-                    number=$((10#$number))
-                    if [[ "$number" -gt "$highest" ]]; then
-                        highest=$number
+                # Date-prefixed branches sort lexicographically; the last one is the newest
+                if [[ "$dirname" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}- ]]; then
+                    if [[ "$dirname" > "$latest_feature" ]]; then
                         latest_feature=$dirname
                     fi
                 fi
@@ -72,9 +69,9 @@ check_feature_branch() {
         return 0
     fi
 
-    if [[ ! "$branch" =~ ^[0-9]{3}- ]]; then
+    if [[ ! "$branch" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}- ]]; then
         echo "ERROR: Not on a feature branch. Current branch: $branch" >&2
-        echo "Feature branches should be named like: 001-feature-name" >&2
+        echo "Feature branches should be named like: 2026-04-28-feature-name" >&2
         return 1
     fi
 
@@ -90,16 +87,16 @@ find_feature_dir_by_prefix() {
     local branch_name="$2"
     local specs_dir="$repo_root/docs/docs/specs"
 
-    # Extract numeric prefix from branch (e.g., "004" from "004-whatever")
-    if [[ ! "$branch_name" =~ ^([0-9]{3})- ]]; then
-        # If branch doesn't have numeric prefix, fall back to exact match
+    # Extract date prefix from branch (e.g., "2026-04-28" from "2026-04-28-whatever")
+    if [[ ! "$branch_name" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})- ]]; then
+        # If branch doesn't have date prefix, fall back to exact match
         echo "$specs_dir/$branch_name"
         return
     fi
 
     local prefix="${BASH_REMATCH[1]}"
 
-    # Search for directories in specs/ that start with this prefix
+    # Search for directories in specs/ that start with this date prefix
     local matches=()
     if [[ -d "$specs_dir" ]]; then
         for dir in "$specs_dir"/"$prefix"-*; do
@@ -117,10 +114,15 @@ find_feature_dir_by_prefix() {
         # Exactly one match - perfect!
         echo "$specs_dir/${matches[0]}"
     else
-        # Multiple matches - this shouldn't happen with proper naming convention
-        echo "ERROR: Multiple spec directories found with prefix '$prefix': ${matches[*]}" >&2
-        echo "Please ensure only one spec directory exists per numeric prefix." >&2
-        return 1
+        # Multiple specs on the same date — use exact branch name match
+        for m in "${matches[@]}"; do
+            if [[ "$m" == "$branch_name" ]]; then
+                echo "$specs_dir/$m"
+                return
+            fi
+        done
+        # No exact match; return first alphabetically
+        echo "$specs_dir/${matches[0]}"
     fi
 }
 

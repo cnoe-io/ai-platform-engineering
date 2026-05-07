@@ -311,6 +311,16 @@ class MongoService:
     def _messages(self) -> Any:
         return self._require_chat()[self.settings.chat_history_messages_collection]
 
+    def _webex_threads(self) -> Any:
+        return self._require_primary()[
+            self.settings.mongodb_webex_thread_map_collection
+        ]
+
+    def _trigger_instances(self) -> Any:
+        return self._require_primary()[
+            self.settings.mongodb_trigger_instances_collection
+        ]
+
     # ------------------------------------------------------------------
     # Indexes
     # ------------------------------------------------------------------
@@ -353,6 +363,35 @@ class MongoService:
             #      conversations may legitimately share message_id).
             await self._messages().create_index(
                 [("conversation_id", 1), ("message_id", 1)]
+            )
+            # ---- Webex thread map: TTL on created_at so abandoned
+            #      threads age out instead of growing the collection
+            #      forever. ``message_id`` is also the document _id
+            #      (we pin it in record_webex_thread) so primary-key
+            #      lookup is already covered.
+            ttl_seconds = (
+                self.settings.webex_thread_map_ttl_days * 24 * 60 * 60
+            )
+            await self._webex_threads().create_index(
+                [("created_at", 1)],
+                expireAfterSeconds=ttl_seconds,
+            )
+            # ---- Trigger instances: TTL on received_at so dedup
+            #      records age out (default 7 days). The ``_id`` is
+            #      pinned to the dedup key so primary-key lookup is
+            #      already covered by the automatic ``_id_`` index.
+            trigger_ttl_seconds = (
+                self.settings.trigger_instance_ttl_days * 24 * 60 * 60
+            )
+            await self._trigger_instances().create_index(
+                [("received_at", 1)],
+                expireAfterSeconds=trigger_ttl_seconds,
+            )
+            # ---- Trigger instances: secondary index on task_id so
+            #      operator dashboards can list deliveries per task
+            #      without a collection scan.
+            await self._trigger_instances().create_index(
+                [("task_id", 1), ("received_at", -1)]
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -448,6 +487,122 @@ class MongoService:
             .limit(limit)
         )
         return [self._doc_to_run(doc) async for doc in cursor]
+
+    # ==================================================================
+    # Webex thread map (messageId -> task_id, run_id)
+    # ==================================================================
+
+    async def record_webex_thread(
+        self,
+        *,
+        message_id: str,
+        task_id: str,
+        run_id: str,
+        room_id: str | None = None,
+    ) -> None:
+        """Upsert a Webex messageId -> (task_id, run_id) mapping.
+
+        Pinned ``_id = message_id`` so Mongo's automatic ``_id_`` index
+        gives O(1) lookup without a dedicated declaration. ``created_at``
+        is always set to ``now()`` on the write so the TTL index in
+        ``_ensure_indexes`` keeps the collection bounded -- a follow-up
+        run that re-records the same messageId resets the TTL clock,
+        which is the intended behaviour (active threads stay; stale
+        ones expire).
+        """
+        doc: dict[str, Any] = {
+            "_id": message_id,
+            "message_id": message_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            "created_at": datetime.now(timezone.utc),
+        }
+        if room_id is not None:
+            doc["room_id"] = room_id
+        await self._webex_threads().replace_one(
+            {"_id": message_id}, doc, upsert=True
+        )
+
+    # ==================================================================
+    # Trigger instances (webhook delivery dedup)
+    # ==================================================================
+
+    async def record_trigger_instance(
+        self, doc: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Insert ``doc`` (keyed on ``_id`` = dedup key) or report a duplicate.
+
+        Returns ``(created, existing_doc)``:
+
+        * ``(True, None)`` -- the row was newly inserted; caller is the
+          first to see this delivery.
+        * ``(False, existing_doc)`` -- a row with this ``_id`` already
+          exists; caller is a duplicate delivery and should NOT fire
+          the task. ``existing_doc`` may have ``run_id=None`` if the
+          original claim crashed before attaching a run id; the route
+          treats that as "fired but no run recorded yet" and surfaces
+          a clear status instead of guessing.
+
+        Mirrors the ``DuplicateKeyError`` translation used by
+        :meth:`create_task` so callers don't need to import
+        pymongo errors directly.
+        """
+        try:
+            await self._trigger_instances().insert_one(doc)
+            return True, None
+        except Exception as exc:  # noqa: BLE001 -- translated below
+            if exc.__class__.__name__ != "DuplicateKeyError":
+                raise
+            existing = await self._trigger_instances().find_one(
+                {"_id": doc["_id"]}
+            )
+            return False, existing
+
+    async def get_trigger_instance(
+        self, dedup_key: str
+    ) -> dict[str, Any] | None:
+        """Return the stored row for ``dedup_key`` or ``None`` if absent."""
+        return await self._trigger_instances().find_one({"_id": dedup_key})
+
+    async def attach_run_to_trigger_instance(
+        self, dedup_key: str, run_id: str
+    ) -> None:
+        """Record the ``run_id`` chosen by the scheduler on the dedup row.
+
+        Best-effort: a missing row (e.g. TTL-expired between claim and
+        run completion) is silently ignored. The dedup row's purpose is
+        to prevent duplicate execution; whether we successfully back-link
+        to the run is purely an audit nicety and must not raise out of
+        the scheduler's terminal phase.
+        """
+        try:
+            await self._trigger_instances().update_one(
+                {"_id": dedup_key},
+                {"$set": {"run_id": run_id}},
+            )
+        except Exception as exc:  # noqa: BLE001 -- audit-only path
+            logger.warning(
+                "attach_run_to_trigger_instance(%s -> %s) swallowed: %s",
+                dedup_key,
+                run_id,
+                exc,
+            )
+
+    async def lookup_webex_thread(self, message_id: str) -> dict[str, Any] | None:
+        """Return the raw thread-map document for ``message_id`` or None.
+
+        Returns the raw dict (rather than a Pydantic model) so the
+        caller -- the inbound bridge -- decides how to surface the
+        result. Keys: ``message_id``, ``task_id``, ``run_id``,
+        ``created_at``, optional ``room_id``.
+        """
+        doc = await self._webex_threads().find_one({"_id": message_id})
+        if doc is None:
+            return None
+        # Strip the duplicate ``_id`` so consumers aren't tempted to
+        # ship it across the wire.
+        doc.pop("_id", None)
+        return doc
 
     # ==================================================================
     # Chat history (per-task conversations)
@@ -839,6 +994,47 @@ class MongoRunStoreAdapter:
         self, task_id: str, limit: int = 100
     ) -> list[TaskRun]:
         return await self._mongo.list_runs_by_task(task_id, limit=limit)
+
+
+class MongoWebexThreadMapAdapter:
+    """:class:`WebexThreadMap` facade around :class:`MongoService`.
+
+    Kept as a thin shim so unit tests that only need the in-memory
+    fake (``services.webex_threads.InMemoryWebexThreadMap``) don't
+    have to depend on Mongo at all.
+    """
+
+    def __init__(self, mongo: "MongoService") -> None:
+        self._mongo = mongo
+
+    async def record(self, entry: Any) -> None:
+        # ``entry`` is a :class:`WebexThreadEntry` but we accept
+        # duck-typed objects to keep this module Mongo-only at import
+        # time (the WebexThreadMap protocol lives in services.webex_threads
+        # which would otherwise create a circular import).
+        await self._mongo.record_webex_thread(
+            message_id=entry.message_id,
+            task_id=entry.task_id,
+            run_id=entry.run_id,
+            room_id=entry.room_id,
+        )
+
+    async def lookup(self, message_id: str) -> Any | None:
+        # Deferred import keeps services.mongo independent of
+        # services.webex_threads (the inverse import direction is also
+        # avoided -- webex_threads only depends on stdlib).
+        from autonomous_agents.services.webex_threads import WebexThreadEntry
+
+        doc = await self._mongo.lookup_webex_thread(message_id)
+        if doc is None:
+            return None
+        return WebexThreadEntry(
+            message_id=doc["message_id"],
+            task_id=doc["task_id"],
+            run_id=doc["run_id"],
+            room_id=doc.get("room_id"),
+            created_at=doc.get("created_at"),
+        )
 
 
 class MongoChatHistoryPublisherAdapter:

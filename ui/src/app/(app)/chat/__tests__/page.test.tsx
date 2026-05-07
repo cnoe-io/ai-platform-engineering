@@ -32,6 +32,7 @@ jest.mock("@/lib/config", () => ({
     if (key === "appName") return "Test App";
     if (key === "logoStyle") return "default";
     if (key === "ssoEnabled") return false;
+    if (key === "autonomousAgentsEnabled") return true;
     return undefined;
   }),
   getLogoFilterClass: jest.fn(() => ""),

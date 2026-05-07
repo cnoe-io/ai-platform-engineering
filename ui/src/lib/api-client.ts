@@ -141,6 +141,7 @@ class APIClient {
      * "Autonomous only" filter chip to surface autonomous_agents runs.
      */
     source?: 'autonomous' | 'web';
+    client_type?: string;
   }): Promise<PaginatedResponse<Conversation>> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', params.page.toString());
@@ -148,6 +149,8 @@ class APIClient {
     if (params?.archived !== undefined) searchParams.set('archived', params.archived.toString());
     if (params?.pinned !== undefined) searchParams.set('pinned', params.pinned.toString());
     if (params?.source) searchParams.set('source', params.source);
+    // Default to webui conversations only — excludes Slack/other client conversations
+    searchParams.set('client_type', params?.client_type || 'webui');
 
     return this.request(`/api/chat/conversations?${searchParams}`);
   }

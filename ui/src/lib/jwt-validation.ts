@@ -101,7 +101,14 @@ export async function validateBearerJWT(
   }
 
   const jwks = await getJWKS();
-  const audience = process.env.OIDC_CLIENT_ID || undefined;
+  // Build accepted audiences from OIDC_ACCEPTED_AUDIENCES (comma-separated)
+  // plus OIDC_CLIENT_ID.  Okta custom authorization servers mint tokens with a
+  // fixed audience (configured on the server) that may differ from the client ID.
+  const accepted = (process.env.OIDC_ACCEPTED_AUDIENCES || '')
+    .split(',').map(a => a.trim()).filter(Boolean);
+  const clientId = process.env.OIDC_CLIENT_ID;
+  if (clientId && !accepted.includes(clientId)) accepted.push(clientId);
+  const audience = accepted.length > 0 ? accepted : undefined;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {

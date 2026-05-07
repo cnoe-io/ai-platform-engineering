@@ -197,7 +197,10 @@ async def test_execute_task_routes_dynamic_agent_to_dynamic_client(store: _DictR
         patch("autonomous_agents.scheduler.invoke_dynamic_agent", new=invoke_da),
         patch("autonomous_agents.scheduler.invoke_agent_streaming", new=invoke_supervisor),
     ):
-        run = await execute_task(da_task)
+        run = await execute_task(
+            da_task,
+            context={"event": "message.created", "roomId": "room-123"},
+        )
 
     assert run.status == TaskStatus.SUCCESS
     assert run.response_full == "custom agent answer"
@@ -206,6 +209,10 @@ async def test_execute_task_routes_dynamic_agent_to_dynamic_client(store: _DictR
     # The agent_id forwarded to the dynamic-agents client must match
     # the field on the task -- catch accidental swaps with task.agent.
     assert invoke_da.await_args.kwargs["agent_id"] == "agent-x"
+    assert invoke_da.await_args.kwargs["context"] == {
+        "event": "message.created",
+        "roomId": "room-123",
+    }
 
 
 async def test_execute_task_returns_same_run_object_as_persisted(store: _DictRunStore, task: TaskDefinition):

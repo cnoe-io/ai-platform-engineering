@@ -29,7 +29,6 @@ from autonomous_agents.services.dynamic_agents_client import (
     preflight_dynamic_agent,
 )
 
-
 # ---------------------------------------------------------------------------
 # Settings helpers
 # ---------------------------------------------------------------------------
@@ -133,6 +132,28 @@ async def test_invoke_happy_path_returns_content_and_empty_events(configured):
     # URL must include the /api/v1 prefix the dynamic-agents service uses.
     call_url = client.post.await_args.args[0]
     assert call_url.endswith("/api/v1/chat/invoke")
+    body = client.post.await_args.kwargs["json"]
+    assert body["message"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_invoke_appends_context_to_message(configured):
+    factory, client = _mock_async_client(
+        _resp(200, {"success": True, "content": "hello world"})
+    )
+    with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+        await invoke_dynamic_agent(
+            prompt="inspect event",
+            task_id="t1",
+            agent_id="agent-x",
+            context={"event": "message.created", "roomId": "room-123"},
+        )
+
+    body = client.post.await_args.kwargs["json"]
+    assert body["message"].startswith("inspect event\n\nContext:\n")
+    assert '"event": "message.created"' in body["message"]
+    assert '"roomId": "room-123"' in body["message"]
+    assert "Routing directive" not in body["message"]
 
 
 @pytest.mark.asyncio

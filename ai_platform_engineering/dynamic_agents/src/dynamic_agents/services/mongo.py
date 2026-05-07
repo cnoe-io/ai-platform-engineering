@@ -114,6 +114,22 @@ class MongoDBService:
         docs = self._get_servers_collection().find({"_id": {"$in": server_ids}})
         return [MCPServerConfig(**doc) for doc in docs]
 
+    def get_agent_mcp_servers(self, agent: DynamicAgentConfig) -> list[MCPServerConfig]:
+        """Get MCP servers for an agent AND all its subagents.
+
+        When a parent agent spawns subagents, the runtime needs access to
+        MCP server configs for both the parent and its subagents. Without
+        this, subagent tools silently fail to load because their MCP server
+        configs are missing from the registry passed to AgentRuntime.
+        """
+        server_ids: set[str] = set(agent.allowed_tools.keys())
+        if agent.subagents:
+            for ref in agent.subagents:
+                subagent_config = self.get_agent(ref.agent_id)
+                if subagent_config:
+                    server_ids.update(subagent_config.allowed_tools.keys())
+        return self.get_servers_by_ids(list(server_ids)) if server_ids else []
+
 
 # Singleton instance
 _mongo_service: MongoDBService | None = None

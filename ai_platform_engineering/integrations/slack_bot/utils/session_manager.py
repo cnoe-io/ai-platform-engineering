@@ -63,6 +63,7 @@ class SessionManager:
     self._user_info_cache = TTLCache(ttl_seconds=600)
     self._skipped_cache = TTLCache(ttl_seconds=300)
     self._channel_info_cache = TTLCache(ttl_seconds=3600)
+    self._thread_owner_cache = TTLCache(ttl_seconds=86400)
     self._escalated_threads: set[str] = set()
 
   # ------------------------------------------------------------------
@@ -83,6 +84,20 @@ class SessionManager:
   def clear_skipped(self, thread_ts: str) -> None:
     """Clear the skipped flag."""
     self._skipped_cache.delete(thread_ts)
+
+  # ------------------------------------------------------------------
+  # Thread ownership — ensures the first agent to respond owns all
+  # follow-ups in that thread, regardless of listen mode.
+  # ------------------------------------------------------------------
+
+  def get_thread_owner(self, thread_ts: str) -> Optional[str]:
+    """Return the agent_id that first responded in this thread, or None."""
+    return self._thread_owner_cache.get(thread_ts)
+
+  def set_thread_owner(self, thread_ts: str, agent_id: str) -> None:
+    """Claim thread ownership for agent_id (first write wins)."""
+    if self._thread_owner_cache.get(thread_ts) is None:
+      self._thread_owner_cache.set(thread_ts, agent_id)
 
   # ------------------------------------------------------------------
   # Escalation dedup
@@ -133,5 +148,6 @@ class SessionManager:
       "user_cache_size": len(self._user_info_cache),
       "channel_cache_size": len(self._channel_info_cache),
       "skipped_cache_size": len(self._skipped_cache),
+      "thread_owner_cache_size": len(self._thread_owner_cache),
       "escalated_threads": len(self._escalated_threads),
     }

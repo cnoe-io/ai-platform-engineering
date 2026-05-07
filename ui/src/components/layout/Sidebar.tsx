@@ -37,6 +37,7 @@ import { NewChatButton } from "@/components/chat/NewChatButton";
 import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
+import { getConfig } from "@/lib/config";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
 
@@ -67,6 +68,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   const [isPending, startTransition] = useTransition();
   const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
   const [isResizing, setIsResizing] = useState(false);
@@ -117,10 +119,12 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       // ``conversationView === 'autonomous'``, which meant synthesised-
       // only autonomous threads were missing from "All" until you
       // visited the other chip.
-      try {
-        await loadAutonomousConversationsFromService();
-      } catch (error) {
-        console.error('[Sidebar] Failed to sync autonomous tasks:', error);
+      if (autonomousAgentsEnabled) {
+        try {
+          await loadAutonomousConversationsFromService();
+        } catch (error) {
+          console.error('[Sidebar] Failed to sync autonomous tasks:', error);
+        }
       }
     };
 
@@ -137,7 +141,13 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, storageMode, conversationView]); // Intentionally exclude loaders to prevent re-runs
+  }, [activeTab, storageMode, conversationView, autonomousAgentsEnabled]); // Intentionally exclude loaders to prevent re-runs
+
+  useEffect(() => {
+    if (!autonomousAgentsEnabled && conversationView === 'autonomous') {
+      setConversationView('all');
+    }
+  }, [autonomousAgentsEnabled, conversationView]);
 
   // Deselect the active conversation if the current filter would
   // hide it. Without this the right-pane stays parked on whatever
@@ -150,11 +160,15 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     const active = conversations.find((c) => c.id === activeConversationId);
     if (!active) return;
     const stillVisible =
-      conversationView === 'autonomous'
-        ? active.source === 'autonomous'
-        : true;
+      !autonomousAgentsEnabled && active.source === 'autonomous'
+        ? false
+        : conversationView === 'autonomous'
+          ? active.source === 'autonomous'
+          : true;
     if (!stillVisible) {
-      const firstAutonomous = conversations.find((c) => c.source === 'autonomous');
+      const firstAutonomous = autonomousAgentsEnabled
+        ? conversations.find((c) => c.source === 'autonomous')
+        : null;
       if (firstAutonomous) {
         setActiveConversation(firstAutonomous.id);
         router.push(`/chat/${firstAutonomous.id}`);
@@ -166,7 +180,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     // We intentionally depend on conversationView (the user gesture)
     // and the active id; ``conversations`` is included so a late
     // server load that drops the active row also triggers the cleanup.
-  }, [conversationView, activeConversationId, conversations, router, setActiveConversation]);
+  }, [conversationView, activeConversationId, conversations, autonomousAgentsEnabled, router, setActiveConversation]);
 
   // Fetch dynamic agents for name lookup in conversation list
   useEffect(() => {
@@ -250,7 +264,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     // chat (not an autonomous-task thread) because we're CREATING a
     // task, not running one. Once it exists, switching to the
     // Autonomous chip surfaces the new task as its own thread.
-    if (conversationView === 'autonomous') {
+    if (autonomousAgentsEnabled && conversationView === 'autonomous') {
       useChatStore.getState().setInputDraft(
         "I'd like to set up an autonomous task. " +
         "Help me describe it — what should it do, when should it run, " +
@@ -298,7 +312,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         });
       } else {
         // Create conversation in localStorage
-        const conversationId = createConversation(agentId);
+        const conversationId = await createConversation(agentId);
 
         // Use React transition for smooth navigation
         startTransition(() => {
@@ -309,7 +323,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.error('[Sidebar] Failed to create conversation:', error);
 
       // Fallback to localStorage
-      const conversationId = createConversation(agentId);
+      const conversationId = await createConversation(agentId);
       startTransition(() => {
         router.push(`/chat/${conversationId}`);
       });
@@ -450,7 +464,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
             is on; in that case both sources merge and the synthesis just
             keeps the sidebar fresh between Mongo writes.
           */}
-          {!collapsed && (
+          {!collapsed && autonomousAgentsEnabled && (
             <div className="px-3 pb-2 flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
@@ -497,6 +511,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   // which made operator-created tasks invisible from the
                   // default sidebar view; explicitly restored here.
                   .filter((conv) => {
+                    if (!autonomousAgentsEnabled && conv.source === 'autonomous') {
+                      return false;
+                    }
                     if (conversationView === 'autonomous') {
                       return conv.source === 'autonomous';
                     }
@@ -619,7 +636,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                                 className="shrink-0 px-1 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30"
                                 title="This is an autonomous task with a schedule. Typing here sends to the supervisor on the same context the cron uses."
                               >
-                                auto
+                                auto trigger
                               </span>
                             )}
                             {isShared && (
@@ -753,9 +770,11 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                 // used ``c.source !== 'autonomous'`` for "All", which
                 // wrongly rendered "No conversations yet" alongside
                 // visible autonomous rows.
-                conversationView === 'autonomous'
-                  ? c.source === 'autonomous'
-                  : true
+                !autonomousAgentsEnabled && c.source === 'autonomous'
+                  ? false
+                  : conversationView === 'autonomous'
+                    ? c.source === 'autonomous'
+                    : true
               ).length === 0 && !collapsed && (
                 <div className="text-center py-8 px-4">
                   <div className={cn(

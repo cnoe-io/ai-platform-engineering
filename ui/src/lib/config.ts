@@ -119,6 +119,8 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /** Whether autonomous task scheduling and webhook automation is enabled */
+  autonomousAgentsEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -209,6 +211,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  autonomousAgentsEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -302,6 +305,9 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const autonomousAgentsFlag =
+    env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
+  const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -346,13 +352,7 @@ export function getServerConfig(): Config {
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
     allowDevAdminWhenSsoDisabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
-    enabledIntegrationIcons: (() => {
-      const icons = env('ENABLED_INTEGRATION_ICONS');
-      if (icons) {
-        return icons.split(',').map((icon) => icon.trim().toLowerCase());
-      }
-      return null;
-    })(),
+    enabledIntegrationIcons: env('ENABLED_INTEGRATION_ICONS')?.split(',').map((icon) => icon.trim().toLowerCase()) ?? null,
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
@@ -366,6 +366,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    autonomousAgentsEnabled,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

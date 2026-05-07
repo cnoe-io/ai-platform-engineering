@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { AuthGuard } from "@/components/auth-guard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Server, Loader2, ShieldAlert, MessageSquare, Cpu } from "lucide-react";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
@@ -15,8 +15,17 @@ import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 
 function DynamicAgentsPageContent() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isAdmin, loading } = useAdminRole();
-  const [activeTab, setActiveTab] = React.useState("agents");
+
+  const activeTab = searchParams.get("tab") ?? "agents";
+
+  function setActiveTab(tab: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    router.push(`${pathname}?${params.toString()}`);
+  }
 
   // Show loading state
   if (loading) {

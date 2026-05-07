@@ -168,6 +168,7 @@ export function AppHeader() {
   };
 
   const combinedStatus = getCombinedStatus();
+  const autonomousAgentsEnabled = config.autonomousAgentsEnabled;
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -281,19 +282,21 @@ export function AppHeader() {
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
           </GuardedLink>
-          <GuardedLink
-            href="/autonomous"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "autonomous"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Sparkles className="h-3.5 w-3.5 shrink-0" />
-            Autonomous
-          </GuardedLink>
+          {autonomousAgentsEnabled && (
+            <GuardedLink
+              href="/autonomous"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "autonomous"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              Autonomous
+            </GuardedLink>
+          )}
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
             <GuardedLink

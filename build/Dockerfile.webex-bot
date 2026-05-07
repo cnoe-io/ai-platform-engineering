@@ -1,0 +1,74 @@
+# Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.
+# Same hardening posture as build/Dockerfile.slack-bot.
+FROM cgr.dev/chainguard/wolfi-base
+
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    apk upgrade --no-cache
+
+# Use the official uv binary -- Wolfi apk uv bundles outdated Rust crates with CVEs.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Wolfi puts Python at /usr/bin/python3.13; keep venv symlinks consistent.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
+
+# Non-root runtime user (UID/GID 1001 -- mandated by container hardening rule).
+RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+# pyproject (and lockfile if available) first, for layer-cache
+# friendliness: only changes to dependencies invalidate the venv
+# layer below.
+#
+# ``uv.lock`` is intentionally optional. When operators run ``uv lock``
+# locally we get reproducible builds; when they don't (typical Windows
+# dev path with no uv installed) we fall back to a fresh ``uv sync``
+# inside the container. We use a wildcard COPY because Docker silently
+# accepts a missing match for ``COPY foo* dest/`` but errors out on
+# ``COPY foo dest/`` when foo is absent. Keeps the Dockerfile usable
+# from a clean checkout without first having to bootstrap the lock.
+COPY ai_platform_engineering/integrations/webex_bot/pyproject.toml /app/
+COPY ai_platform_engineering/integrations/webex_bot/uv.lock* /app/
+
+# ``--no-default-groups`` belt-and-braces with ``--no-dev``: skips
+# the [dependency-groups] table entirely so a missing/yanked test-only
+# pin (e.g. pytest-asyncio in flux) can never block a prod build.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -f /app/uv.lock ]; then \
+        uv sync --locked --no-dev --no-default-groups; \
+    else \
+        uv sync --no-dev --no-default-groups; \
+    fi
+
+# Copy the package itself under ``/app/webex_bot/`` so the container
+# can do ``python -m webex_bot`` without dragging in the whole monorepo.
+# Listed explicitly (rather than ``COPY <dir>/`` or a wildcard) so a
+# new module can't be added without a Dockerfile review, and so we
+# never accidentally pack tests / __pycache__ into the image.
+COPY ai_platform_engineering/integrations/webex_bot/__init__.py      /app/webex_bot/__init__.py
+COPY ai_platform_engineering/integrations/webex_bot/__main__.py      /app/webex_bot/__main__.py
+COPY ai_platform_engineering/integrations/webex_bot/app.py           /app/webex_bot/app.py
+COPY ai_platform_engineering/integrations/webex_bot/config.py        /app/webex_bot/config.py
+COPY ai_platform_engineering/integrations/webex_bot/dispatcher.py    /app/webex_bot/dispatcher.py
+COPY ai_platform_engineering/integrations/webex_bot/lifespan.py      /app/webex_bot/lifespan.py
+COPY ai_platform_engineering/integrations/webex_bot/thread_store.py  /app/webex_bot/thread_store.py
+COPY ai_platform_engineering/integrations/webex_bot/webex_client.py  /app/webex_bot/webex_client.py
+COPY ai_platform_engineering/integrations/webex_bot/webhook_setup.py /app/webex_bot/webhook_setup.py
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    UV_PROJECT_ENVIRONMENT="/app/.venv" \
+    PYTHONPATH="/app" \
+    PYTHONUNBUFFERED=1
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8003
+
+CMD ["python", "-m", "webex_bot"]

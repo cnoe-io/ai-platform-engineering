@@ -59,7 +59,7 @@ export interface CatalogSkill {
 // ---------------------------------------------------------------------------
 
 const HUB_CACHE_TTL_MS = parseInt(
-  process.env.HUB_CACHE_TTL_MS || "300000",
+  process.env.HUB_CACHE_TTL_MS || "3600000",
   10,
 );
 
@@ -354,26 +354,43 @@ export async function getHubSkills(
 ): Promise<CatalogSkill[]> {
   const hubSkillsCol = await getCollection<HubSkillDoc>("hub_skills");
 
-  // Check cache (unless force-fresh)
-  if (!forceFresh) {
-    const cacheThreshold = new Date(Date.now() - HUB_CACHE_TTL_MS);
-    const cached = await hubSkillsCol
-      .find({ hub_id: hub.id, cached_at: { $gte: cacheThreshold } })
-      .toArray();
+  // Always check for any cached docs first
+  const cached = await hubSkillsCol
+    .find({ hub_id: hub.id })
+    .toArray();
 
-    if (cached.length > 0) {
-      return cached.map(docToCatalogSkill(hub));
+  if (!forceFresh && cached.length > 0) {
+    // Check if cache is still fresh
+    const cacheThreshold = new Date(Date.now() - HUB_CACHE_TTL_MS);
+    const isFresh = cached.some((doc) => doc.cached_at >= cacheThreshold);
+
+    if (!isFresh) {
+      // Stale — return cached immediately, refresh in background
+      _refreshHubInBackground(hub, hubSkillsCol).catch((err) => {
+        console.warn(`[HubCrawl] Background refresh failed for ${hub.location}:`, err);
+      });
     }
+
+    return cached.map(docToCatalogSkill(hub));
   }
 
-  // Cache miss — crawl the repo
+  // No cache at all (or force-fresh) — must crawl synchronously
+  return _crawlAndCache(hub, hubSkillsCol);
+}
+
+/**
+ * Crawl a hub repo and update the MongoDB cache. Returns CatalogSkill[].
+ */
+async function _crawlAndCache(
+  hub: SkillHubDoc,
+  hubSkillsCol: Awaited<ReturnType<typeof getCollection<HubSkillDoc>>>,
+): Promise<CatalogSkill[]> {
   const token = resolveToken(hub);
   let crawled: CrawledSkill[];
 
   try {
     if (hub.type === "github") {
       let loc = hub.location;
-      // Normalize full URLs to owner/repo
       try {
         const url = new URL(loc);
         if (url.hostname === "github.com" || url.hostname.endsWith(".github.com")) {
@@ -393,7 +410,7 @@ export async function getHubSkills(
       throw new Error(`Unsupported hub type: ${hub.type}`);
     }
 
-    // Update hub status
+    // Update hub success status
     const hubsCol = await getCollection("skill_hubs");
     await hubsCol.updateOne(
       { id: hub.id },
@@ -407,10 +424,8 @@ export async function getHubSkills(
       },
     );
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : String(err);
+    const message = err instanceof Error ? err.message : String(err);
 
-    // Update hub failure status
     try {
       const hubsCol = await getCollection("skill_hubs");
       await hubsCol.updateOne(
@@ -458,9 +473,6 @@ export async function getHubSkills(
       hub_id: hub.id,
       skill_id: { $nin: currentIds },
     });
-  } else {
-    // If crawl returned 0 skills, keep existing cache but don't purge
-    // (could be a transient API error with empty response)
   }
 
   const hubLabels = hub.labels || [];
@@ -479,6 +491,17 @@ export async function getHubSkills(
       tags: [...(Array.isArray(s.metadata?.tags) ? (s.metadata.tags as string[]) : []), ...hubLabels],
     },
   }));
+}
+
+/**
+ * Fire-and-forget background refresh — crawl and update cache without
+ * blocking the caller (stale-while-revalidate pattern).
+ */
+async function _refreshHubInBackground(
+  hub: SkillHubDoc,
+  hubSkillsCol: Awaited<ReturnType<typeof getCollection<HubSkillDoc>>>,
+): Promise<void> {
+  await _crawlAndCache(hub, hubSkillsCol);
 }
 
 // ---------------------------------------------------------------------------

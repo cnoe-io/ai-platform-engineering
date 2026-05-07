@@ -243,9 +243,9 @@ export function AgentBuilderGallery({
     setActiveFormConfig(config);
   };
 
-  const handleTrySkill = () => {
+  const handleTrySkill = async () => {
     if (!activeFormConfig) return;
-    const conversationId = createConversation();
+    const conversationId = await createConversation();
     const skillId = activeFormConfig.id || activeFormConfig.name;
     setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
     setActiveFormConfig(null);

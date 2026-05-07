@@ -1,0 +1,43 @@
+[project]
+name = "caipe-webex-bot"
+version = "0.1.0"
+description = "CAIPE Webex inbound bridge - routes in-thread replies back to autonomous tasks as follow-ups"
+license = "Apache-2.0"
+authors = [
+  { name = "CNOE Contributors" }
+]
+requires-python = ">=3.13,<4.0"
+# Use compatible-release ranges (``~=``) for runtime deps -- this
+# package has no other consumers in the monorepo, so we don't need
+# the rest of the workspace's strict pinning. Ranges let a fresh
+# unpinned ``uv sync`` (the lockless path used in dev) succeed
+# regardless of small upstream patch drift, while still respecting
+# major versions for API stability.
+dependencies = [
+  "fastapi~=0.118",
+  "uvicorn[standard]~=0.32",
+  "httpx~=0.28",
+  "pydantic~=2.12",
+  "pydantic-settings~=2.10",
+  "motor~=3.7",
+]
+
+[dependency-groups]
+# Test-only dependencies. Excluded from production images via
+# ``uv sync --no-dev``. Pinned to ranges (``~=``) rather than exact
+# versions so the resolver can pick the latest patch on a fresh
+# build without us needing to chase upstream releases manually --
+# pytest-asyncio in particular has not yet hit a stable 1.x line,
+# so an exact ``==1.x.y`` pin races their release cadence.
+unittest = [
+  "pytest~=8.3",
+  "pytest-asyncio~=0.24",
+  "pytest-mock~=3.14",
+  "respx~=0.21",
+]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

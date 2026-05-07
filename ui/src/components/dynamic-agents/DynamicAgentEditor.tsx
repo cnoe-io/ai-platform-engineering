@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -35,7 +35,9 @@ import { syncAutonomousTasks } from "./syncAutonomousTasks";
 import { isTaskOwnedByAgent } from "./taskOwnership";
 import { autonomousApi, AutonomousApiError } from "@/components/autonomous/api";
 import type { AutonomousTask } from "@/components/autonomous/types";
-import { gradientThemes } from "@/lib/gradient-themes";
+import { SkillsSelector } from "./SkillsSelector";
+import { gradientThemes, getGradientStyle } from "@/lib/gradient-themes";
+import { getConfig } from "@/lib/config";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -46,18 +48,18 @@ interface DynamicAgentEditorProps {
 }
 
 /**
- * Generate a URL-safe slug from an agent name.
- * e.g., "Knowledge Agent" -> "knowledge_agent"
+ * Generate a URL-safe slug from an agent name with agent- prefix.
+ * e.g., "Knowledge Agent" -> "agent-knowledge-agent"
  */
 function generateSlug(name: string): string {
-  return name
+  const slug = name
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-    .replace(/\s+/g, "_")          // Replace spaces with underscores
-    .replace(/-+/g, "_")           // Replace hyphens with underscores
-    .replace(/_+/g, "_")           // Collapse multiple underscores
-    .replace(/^_|_$/g, "");        // Trim leading/trailing underscores
+    .replace(/\s+/g, "-")          // Replace spaces with hyphens
+    .replace(/-+/g, "-")           // Collapse multiple hyphens
+    .replace(/^-|-$/g, "");        // Trim leading/trailing hyphens
+  return slug ? `agent-${slug}` : "";
 }
 
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
@@ -99,6 +101,11 @@ const STEPS = [
     hint: "Select which tools your agent can use" 
   },
   { 
+    id: "skills" as const, 
+    label: "Skills", 
+    hint: "Attach skills that guide your agent's behavior (optional)" 
+  },
+  { 
     id: "subagents" as const, 
     label: "Subagents", 
     hint: "Delegate tasks to other agents (optional)" 
@@ -120,29 +127,29 @@ function StepIndicator({
   currentStep, 
   onStepClick 
 }: { 
-  steps: typeof STEPS; 
+  steps: readonly (typeof STEPS[number])[];
   currentStep: StepId; 
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
-    <div className="flex items-center justify-center gap-0 py-4">
+    <div className="flex items-center gap-0 ml-auto">
       {steps.map((step, index) => (
         <React.Fragment key={step.id}>
           {index > 0 && (
-            <div className="w-8 h-0.5 bg-border mx-1" />
+            <div className="w-5 h-0.5 bg-border mx-0.5" />
           )}
           <button
             type="button"
             onClick={() => onStepClick(step.id)}
             className={cn(
-              "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[80px]",
+              "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
               currentStep === step.id 
                 ? "bg-primary/10 text-primary" 
                 : "hover:bg-muted text-muted-foreground"
             )}
           >
             <div className={cn(
-              "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium",
+              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
               currentStep === step.id 
                 ? "bg-primary text-primary-foreground" 
                 : "bg-muted"
@@ -161,6 +168,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
@@ -184,11 +192,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     source?.subagents || []
   );
+  const [skills, setSkills] = React.useState<string[]>(
+    source?.skills || []
+  );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
   );
-  const [modelId, setModelId] = React.useState(source?.model_id || "");
-  const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
+  const [modelId, setModelId] = React.useState(source?.model?.id || "");
+  const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
@@ -211,6 +222,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   // AI suggestion state
   const [generatingField, setGeneratingField] = React.useState<string | null>(null);
   const [promptTab, setPromptTab] = React.useState<"edit" | "preview">("edit");
+  const [editorHeight, setEditorHeight] = React.useState(480);
+  const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null);
   const [showSuggestPromptInput, setShowSuggestPromptInput] = React.useState(false);
   const [suggestPromptInstruction, setSuggestPromptInstruction] = React.useState("");
   const [showSuggestBasicInput, setShowSuggestBasicInput] = React.useState(false);
@@ -218,6 +231,32 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [enhanceExisting, setEnhanceExisting] = React.useState(false);
   const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
   const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
+
+  // Editor resize drag handlers
+  const handleDragStart = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startY: e.clientY, startHeight: editorHeight };
+
+    const handleDragMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = ev.clientY - dragRef.current.startY;
+      const newHeight = Math.max(200, Math.min(window.innerHeight * 0.85, dragRef.current.startHeight + delta));
+      setEditorHeight(newHeight);
+    };
+
+    const handleDragEnd = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", handleDragMove);
+      document.removeEventListener("mouseup", handleDragEnd);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleDragMove);
+    document.addEventListener("mouseup", handleDragEnd);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }, [editorHeight]);
 
   // CodeMirror extensions for markdown syntax highlighting
   const [cmExtensions, setCmExtensions] = React.useState<any[]>([]);
@@ -283,19 +322,19 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
           
-          if (source?.model_id) {
+          if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
               (m: { model_id: string; provider: string }) => 
-                m.model_id === source.model_id && m.provider === source.model_provider
+                m.model_id === source.model.id && m.provider === source.model.provider
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
               setModelProvider(existingModel.provider);
             } else {
               // Model no longer available - reset to first available
-              console.warn(`Agent model "${source.model_id}" no longer available, resetting to default`);
+              console.warn(`Agent model "${source.model.id}" no longer available, resetting to default`);
               if (data.data.length > 0) {
                 setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
@@ -334,6 +373,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   }, []);
 
   React.useEffect(() => {
+    if (!autonomousAgentsEnabled) return;
     if (!isEditing || !agent?._id) return;
     let cancelled = false;
     const agentId = agent._id;
@@ -365,22 +405,32 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     return () => {
       cancelled = true;
     };
-  }, [isEditing, agent?._id]);
+  }, [isEditing, agent?._id, autonomousAgentsEnabled]);
 
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
-  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
-  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+  const visibleSteps = React.useMemo(
+    () => STEPS.filter((step) => autonomousAgentsEnabled || step.id !== "autonomous"),
+    [autonomousAgentsEnabled],
+  );
+  const currentStepIndex = visibleSteps.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = visibleSteps.find((s) => s.id === activeStep);
+
+  React.useEffect(() => {
+    if (!autonomousAgentsEnabled && activeStep === "autonomous") {
+      setActiveStep("basic");
+    }
+  }, [autonomousAgentsEnabled, activeStep]);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      setActiveStep(STEPS[currentStepIndex - 1].id);
+      setActiveStep(visibleSteps[currentStepIndex - 1].id);
     }
   };
 
   const goToNextStep = () => {
-    if (currentStepIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex < visibleSteps.length - 1) {
+      setActiveStep(visibleSteps[currentStepIndex + 1].id);
     }
   };
 
@@ -415,8 +465,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 }))
               : undefined,
           },
-          model_id: modelId,
-          model_provider: modelProvider,
+          model: { id: modelId, provider: modelProvider },
           ...(instruction ? { instruction } : {}),
           ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
         }),
@@ -553,8 +602,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          skills,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
         };
@@ -582,8 +631,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          skills,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
         };
@@ -598,10 +647,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         if (!data.success) {
           throw new Error(data.error || "Failed to create agent");
         }
-        savedAgentId = generatedId;
+        savedAgentId = data.data?._id || generatedId;
       }
 
-      if (autonomousTasks.length > 0 || autonomousTasksLoaded.length > 0) {
+      if (autonomousAgentsEnabled && (autonomousTasks.length > 0 || autonomousTasksLoaded.length > 0)) {
         try {
           const results = await syncAutonomousTasks({
             agentId: savedAgentId,
@@ -643,7 +692,13 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </Button>
           <div>
             <CardTitle>
-              {readOnly ? "View Agent" : isEditing ? "Edit Agent" : isCloning ? "Clone Agent" : "Create Agent"}
+              {readOnly
+                ? `View Agent — ${agent?.name}`
+                : isEditing
+                ? `Edit Agent — ${agent?.name}`
+                : isCloning
+                ? "Clone Agent"
+                : "Create Agent"}
             </CardTitle>
             <CardDescription>
               {readOnly
@@ -655,24 +710,30 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
+          <div
+            className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
+            style={getGradientStyle(gradientTheme)}
+          >
+            <Bot className="h-5 w-5 text-white" />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Step Indicator */}
-          <StepIndicator 
-            steps={STEPS} 
-            currentStep={activeStep} 
-            onStepClick={setActiveStep} 
-          />
-
-          {/* Step hint */}
-          <div className="text-center pb-2 border-b">
-            <h3 className="font-medium">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
-            <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
+          {/* Step Indicator + title inline */}
+          <div className="flex items-center gap-4 border-b pb-3 mt-2">
+            <div className="shrink-0">
+              <h3 className="text-xl font-bold text-primary">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
+            </div>
+            <StepIndicator 
+              steps={visibleSteps}
+              currentStep={activeStep} 
+              onStepClick={setActiveStep} 
+            />
           </div>
 
-          <fieldset disabled={readOnly} className={readOnly ? "opacity-70 space-y-4" : "space-y-4"}>
+          <fieldset disabled={readOnly} className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -1087,7 +1148,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 </div>
 
                 {promptTab === "edit" ? (
-                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] min-h-[480px]">
+                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
                     <React.Suspense
                       fallback={
                         <div className="flex items-center justify-center h-48 text-zinc-500">
@@ -1101,7 +1162,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                         onChange={(val: string) => setSystemPrompt(val)}
                         extensions={cmExtensions}
                         theme="dark"
-                        height="480px"
+                        height={`${editorHeight}px`}
                         style={{ fontSize: "15px" }}
                         basicSetup={{
                           lineNumbers: true,
@@ -1117,7 +1178,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     </React.Suspense>
                   </div>
                 ) : (
-                  <div className="rounded-lg border p-4 min-h-[480px] max-h-[600px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
+                  <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
                     {systemPrompt.trim() ? (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
@@ -1132,6 +1193,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     )}
                   </div>
                 )}
+
+                {/* Drag handle to resize editor */}
+                <div
+                  onMouseDown={handleDragStart}
+                  className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
+                >
+                  <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                </div>
 
                 <p className="text-sm text-muted-foreground">
                   Define your agent&apos;s behavior, personality, and capabilities. 
@@ -1181,6 +1250,24 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </div>
           )}
 
+          {/* Step: Skills */}
+          {activeStep === "skills" && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
+                  for specific tasks. The agent reads skill content on demand via progressive disclosure.
+                </p>
+              </div>
+
+              <SkillsSelector
+                value={skills}
+                onChange={setSkills}
+                disabled={loading}
+              />
+            </div>
+          )}
+
           {/* Subagents Step */}
           {activeStep === "subagents" && (
             <div className="space-y-4 pt-2">
@@ -1205,7 +1292,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </div>
           )}
 
-          {activeStep === "autonomous" && (
+          {autonomousAgentsEnabled && activeStep === "autonomous" && (
             <AutonomousTasksStep
               agentId={isEditing ? agent?._id || "" : generatedId}
               tasks={autonomousTasks}
@@ -1241,7 +1328,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               type="button" 
               variant="outline" 
               onClick={goToNextStep}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              disabled={currentStepIndex === visibleSteps.length - 1 || loading}
               size="sm"
             >
               Next

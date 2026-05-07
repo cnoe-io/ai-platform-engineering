@@ -408,14 +408,18 @@ choose_cluster() {
       [[ -n "$c" ]] && kind_clusters+=("$c")
     done < <(kind get clusters 2>/dev/null)
 
-    for c in "${kind_clusters[@]}"; do
-      options+=("kind:${c}")
-      if [[ "kind-${c}" == "$current_ctx" ]]; then
-        labels+=("Kind cluster: ${c}  ${DIM}(current context)${NC}")
-      else
-        labels+=("Kind cluster: ${c}")
-      fi
-    done
+    # assisted-by claude code claude-sonnet-4-6
+    # bash 3.2 (macOS default) treats ${empty_array[@]} as unbound with set -u
+    if [[ ${#kind_clusters[@]} -gt 0 ]]; then
+      for c in "${kind_clusters[@]}"; do
+        options+=("kind:${c}")
+        if [[ "kind-${c}" == "$current_ctx" ]]; then
+          labels+=("Kind cluster: ${c}  ${DIM}(current context)${NC}")
+        else
+          labels+=("Kind cluster: ${c}")
+        fi
+      done
+    fi
   fi
 
   # Option: switch to another kubectl context
@@ -485,14 +489,16 @@ choose_cluster() {
       done < <(kubectl config get-contexts -o name 2>/dev/null)
 
       local j=1
-      for ctx in "${ctx_arr[@]}"; do
-        if [[ "$ctx" == "$current_ctx" ]]; then
-          echo -e "    ${BOLD}${j})${NC} ${ctx}  ${DIM}(current)${NC}"
-        else
-          echo -e "    ${BOLD}${j})${NC} ${ctx}"
-        fi
-        j=$((j + 1))
-      done
+      if [[ ${#ctx_arr[@]} -gt 0 ]]; then
+        for ctx in "${ctx_arr[@]}"; do
+          if [[ "$ctx" == "$current_ctx" ]]; then
+            echo -e "    ${BOLD}${j})${NC} ${ctx}  ${DIM}(current)${NC}"
+          else
+            echo -e "    ${BOLD}${j})${NC} ${ctx}"
+          fi
+          j=$((j + 1))
+        done
+      fi
       echo ""
       prompt "Select a context ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r ctx_choice

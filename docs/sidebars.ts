@@ -238,6 +238,11 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'development/spec-driven-development',
           label: 'Spec-Driven Development',
+        },
+        {
+          type: 'doc',
+          id: 'development/ci-cd-and-releases',
+          label: 'CI/CD & Releases',
         }
       ],
     },
@@ -356,6 +361,21 @@ const sidebars: SidebarsConfig = {
           id: 'integrations/slack-bot',
           label: 'Slack Bot',
         },
+        {
+          type: 'doc',
+          id: 'integrations/backstage-plugin',
+          label: 'Agent Forge (Backstage)',
+        },
+        {
+          type: 'doc',
+          id: 'integrations/webex-bot',
+          label: 'Webex Bot',
+        },
+        {
+          type: 'doc',
+          id: 'integrations/cli',
+          label: 'CAIPE CLI',
+        },
       ],
     },
     {
@@ -441,24 +461,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
     {
-      type: 'category',
-      label: 'Use Cases',
-      items: [
-        {
-          type: 'doc',
-          id: 'usecases/platform-engineer',
-        },
-        {
-          type: 'doc',
-          id: 'usecases/incident-engineer',
-        },
-        {
-          type: 'doc',
-          id: 'usecases/product-owner',
-        },
-      ],
-    },
-    {
       type: 'doc',
       id: 'prompt-library/index',
       label: 'Prompt Library',
@@ -507,10 +509,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'tools-utils/agent-forge-backstage-plugin',
-        },
-        {
-          type: 'doc',
           id: 'tools-utils/jira-mcp-implementations-comparison',
         }
       ],
@@ -519,6 +517,27 @@ const sidebars: SidebarsConfig = {
       type: 'doc',
       id: 'agent-ops/index',
       label: 'AgentOps',
+    },
+    {
+      type: 'category',
+      label: 'Releases',
+      items: [
+        {
+          type: 'doc',
+          id: 'releases/index',
+          label: 'Overview',
+        },
+        {
+          type: 'doc',
+          id: 'releases/migration-0.3.x-to-0.4.0',
+          label: 'Migration: 0.3.x → 0.4.0',
+        },
+        {
+          type: 'doc',
+          id: 'releases/migration-0.2.41-to-0.3.2',
+          label: 'Migration: 0.2.41 → 0.3.2',
+        },
+      ],
     },
     {
       type: 'doc',

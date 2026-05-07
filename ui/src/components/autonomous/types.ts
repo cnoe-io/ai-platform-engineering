@@ -120,6 +120,15 @@ export interface TaskRun {
   response_preview?: string | null;
   error?: string | null;
   /**
+   * When this run was produced by an inbound follow-up reply (e.g.
+   * the Webex bot forwarding an in-thread message), this points at
+   * the run the operator was replying to. Lets the run-history UI
+   * render a single threaded timeline instead of two unrelated rows.
+   * Null for the original webhook fire and for cron / interval /
+   * manual runs.
+   */
+  parent_run_id?: string | null;
+  /**
    * Deterministic UUID derived from ``run_id`` by the autonomous
    * service when chat-history publishing is enabled (IMP-13). Lets
    * the run-row UI deep-link straight to ``/chat/<conversation_id>``.

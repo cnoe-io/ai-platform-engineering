@@ -47,15 +47,13 @@ def execute_escalation(
   results = []
 
   if escalation_config.victorops.enabled and escalation_config.victorops.team:
-    # Use VictorOps-specific agent_id if configured, otherwise fall back to channel agent_id
-    vo_agent_id = escalation_config.victorops.agent_id or agent_id
     result = _ping_victorops_oncall(
       sse_client,
       slack_client,
       channel_id,
       thread_ts,
       escalation_config.victorops.team,
-      agent_id=vo_agent_id,
+      agent_id=agent_id,
       conversation_id=conversation_id,
     )
     results.append(result)

@@ -44,6 +44,7 @@ jest.mock('framer-motion', () => ({
 
 let mockConversations: any[] = []
 let mockActiveConversationId: string | null = null
+let mockAutonomousAgentsEnabled = true
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
@@ -133,6 +134,10 @@ jest.mock('@/lib/storage-config', () => ({
   getStorageModeDisplay: () => 'MongoDB',
 }))
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'autonomousAgentsEnabled' ? mockAutonomousAgentsEnabled : undefined,
+}))
+
 jest.mock('@/lib/utils', () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(' '),
   formatDate: (d: any) => 'Jan 1, 2026',
@@ -195,6 +200,7 @@ describe('Sidebar — Live Status Indicator', () => {
     jest.clearAllMocks()
     mockConversations = []
     mockActiveConversationId = null
+    mockAutonomousAgentsEnabled = true
     mockLoadAutonomousConversationsFromService.mockResolvedValue(undefined)
     mockIsConversationStreaming.mockImplementation(() => false)
     mockHasUnviewedMessages.mockImplementation(() => false)
@@ -438,6 +444,21 @@ describe('Sidebar — Live Status Indicator', () => {
   // --------------------------------------------------------------------------
 
   describe('autonomous filter routing', () => {
+    it('hides the autonomous chip and autonomous rows when the feature is disabled', () => {
+      mockAutonomousAgentsEnabled = false
+      mockConversations = [
+        makeConv('normal-1', 'Normal Chat'),
+        makeConv('auto-1', 'Autonomous Task', { source: 'autonomous' }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.queryByRole('button', { name: /autonomous/i })).not.toBeInTheDocument()
+      expect(screen.getByText('Normal Chat')).toBeInTheDocument()
+      expect(screen.queryByText('Autonomous Task')).not.toBeInTheDocument()
+      expect(mockLoadAutonomousConversationsFromService).not.toHaveBeenCalled()
+    })
+
     it('switches from a normal active chat to the first autonomous thread without routing to bare /chat', () => {
       mockConversations = [
         makeConv('normal-1', 'Normal Chat'),
