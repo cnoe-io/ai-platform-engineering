@@ -3,45 +3,57 @@
 
 """Tools for /api-public/v1/team operations"""
 
+import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from ..api.client import make_api_request
+from ..utils.cache import team_cache
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_team(org_slug: Optional[str] = None) -> Dict[str, Any]:
-    """
-        List all teams
+async def get_api_public_v1_team(
+    org_slug: Optional[str] = None,
+    force_refresh: bool = False,
+) -> str:
+    """List all teams.
 
-        OpenAPI Description:
-            Get a list of teams for your organization.
-            Returns team name, slug, and memberCount for each team.
-            Use the team slug to query on-call schedules.
+    OpenAPI Description:
+        Get a list of teams for your organization.
 
     This API may be called a maximum of 2 times per second.
 
+    Results are cached in-process. TTL is set by
+    VICTOROPS_CACHE_TTL_TEAMS_SECONDS (default 3600). Set to 0 to disable.
 
-        Args:
+    Output is the upstream payload, pretty-printed, with the top-level
+    list wrapped under "teams".
 
-            org_slug (str): VictorOps organization slug. Required when multiple orgs are configured.
-
-        Returns:
-            Dict[str, Any]: The JSON response from the API call.
-
-        Raises:
-            Exception: If the API request fails or returns an error.
+    Args:
+        org_slug: VictorOps organization slug. Required when multiple
+            orgs are configured.
+        force_refresh: Bypass the cache and re-fetch from the API.
     """
     logger.debug("Making GET request to /api-public/v1/team")
 
-    params = {}
-    data = {}
+    cache = team_cache()
+    cache_key_org = org_slug or "_default_"
 
-    success, response = await make_api_request("/api-public/v1/team", method="GET", org_slug=org_slug, params=params, data=data)
+    raw: Optional[Dict[str, Any]] = (
+        cache.get("team", cache_key_org) if not force_refresh else None
+    )
+    if raw is None:
+        success, response = await make_api_request(
+            "/api-public/v1/team", method="GET",
+            org_slug=org_slug, params={}, data={},
+        )
+        if not success:
+            logger.error(f"Request failed: {response.get('error')}")
+            return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+        raw = {"teams": response} if isinstance(response, list) else response
+        cache.set("team", cache_key_org, raw)
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+    return json.dumps(raw, indent=2, default=str)

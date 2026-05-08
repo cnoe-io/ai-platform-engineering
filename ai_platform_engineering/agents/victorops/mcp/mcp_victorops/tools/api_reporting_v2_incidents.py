@@ -4,13 +4,70 @@
 
 """Tools for /api-reporting/v2/incidents operations"""
 
+import asyncio
+import json
 import logging
-from typing import Dict, Any, Optional
-from ..api.client import make_api_request, assemble_nested_body
+from collections import Counter
+from typing import Any, Dict, List, Optional
+
+from ..api.client import list_orgs, make_api_request
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
+
+
+def _build_params(
+    offset: Optional[int],
+    limit: Optional[int],
+    entityId: Optional[str],
+    incidentNumber: Optional[str],
+    startedAfter: Optional[str],
+    startedBefore: Optional[str],
+    host: Optional[str],
+    service: Optional[str],
+    currentPhase: Optional[str],
+    routingKey: Optional[str],
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {}
+    if offset is not None:
+        params["offset"] = str(offset).lower() if isinstance(offset, bool) else offset
+    if limit is not None:
+        params["limit"] = str(limit).lower() if isinstance(limit, bool) else limit
+    if entityId is not None:
+        params["entityId"] = str(entityId).lower() if isinstance(entityId, bool) else entityId
+    if incidentNumber is not None:
+        params["incidentNumber"] = (
+            str(incidentNumber).lower() if isinstance(incidentNumber, bool) else incidentNumber
+        )
+    if startedAfter is not None:
+        params["startedAfter"] = (
+            str(startedAfter).lower() if isinstance(startedAfter, bool) else startedAfter
+        )
+    if startedBefore is not None:
+        params["startedBefore"] = (
+            str(startedBefore).lower() if isinstance(startedBefore, bool) else startedBefore
+        )
+    if host is not None:
+        params["host"] = str(host).lower() if isinstance(host, bool) else host
+    if service is not None:
+        params["service"] = str(service).lower() if isinstance(service, bool) else service
+    if currentPhase is not None:
+        params["currentPhase"] = (
+            str(currentPhase).lower() if isinstance(currentPhase, bool) else currentPhase
+        )
+    if routingKey is not None:
+        params["routingKey"] = str(routingKey).lower() if isinstance(routingKey, bool) else routingKey
+    return params
+
+
+async def _fetch_one_org(org: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    success, response = await make_api_request(
+        "/api-reporting/v2/incidents", method="GET", org_slug=org, params=params, data={}
+    )
+    if not success:
+        return {"_org_error": response.get("error", "Request failed")}
+    return response
 
 
 async def get_api_reporting_v2_incidents(
@@ -25,104 +82,101 @@ async def get_api_reporting_v2_incidents(
     currentPhase: Optional[str] = None,
     routingKey: Optional[str] = None,
     org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-        Get/search incident history
+    all_orgs: bool = False,
+) -> str:
+    """Get/search incident history.
 
-        OpenAPI Description:
-            Retrieve incident history for your company, searching over date ranges and with filtering options.
+    OpenAPI Description:
+        Retrieve incident history for your company, searching over date ranges and with filtering options.
 
-    This API may be called a maximum of once a minute.
-
-    Incident requests are paginated with a offset and limit query string parameters.
-      The query for incidents is run and offset records are skipped, after which limit records will be returned.
-
+    Incident requests are paginated with offset and limit query string parameters.
     The default offset is 0 and the default limit is 20. The maximum value allowed for limit is 100.
 
     Unless specified otherwise with the parameter currentPhase, the response will only contain resolved incidents.
+    Pass currentPhase='triggered,acknowledged,resolved' to include open incidents.
 
-    On return, the total number of records available for that query will be returned in the payload as 'total'.
+    Output is the upstream payload(s) pretty-printed, plus a top-level
+    total_count_by_phase summary so the agent can surface phase counts
+    without iterating the list itself.
 
-
-        Args:
-
-            offset (int): The offset within the set of matching incidents
-
-            limit (int): The maximum number of matching incidents to return (100 max)
-
-            entityId (str): The entity ID involved  This is the unique identifier for the entity causing the incident.
-
-            incidentNumber (str): The incident number as shown in VictorOps Multiple values and ranges are allowed: 4,5,20:50
-
-
-            startedAfter (str): Return incidents started after this timestamp Specify the timestamp in ISO8601 format
-
-            startedBefore (str): Find incidents started before this timestamp  Specify the timestamp in ISO8601 format
-
-            host (str): The host involved in the incident Multiple values can be separated with commas.
-
-            service (str): The service involved in the incident (if any) Multiple values can be separated with commas.
-
-            currentPhase (str): The current phase of the incident "resolved", "triggered" or "acknowledged". Multiple values can be separated with commas. By default, response contains only "resolved" incidents
-
-            routingKey (str): The original routing of the incident
-
-
-        Returns:
-            Dict[str, Any]: The JSON response from the API call.
-
-        Raises:
-            Exception: If the API request fails or returns an error.
+    Args:
+        offset: The offset within the set of matching incidents.
+        limit: The maximum number of matching incidents to return (100 max).
+        entityId: The unique identifier for the entity causing the incident.
+        incidentNumber: The incident number as shown in VictorOps. Multiple values and ranges allowed: 4,5,20:50.
+        startedAfter: Return incidents started after this timestamp (ISO8601). Always pass this — the agent prompt expects it.
+        startedBefore: Return incidents started before this timestamp (ISO8601).
+        host: The host involved in the incident. Multiple values comma-separated.
+        service: The service involved. Multiple values comma-separated.
+        currentPhase: "resolved", "triggered", or "acknowledged". Multiple comma-separated. Default is resolved only.
+        routingKey: The original routing of the incident.
+        org_slug: VictorOps organization slug. Required when multiple orgs are configured and `all_orgs` is False.
+        all_orgs: If True, fan out concurrently across every configured org. Mutually exclusive with `org_slug`.
     """
     logger.debug("Making GET request to /api-reporting/v2/incidents")
 
-    params = {}
-    data = {}
+    params = _build_params(
+        offset, limit, entityId, incidentNumber, startedAfter, startedBefore,
+        host, service, currentPhase, routingKey,
+    )
 
-    if offset is not None:
-        params["offset"] = str(offset).lower() if isinstance(offset, bool) else offset
+    raw_by_org: Dict[str, Any] = {}
+    errors: Dict[str, str] = {}
 
-    if limit is not None:
-        params["limit"] = str(limit).lower() if isinstance(limit, bool) else limit
-
-    if entityId is not None:
-        params["entityId"] = str(entityId).lower() if isinstance(entityId, bool) else entityId
-
-    if incidentNumber is not None:
-        params["incidentNumber"] = (
-            str(incidentNumber).lower() if isinstance(incidentNumber, bool) else incidentNumber
+    if all_orgs:
+        if org_slug is not None:
+            return json.dumps({"error": "Pass either org_slug or all_orgs=True, not both."}, indent=2)
+        orgs = list_orgs()
+        results = await asyncio.gather(
+            *(_fetch_one_org(o, params) for o in orgs), return_exceptions=True
         )
-
-    if startedAfter is not None:
-        params["startedAfter"] = (
-            str(startedAfter).lower() if isinstance(startedAfter, bool) else startedAfter
+        for o, r in zip(orgs, results):
+            if isinstance(r, Exception):
+                errors[o] = str(r)
+            elif isinstance(r, dict) and "_org_error" in r:
+                errors[o] = r["_org_error"]
+            else:
+                raw_by_org[o] = r
+    else:
+        success, response = await make_api_request(
+            "/api-reporting/v2/incidents", method="GET",
+            org_slug=org_slug, params=params, data={},
         )
+        if not success:
+            err = response.get("error", "Request failed")
+            logger.error(f"Request failed: {err}")
+            return json.dumps({"error": err}, indent=2)
+        raw_by_org[org_slug or "_default_"] = response
 
-    if startedBefore is not None:
-        params["startedBefore"] = (
-            str(startedBefore).lower() if isinstance(startedBefore, bool) else startedBefore
-        )
+    by_org_incidents: Dict[str, List[Dict[str, Any]]] = {}
+    all_incidents: List[Dict[str, Any]] = []
+    pagination_by_org: Dict[str, Dict[str, Any]] = {}
 
-    if host is not None:
-        params["host"] = str(host).lower() if isinstance(host, bool) else host
+    for slug, payload in raw_by_org.items():
+        incidents = payload.get("incidents", []) if isinstance(payload, dict) else []
+        by_org_incidents[slug] = incidents
+        all_incidents.extend(incidents)
+        if isinstance(payload, dict):
+            pagination_by_org[slug] = {
+                "total": payload.get("total"),
+                "offset": payload.get("offset"),
+                "limit": payload.get("limit"),
+            }
 
-    if service is not None:
-        params["service"] = str(service).lower() if isinstance(service, bool) else service
+    summary: Dict[str, Any] = {
+        "total_count_by_phase": dict(
+            Counter(i.get("currentPhase", "unknown") for i in all_incidents)
+        ),
+        "total_count": len(all_incidents),
+    }
+    if all_orgs or len(by_org_incidents) > 1:
+        summary["by_org"] = by_org_incidents
+        summary["pagination_by_org"] = pagination_by_org
+    else:
+        summary["incidents"] = next(iter(by_org_incidents.values()), [])
+        only_pagination = next(iter(pagination_by_org.values()), {})
+        summary.update(only_pagination)
+    if errors:
+        summary["errors"] = errors
 
-    if currentPhase is not None:
-        params["currentPhase"] = (
-            str(currentPhase).lower() if isinstance(currentPhase, bool) else currentPhase
-        )
-
-    if routingKey is not None:
-        params["routingKey"] = str(routingKey).lower() if isinstance(routingKey, bool) else routingKey
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request("/api-reporting/v2/incidents", method="GET", org_slug=org_slug, params=params, data=data)
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+    return json.dumps(summary, indent=2, default=str)
