@@ -184,7 +184,7 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
           {items.map((e) => (
             <li key={e.artifact_id}>
               <Link
-                href={`/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/epics/${encodeURIComponent(e.artifact_id)}`}
+                href={`/apps/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/epics/${encodeURIComponent(e.artifact_id)}`}
                 className={cn(
                   "group flex items-center gap-3 rounded-md border border-border/40 bg-card/40 px-3 py-2.5 transition hover:bg-card/70",
                 )}

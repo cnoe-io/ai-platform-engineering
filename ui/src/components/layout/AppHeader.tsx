@@ -16,9 +16,7 @@ import {
   Home,
   Bot,
   AlertTriangle,
-  Ship,
 } from "lucide-react";
-import { useAgenticSdlcFeature } from "@/hooks/use-agentic-sdlc-feature";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -221,10 +219,8 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
 
-  // Agentic SDLC feature gating (two-layer: server env + per-user flag).
-  // The tab is rendered only when both layers are on; the layout itself
-  // notFound()s if the server flag is off, so this is purely visual.
-  const { enabled: agenticSdlcEnabled } = useAgenticSdlcFeature();
+  // Agentic SDLC is now a regular agentic app under /apps/agentic-sdlc — no
+  // dedicated top-nav pill. The Apps tab covers it via the route prefix.
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -233,7 +229,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
-    if (pathname?.startsWith("/agentic-sdlc")) return "ship-loop";
+    if (pathname?.startsWith("/apps") || pathname?.startsWith("/agentic-sdlc")) return "apps";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -370,22 +366,25 @@ export function AppHeader() {
               Agents
             </GuardedLink>
           )}
-          {/* Agentic SDLC tab - only when both server config AND per-user flag are on */}
-          {agenticSdlcEnabled && (
+          {/* Agentic Apps Hub - shown only when the host has installed apps */}
+          {config.agenticAppsEnabled && (
             <GuardedLink
-              href="/agentic-sdlc"
+              href="/apps"
               prefetch={true}
               className={cn(
                 "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "ship-loop"
-                  ? "bg-primary text-primary-foreground shadow-sm"
+                activeTab === "apps"
+                  ? "bg-cyan-500 text-slate-950 shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <Ship className="h-3.5 w-3.5 shrink-0" />
-              Agentic SDLC
+              <Workflow className="h-3.5 w-3.5 shrink-0" />
+              Apps
             </GuardedLink>
           )}
+          {/* Agentic SDLC is now a regular agentic app under /apps/agentic-sdlc.
+              It surfaces in the Apps Hub when AGENTIC_APPS_ENABLED includes
+              `agentic-sdlc` and SHIP_LOOP_ENABLED is on. */}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
           {canViewAdmin && (
             <TooltipProvider delayDuration={300}>

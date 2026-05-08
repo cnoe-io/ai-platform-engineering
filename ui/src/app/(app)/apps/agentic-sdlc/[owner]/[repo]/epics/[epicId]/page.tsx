@@ -23,12 +23,12 @@ export default async function AgenticSdlcEpicPage({
         aria-label="Breadcrumb"
         className="min-w-0 truncate text-xs text-muted-foreground"
       >
-        <Link href="/agentic-sdlc" className="hover:text-foreground">
+        <Link href="/apps/agentic-sdlc" className="hover:text-foreground">
           Agentic SDLC
         </Link>
         <span className="mx-1">/</span>
         <Link
-          href={`/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}
+          href={`/apps/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`}
           className="hover:text-foreground"
         >
           {owner}/{repo}

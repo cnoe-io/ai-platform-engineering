@@ -84,25 +84,9 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     defaultValue: false,
     preferencesKey: "debug_mode_enabled",
   },
-  // Agentic SDLC feature is gated by both SHIP_LOOP_ENABLED (server) AND this
-  // per-user flag (client). The default below is `true` so that whenever
-  // the operator turns the server-side flag on, every user sees the
-  // feature without having to opt in. Users who explicitly toggle this
-  // OFF will have `false` written to localStorage + their server
-  // preferences, and that explicit choice is honored on subsequent
-  // sessions (readFromLocalStorage merges over the defaults).
-  {
-    id: "shipLoop",
-    label: "Agentic SDLC",
-    description: "Live dashboard for agent-driven Epic/PR/deploy flow",
-    detail:
-      "Onboard a GitHub repo and watch agents take an Epic through sub-tasks, PRs, HITL reviews, and sandbox deploys in real time. Requires SHIP_LOOP_ENABLED=true on the server.",
-    icon: "Ship",
-    category: "developer",
-    defaultValue: true,
-    preferencesKey: "ship_loop_enabled",
-    docsUrl: "/docs/features/ship-loop",
-  },
+  // Note: the per-user `shipLoop` visibility flag was retired. Agentic SDLC
+  // is now an Agentic App; visibility is controlled by SHIP_LOOP_ENABLED
+  // (server env) and the standard Agentic Apps install/enabled gates.
   // Companion chat bubble. The server env remains the source of truth;
   // this preference only controls the Settings display/default.
   {

@@ -2,9 +2,9 @@
  * Auth gate for Agentic SDLC user-facing API routes.
  *
  * Production posture (per contracts/http-api.md):
- *   401 if no session, 404 if feature disabled, 404 if user-level
- *   shipLoop preference is off, 404 if the caller cannot see the
- *   target repo via their GitHub OAuth token.
+ *   401 if no session, 404 if feature disabled (SHIP_LOOP_ENABLED=false),
+ *   404 if the caller cannot see the target repo via their GitHub OAuth
+ *   token.
  *
  * Mock-testing escape hatch:
  *   When the operator sets `SHIP_LOOP_ALLOW_NO_AUTH=true` (typically

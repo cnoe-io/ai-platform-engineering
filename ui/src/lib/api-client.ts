@@ -23,6 +23,20 @@ import type {
   UserPublicInfo,
 } from '@/types/mongodb';
 
+export interface AgenticAppListItem {
+  appId: string;
+  packageId?: string;
+  displayName: string;
+  description: string;
+  href: string;
+  canLaunch: boolean;
+  blockedReasons?: string[];
+}
+
+export interface AgenticAppsListResponse {
+  items: AgenticAppListItem[];
+}
+
 class APIClient {
   private baseURL: string;
 
@@ -402,6 +416,23 @@ class APIClient {
       method: 'PATCH',
       body: JSON.stringify(defaults),
     });
+  }
+
+  async getAgenticApps(): Promise<AgenticAppsListResponse> {
+    // Note: /api/agentic-apps returns { items: [...] } directly (no
+    // success/data envelope), so we cannot use this.request() which expects
+    // the wrapped ApiResponse shape. Fetch and parse manually instead.
+    const url = `${this.baseURL}/api/agentic-apps`;
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Client-Source': 'caipe-ui',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return (await response.json()) as AgenticAppsListResponse;
   }
 }
 

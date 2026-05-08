@@ -3,7 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 /**
- * Page-level shell for `/agentic-sdlc/{owner}/{repo}/epics/{epicId}`.
+ * Page-level shell for `/apps/agentic-sdlc/{owner}/{repo}/epics/{epicId}`.
  *
  * Owns the data hook (`useEpicShipState`), exposes a tab switcher
  * for Pipeline / Kanban / Timeline, and renders a header strip with

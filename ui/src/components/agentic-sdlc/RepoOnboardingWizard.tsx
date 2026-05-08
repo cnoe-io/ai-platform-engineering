@@ -268,10 +268,10 @@ export function RepoOnboardingWizard() {
                 <ExternalLink className="h-3 w-3" aria-hidden />
               </a>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <Link className="underline" href="/agentic-sdlc?tab=repos">
+                <Link className="underline" href="/apps/agentic-sdlc?tab=repos">
                   Back to repos
                 </Link>
-                <Link className="underline" href="/agentic-sdlc?tab=metrics">
+                <Link className="underline" href="/apps/agentic-sdlc?tab=metrics">
                   Metrics
                 </Link>
               </div>

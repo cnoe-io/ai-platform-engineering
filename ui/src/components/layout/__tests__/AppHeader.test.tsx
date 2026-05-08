@@ -89,15 +89,6 @@ jest.mock('@/hooks/use-rag-health', () => ({
   }),
 }))
 
-// Mock Agentic SDLC feature gate — enabled per test when needed
-let mockAgenticSdlcEnabled = false
-jest.mock('@/hooks/use-agentic-sdlc-feature', () => ({
-  useAgenticSdlcFeature: () => ({
-    enabled: mockAgenticSdlcEnabled,
-    disabledReason: mockAgenticSdlcEnabled ? null : "user-flag-off",
-  }),
-}))
-
 // Mock version hook
 jest.mock('@/hooks/use-version', () => ({
   useVersion: () => ({
@@ -209,7 +200,6 @@ describe('AppHeader — nav tabs', () => {
     mockCanViewAdmin = false
     mockCanAccessDynamicAgents = false
     mockRagEnabled = false
-    mockAgenticSdlcEnabled = false
     mockReportProblemEnabled = false
     mockDynamicAgentsEnabled = false
     mockCaipeStatus = 'connected'
@@ -305,33 +295,13 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
     })
 
-    it('shows Agentic SDLC as the product-level tab when Agentic SDLC is enabled', () => {
-      mockAgenticSdlcEnabled = true
+    it('does NOT render an Agentic SDLC top-nav pill (it is now under the Apps Hub)', () => {
       render(<AppHeader />)
-      expect(screen.getByTestId('link-/agentic-sdlc')).toHaveTextContent('Agentic SDLC')
-      expect(screen.queryByText(/^Agentic SDLC$/)).not.toBeInTheDocument()
-    })
-
-    it('orders Agentic SDLC after Agents and before Admin', () => {
-      mockAgenticSdlcEnabled = true
-      mockCanAccessDynamicAgents = true
-      mockDynamicAgentsEnabled = true
-      mockCanViewAdmin = true
-      mockStorageMode = 'mongodb'
-      render(<AppHeader />)
-
-      const agents = screen.getByTestId('link-/dynamic-agents')
-      const agenticSdlc = screen.getByTestId('link-/agentic-sdlc')
-      const admin = screen.getByTestId('link-/admin')
-
-      expect(
-        agents.compareDocumentPosition(agenticSdlc) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
-      expect(
-        agenticSdlc.compareDocumentPosition(admin) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
+      expect(screen.queryByTestId('link-/agentic-sdlc')).not.toBeInTheDocument()
+      // The pill text "Agentic SDLC" must not appear in the nav bar at all.
+      // Apps tab text should still be present.
+      const navPills = screen.queryAllByText('Agentic SDLC')
+      expect(navPills).toHaveLength(0)
     })
   })
 

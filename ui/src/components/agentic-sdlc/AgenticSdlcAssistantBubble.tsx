@@ -51,6 +51,7 @@ export function buildAgenticSdlcPageContext(
   pathname: string,
 ): AgenticSdlcPageContext {
   const [owner, repo, segment, epicId] = pathname
+    .replace(/^\/apps\/agentic-sdlc\/?/, "")
     .replace(/^\/agentic-sdlc\/?/, "")
     .split("/")
     .filter(Boolean)
@@ -85,7 +86,7 @@ export function buildAgenticSdlcPageContext(
 }
 
 export function AgenticSdlcAssistantBubble() {
-  const pathname = usePathname() ?? "/agentic-sdlc";
+  const pathname = usePathname() ?? "/apps/agentic-sdlc";
   const { enabled, assistantEnabled } = useAgenticSdlcFeature();
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
   const dynamicAgentsUrl = getConfig("dynamicAgentsUrl");

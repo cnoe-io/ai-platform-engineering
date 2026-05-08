@@ -57,7 +57,7 @@ describe("RepoGrid", () => {
     expect(screen.getByText(/sandbox: sandbox-eks/i)).toBeInTheDocument();
     expect(screen.getByText("agentic-demo").closest("a")).toHaveAttribute(
       "href",
-      "/agentic-sdlc/demoorg/agentic-demo",
+      "/apps/agentic-sdlc/demoorg/agentic-demo",
     );
   });
 
@@ -248,7 +248,7 @@ describe("RepoEpicList", () => {
     );
     expect(screen.getByText("Add OAuth device flow").closest("a")).toHaveAttribute(
       "href",
-      "/agentic-sdlc/demoorg/agentic-demo/epics/I_42",
+      "/apps/agentic-sdlc/demoorg/agentic-demo/epics/I_42",
     );
     expect(screen.getByText(/5 sub-tasks · 3 PRs · 1 deploys/)).toBeInTheDocument();
     // Two "Needs human" strings exist (filter checkbox label + the

@@ -136,6 +136,11 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /**
+   * Whether the host shell exposes the Agentic Apps Hub.
+   * Controlled by AGENTIC_APPS_INSTALL_ENABLED and does not expose app origins/tokens.
+   */
+  agenticAppsEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -169,13 +174,14 @@ export interface Config {
   oidcRequiredGroup: string;
   /**
    * Whether the Agentic SDLC UI is available.
-   * When false (default), the entire feature is gated off — nav tab hidden,
-   * `/api/agentic-sdlc/**` routes return 404, and `/agentic-sdlc` pages call
-   * `notFound()`. Set SHIP_LOOP_ENABLED=true to enable.
+   * When false (default), the entire feature is gated off — `/api/agentic-sdlc/**`
+   * routes return 404, the `/apps/agentic-sdlc` route returns 404, and the
+   * Agentic SDLC manifest is hidden from the Agentic Apps registry. Set
+   * SHIP_LOOP_ENABLED=true to enable.
    *
-   * This is the **server-side** half of the two-layer toggle. A per-user
-   * feature flag (`shipLoop` in `feature-flag-store.ts`) provides the second
-   * layer of gating; both must be true for the feature to render.
+   * Agentic SDLC is exposed as an Agentic App (in-process runtime), so the
+   * additional `agenticAppsEnabled` install gate and per-app RBAC also apply.
+   * The retired `shipLoop` per-user feature flag is no longer consulted.
    */
   shipLoopEnabled: boolean;
   /**
@@ -245,6 +251,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  agenticAppsEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -344,6 +351,7 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const agenticAppsEnabled = process.env.AGENTIC_APPS_INSTALL_ENABLED === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -405,6 +413,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    agenticAppsEnabled,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

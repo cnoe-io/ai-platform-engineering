@@ -25,17 +25,17 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-6 p-6 md:p-8 lg:px-12">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Link href="/agentic-sdlc" className="inline-flex items-center gap-1 hover:text-foreground">
+        <Link href="/apps/agentic-sdlc" className="inline-flex items-center gap-1 hover:text-foreground">
           <ArrowLeft className="h-3 w-3" aria-hidden />
           Repos
         </Link>
         <span>/</span>
         <span className="text-foreground">{fullName}</span>
         <span className="ml-auto inline-flex gap-3">
-          <Link href="/agentic-sdlc?tab=metrics" className="hover:text-foreground">
+          <Link href="/apps/agentic-sdlc?tab=metrics" className="hover:text-foreground">
             Metrics
           </Link>
-          <Link href="/agentic-sdlc?tab=settings" className="hover:text-foreground">
+          <Link href="/apps/agentic-sdlc?tab=settings" className="hover:text-foreground">
             Settings
           </Link>
         </span>

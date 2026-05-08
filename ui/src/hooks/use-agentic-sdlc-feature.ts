@@ -1,36 +1,28 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
- * Two-layer gating hook for the Agentic SDLC feature.
+ * Server-config gate for the Agentic SDLC feature.
  *
- * Both layers must be on for `enabled` to be true:
- *   1. Server-side env: `Config.shipLoopEnabled` (SHIP_LOOP_ENABLED=true)
- *   2. Per-user feature flag: `shipLoop` in feature-flag-store, default
- *      `true` so the feature shows up automatically once the operator
- *      turns the server-side flag on. Users who explicitly opt out via
- *      the Settings panel write `false` to localStorage + server
- *      preferences and that choice is preserved on subsequent visits.
- *
- * The assistant bubble is controlled by the server env
- * (`shipLoopAssistantEnabled`) once the parent feature is visible.
+ * Visibility used to be a two-layer gate (server env + per-user flag).
+ * Agentic SDLC is now an Agentic App, so install/enabled state is owned
+ * by the Agentic Apps registry + RBAC. This hook only reflects the
+ * server env layer (`SHIP_LOOP_ENABLED`) plus the assistant sub-feature
+ * (`SHIP_LOOP_ASSISTANT_ENABLED`).
  *
  * Spec: docs/docs/specs/2026-05-05-agentic-sdlc-ship-loop-ui/spec.md
  */
 
-import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { config } from "@/lib/config";
 
-export type AgenticSdlcDisabledReason =
-  | null
-  | "server-disabled"
-  | "user-flag-off";
+export type AgenticSdlcDisabledReason = null | "server-disabled";
 
 export interface UseAgenticSdlcFeatureResult {
-  /** True iff both server config AND per-user flag are on. */
+  /** True iff the server-side env flag is on. */
   enabled: boolean;
   /**
-   * True iff `enabled` is true AND the assistant sub-feature is also on
-   * at both layers.
+   * True iff `enabled` AND the assistant sub-feature env flag is on.
    */
   assistantEnabled: boolean;
   /** Why the feature is disabled (null when enabled). */
@@ -38,20 +30,14 @@ export interface UseAgenticSdlcFeatureResult {
 }
 
 export function useAgenticSdlcFeature(): UseAgenticSdlcFeatureResult {
-  const userAgenticSdlc = useFeatureFlagStore((s) =>
-    s.flags.shipLoop ?? false,
-  );
   const serverEnabled = config.shipLoopEnabled;
   const serverAssistantEnabled = config.shipLoopAssistantEnabled;
 
-  const enabled = serverEnabled && userAgenticSdlc;
+  const enabled = serverEnabled;
   const assistantEnabled = enabled && serverAssistantEnabled;
-
   const disabledReason: AgenticSdlcDisabledReason = !serverEnabled
     ? "server-disabled"
-    : !userAgenticSdlc
-      ? "user-flag-off"
-      : null;
+    : null;
 
   return { enabled, assistantEnabled, disabledReason };
 }

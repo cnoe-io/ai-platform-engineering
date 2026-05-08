@@ -269,7 +269,7 @@ export function RepoGrid({ className }: { className?: string }) {
 }
 
 function repoDetailHref(owner: string, repo: string): string {
-  return `/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  return `/apps/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 }
 
 function isInteractiveClick(target: EventTarget | null): boolean {

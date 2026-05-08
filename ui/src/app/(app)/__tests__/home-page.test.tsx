@@ -76,6 +76,8 @@ jest.mock('lucide-react', () => ({
   TrendingUp: (props: any) => <svg data-testid="icon-trending-up" {...props} />,
   Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
   Settings: (props: any) => <svg data-testid="icon-settings" {...props} />,
+  Star: (props: any) => <svg data-testid="icon-star" {...props} />,
+  ArrowUpRight: (props: any) => <svg data-testid="icon-arrow-up-right" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -89,9 +91,11 @@ jest.mock('@/lib/storage-config', () => ({
 }))
 
 let mockRagEnabled = true
+let mockAgenticAppsEnabled = false
 jest.mock('@/lib/config', () => ({
   config: {
     get ragEnabled() { return mockRagEnabled },
+    get agenticAppsEnabled() { return mockAgenticAppsEnabled },
     showPoweredBy: true,
   },
 }))
@@ -109,11 +113,15 @@ jest.mock('@/store/chat-store', () => ({
 const mockGetConversations = jest.fn()
 const mockGetSharedConversations = jest.fn()
 const mockGetUserStats = jest.fn()
+const mockGetSettings = jest.fn()
+const mockGetAgenticApps = jest.fn()
 jest.mock('@/lib/api-client', () => ({
   apiClient: {
     getConversations: (...args: any[]) => mockGetConversations(...args),
     getSharedConversations: (...args: any[]) => mockGetSharedConversations(...args),
     getUserStats: (...args: any[]) => mockGetUserStats(...args),
+    getSettings: (...args: any[]) => mockGetSettings(...args),
+    getAgenticApps: (...args: any[]) => mockGetAgenticApps(...args),
   },
 }))
 
@@ -190,6 +198,7 @@ describe('HomePage', () => {
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
     mockStorageMode = 'mongodb'
     mockRagEnabled = true
+    mockAgenticAppsEnabled = false
     mockLocalConversations.length = 0
   })
 
@@ -259,6 +268,57 @@ describe('HomePage', () => {
       setupMockAPIs()
       render(<HomePage />)
       expect(screen.queryByTestId('capability-card-knowledge-bases')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Pinned apps', () => {
+    it('renders favorite agentic apps on the home page', async () => {
+      mockAgenticAppsEnabled = true
+      mockGetSettings.mockResolvedValue({
+        preferences: { favorite_agentic_apps: ['finops'] },
+      })
+      mockGetAgenticApps.mockResolvedValue({
+        items: [
+          {
+            appId: 'finops',
+            displayName: 'FinOps Dashboard',
+            description: 'Cloud spend insights.',
+            href: '/apps/finops',
+            canLaunch: true,
+            blockedReasons: [],
+          },
+        ],
+      })
+      setupMockAPIs()
+
+      render(<HomePage />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pinned-agentic-apps')).toBeInTheDocument()
+        expect(screen.getByRole('link', { name: /open finops dashboard/i })).toHaveAttribute(
+          'href',
+          '/apps/finops',
+        )
+      })
+    })
+
+    it('keeps the section visible with an empty state when no apps are pinned', async () => {
+      mockAgenticAppsEnabled = true
+      mockGetSettings.mockResolvedValue({
+        preferences: { favorite_agentic_apps: [] },
+      })
+      mockGetAgenticApps.mockResolvedValue({ items: [] })
+      setupMockAPIs()
+
+      render(<HomePage />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('pinned-agentic-apps-empty')).toBeInTheDocument()
+      })
+      expect(screen.getByRole('link', { name: /browse apps hub/i })).toHaveAttribute(
+        'href',
+        '/apps',
+      )
     })
   })
 

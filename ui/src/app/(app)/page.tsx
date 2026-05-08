@@ -9,7 +9,9 @@ import { CapabilityCards } from "@/components/home/CapabilityCards";
 import { RecentChats } from "@/components/home/RecentChats";
 import { SharedConversations } from "@/components/home/SharedConversations";
 import { InsightsWidget } from "@/components/home/InsightsWidget";
+import { PinnedAgenticApps } from "@/components/home/PinnedAgenticApps";
 import { apiClient } from "@/lib/api-client";
+import type { AgenticAppListItem } from "@/lib/api-client";
 import { config } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
@@ -36,6 +38,8 @@ export default function HomePage() {
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingShared, setLoadingShared] = useState(true);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [pinnedApps, setPinnedApps] = useState<AgenticAppListItem[]>([]);
+  const [loadingPinnedApps, setLoadingPinnedApps] = useState(true);
 
   const storageMode = getStorageMode();
   const isMongoMode = storageMode === "mongodb";
@@ -131,6 +135,53 @@ export default function HomePage() {
     loadShared();
   }, [isAuthenticated, isMongoMode]);
 
+  // Load pinned agentic apps (MongoDB only, depends on user_settings + agentic apps gateway)
+  useEffect(() => {
+    if (!isAuthenticated || !isMongoMode || !config.agenticAppsEnabled) {
+      setLoadingPinnedApps(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPinned = async () => {
+      setLoadingPinnedApps(true);
+      try {
+        const [settings, apps] = await Promise.all([
+          apiClient.getSettings(),
+          apiClient.getAgenticApps(),
+        ]);
+        if (cancelled) return;
+        const favoriteIds = Array.isArray(settings.preferences?.favorite_agentic_apps)
+          ? (settings.preferences.favorite_agentic_apps as string[])
+          : [];
+        const favoriteSet = new Set(favoriteIds);
+        const launchable = apps.items.filter(
+          (item) => favoriteSet.has(item.appId) && item.canLaunch,
+        );
+        const ordered = favoriteIds
+          .map((id) => launchable.find((item) => item.appId === id))
+          .filter((item): item is AgenticAppListItem => Boolean(item));
+        setPinnedApps(ordered);
+      } catch (err) {
+        console.error("[HomePage] Failed to load pinned agentic apps:", err);
+        if (!cancelled) {
+          setPinnedApps([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingPinnedApps(false);
+        }
+      }
+    };
+
+    loadPinned();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isMongoMode]);
+
   // Load user stats (MongoDB only)
   useEffect(() => {
     if (!isAuthenticated || !isMongoMode) {
@@ -160,6 +211,10 @@ export default function HomePage() {
           <WelcomeBanner userName={session?.user?.name} />
 
           <CapabilityCards ragEnabled={config.ragEnabled} />
+
+          {config.agenticAppsEnabled && isMongoMode && (
+            <PinnedAgenticApps items={pinnedApps} loading={loadingPinnedApps} />
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">

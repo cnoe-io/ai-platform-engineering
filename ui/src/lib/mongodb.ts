@@ -266,6 +266,17 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
+
+    // Agentic Apps marketplace
+    safeCreateIndex(db, 'agentic_app_packages', { packageId: 1 }, { unique: true }),
+    safeCreateIndex(db, 'agentic_app_packages', { 'manifest.id': 1 }),
+    safeCreateIndex(db, 'agentic_app_packages', { 'catalog.categories': 1 }),
+    safeCreateIndex(db, 'agentic_app_packages', { 'catalog.capabilities': 1 }),
+    safeCreateIndex(db, 'agentic_app_installations', { appId: 1 }, { unique: true }),
+    safeCreateIndex(db, 'agentic_app_installations', { enabled: 1 }),
+    safeCreateIndex(db, 'agentic_app_installations', { isDefaultLanding: 1 }),
+    safeCreateIndex(db, 'agentic_app_events', { appId: 1, createdAt: -1 }),
+    safeCreateIndex(db, 'agentic_app_events', { actorEmail: 1, createdAt: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
