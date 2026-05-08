@@ -1,3 +1,8 @@
+<!-- Generate implementation plan from a spec -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/plan.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Generate implementation plan from a spec
 handoffs: 

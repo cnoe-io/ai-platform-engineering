@@ -1,3 +1,8 @@
+<!-- Create or amend the project constitution -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/constitution.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Create or amend the project constitution
 handoffs:
@@ -19,11 +24,11 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-The constitution is the governing document for the project. It defines core principles, development workflow, and governance rules that all agents and engineers must follow. It lives at `.specify/CONSTITUTION.md` and is symlinked from `.specify/memory/constitution.md`.
+The constitution is the governing document for the project. It defines core principles, development workflow, and governance rules that all agents and engineers must follow. It lives at `docs/plans/CONSTITUTION.md` and is symlinked from `.specify/memory/constitution.md`.
 
 ### Step 1: Determine Mode
 
-Check whether `.specify/CONSTITUTION.md` exists:
+Check whether `docs/plans/CONSTITUTION.md` exists:
 
 - **If it does NOT exist** → **Create mode** (go to Step 2)
 - **If it exists** → **Amend mode** (go to Step 3)
@@ -39,7 +44,7 @@ If the user input is empty:
 
 2. **Gather project context**:
    - Read `README.md` (if it exists) for project purpose and scope
-   - Read `.specify/ARCHITECTURE.md` (if it exists) for technical context
+   - Read `docs/plans/ARCHITECTURE.md` (if it exists) for technical context
    - Use the user's input for principles and values
 
 3. **Fill the template** by replacing all `[PLACEHOLDER]` tokens with concrete content derived from the project context and user input:
@@ -57,13 +62,13 @@ If the user input is empty:
    - Governance section defines how amendments work
    - Version and dates are set
 
-5. **Write the constitution** to `.specify/CONSTITUTION.md`.
+5. **Write the constitution** to `docs/plans/CONSTITUTION.md`.
 
-6. **Ensure the symlink** exists at `.specify/memory/constitution.md` pointing to `../CONSTITUTION.md`:
+6. **Ensure the symlink** exists at `.specify/memory/constitution.md` pointing to `../../docs/plans/CONSTITUTION.md`:
 
    ```sh
    mkdir -p .specify/memory
-   ln -sf ../CONSTITUTION.md .specify/memory/constitution.md
+   ln -sf ../../docs/plans/CONSTITUTION.md .specify/memory/constitution.md
    ```
 
    Verify the symlink resolves correctly.
@@ -72,7 +77,7 @@ If the user input is empty:
 
 ### Step 3: Amend Existing Constitution
 
-1. **Load the current constitution** from `.specify/CONSTITUTION.md`.
+1. **Load the current constitution** from `docs/plans/CONSTITUTION.md`.
 
 2. **Parse the user's amendment request** from the input. Identify:
    - Which section(s) the change affects
@@ -101,7 +106,7 @@ If the user input is empty:
    **Rationale**: [from user input]
    ```
 
-6. **Write the updated constitution** to `.specify/CONSTITUTION.md`.
+6. **Write the updated constitution** to `docs/plans/CONSTITUTION.md`.
 
 7. Go to Step 4.
 
@@ -110,11 +115,15 @@ If the user input is empty:
 Report the result with:
 
 - Mode used (create or amend)
-- Constitution file path (`.specify/CONSTITUTION.md`)
+- Constitution file path (`docs/plans/CONSTITUTION.md`)
 - Symlink status (`.specify/memory/constitution.md` → valid/invalid)
 - Version number
 - Summary of principles defined
 - Next steps: suggest `/speckit.specify` to create the first feature spec if this is a new constitution
+
+## References
+
+- [A Spec for Specs](https://cisco.sharepoint.com/:w:/r/sites/outshift-Engineering/Shared%20Documents/Explorations-FY26/Agentic%20SW%20Development/A%20Spec%20for%20specs.docx?d=wf290246ad3904f2ea51e66898052cfd2&csf=1&web=1&e=E5T3k8) — Outshift Engineering guidance on specification standards and agentic software development
 
 ## Key Rules
 
@@ -122,4 +131,4 @@ Report the result with:
 - Never remove the Governance section; it defines how the constitution itself can change
 - Keep principles concise and actionable; agents must be able to verify compliance
 - Use numbered Roman numerals (I, II, III...) for principle headings to match convention
-- The `.specify/memory/constitution.md` symlink must always point to `../CONSTITUTION.md`
+- The `.specify/memory/constitution.md` symlink must always point to `docs/plans/CONSTITUTION.md`

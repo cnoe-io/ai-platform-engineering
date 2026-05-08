@@ -1,3 +1,8 @@
+<!-- Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation. -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/analyze.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation.
 ---

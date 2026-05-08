@@ -1,3 +1,8 @@
+<!-- Execute tasks to produce source code and tests -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/implement.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Execute tasks to produce source code and tests
 scripts:

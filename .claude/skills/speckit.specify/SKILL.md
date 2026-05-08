@@ -1,3 +1,8 @@
+<!-- Create or update a feature spec from a description -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/specify.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Create or update a feature spec from a description
 handoffs: 
@@ -49,7 +54,7 @@ Given that feature description, do this:
    - Always include the JSON flag (`--json` for Bash, `-Json` for PowerShell) so the output can be parsed reliably
    - You must only ever run this script once per feature
    - The JSON is provided in the terminal as output - always refer to it to get the actual content you're looking for
-   - The JSON output will contain BRANCH_NAME and SPEC_FILE paths (e.g. `2026-04-28-user-auth`)
+   - The JSON output will contain BRANCH_NAME and SPEC_FILE paths (e.g. `2026-05-07-user-auth`)
    - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot")
 
 3. Load `templates/spec-template.md` to understand required sections.
