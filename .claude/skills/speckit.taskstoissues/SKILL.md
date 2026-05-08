@@ -1,3 +1,8 @@
+<!-- Convert existing tasks into actionable, dependency-ordered GitHub issues for the feature based on available design artifacts. -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/taskstoissues.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Convert existing tasks into actionable, dependency-ordered GitHub issues for the feature based on available design artifacts.
 tools: ['github/github-mcp-server/issue_write']

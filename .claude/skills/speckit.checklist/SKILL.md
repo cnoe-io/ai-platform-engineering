@@ -1,3 +1,8 @@
+<!-- Generate a custom checklist for the current feature based on user requirements. -->
+<!-- AUTO-GENERATED — DO NOT EDIT -->
+<!-- Source: .specify/templates/commands/checklist.md -->
+<!-- Regenerate: make generate-agent-files -->
+
 ---
 description: Generate a custom checklist for the current feature based on user requirements.
 ---
