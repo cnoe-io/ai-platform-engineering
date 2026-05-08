@@ -28,14 +28,15 @@ from autonomous_agents.scheduler import (
     register_task,
     unregister_task,
 )
+from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.chat_history import _conversation_id_for_task
+from autonomous_agents.services.dynamic_agents_client import preflight_dynamic_agent
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
     TaskStore,
 )
-from autonomous_agents.services.dynamic_agents_client import preflight_dynamic_agent
-from autonomous_agents.services.preflight import Acknowledgement, preflight
+from autonomous_agents.services.supervisor_preflight import preflight
 
 logger = logging.getLogger("autonomous_agents")
 

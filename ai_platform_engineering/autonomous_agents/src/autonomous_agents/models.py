@@ -2,12 +2,9 @@
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-if TYPE_CHECKING:  # pragma: no cover - import-cycle break
-    from autonomous_agents.services.preflight import Acknowledgement
 
 
 class TriggerType(str, Enum):
@@ -195,11 +192,9 @@ class TaskDefinition(BaseModel):
     # ------------------------------------------------------------------
     # Server-managed: the create/update routes scrub any client-supplied
     # value and overwrite this field with the result of the actual
-    # preflight call to the supervisor. We declare the field as ``Any``
-    # rather than typing it as ``Acknowledgement`` to avoid a circular
-    # import (``services.preflight`` imports ``Settings``, which imports
-    # this module). The TYPE_CHECKING import above gives editors the
-    # real type for hover/auto-complete without paying the runtime cost.
+    # preflight call to the target service. We declare the field as ``Any``
+    # rather than typing it as ``Acknowledgement`` so persisted plain dicts
+    # loaded from MongoDB remain valid without a conversion step.
     last_ack: Any | None = Field(
         default=None,
         description=(

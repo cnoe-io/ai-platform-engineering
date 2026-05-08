@@ -20,11 +20,13 @@ LOG_LEVELS = {
 
 
 def get_log_level() -> int:
+    """Get log level from LOG_LEVEL env var, defaults to INFO."""
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     return LOG_LEVELS.get(level_name, logging.INFO)
 
 
 class TaskContextFilter(logging.Filter):
+    """Logging filter that adds task_id to log records."""
     def filter(self, record: logging.LogRecord) -> bool:
         record.task_id = task_id_var.get()
         return True

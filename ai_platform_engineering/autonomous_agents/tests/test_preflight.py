@@ -1,7 +1,7 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for ``services.preflight`` (spec #099 FR-001..005).
+"""Unit tests for ``services.supervisor_preflight`` (spec #099 FR-001..005).
 
 Pre-flight is the *no-raise* contract: every failure mode the network or
 supervisor can produce MUST round-trip back to the caller as an
@@ -11,7 +11,7 @@ an exception. The tests below exercise each branch.
 Why this is a separate test module from ``test_a2a_client``: preflight
 deliberately does NOT use the circuit breaker or tenacity retry stack
 the run-time ``invoke_agent`` call uses (rationale in
-``services/preflight.py`` module docstring), so the test surface is
+``services/supervisor_preflight.py`` module docstring), so the test surface is
 materially different and shares no fixtures with ``test_a2a_client``.
 """
 
@@ -24,14 +24,13 @@ import httpx
 import pytest
 
 from autonomous_agents.config import Settings, get_settings
-from autonomous_agents.services import preflight as pf_mod
-from autonomous_agents.services.preflight import (
+from autonomous_agents.services import supervisor_preflight as pf_mod
+from autonomous_agents.services.acknowledgement import Acknowledgement
+from autonomous_agents.services.supervisor_preflight import (
     PREFLIGHT_TIMEOUT_SECONDS_DEFAULT,
-    Acknowledgement,
     _extract_ack_payload,
     preflight,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
