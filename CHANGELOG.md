@@ -1,3 +1,14 @@
+## 0.4.10 (2026-05-08)
+
+### Feat
+
+- **overthink**: add OVERTHINK_BOILERPLATE as server-side template variable (#1364)
+
+### Fix
+
+- **overthink**: move boilerplate to slack-bot, inject via client_context (#1369)
+- **docs**: migrate onBrokenMarkdownLinks to markdown.hooks (#1362)
+
 ## 0.4.9 (2026-05-07)
 
 ### Feat
