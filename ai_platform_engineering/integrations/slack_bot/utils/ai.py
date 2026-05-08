@@ -69,6 +69,15 @@ _OVERTHINK_KEEPALIVE_MESSAGES = [
 _STATUS_OVERTHINK_WRITE_TODOS = "Checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
+OVERTHINK_BOILERPLATE = (
+    "If the message is only asking a human to take an action (review, approve, intervene)"
+    " — not directed at you — output ONLY: [DEFER]\n"
+    "If the message is asking you to take an action, do it directly.\n"
+    "Otherwise, search your knowledge base before responding."
+    " If you cannot find relevant sources, output ONLY: [LOW_CONFIDENCE]\n"
+    "Always end with a Sources section linking what you found."
+)
+
 
 def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
   """Parse the todo list from write_todos tool arguments.
