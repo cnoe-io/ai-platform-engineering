@@ -534,8 +534,6 @@ def stream_response(
     )
   else:
     effective_message = message_text
-    if overthink_mode and overthink_config.custom_prompt:
-      effective_message = f"{overthink_config.custom_prompt}\n\n{message_text}"
     event_stream = sse_client.stream_chat(
       message=effective_message,
       conversation_id=conversation_id,
