@@ -18,6 +18,7 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { apiClient } from "@/lib/api-client";
+import { resolveAgenticAppLaunchUrl } from "@/lib/agentic-apps/launch-url";
 import type { AgenticAppManifest } from "@/types/agentic-app";
 
 interface AgenticAppsHubProps {
@@ -176,7 +177,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                       </IconTooltip>
                       <a
                         className="group/action relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
-                        href={app.runtime.mountPath}
+                        href={resolveAgenticAppLaunchUrl(app)}
                         aria-label={`Open ${app.displayName}`}
                         title={`Open ${app.displayName}`}
                       >

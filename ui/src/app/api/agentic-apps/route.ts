@@ -8,6 +8,7 @@ import {
   evaluateAppAccess,
 } from "@/lib/agentic-apps/access";
 import { requireAgenticAppsInstallEnabled } from "@/lib/agentic-apps/guard";
+import { resolveAgenticAppLaunchUrl } from "@/lib/agentic-apps/launch-url";
 import { getEnabledAgenticApps } from "@/lib/agentic-apps/registry";
 import {
   listAppInstallations,
@@ -60,7 +61,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           packageId: inst.packageId,
           displayName: manifest.displayName,
           description: manifest.description,
-          href: access.href ?? manifest.runtime.mountPath,
+          href: resolveAgenticAppLaunchUrl(manifest, access.href),
           canLaunch: access.canLaunch,
           blockedReasons: access.blockedReasons,
           surfaces: manifest.surfaces,
@@ -92,7 +93,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         appId: manifest.id,
         displayName: manifest.displayName,
         description: manifest.description,
-        href: manifest.runtime.mountPath,
+        href: resolveAgenticAppLaunchUrl(manifest),
         canLaunch: passes,
         blockedReasons,
         surfaces: manifest.surfaces,

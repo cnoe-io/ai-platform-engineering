@@ -58,6 +58,24 @@ export interface AgenticAppManifest {
     origin?: string;
     mountPath: string;
     assetPrefix?: string;
+    /**
+     * When true, the execution gateway forwards the public mount path to the
+     * upstream (e.g. `/apps/<id>/foo` -> `<origin>/apps/<id>/foo`) instead of
+     * stripping it. Required for apps that use Next.js `basePath` or any
+     * framework that expects to see its own prefix. Default false.
+     */
+    preserveMountPath?: boolean;
+    /**
+     * Visual chrome wrapper:
+     *   - "fullscreen" (default): proxied app owns the entire viewport. Use
+     *     for standalone apps that ship their own header/nav (matches the
+     *     FinOps and Weather samples).
+     *   - "iframe": CAIPE wraps the app in a sandboxed `<iframe>` rendered
+     *     inside the standard CAIPE shell (top header + body). Use for apps
+     *     that want CAIPE chrome above them. Launch URL becomes
+     *     `/apps/embed/<id>` instead of `/apps/<id>`.
+     */
+    chrome?: "fullscreen" | "iframe";
   };
   surfaces: {
     showInHub: boolean;
