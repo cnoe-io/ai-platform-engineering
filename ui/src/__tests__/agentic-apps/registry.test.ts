@@ -14,6 +14,10 @@ describe("agentic app registry", () => {
     delete process.env.AGENTIC_APPS_ENABLED;
     delete process.env.AGENTIC_APP_FINOPS_ORIGIN;
     delete process.env.AGENTIC_APP_FINOPS_MOUNT_PATH;
+    delete process.env.AGENTIC_APP_FINOPS_DISABLED;
+    delete process.env.AGENTIC_APP_WEATHER_ORIGIN;
+    delete process.env.AGENTIC_APP_WEATHER_MOUNT_PATH;
+    delete process.env.AGENTIC_APP_WEATHER_DISABLED;
     delete process.env.SHIP_LOOP_ENABLED;
     delete process.env.NEXT_PUBLIC_SHIP_LOOP_ENABLED;
   });
@@ -22,7 +26,7 @@ describe("agentic app registry", () => {
     process.env = originalEnv;
   });
 
-  it("does not expose FinOps until the host enables it", async () => {
+  it("does not expose any app until the host install toggle is enabled", async () => {
     const { getEnabledAgenticApps } = await import("@/lib/agentic-apps/registry");
 
     expect(getEnabledAgenticApps()).toEqual([]);
@@ -107,5 +111,40 @@ describe("agentic app registry", () => {
     const { getAgenticAppById } = await import("@/lib/agentic-apps/registry");
 
     expect(getAgenticAppById("finops")?.runtime.mountPath).toBe("/apps/finops");
+  });
+
+  it("respects AGENTIC_APP_<ID>_ORIGIN override and trims trailing slashes", async () => {
+    process.env.AGENTIC_APPS_INSTALL_ENABLED = "true";
+    process.env.AGENTIC_APPS_ENABLED = "weather";
+    process.env.AGENTIC_APP_WEATHER_ORIGIN = "http://weather.svc.cluster.local:3020/";
+
+    const { getAgenticAppById } = await import("@/lib/agentic-apps/registry");
+
+    expect(getAgenticAppById("weather")?.runtime.origin).toBe(
+      "http://weather.svc.cluster.local:3020",
+    );
+  });
+
+  it("force-disables an enabled app via AGENTIC_APP_<ID>_DISABLED=true", async () => {
+    process.env.AGENTIC_APPS_INSTALL_ENABLED = "true";
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_DISABLED = "true";
+
+    const { getEnabledAgenticApps, getAgenticAppById } = await import(
+      "@/lib/agentic-apps/registry"
+    );
+
+    expect(getEnabledAgenticApps()).toEqual([]);
+    expect(getAgenticAppById("finops")).toBeNull();
+  });
+
+  it("ignores AGENTIC_APP_<ID>_DISABLED when the value is not exactly 'true'", async () => {
+    process.env.AGENTIC_APPS_INSTALL_ENABLED = "true";
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_DISABLED = "false";
+
+    const { getAgenticAppById } = await import("@/lib/agentic-apps/registry");
+
+    expect(getAgenticAppById("finops")).not.toBeNull();
   });
 });

@@ -1,7 +1,12 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import type { AgenticAppManifest } from "@/types/agentic-app";
-import { FINOPS_APP_ID, FINOPS_MANIFEST, WEATHER_MANIFEST } from "./sample-manifests";
+import {
+  FINOPS_APP_ID,
+  FINOPS_MANIFEST,
+  WEATHER_APP_ID,
+  WEATHER_MANIFEST,
+} from "./sample-manifests";
 
 /**
  * Built-in marketplace rows (metadata + validated manifest shape only).
@@ -38,6 +43,15 @@ export const AGENTIC_SDLC_MANIFEST: AgenticAppManifest = {
 
 export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
   {
+    packageId: AGENTIC_SDLC_APP_ID,
+    source: "builtin" as const,
+    manifest: AGENTIC_SDLC_MANIFEST,
+    catalog: {
+      categories: ["sdlc", "platform"],
+      capabilities: ["spec", "ship-loop"],
+    },
+  },
+  {
     packageId: FINOPS_APP_ID,
     source: "builtin" as const,
     manifest: FINOPS_MANIFEST,
@@ -47,16 +61,7 @@ export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
     },
   },
   {
-    packageId: "agentic-sdlc",
-    source: "builtin" as const,
-    manifest: AGENTIC_SDLC_MANIFEST,
-    catalog: {
-      categories: ["sdlc", "platform"],
-      capabilities: ["spec", "ship-loop"],
-    },
-  },
-  {
-    packageId: "weather",
+    packageId: WEATHER_APP_ID,
     source: "builtin" as const,
     manifest: WEATHER_MANIFEST,
     catalog: {
