@@ -173,6 +173,12 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         if path in self.public_paths:
             return await call_next(request)
 
+        # Pass catalog API key requests through — the FastAPI skill router's
+        # get_catalog_auth dependency validates the key against MongoDB.
+        catalog_key_header = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key")
+        if catalog_key_header in request.headers:
+            return await call_next(request)
+
         # Authenticate the request
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
