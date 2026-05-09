@@ -173,10 +173,10 @@ class OAuth2Middleware(BaseHTTPMiddleware):
         if path in self.public_paths:
             return await call_next(request)
 
-        # Pass catalog API key requests through — the FastAPI skill router's
-        # get_catalog_auth dependency validates the key against MongoDB.
+        # Allow catalog API key on /skills/refresh only (automated rebuild without a browser session).
+        # get_catalog_auth in the FastAPI route validates the key against MongoDB.
         catalog_key_header = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key")
-        if catalog_key_header in request.headers:
+        if path == "/skills/refresh" and catalog_key_header in request.headers:
             return await call_next(request)
 
         # Authenticate the request
