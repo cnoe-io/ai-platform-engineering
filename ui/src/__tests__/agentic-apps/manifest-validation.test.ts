@@ -101,4 +101,48 @@ describe("validateAgenticAppManifest", () => {
     });
     expect(allowed.ok).toBe(true);
   });
+
+  describe("runtime.chrome", () => {
+    it("accepts iframe and fullscreen", () => {
+      const iframe = validateAgenticAppManifest({
+        ...validProxiedManifest,
+        runtime: { ...validProxiedManifest.runtime, chrome: "iframe" },
+      });
+      expect(iframe.ok).toBe(true);
+      if (iframe.ok) {
+        expect(iframe.manifest.runtime.chrome).toBe("iframe");
+      }
+
+      const fullscreen = validateAgenticAppManifest({
+        ...validProxiedManifest,
+        runtime: { ...validProxiedManifest.runtime, chrome: "fullscreen" },
+      });
+      expect(fullscreen.ok).toBe(true);
+      if (fullscreen.ok) {
+        expect(fullscreen.manifest.runtime.chrome).toBe("fullscreen");
+      }
+    });
+
+    it("treats omitted chrome as default (no errors, undefined output)", () => {
+      const result = validateAgenticAppManifest(validProxiedManifest);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.manifest.runtime.chrome).toBeUndefined();
+      }
+    });
+
+    it("rejects invalid chrome values", () => {
+      const result = validateAgenticAppManifest({
+        ...validProxiedManifest,
+        runtime: { ...validProxiedManifest.runtime, chrome: "popup" },
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error("expected failure");
+      }
+      expect(
+        result.errors.some((e) => e.includes('runtime.chrome must be "fullscreen" or "iframe"')),
+      ).toBe(true);
+    });
+  });
 });

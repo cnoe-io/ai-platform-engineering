@@ -122,6 +122,19 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     if (runtimeRaw.assetPrefix !== undefined && typeof runtimeRaw.assetPrefix !== "string") {
       errors.push("runtime.assetPrefix must be a string when present");
     }
+    if (
+      runtimeRaw.preserveMountPath !== undefined &&
+      typeof runtimeRaw.preserveMountPath !== "boolean"
+    ) {
+      errors.push("runtime.preserveMountPath must be a boolean when present");
+    }
+    if (
+      runtimeRaw.chrome !== undefined &&
+      runtimeRaw.chrome !== "fullscreen" &&
+      runtimeRaw.chrome !== "iframe"
+    ) {
+      errors.push('runtime.chrome must be "fullscreen" or "iframe" when present');
+    }
 
     if (
       typeof kind === "string" &&
@@ -138,6 +151,12 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
       }
       if (typeof runtimeRaw.assetPrefix === "string") {
         runtime.assetPrefix = runtimeRaw.assetPrefix;
+      }
+      if (typeof runtimeRaw.preserveMountPath === "boolean") {
+        runtime.preserveMountPath = runtimeRaw.preserveMountPath;
+      }
+      if (runtimeRaw.chrome === "fullscreen" || runtimeRaw.chrome === "iframe") {
+        runtime.chrome = runtimeRaw.chrome;
       }
     }
   }

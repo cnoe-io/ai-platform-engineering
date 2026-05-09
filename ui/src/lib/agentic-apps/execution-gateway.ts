@@ -30,6 +30,16 @@ export function isExecutableProxyRuntimeManifest(manifest: AgenticAppManifest): 
 
 /**
  * Installation may override the manifest-declared origin for same-origin proxy routing.
+ *
+ * Resolution order:
+ *   1. installation.runtimeOriginOverride     (operator-set, per-environment)
+ *   2. manifest.runtime.origin                (declared by the package author)
+ *   3. AGENTIC_APP_<UPPER_ID>_ORIGIN env var  (host config — the same generic
+ *      env convention applied by `withHostConfig` in `registry.ts`).
+ *
+ * The env-var fallback keeps the gateway working without forcing operators to
+ * also seed `runtimeOriginOverride` in Mongo for built-in apps that already
+ * declare their origin via env.
  */
 export function resolveEffectiveRuntimeOrigin(
   installation: AgenticAppInstallationRecord,
@@ -39,8 +49,13 @@ export function resolveEffectiveRuntimeOrigin(
   if (override) {
     return override;
   }
-  const o = manifest.runtime?.origin?.trim();
-  return o || undefined;
+  const declared = manifest.runtime?.origin?.trim();
+  if (declared) {
+    return declared;
+  }
+  const envKey = `AGENTIC_APP_${manifest.id.toUpperCase().replace(/-/g, "_")}_ORIGIN`;
+  const fromEnv = process.env[envKey]?.trim();
+  return fromEnv || undefined;
 }
 
 /** Only http(s) absolute origins may be reached by the execution gateway proxy. */
@@ -59,10 +74,34 @@ export function isExecutableProxiedHttpOrigin(origin: string | undefined): boole
   }
 }
 
-export function buildProxyTargetUrl(origin: string, pathParts: string[], requestUrl: string): string {
+export interface BuildProxyTargetOptions {
+  /**
+   * When true, prepend the public mount path (e.g. `/apps/<id>`) to the
+   * upstream URL so apps that use Next.js `basePath` (or any framework that
+   * expects to see its own prefix) receive the full path. Default `false`
+   * strips the mount path; this matches apps that serve their content at
+   * "/" and don't care about the prefix (the FinOps and Weather samples).
+   */
+  preserveMountPath?: boolean;
+  /** Public mount path; required when `preserveMountPath` is true. */
+  mountPath?: string;
+}
+
+export function buildProxyTargetUrl(
+  origin: string,
+  pathParts: string[],
+  requestUrl: string,
+  options: BuildProxyTargetOptions = {},
+): string {
   const target = new URL(origin);
   const encodedPath = pathParts.map((part) => encodeURIComponent(part)).join("/");
-  target.pathname = encodedPath ? `/${encodedPath}` : "/";
+  const suffix = encodedPath ? `/${encodedPath}` : "/";
+  if (options.preserveMountPath && options.mountPath) {
+    const normalizedMount = options.mountPath.replace(/\/+$/, "");
+    target.pathname = `${normalizedMount}${encodedPath ? suffix : ""}` || "/";
+  } else {
+    target.pathname = suffix;
+  }
   target.search = new URL(requestUrl).search;
   return target.toString();
 }

@@ -162,7 +162,10 @@ async function proxyAgenticAppRequest(
     return Response.json({ error: "unsupported_runtime" }, { status: 501 });
   }
 
-  const targetUrl = buildProxyTargetUrl(origin!, params.path ?? [], request.url);
+  const targetUrl = buildProxyTargetUrl(origin!, params.path ?? [], request.url, {
+    preserveMountPath: pkg.manifest.runtime.preserveMountPath === true,
+    mountPath: pkg.manifest.runtime.mountPath,
+  });
 
   // Buffer the request body for body-bearing methods so the upstream `fetch`
   // gets a fully-materialised payload (some Node fetch implementations do not
