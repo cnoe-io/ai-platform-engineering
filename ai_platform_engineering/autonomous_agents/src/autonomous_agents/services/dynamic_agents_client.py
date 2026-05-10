@@ -36,7 +36,7 @@ import httpx
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.services.a2a_client import build_prompt_with_routing
-from autonomous_agents.services.preflight import Acknowledgement
+from autonomous_agents.services.acknowledgement import Acknowledgement
 
 logger = logging.getLogger("autonomous_agents")
 
@@ -243,7 +243,7 @@ async def preflight_dynamic_agent(
 ) -> Acknowledgement:
     """Probe the dynamic-agents service to verify ``agent_id`` exists.
 
-    Mirrors ``services.preflight.preflight`` for the dynamic-agent
+    Mirrors ``services.supervisor_preflight.preflight`` for the dynamic-agent
     routing path so the UI's "Ack" badge means the same thing
     regardless of which routing path a task uses.
 

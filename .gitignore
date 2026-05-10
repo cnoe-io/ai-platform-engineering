@@ -299,3 +299,8 @@ PR_BODY.md
 PR_BODY.txt
 .pr-body.md
 COMMIT_BODY.md
+
+# Ngrok config (local-only tunnel for receiving Webex / GitHub webhooks during dev).
+ngrok.yml
+
+nginx.ngrok.conf

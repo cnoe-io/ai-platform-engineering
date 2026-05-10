@@ -35,40 +35,29 @@ from autonomous_agents.services.webhook_adapters import load_adapters
 
 
 def fatal_exit(message: str, exit_code: int = 1) -> None:
-    """Log a fatal error and terminate the process with ``exit_code``.
+    """Logs a critical error and terminate the process with exit_code.
 
-    Mirrors the helper in ``dynamic_agents/main.py``. We SystemExit
-    rather than ``sys.exit`` so that `pytest` / reload loops can catch
-    it without killing their whole harness, while `uvicorn main:app`
-    still terminates normally (SystemExit propagates to the top level).
+    Uses SystemExit so that pytest/reload loops can catch
+    it without killing their whole harness, while uvicorn main:app
+    still terminates normally.
     """
-    logger.error("FATAL: %s", message)
+    logger.critical(message)
     raise SystemExit(exit_code)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
     settings = get_settings()
     logger.info("Starting Autonomous Agents service...")
 
-    # Load webhook provider adapters (github, slack, pagerduty,
-    # generic_hmac, plus any operator-defined providers in the file
-    # pointed at by ``WEBHOOK_PROVIDERS_FILE``). Failure to parse the
-    # YAML is fatal: the service can't safely accept signed webhooks
-    # if it doesn't know how to verify them.
+    # Load webhook provider adapters (pointed at by WEBHOOK_PROVIDERS_FILE).
     try:
         load_adapters(settings.webhook_providers_file)
     except (FileNotFoundError, ValueError) as exc:
         fatal_exit(f"Failed to load webhook_providers.yaml: {exc}")
 
-    # ------------------------------------------------------------------
-    # MongoDB is REQUIRED. No in-memory fallback -- if the operator
-    # mis-configures ``MONGODB_URI`` / ``MONGODB_DATABASE`` or the
-    # cluster is unreachable, we surface the failure loudly at startup
-    # rather than silently running on ephemeral stores that would lose
-    # every task definition and run record on the next restart.
-    # Mirrors the ``dynamic_agents`` supervisor's contract.
-    # ------------------------------------------------------------------
+    # Ensure required MongoDB config is present before connecting
     if not settings.mongodb_uri or not settings.mongodb_database:
         fatal_exit(
             "MONGODB_URI and MONGODB_DATABASE must both be set. "
@@ -165,18 +154,20 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Cleanup on shutdown
     logger.info("Shutting down Autonomous Agents service...")
+
+    # Stop the scheduler to halt any tasks during shutdown
     scheduler = get_scheduler()
     if scheduler.running:
         scheduler.shutdown(wait=False)
-    # Tear down the shared Mongo client so nothing leaks between
-    # uvicorn reloads. reset_mongo_service() is idempotent and safe to
-    # call regardless of whether connect() succeeded above.
+
+    # Disconnect MongoDB
     reset_mongo_service()
 
 
 def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
     settings = get_settings()
 
     app = FastAPI(
@@ -186,6 +177,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -194,6 +186,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Mount API routes
     app.include_router(health.router)
     app.include_router(tasks.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
@@ -209,7 +202,9 @@ def create_app() -> FastAPI:
     return app
 
 
+# Application instance
 app = create_app()
+
 
 if __name__ == "__main__":
     import uvicorn

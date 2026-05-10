@@ -197,27 +197,18 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         return self._cors_origins
 
-    # MongoDB persistence (REQUIRED).
-    # Both ``mongodb_uri`` and ``mongodb_database`` must be set before
-    # the service will start -- the lifespan in ``main.py`` calls
-    # ``fatal_exit`` if either is missing or if the connection retry
-    # loop exhausts ``mongodb_connect_max_attempts`` without success.
-    # There is intentionally no in-memory fallback: silently running
-    # on ephemeral stores would lose every task definition and run
-    # record on the next restart, and production operators reliably
-    # mis-diagnose that as "the scheduler broke".
-    #
-    # These stay as ``str | None`` at the Pydantic level (rather than
-    # required fields) so tests that construct ``Settings()`` directly
-    # -- especially unit tests that never go through the lifespan --
-    # don't need to pass them in.
+    # Connection for MongoDB
     mongodb_uri: str | None = None
     mongodb_database: str | None = None
-    mongodb_collection: str = "autonomous_runs"
 
-    # MongoDB collection that holds task definitions (the source of
-    # truth for CRUD operations).
+    # MongoDB collections
+    mongodb_collection: str = "autonomous_runs"
     mongodb_tasks_collection: str = "autonomous_tasks"
+    mongodb_trigger_instances_collection: str = "trigger_instances"
+
+    # Connect-retry knobs for MongoDB at startup
+    mongodb_connect_max_attempts: int = Field(default=3, ge=1)
+    mongodb_connect_retry_delay_seconds: float = Field(default=2.0, gt=0)
 
     # MongoDB collection mapping a Webex messageId to the (task_id,
     # run_id) that produced it. Populated best-effort by the scheduler
@@ -235,16 +226,6 @@ class Settings(BaseSettings):
     # short enough that abandoned threads don't pile up.
     webex_thread_map_ttl_days: int = Field(default=30, ge=1)
 
-    # MongoDB collection that records every accepted webhook delivery
-    # so retries from senders (GitHub's 10s timeout, network blips,
-    # at-least-once delivery) don't double-fire the task. The
-    # collection is keyed on a per-task dedup key derived from
-    # ``WebhookTrigger.dedup_header`` (when configured + present) or
-    # the verified HMAC signature (when a webhook secret is in use).
-    # See ``services.trigger_instances`` for the precedence and
-    # ``routes.webhooks`` for the receive-time flow.
-    mongodb_trigger_instances_collection: str = "trigger_instances"
-
     # TTL (in days) for entries in ``trigger_instances``. Most
     # webhook senders give up retrying within minutes; a week is
     # comfortably long for forensics ("did this delivery arrive?")
@@ -252,13 +233,6 @@ class Settings(BaseSettings):
     # operators actively rely on the audit trail for older
     # deliveries.
     trigger_instance_ttl_days: int = Field(default=7, ge=1)
-
-    # Connect-retry knobs used by main.py's lifespan. First connect
-    # attempt happens immediately; subsequent attempts wait ``delay``
-    # seconds between tries. ``ge=1`` keeps "never try" from being
-    # silently legal via ``MONGODB_CONNECT_MAX_ATTEMPTS=0``.
-    mongodb_connect_max_attempts: int = Field(default=3, ge=1)
-    mongodb_connect_retry_delay_seconds: float = Field(default=2.0, gt=0)
 
     # IMP-16 — circuit breaker around the supervisor A2A call.
     #
