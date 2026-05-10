@@ -116,6 +116,39 @@ providers:
     dedup_header: X-Atlassian-Webhook-Identifier
 
   # ---------------------------------------------------------------------------
+  # Webex — fan-in inbound from the autonomous-agents service's own
+  # /api/v1/hooks/webex/events route (replaces the standalone webex_bot
+  # container that previously ran on port 8003). Webex signs the raw
+  # request body with HMAC-SHA1 and the secret configured at webhook
+  # creation, then sends the lowercase hex digest as ``X-Spark-Signature``
+  # with NO ``sha1=`` prefix. Hence ``prefix: ""`` -- the loader treats
+  # the empty string as "no prefix to strip" and the canonicaliser
+  # lowercases the bare hex so case-insensitive comparison is uniform.
+  #
+  # No timestamp: Webex does not sign a timestamp into the body and
+  # provides no replay-window header, so we cannot enforce one here.
+  # The shared bot secret rotates via ``WEBEX_WEBHOOK_SECRET``.
+  #
+  # No ping: Webex's webhook creation API does not deliver a
+  # configuration ping like GitHub does. The route's "is this just a
+  # test delivery?" check (no ``data.id``) handles Webex's test events.
+  #
+  # No dedup_header: Webex does not surface a per-delivery id. Dedup
+  # therefore falls through to the verified ``X-Spark-Signature`` value
+  # which Webex repeats on retry of the same event -- meaningful for
+  # exactly-once even without a delivery id.
+  # https://developer.webex.com/docs/api/guides/webhooks
+  # ---------------------------------------------------------------------------
+  webex:
+    signature:
+      header: X-Spark-Signature
+      scheme: prefixed_hex
+      prefix: ""
+      algorithm: sha1
+      encoding: hex
+    payload_template: "{body}"
+
+  # ---------------------------------------------------------------------------
   # Generic HMAC — vendor-neutral default for in-house upstreams. Same shape
   # as github but with non-GitHub-flavoured header names so operators don't
   # have to pretend their internal sender is GitHub.

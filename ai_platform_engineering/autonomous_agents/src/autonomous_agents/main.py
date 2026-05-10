@@ -8,12 +8,14 @@ from autonomous_agents.log_config import setup_logging
 logger = setup_logging()
 
 # ruff: noqa: E402
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from autonomous_agents.config import get_settings
-from autonomous_agents.routes import health, tasks, webhooks
+from autonomous_agents.routes import health, tasks, webex, webhooks
 from autonomous_agents.routes.tasks import set_task_store
+from autonomous_agents.routes.webex import set_bot_person_id, set_webex_client
 from autonomous_agents.routes.webhooks import register_webhook_tasks
 from autonomous_agents.scheduler import (
     get_scheduler,
@@ -30,6 +32,10 @@ from autonomous_agents.services.mongo import (
     MongoWebexThreadMapAdapter,
     get_mongo_service,
     reset_mongo_service,
+)
+from autonomous_agents.services.webex_inbound import (
+    WebexClient,
+    ensure_webhook_registered,
 )
 from autonomous_agents.services.webhook_adapters import load_adapters
 
@@ -152,10 +158,103 @@ async def lifespan(app: FastAPI):
     register_webhook_tasks(runtime_tasks)
     register_tasks(runtime_tasks)
 
+    # ------------------------------------------------------------------
+    # Webex inbound: register the Webex webhook + initialise the client.
+    # ------------------------------------------------------------------
+    # Driven by ``settings.webex_enabled`` (which is just
+    # ``webex_bot_token is not None``). When off, the route returns 503
+    # on every request and no Webex API call is ever made -- the
+    # feature is fully dormant for deployments that don't use it.
+    #
+    # Failures here log loudly but do NOT block startup -- this matches
+    # the legacy bot's behaviour and prevents a Webex API outage from
+    # taking the autonomous-agents service down.
+    webex_client: WebexClient | None = None
+    if settings.webex_enabled:
+        # Type narrowing for the validator-enforced "token + URL set together".
+        assert settings.webex_bot_token is not None
+        assert settings.webex_bot_public_url is not None
+        try:
+            webex_client = WebexClient(
+                token=settings.webex_bot_token,
+                base_url=settings.webex_api_base,
+                timeout=settings.webex_http_timeout_seconds,
+            )
+            me = await webex_client.get_me()
+            bot_person_id = me.get("id")
+            if not bot_person_id:
+                raise RuntimeError(
+                    "Webex /people/me returned no id; refusing to start "
+                    "Webex inbound without a loopguard identity."
+                )
+            logger.info("Webex bot identified as personId=%s", bot_person_id)
+            set_bot_person_id(bot_person_id)
+            set_webex_client(webex_client)
+
+            target_url = (
+                f"{settings.webex_bot_public_url.rstrip('/')}"
+                "/api/v1/hooks/webex/events"
+            )
+            try:
+                await ensure_webhook_registered(
+                    webex_client,
+                    target_url=target_url,
+                    secret=settings.webex_webhook_secret,
+                )
+            except httpx.HTTPError as exc:
+                # Don't crash on registration failure -- operators may
+                # manage registrations manually, and the route still
+                # accepts inbound traffic from any pre-existing
+                # registration that points at us.
+                logger.error(
+                    "Webex webhook registration failed (%s); inbound "
+                    "route is still live, but Webex may need a manual "
+                    "re-registration.",
+                    exc,
+                )
+
+            if not settings.webex_webhook_secret:
+                logger.warning(
+                    "Webex inbound enabled WITHOUT WEBEX_WEBHOOK_SECRET. "
+                    "Anyone who knows the public URL can forge events. "
+                    "Strongly recommended for production."
+                )
+        except Exception as exc:  # noqa: BLE001 -- registration must not crash startup
+            logger.error(
+                "Failed to initialise Webex inbound: %s. Route will return "
+                "503 until the issue is resolved and the service is "
+                "restarted.",
+                exc,
+            )
+            # Tear down any partially-constructed client so we don't
+            # leak the httpx connection pool.
+            if webex_client is not None:
+                await webex_client.aclose()
+                webex_client = None
+            set_webex_client(None)
+            set_bot_person_id(None)
+    else:
+        logger.info(
+            "Webex inbound disabled (WEBEX_BOT_TOKEN unset); "
+            "/api/v1/hooks/webex/events will return 503."
+        )
+
     yield
 
     # Cleanup on shutdown
     logger.info("Shutting down Autonomous Agents service...")
+
+    # Close the Webex HTTP client (if any) so the httpx connection pool
+    # is released cleanly. set_webex_client(None) afterwards so a
+    # surviving reference in the route module can't accidentally call
+    # get_message on a closed client during a graceful shutdown window.
+    if webex_client is not None:
+        try:
+            await webex_client.aclose()
+        except Exception as exc:  # noqa: BLE001 -- shutdown best-effort
+            logger.warning("Webex client close failed: %s", exc)
+    set_webex_client(None)
+    set_bot_person_id(None)
 
     # Stop the scheduler to halt any tasks during shutdown
     scheduler = get_scheduler()
@@ -186,9 +285,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Mount API routes
+    # Mount API routes.
+    # ``webex.router`` MUST come BEFORE ``webhooks.router`` so the
+    # statically-shaped ``/hooks/webex/events`` path is matched first
+    # under the path-precedence rules. With one-segment ``/hooks/{task_id}``
+    # and two-segment ``/hooks/webex/events`` the two cannot collide on
+    # FastAPI's current matcher, but ordering it this way is cheap
+    # insurance against a future refactor that introduces e.g.
+    # ``/hooks/{task_id}/events``. The shadow test in
+    # tests/test_webex_route.py asserts this assumption.
     app.include_router(health.router)
     app.include_router(tasks.router, prefix="/api/v1")
+    app.include_router(webex.router, prefix="/api/v1")
     app.include_router(webhooks.router, prefix="/api/v1")
 
     @app.get("/")

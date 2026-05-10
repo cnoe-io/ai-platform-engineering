@@ -301,6 +301,83 @@ class Settings(BaseSettings):
     chat_history_conversations_collection: str = "conversations"
     chat_history_messages_collection: str = "messages"
 
+    # ------------------------------------------------------------------
+    # Webex inbound (replaces the standalone webex_bot service on 8003).
+    # ------------------------------------------------------------------
+    # When ``webex_bot_token`` is set, the lifespan registers an
+    # idempotent ``messages.created`` webhook against Webex pointing at
+    # this service's ``/api/v1/hooks/webex/events`` route, and that
+    # route is live. When unset, the route returns 503 and no Webex
+    # API call is ever made -- the feature is fully dormant.
+    #
+    # Why ``str | None`` (not ``str = ""``): the route uses ``token is
+    # None`` as the on/off discriminator. An empty string would be
+    # ambiguous (operator typo vs deliberately-off) and pydantic-settings
+    # parses ``WEBEX_BOT_TOKEN=`` to ``""`` rather than ``None``. The
+    # ``_validate_webex_config`` validator below converts blanks to
+    # ``None`` so both shapes mean the same thing.
+    webex_bot_token: str | None = None
+    # HMAC-SHA1 secret Webex signs every event with. Strongly
+    # recommended whenever ``webex_bot_token`` is set; we log a
+    # warning at startup if it isn't (see ``_validate_webex_config``).
+    webex_webhook_secret: str | None = None
+    # Externally-reachable base URL of THIS service. Webex POSTs to
+    # ``<public_url>/api/v1/hooks/webex/events``. In dev, an ngrok /
+    # cloudflared tunnel; in prod, the real hostname. Localhost does
+    # NOT work -- Webex's webhook delivery comes from their cloud.
+    webex_bot_public_url: str | None = None
+    # Webex REST API base. Overridable for testing / future tenant
+    # migrations. Trailing slash is stripped by the client.
+    webex_api_base: str = "https://webexapis.com/v1"
+    # HTTP timeout for outbound calls to Webex (``get_me`` /
+    # ``get_message`` / ``/webhooks`` reconciliation).
+    webex_http_timeout_seconds: float = Field(default=15.0, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_webex_config(self) -> Self:
+        """Fail-fast on partial Webex configuration.
+
+        ``webex_bot_token`` is the on/off switch. When it's set we
+        REQUIRE ``webex_bot_public_url`` -- otherwise the lifespan would
+        try to register a Webex webhook with target URL
+        ``"None/api/v1/hooks/webex/events"`` and emit a useless 4xx into
+        Webex's webhook dashboard. ``webex_webhook_secret`` is strongly
+        recommended but stays optional to keep parity with the legacy
+        bot's "unsigned dev mode" -- we emit a runtime warning instead.
+
+        Blank strings collapse to ``None`` so ``WEBEX_BOT_TOKEN=`` in
+        ``.env`` (a common way to disable a feature) does the right
+        thing rather than falling into the "token set but URL absent"
+        validation error.
+        """
+        if self.webex_bot_token == "":
+            self.webex_bot_token = None
+        if self.webex_webhook_secret == "":
+            self.webex_webhook_secret = None
+        if self.webex_bot_public_url == "":
+            self.webex_bot_public_url = None
+
+        if self.webex_bot_token is not None and not self.webex_bot_public_url:
+            raise ValueError(
+                "WEBEX_BOT_TOKEN is set but WEBEX_BOT_PUBLIC_URL is not. "
+                "Webex inbound cannot be enabled without an externally-reachable "
+                "URL to register with Webex. Either set WEBEX_BOT_PUBLIC_URL "
+                "to your public ingress (e.g. https://abcd.ngrok-free.app) or "
+                "unset WEBEX_BOT_TOKEN to disable Webex inbound."
+            )
+        return self
+
+    @property
+    def webex_enabled(self) -> bool:
+        """Single source of truth for "is Webex inbound active?".
+
+        Used by the route (returns 503 when False) and the lifespan
+        (skips Webex API calls entirely when False). Driven solely by
+        the presence of ``webex_bot_token`` so unsetting the token in
+        an existing deployment cleanly disables the feature.
+        """
+        return self.webex_bot_token is not None
+
     # Webhook-context redaction switch (default OFF).
     # The autonomous agent's published prompt could otherwise contain
     # the entire raw webhook payload (e.g. a GitHub PR body, a

@@ -159,9 +159,9 @@ def test_bundled_yaml_loads_all_advertised_providers():
     webhook_adapters.reset_adapters()
     adapters = webhook_adapters.load_adapters()
     # The providers we ship with — github, slack, pagerduty, jira,
-    # generic_hmac — must always be present so a fresh checkout works
-    # without operator config.
-    assert {"github", "slack", "pagerduty", "jira", "generic_hmac"} <= set(
+    # webex, generic_hmac — must always be present so a fresh checkout
+    # works without operator config.
+    assert {"github", "slack", "pagerduty", "jira", "webex", "generic_hmac"} <= set(
         adapters.keys()
     )
 
@@ -364,6 +364,103 @@ def test_pagerduty_provider_rejects_when_no_signature_matches(client, monkeypatc
     )
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid webhook signature"
+
+
+# ---------------------------------------------------------------------------
+# Webex adapter — HMAC-SHA1 over body, bare hex (no prefix) in
+# X-Spark-Signature. Mirrors the legacy webex_bot.dispatcher
+# verify_webex_signature behaviour byte-for-byte; the test vectors below
+# duplicate the ones in integrations/webex_bot/tests/test_dispatcher.py
+# so the migration is provably wire-compatible.
+# ---------------------------------------------------------------------------
+
+
+def _spark_sig(secret: str, body: bytes) -> str:
+    """Same shape as integrations/webex_bot/tests/test_dispatcher.py::_spark_sig."""
+    return hmac.new(secret.encode("utf-8"), body, hashlib.sha1).hexdigest()
+
+
+def test_webex_provider_accepts_valid_signature(client, monkeypatch):
+    """Direct port of test_verify_webex_signature_passes_with_valid_signature.
+
+    Goes through the full route to prove the YAML adapter wires up
+    end-to-end, not just that the verifier matches.
+    """
+    _set_settings(monkeypatch)
+    _register(_make_task(provider="webex", secret="topsecret"))
+
+    body = b'{"data":{"id":"x"}}'
+    sig = _spark_sig("topsecret", body)
+
+    resp = client.post(
+        "/api/v1/hooks/wh-1",
+        content=body,
+        headers={"X-Spark-Signature": sig},
+    )
+    assert resp.status_code == 202, resp.text
+    # No dedup_header on the adapter -> signature-based dedup.
+    assert resp.json()["dedup_strategy"] == "signature"
+    # Canonical signature stored on the row must be sha1=<hex> so the
+    # dedup namespace is uniform with the other algo=hex providers.
+    row = next(iter(client.mongo._rows.values()))
+    assert row["_id"].startswith("wh-1:sig:")
+    assert row["_id"].endswith(sig)
+
+
+def test_webex_provider_rejects_mismatched_signature(client, monkeypatch):
+    """Direct port of test_verify_webex_signature_rejects_mismatched_signature.
+
+    Wrong secret on the sender side -> 401 with a generic message
+    (no forgery oracle).
+    """
+    _set_settings(monkeypatch)
+    _register(_make_task(provider="webex", secret="topsecret"))
+
+    body = b'{"data":{"id":"x"}}'
+    bad_sig = _spark_sig("wrong-secret", body)
+
+    resp = client.post(
+        "/api/v1/hooks/wh-1",
+        content=body,
+        headers={"X-Spark-Signature": bad_sig},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid webhook signature"
+
+
+def test_webex_provider_rejects_missing_signature_header(client, monkeypatch):
+    """Direct port of test_verify_webex_signature_rejects_missing_header_when_configured."""
+    _set_settings(monkeypatch)
+    _register(_make_task(provider="webex", secret="topsecret"))
+
+    resp = client.post(
+        "/api/v1/hooks/wh-1",
+        content=b'{"data":{"id":"x"}}',
+    )
+    assert resp.status_code == 401
+    assert "X-Spark-Signature" in resp.json()["detail"]
+
+
+def test_webex_provider_dedup_keys_on_signature(client, monkeypatch):
+    """Retried Webex deliveries (same body) carry the same signature and
+    therefore claim the same dedup row -- proving the architectural win
+    that the new route gets exactly-once semantics for Webex retries.
+    """
+    _set_settings(monkeypatch)
+    _register(_make_task(provider="webex", secret="s"))
+
+    body = b'{"data":{"id":"msg-1"},"id":"event-1"}'
+    sig = _spark_sig("s", body)
+    headers = {"X-Spark-Signature": sig}
+
+    first = client.post("/api/v1/hooks/wh-1", content=body, headers=headers)
+    second = client.post("/api/v1/hooks/wh-1", content=body, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 200
+    assert second.json()["status"] == "deduped"
+    assert second.json()["run_id"] == first.json()["run_id"]
+    assert len(client.captured["calls"]) == 1
 
 
 # ---------------------------------------------------------------------------
