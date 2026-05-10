@@ -175,12 +175,21 @@ async def test_running_state_is_visible_before_completion(store: _DictRunStore, 
 
 async def test_execute_task_routes_dynamic_agent_to_dynamic_client(store: _DictRunStore):
     """When ``dynamic_agent_id`` is set, ``execute_task`` MUST call the
-    dynamic-agents client and MUST NOT touch ``invoke_agent_streaming``.
+    dynamic-agents streaming client and MUST NOT touch
+    ``invoke_agent_streaming``.
 
     This is the behaviour the user picked over the cosmetic-only ack
     fix: the prompt has to actually execute through the user's custom
     agent (its tools / system prompt / middleware), not be silently
     answered by the supervisor's LLM.
+
+    Post-ux-3 the scheduler imports ``invoke_dynamic_agent_streaming``
+    (the SSE variant that translates dynamic-agents events to A2A
+    artifact-update shape so the chat thread renders the same
+    Tools / Final-answer breakdown a supervisor-targeted run gets).
+    The legacy sync ``invoke_dynamic_agent`` still exists in the client
+    module for callers that explicitly want a non-streaming path, but
+    the scheduler no longer references it.
     """
     da_task = TaskDefinition(
         id="custom-task",
@@ -190,11 +199,15 @@ async def test_execute_task_routes_dynamic_agent_to_dynamic_client(store: _DictR
         trigger=CronTrigger(schedule="0 9 * * *"),
     )
 
+    # Streaming client returns (final_text, list_of_translated_events).
+    # We use an empty events list here because this test cares about
+    # ROUTING, not translation — the dedicated client tests cover the
+    # translation contract.
     invoke_da = AsyncMock(return_value=("custom agent answer", []))
     invoke_supervisor = AsyncMock(return_value=("supervisor answer", []))
 
     with (
-        patch("autonomous_agents.scheduler.invoke_dynamic_agent", new=invoke_da),
+        patch("autonomous_agents.scheduler.invoke_dynamic_agent_streaming", new=invoke_da),
         patch("autonomous_agents.scheduler.invoke_agent_streaming", new=invoke_supervisor),
     ):
         run = await execute_task(

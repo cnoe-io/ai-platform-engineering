@@ -30,7 +30,7 @@ from autonomous_agents.services.chat_history import (
     NoopChatHistoryPublisher,
     _conversation_id_for_task,
 )
-from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent
+from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent_streaming
 from autonomous_agents.services.mongo import RunStore
 from autonomous_agents.services.webex_threads import (
     WebexThreadEntry,
@@ -336,14 +336,18 @@ async def execute_task(
     try:
         if effective_task.dynamic_agent_id:
             # Custom (dynamic) agent path: invoke the dynamic-agents
-            # service directly so the prompt actually executes through
-            # the user's custom agent (its tools / system prompt /
-            # middleware), instead of being silently swallowed by the
-            # supervisor's permissive LLM router. ``events`` is empty
-            # here because /chat/invoke is non-streaming -- a follow-up
-            # can swap in /chat/stream/start parsing for richer chat
-            # replay parity. The synthesiser tolerates an empty list.
-            response, events = await invoke_dynamic_agent(
+            # service via SSE streaming so we capture per-step events
+            # (tool_start / tool_end / accumulated content) translated
+            # to the supervisor-flavoured A2A artifact-update shape.
+            # Persisting these on TaskRun.events lets the autonomous-
+            # task chat thread replay the same Tools / Final-answer
+            # breakdown a supervisor-targeted run gets, instead of a
+            # bare text bubble. See ux-3 in the IMPROVEMENTS tracker
+            # for the rationale and translation contract; the legacy
+            # blocking ``invoke_dynamic_agent`` (which returned
+            # ``events=[]``) is retained in the client module for
+            # callers that explicitly want a non-streaming path.
+            response, events = await invoke_dynamic_agent_streaming(
                 prompt=effective_task.prompt,
                 task_id=effective_task.id,
                 agent_id=effective_task.dynamic_agent_id,
