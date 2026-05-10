@@ -187,3 +187,81 @@ describe("formState.summarizeTrigger", () => {
     expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
   });
 });
+
+// Bug fix: dynamic_agent_id was lost on form round-trip, silently
+// demoting custom-agent tasks to supervisor tasks on edit. These
+// tests pin the round-trip contract so any future regression of
+// the converters trips a CI failure rather than a Mongo edit that
+// quietly reroutes scheduled work.
+describe("formState dynamic_agent_id round-trip", () => {
+  it("toFormState surfaces dynamic_agent_id from the wire model", () => {
+    const task: AutonomousTask = {
+      id: "custom-task",
+      name: "Custom Task",
+      agent: null,
+      dynamic_agent_id: "agent-my-pr-reviewer",
+      prompt: "review",
+      trigger: { type: "cron", schedule: "0 9 * * *" },
+      enabled: true,
+    };
+    expect(toFormState(task).dynamic_agent_id).toBe("agent-my-pr-reviewer");
+  });
+
+  it("toFormState defaults to null when dynamic_agent_id is absent", () => {
+    const task: AutonomousTask = {
+      id: "supervisor-task",
+      name: "Supervisor Task",
+      agent: "github",
+      prompt: "list prs",
+      trigger: { type: "cron", schedule: "0 9 * * *" },
+      enabled: true,
+    };
+    expect(toFormState(task).dynamic_agent_id).toBeNull();
+  });
+
+  it("fromFormState preserves dynamic_agent_id on save", () => {
+    const form = {
+      ...EMPTY_FORM,
+      id: "custom-task",
+      name: "Custom Task",
+      prompt: "review",
+      dynamic_agent_id: "agent-my-pr-reviewer",
+      triggerType: "cron" as const,
+      cronSchedule: "0 9 * * *",
+    };
+    const result = fromFormState(form);
+    expect(result).toEqual({
+      task: expect.objectContaining({
+        dynamic_agent_id: "agent-my-pr-reviewer",
+      }),
+    });
+  });
+
+  it("full round-trip: load custom-agent task, edit unrelated field, save - dynamic_agent_id survives", () => {
+    // Reproduction of the exact bot-flagged regression:
+    // user opens an existing custom-agent task in the standalone
+    // /autonomous form, changes only the prompt, and saves. The
+    // dynamic_agent_id MUST survive untouched so the task continues
+    // to route through the dynamic-agents service rather than being
+    // silently demoted to the supervisor.
+    const original: AutonomousTask = {
+      id: "custom-task",
+      name: "Custom Task",
+      agent: null,
+      dynamic_agent_id: "agent-my-pr-reviewer",
+      prompt: "old prompt",
+      trigger: { type: "cron", schedule: "0 9 * * *" },
+      enabled: true,
+    };
+    const form = toFormState(original);
+    form.prompt = "new prompt";
+    const result = fromFormState(form);
+    expect(result).toEqual({
+      task: expect.objectContaining({
+        dynamic_agent_id: "agent-my-pr-reviewer",
+        prompt: "new prompt",
+        agent: null,
+      }),
+    });
+  });
+});

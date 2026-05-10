@@ -168,6 +168,20 @@ export interface TaskFormState {
   name: string;
   description: string;
   agent: string;
+  /**
+   * Dynamic-agents service agent id when the task should route through
+   * a custom agent instead of a supervisor sub-agent. Persisted on
+   * ``AutonomousTask.dynamic_agent_id`` server-side; round-tripped here
+   * verbatim so editing a custom-agent task in the standalone form
+   * does NOT silently demote it back to a supervisor task.
+   *
+   * Today the standalone TaskFormDialog has no UI control for picking
+   * a dynamic agent (see TODO ``ux-1``); the value flows through
+   * untouched from the wire and back, exactly as for any other field
+   * the form doesn't yet expose. The Custom Agent editor's Step 6
+   * stamps this field via ``syncAutonomousTasks.ts`` on save.
+   */
+  dynamic_agent_id: string | null;
   prompt: string;
   llm_provider: string;
   enabled: boolean;

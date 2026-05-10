@@ -17,6 +17,11 @@ export const EMPTY_FORM: TaskFormState = {
   name: "",
   description: "",
   agent: "",
+  // Empty form (new task) defaults to "no dynamic-agent routing".
+  // The Custom Agent editor's Autonomous step stamps this field after
+  // save; the standalone form preserves it verbatim on edit so a
+  // custom-agent task isn't silently demoted to a supervisor task.
+  dynamic_agent_id: null,
   prompt: "",
   llm_provider: "",
   enabled: true,
@@ -40,6 +45,13 @@ export function toFormState(task: AutonomousTask | null | undefined): TaskFormSt
     name: task.name,
     description: task.description ?? "",
     agent: task.agent ?? "",
+    // Round-trip the dynamic-agents routing target unchanged. The
+    // standalone TaskFormDialog has no UI control for editing this
+    // value yet (TODO ux-1), so anything coming off the wire flows
+    // straight through ``fromFormState`` back to the wire on save.
+    // Without this line, editing a Custom-Agent-created task in the
+    // standalone form would silently demote it to a supervisor task.
+    dynamic_agent_id: task.dynamic_agent_id ?? null,
     prompt: task.prompt,
     llm_provider: task.llm_provider ?? "",
     enabled: task.enabled,
@@ -151,6 +163,12 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
     description: form.description.trim() || null,
     // Empty agent => null on the wire (FR-001: agent is optional hint).
     agent: agent || null,
+    // Preserve the dynamic-agents routing target. The standalone form
+    // doesn't expose this for direct editing yet (TODO ux-1), so the
+    // value here came from ``toFormState`` reading the existing task.
+    // Dropping it would silently switch a custom-agent task back to
+    // the supervisor on every save.
+    dynamic_agent_id: form.dynamic_agent_id ?? null,
     prompt,
     llm_provider: form.llm_provider.trim() || null,
     trigger,
