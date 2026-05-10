@@ -49,13 +49,18 @@ from autonomous_agents.routes.webhooks import (
 # ---------------------------------------------------------------------------
 
 
-def _make_task(task_id: str = "wh-1", *, secret: str | None = None) -> TaskDefinition:
+def _make_task(
+    task_id: str = "wh-1",
+    *,
+    secret: str | None = None,
+    provider: str = "github",
+) -> TaskDefinition:
     return TaskDefinition(
         id=task_id,
         name="webhook task",
         agent="dummy-agent",
         prompt="run the thing",
-        trigger=WebhookTrigger(secret=secret),
+        trigger=WebhookTrigger(secret=secret, provider=provider),
     )
 
 
@@ -248,9 +253,17 @@ def test_followup_unsigned_forwards_context_and_parent_link(client, monkeypatch)
 # ---------------------------------------------------------------------------
 
 
-def test_followup_requires_signature_when_task_has_secret(client, monkeypatch):
-    _set_settings(monkeypatch)
-    _register(_make_task(secret="task-secret"))
+def test_followup_requires_signature_when_global_secret_is_set(client, monkeypatch):
+    """Bridges (e.g. webex_bot) sign follow-ups with the GLOBAL
+    WEBHOOK_SECRET, so a global secret being configured is what
+    triggers signature enforcement -- NOT the per-task ``trigger.secret``.
+
+    See ``_verify_followup_signature`` in routes/webhooks.py for the
+    contract. Replaces an earlier test that incorrectly verified
+    against ``trigger.secret`` (the old broken behaviour reported
+    by the reviewer bot)."""
+    _set_settings(monkeypatch, webhook_secret="bridge-shared-secret")
+    _register(_make_task())
 
     payload = {
         "parent_run_id": "r-original",
@@ -266,15 +279,18 @@ def test_followup_requires_signature_when_task_has_secret(client, monkeypatch):
     ok = client.post(
         "/api/v1/hooks/wh-1/follow-up",
         content=body,
-        headers={"X-Hub-Signature-256": _hex_sig("task-secret", body)},
+        headers={"X-Hub-Signature-256": _hex_sig("bridge-shared-secret", body)},
     )
     assert ok.status_code == 202
     assert len(client.captured["calls"]) == 1
 
 
 def test_followup_invalid_signature_rejected(client, monkeypatch):
-    _set_settings(monkeypatch)
-    _register(_make_task(secret="task-secret"))
+    """Wrong signature (signed with a key the bridge isn't using) MUST
+    401 even when the global secret is configured. The follow-up route
+    cannot trust requests it can't authenticate."""
+    _set_settings(monkeypatch, webhook_secret="bridge-shared-secret")
+    _register(_make_task())
 
     body = b'{"parent_run_id":"r-original","user_text":"hi"}'
     resp = client.post(
@@ -285,6 +301,76 @@ def test_followup_invalid_signature_rejected(client, monkeypatch):
     assert resp.status_code == 401
     # Defence: the rejected branch must not propagate to the dispatcher.
     assert client.captured["calls"] == []
+
+
+def test_followup_uses_global_secret_not_per_task_secret(client, monkeypatch):
+    """Bug fix (reviewer-bot high severity): the follow-up route used
+    to delegate to ``_resolve_secret(task)``, which preferred the
+    per-task ``trigger.secret`` over the global one. That broke
+    legitimate follow-ups for any task with its own secret because the
+    bridge signs with the GLOBAL secret -- the bridge isn't part of
+    the task-creation flow and so cannot know each task's per-task
+    secret. This test pins the corrected contract."""
+    _set_settings(monkeypatch, webhook_secret="global-bridge-secret")
+    # Task has its own secret on the original-fire path, but the
+    # follow-up route MUST ignore it and verify against the global
+    # secret only.
+    _register(_make_task(secret="task-only-secret-for-original-fires"))
+
+    body = b'{"parent_run_id":"r-original","user_text":"reply"}'
+
+    # Signing with the per-task secret (what the OLD broken code
+    # required) MUST now be rejected -- the bridge would never sign
+    # with that key.
+    bad = client.post(
+        "/api/v1/hooks/wh-1/follow-up",
+        content=body,
+        headers={"X-Hub-Signature-256": _hex_sig("task-only-secret-for-original-fires", body)},
+    )
+    assert bad.status_code == 401
+    assert client.captured["calls"] == []
+
+    # Signing with the global secret (what the bridge actually does)
+    # MUST be accepted.
+    ok = client.post(
+        "/api/v1/hooks/wh-1/follow-up",
+        content=body,
+        headers={"X-Hub-Signature-256": _hex_sig("global-bridge-secret", body)},
+    )
+    assert ok.status_code == 202
+    assert len(client.captured["calls"]) == 1
+
+
+def test_followup_uses_github_adapter_regardless_of_task_provider(client, monkeypatch):
+    """Bug fix (reviewer-bot high severity): the follow-up route used
+    to call ``_resolve_adapter(task)``, picking the slack/pagerduty/
+    jira/etc. adapter based on the task's ``trigger.provider``. That
+    looked at the wrong signature header (``X-Slack-Signature``,
+    ``X-PagerDuty-Signature``, ...) and used the wrong signing
+    payload template (``v0:ts:body`` for slack, etc.) -- so legitimate
+    bridge-signed follow-ups silently 401'd for any non-github task.
+
+    Bridges always use the github wire shape
+    (``X-Hub-Signature-256: sha256=<hex>`` over body) regardless of
+    what the original webhook sender was, so the follow-up route now
+    pins the github adapter."""
+    _set_settings(monkeypatch, webhook_secret="bridge-shared-secret")
+    # Task is configured for slack (original deliveries come from
+    # Slack with v0:ts:body signing). The bridge still signs follow-ups
+    # github-style.
+    _register(_make_task(provider="slack"))
+
+    body = b'{"parent_run_id":"r-original","user_text":"reply"}'
+
+    # Github-shaped header + global secret over raw body MUST be
+    # accepted on a slack-provider task.
+    ok = client.post(
+        "/api/v1/hooks/wh-1/follow-up",
+        content=body,
+        headers={"X-Hub-Signature-256": _hex_sig("bridge-shared-secret", body)},
+    )
+    assert ok.status_code == 202, ok.text
+    assert len(client.captured["calls"]) == 1
 
 
 # ---------------------------------------------------------------------------

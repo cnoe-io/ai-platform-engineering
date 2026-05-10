@@ -434,16 +434,49 @@ async def _verify_followup_signature(
 ) -> tuple[str | None, str | None]:
     """Shared HMAC + replay-window check for follow-up requests.
 
-    Delegates to the same provider adapter the initial-fire route uses
-    so an inbound bridge can sign follow-ups with the same key (and
-    same scheme) it uses for primary deliveries. Returns
-    ``(verified_signature, default_dedup_header)`` so the caller can
-    feed both into :func:`derive_dedup_key` without re-deriving them.
-    Raises :class:`HTTPException` on verification failure.
+    Inbound-bridge contract (e.g. Webex bot at
+    ``integrations/webex_bot/dispatcher.py``):
+
+    * The bridge always signs with the **global** ``WEBHOOK_SECRET``
+      (not the per-task ``trigger.secret``). The bridge isn't part of
+      the task-creation flow and so cannot know each task's secret --
+      see the per-task-secret note in the bot's README.
+    * The bridge always uses ``X-Hub-Signature-256: sha256=<hex>`` as
+      the signature header and HMAC-SHA256 over the body (or
+      ``f"{ts}.{body}"`` when ``X-Webhook-Timestamp`` is present),
+      regardless of what provider scheme the *original* webhook
+      delivery used. Provider variation (slack / pagerduty / jira /
+      etc.) only applies to inbound third-party webhooks; bridges
+      are first-party and pick a single fixed scheme.
+
+    Earlier this function delegated to ``_resolve_secret(task)`` and
+    ``_resolve_adapter(task)``, which would (a) prefer the per-task
+    secret over the global one (mismatch when the task has its own
+    secret) and (b) pick the slack/pagerduty/jira adapter (mismatch
+    when the original webhook isn't github-shaped). Either mismatch
+    silently 401'd legitimate in-thread replies. This was a high-
+    severity merge blocker called out by the reviewer bot.
+
+    Fix: always use the global secret + the github adapter for
+    follow-ups. The github adapter's signing contract is exactly what
+    bridges produce (X-Hub-Signature-256 prefixed_hex + optional
+    X-Webhook-Timestamp), so verification matches the wire shape
+    regardless of the task's ``trigger.provider``.
+
+    Returns ``(verified_signature, default_dedup_header)`` so the
+    caller can feed both into :func:`derive_dedup_key` without
+    re-deriving them. Raises :class:`HTTPException` on verification
+    failure.
     """
-    secret, _source = _resolve_secret(task)
-    adapter = _resolve_adapter(task)
     settings = get_settings()
+    # Bridge always signs with the global secret; per-task
+    # ``trigger.secret`` is irrelevant on this path.
+    secret = settings.webhook_secret
+    # Bridge always uses the github wire shape regardless of what
+    # the original webhook sender was (slack / pagerduty / jira /
+    # generic_hmac, etc.). Bridges are first-party and pick one
+    # signing scheme.
+    adapter = get_adapter("github")
     result = adapter.verify(
         secret=secret,
         body=body,
