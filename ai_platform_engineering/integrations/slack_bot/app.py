@@ -369,6 +369,8 @@ def handle_mention(event, say, client):
       "humble_followup": is_humble_followup,
       "overthink": bool(overthink and overthink.enabled),
     }
+    if overthink and overthink.enabled:
+      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
     if user_email:
       client_context["user_email"] = user_email
 
@@ -532,6 +534,8 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       "overthink": bool(overthink and overthink.enabled),
       "timestamp": thread_ts,
     }
+    if overthink and overthink.enabled:
+      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
     if user_email:
       client_context["user_email"] = user_email
     if bot_username:

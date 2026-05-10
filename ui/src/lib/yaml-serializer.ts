@@ -24,19 +24,26 @@ export function toYaml(obj: Record<string, unknown>, indent = 0): string {
     } else if (typeof value === "number" || typeof value === "boolean") {
       yaml += `${spaces}${key}: ${value}\n`;
     } else if (Array.isArray(value)) {
-      if (value.length === 0) continue;
-      yaml += `${spaces}${key}:\n`;
-      value.forEach((item) => {
-        if (typeof item === "object" && item !== null) {
-          yaml += `${spaces}  -\n`;
-          yaml += toYaml(item as Record<string, unknown>, indent + 2);
-        } else {
-          yaml += `${spaces}  - ${item}\n`;
-        }
-      });
+      if (value.length === 0) {
+        yaml += `${spaces}${key}: []\n`;
+      } else {
+        yaml += `${spaces}${key}:\n`;
+        value.forEach((item) => {
+          if (typeof item === "object" && item !== null) {
+            yaml += `${spaces}  -\n`;
+            yaml += toYaml(item as Record<string, unknown>, indent + 2);
+          } else {
+            yaml += `${spaces}  - ${item}\n`;
+          }
+        });
+      }
     } else if (typeof value === "object") {
-      yaml += `${spaces}${key}:\n`;
-      yaml += toYaml(value as Record<string, unknown>, indent + 1);
+      if (Object.keys(value as Record<string, unknown>).length === 0) {
+        yaml += `${spaces}${key}: {}\n`;
+      } else {
+        yaml += `${spaces}${key}:\n`;
+        yaml += toYaml(value as Record<string, unknown>, indent + 1);
+      }
     }
   }
 

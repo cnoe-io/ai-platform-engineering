@@ -6,13 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -24,10 +27,13 @@ import type {
   SubAgentRef,
   BuiltinToolsConfig,
   AgentUIConfig,
+  CustomThemeConfig,
   FeaturesConfig,
+  InterruptOn,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { AutonomousTasksStep } from "./AutonomousTasksStep";
@@ -36,7 +42,7 @@ import { isTaskOwnedByAgent } from "./taskOwnership";
 import { autonomousApi, AutonomousApiError } from "@/components/autonomous/api";
 import type { AutonomousTask } from "@/components/autonomous/types";
 import { SkillsSelector } from "./SkillsSelector";
-import { gradientThemes, getGradientStyle } from "@/lib/gradient-themes";
+import { gradientThemes, getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { getConfig } from "@/lib/config";
 
 interface DynamicAgentEditorProps {
@@ -106,9 +112,9 @@ const STEPS = [
     hint: "Attach skills that guide your agent's behavior (optional)" 
   },
   { 
-    id: "subagents" as const, 
-    label: "Subagents", 
-    hint: "Delegate tasks to other agents (optional)" 
+    id: "advanced" as const, 
+    label: "Advanced", 
+    hint: "Subagents, approval rules, and middleware" 
   },
   {
     id: "autonomous" as const,
@@ -164,6 +170,142 @@ function StepIndicator({
   );
 }
 
+/**
+ * Collapsible sub-section used in the Advanced step.
+ */
+function CollapsibleSection({
+  title,
+  description,
+  badge,
+  defaultExpanded = false,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge?: string;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+
+  return (
+    <div className="border rounded-lg">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors rounded-lg"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <div className="flex-1">
+          <span className="text-sm font-semibold">{title}</span>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        {badge && (
+          <span className="text-xs text-muted-foreground font-medium">{badge}</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 pt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Advanced step: collapsible sub-sections for subagents, interrupts, middleware.
+ */
+function AdvancedStep({
+  agent,
+  subagents,
+  setSubagents,
+  interruptOn,
+  setInterruptOn,
+  allowedTools,
+  builtinTools,
+  features,
+  setFeatures,
+  availableModels,
+  setMiddlewareError,
+  loading,
+  visibility,
+}: {
+  agent: DynamicAgentConfig | null;
+  subagents: SubAgentRef[];
+  setSubagents: (v: SubAgentRef[]) => void;
+  interruptOn: InterruptOn;
+  setInterruptOn: (v: InterruptOn) => void;
+  allowedTools: Record<string, string[]>;
+  builtinTools?: BuiltinToolsConfig;
+  features: FeaturesConfig | undefined;
+  setFeatures: (v: FeaturesConfig | undefined) => void;
+  availableModels: { model_id: string; name: string; provider: string }[];
+  setMiddlewareError: (v: boolean) => void;
+  loading: boolean;
+  visibility: VisibilityType;
+}) {
+  const interruptRuleCount = Object.values(interruptOn).reduce(
+    (sum, tools) => sum + Object.keys(tools).length, 0
+  );
+  const middlewareCount = features?.middleware?.length ?? 0;
+
+  return (
+    <div className="space-y-4 pt-2">
+      <CollapsibleSection
+        title="Subagents"
+        description="Delegate tasks to other custom agents"
+        badge={`${subagents.length} subagent${subagents.length !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <p className="text-xs text-muted-foreground mb-2">
+          <span className="font-medium">Note:</span> Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+        </p>
+        <SubagentPicker
+          agentId={agent?._id || null}
+          value={subagents}
+          onChange={setSubagents}
+          disabled={loading}
+          parentVisibility={visibility}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Human Approval"
+        description="Require approval before executing specific tools"
+        badge={`${interruptRuleCount} rule${interruptRuleCount !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <InterruptConfigPicker
+          value={interruptOn}
+          onChange={setInterruptOn}
+          allowedTools={allowedTools}
+          builtinTools={builtinTools}
+          disabled={loading}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Middleware"
+        description="Retries, limits, and preprocessing"
+        badge={`${middlewareCount} middleware${middlewareCount !== 1 ? "s" : ""}`}
+      >
+        <MiddlewarePicker
+          value={features}
+          onChange={setFeatures}
+          disabled={loading}
+          availableModels={availableModels}
+          onError={setMiddlewareError}
+        />
+      </CollapsibleSection>
+    </div>
+  );
+}
+
 export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
@@ -198,6 +340,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
   );
+  const [interruptOn, setInterruptOn] = React.useState<InterruptOn>(
+    source?.interrupt_on || { builtin: { request_user_input: true } }
+  );
   const [modelId, setModelId] = React.useState(source?.model?.id || "");
   const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
@@ -207,6 +352,39 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [autonomousTasksLoaded, setAutonomousTasksLoaded] = React.useState<AutonomousTask[]>([]);
   const [autonomousTasksLoading, setAutonomousTasksLoading] = React.useState(false);
   const [autonomousTasksError, setAutonomousTasksError] = React.useState<string | null>(null);
+  const [customThemeConfig, setCustomThemeConfig] = React.useState<CustomThemeConfig>(
+    source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
+  );
+  const [showCustomPicker, setShowCustomPicker] = React.useState(false);
+
+  // Sync request_user_input interrupt rule with builtin tool enabled state
+  React.useEffect(() => {
+    const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
+    const isEnabled = !!(cfg && cfg.enabled);
+    const hasRule = !!interruptOn?.builtin?.request_user_input;
+
+    if (isEnabled && !hasRule) {
+      // Tool enabled — add the rule
+      setInterruptOn((prev) => ({
+        ...prev,
+        builtin: { ...prev.builtin, request_user_input: true },
+      }));
+    } else if (!isEnabled && hasRule) {
+      // Tool disabled — remove the rule
+      setInterruptOn((prev) => {
+        const next = { ...prev };
+        if (next.builtin) {
+          const { request_user_input: _, ...rest } = next.builtin;
+          if (Object.keys(rest).length === 0) {
+            delete next.builtin;
+          } else {
+            next.builtin = rest;
+          }
+        }
+        return next;
+      });
+    }
+  }, [builtinTools]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -350,6 +528,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         console.error("Failed to fetch models:", err);
       } finally {
         setModelsLoading(false);
+        // Flip the snapshot sentinel after models load. This causes the dirty
+        // tracker to re-snapshot WITH the freshly applied default model, so a
+        // newly opened editor doesn't immediately appear dirty.
+        setModelDefaultsApplied(true);
       }
     }
     fetchModels();
@@ -409,6 +591,72 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+
+  // Local state for the in-app "you have unsaved changes" confirmation when the
+  // user clicks the back arrow. We don't route this through the global store's
+  // pendingNavigationHref because closing the editor isn't an href navigation —
+  // it's a parent-state flip controlled by the onCancel prop.
+  const [pendingClose, setPendingClose] = React.useState(false);
+
+  // Snapshot sentinel: flips once after the async models endpoint resolves and
+  // applies a default modelId/modelProvider to a previously empty form. This
+  // ensures the dirty-tracking snapshot is taken AFTER defaults are applied,
+  // preventing a false "dirty" right after model defaults populate.
+  const [modelDefaultsApplied, setModelDefaultsApplied] = React.useState(
+    !!source?.model?.id
+  );
+
+  // Aggregate all editable form fields into a single object so the
+  // dirty-tracking hook can compare current vs initial values.
+  const currentFormValues = React.useMemo(
+    () => ({
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    }),
+    [
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    ]
+  );
+
+  // The snapshot key combines the source identity with the model-defaults
+  // sentinel. When either changes, the dirty hook re-snapshots so the form
+  // appears clean.
+  const snapshotIdentity =
+    agent?._id ?? cloneFrom?._id ?? "new";
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
+
+  const { dirty, resetSnapshot } = useEditorDirtyTracking({
+    enabled: !readOnly,
+    currentValues: currentFormValues,
+    snapshotKey,
+  });
+
+  // Filter the wizard step list when the autonomous-agents feature flag is off
+  // so the "Autonomous" step is hidden and step navigation math (next/prev,
+  // current index) stays consistent with what the operator actually sees.
   const visibleSteps = React.useMemo(
     () => STEPS.filter((step) => autonomousAgentsEnabled || step.id !== "autonomous"),
     [autonomousAgentsEnabled],
@@ -491,6 +739,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           setPromptTab("preview");
           break;
         case "theme": {
+          // Check for custom theme response: "custom:#hex1,#hex2,#hex3"
+          const customMatch = content.match(/custom:\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})/);
+          if (customMatch) {
+            setGradientTheme("custom");
+            setCustomThemeConfig({
+              gradient_from: customMatch[1],
+              gradient_to: customMatch[2],
+              accent_color: customMatch[3],
+            });
+            setShowCustomPicker(true);
+            break;
+          }
           // Try exact match first (after normalization)
           const normalized = content.toLowerCase().replace(/[^a-z_]/g, "");
           const exactMatch = gradientThemes.find((t) => t.id === normalized);
@@ -587,7 +847,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     try {
       // Build UI config if gradient theme is set
       const uiConfig: AgentUIConfig | undefined = gradientTheme
-        ? { gradient_theme: gradientTheme }
+        ? {
+            gradient_theme: gradientTheme,
+            ...(gradientTheme === "custom" ? { custom_theme_config: customThemeConfig } : {}),
+          }
         : undefined;
       let savedAgentId: string;
 
@@ -606,6 +869,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
+          interrupt_on: interruptOn,
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -635,6 +899,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
+          interrupt_on: interruptOn,
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -673,6 +938,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         }
       }
 
+      // Clear unsaved-changes state BEFORE calling onSave(): the parent will
+      // unmount this editor in response to onSave, and we want the global flag
+      // to be false by the time any header/tab guards re-evaluate. resetSnapshot
+      // also re-points the snapshot at the just-saved values so a follow-up
+      // dirty check (in the unlikely case the editor stays mounted) is correct.
+      resetSnapshot();
+      useUnsavedChangesStore.getState().setUnsaved(false);
+
       onSave();
     } catch (err: any) {
       setError(err.message || "An error occurred");
@@ -683,19 +956,42 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
   const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
 
+  // Back-button click handler. When the form has unsaved changes, we surface
+  // an in-app confirmation modal instead of silently discarding work. The
+  // dialog itself is rendered at the bottom of this component.
+  const handleBackClick = () => {
+    if (dirty) {
+      setPendingClose(true);
+    } else {
+      onCancel();
+    }
+  };
+
+  const handleConfirmDiscard = () => {
+    setPendingClose(false);
+    // Belt-and-suspenders: clear the global flag here AND let the unmount
+    // cleanup in useEditorDirtyTracking do the same. Either alone is enough.
+    useUnsavedChangesStore.getState().setUnsaved(false);
+    onCancel();
+  };
+
+  const handleCancelDiscard = () => {
+    setPendingClose(false);
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onCancel}>
+          <Button variant="ghost" size="icon" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <CardTitle>
               {readOnly
-                ? `View Agent — ${agent?.name}`
+                ? `View Agent - ${agent?.name}`
                 : isEditing
-                ? `Edit Agent — ${agent?.name}`
+                ? `Edit Agent - ${agent?.name}`
                 : isCloning
                 ? "Clone Agent"
                 : "Create Agent"}
@@ -712,9 +1008,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </div>
           <div
             className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
-            style={getGradientStyle(gradientTheme)}
+            style={getGradientStyle(gradientTheme, gradientTheme === "custom" ? customThemeConfig : null)}
           >
-            <Bot className="h-5 w-5 text-white" />
+            <Bot className="h-5 w-5" style={{ color: getAccentColor(gradientTheme, customThemeConfig) || "white" }} />
           </div>
         </div>
       </CardHeader>
@@ -908,7 +1204,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     <button
                       key={theme.id}
                       type="button"
-                      onClick={() => setGradientTheme(theme.id)}
+                      onClick={() => { setGradientTheme(theme.id); setShowCustomPicker(false); }}
                       className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
                         gradientTheme === theme.id
@@ -935,6 +1231,120 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       )}
                     </button>
                   ))}
+                  {/* Custom theme button */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => { setGradientTheme("custom"); setShowCustomPicker(!showCustomPicker); }}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left w-full",
+                        gradientTheme === "custom"
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                      disabled={loading}
+                      title="Custom colors"
+                    >
+                      <div
+                        className="w-6 h-6 rounded-md shrink-0 border border-dashed border-muted-foreground/40 flex items-center justify-center"
+                        style={gradientTheme === "custom" ? { background: `linear-gradient(to bottom right, ${customThemeConfig.gradient_from}, ${customThemeConfig.gradient_to})` } : undefined}
+                      >
+                        {gradientTheme !== "custom" && <span className="text-[10px] text-muted-foreground">+</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-medium block truncate">Custom</span>
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          Pick your own
+                        </span>
+                      </div>
+                      {gradientTheme === "custom" && (
+                        <Check className="h-3 w-3 text-primary shrink-0" />
+                      )}
+                    </button>
+
+                    {/* Custom theme picker popup — positioned to the left of the button */}
+                    {showCustomPicker && gradientTheme === "custom" && (
+                      <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
+                        {/* Preview */}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-all"
+                            style={getGradientStyle("custom", customThemeConfig)}
+                          >
+                            <Bot className="h-6 w-6" style={{ color: customThemeConfig.accent_color }} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Live preview
+                          </div>
+                        </div>
+
+                        {/* Color inputs */}
+                        <div className="space-y-2.5">
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient From</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#6366f1"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient To</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#1e1b4b"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Icon Color</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#ffffff"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Done button */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setShowCustomPicker(false)}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1236,17 +1646,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   disabled={loading}
                 />
               </div>
-
-              {/* Advanced: Middleware */}
-              <div className="border-t pt-4">
-                <MiddlewarePicker
-                  value={features}
-                  onChange={setFeatures}
-                  disabled={loading}
-                  availableModels={availableModels}
-                  onError={setMiddlewareError}
-                />
-              </div>
             </div>
           )}
 
@@ -1268,28 +1667,23 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </div>
           )}
 
-          {/* Subagents Step */}
-          {activeStep === "subagents" && (
-            <div className="space-y-4 pt-2">
-              <div>
-                <Label>Subagent Delegation</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Configure other custom agents that this agent can delegate tasks to.
-                  The LLM will automatically decide when to use each subagent based on the description you provide.
-                </p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-                  Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
-                </p>
-              </div>
-
-              <SubagentPicker
-                agentId={agent?._id || null}
-                value={subagents}
-                onChange={setSubagents}
-                disabled={loading}
-                parentVisibility={visibility}
-              />
-            </div>
+          {/* Advanced Step */}
+          {activeStep === "advanced" && (
+            <AdvancedStep
+              agent={agent}
+              subagents={subagents}
+              setSubagents={setSubagents}
+              interruptOn={interruptOn}
+              setInterruptOn={setInterruptOn}
+              allowedTools={allowedTools}
+              builtinTools={builtinTools}
+              features={features}
+              setFeatures={setFeatures}
+              availableModels={availableModels}
+              setMiddlewareError={setMiddlewareError}
+              loading={loading}
+              visibility={visibility}
+            />
           )}
 
           {autonomousAgentsEnabled && activeStep === "autonomous" && (
@@ -1368,6 +1762,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           </Button>
         )}
       </div>
+
+      <UnsavedChangesDialog
+        open={pendingClose}
+        onCancel={handleCancelDiscard}
+        onDiscard={handleConfirmDiscard}
+        title="Unsaved changes"
+        description="You have unsaved changes in the agent editor. They will be lost if you leave now."
+      />
     </Card>
   );
 }

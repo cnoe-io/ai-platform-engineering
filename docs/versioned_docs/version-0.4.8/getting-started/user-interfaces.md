@@ -1,0 +1,68 @@
+---
+sidebar_position: 6
+---
+# 🖥️ User Interfaces
+
+The CAIPE Multi-agent Systems provide robust user interfaces that facilitate seamless interaction between agents using the Agent-to-Agent (A2A) protocol. These interfaces are designed to support secure communication and collaboration among agents, leveraging OAuth for authentication to ensure data integrity and privacy.
+
+These interfaces empower users to build and manage sophisticated multi-agent systems with ease and security.
+
+> **Note:** Authorization and scope validation are currently handled by MCP servers. Additional details regarding this process will be provided in future updates.
+
+## Agent Chat CLI
+
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+	<iframe src="https://app.vidcast.io/share/embed/c8d0fdf0-5337-4c96-aae1-62a2eb660643?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Agent Chat CLI v0.2.0 Nov 15th 2025" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
+- [**agent-chat-cli - explore the complete docs, install guide, and examples**](https://github.com/cnoe-io/agent-chat-cli)
+
+   ```bash
+   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+   ```
+
+   *Or, clone and run the chat client:*
+
+   ```bash
+   uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+   ```
+
+
+
+## CAIPE UI (Standalone UI)
+
+<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
+	<iframe src="https://app.vidcast.io/share/embed/ea0b5c51-2d25-4e6b-904d-d13dc0d2fb92?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE UI Demo" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
+</div>
+
+- [**CAIPE UI Documentation - explore the complete features, configuration, and development guide**](../ui/index.md)
+
+The CAIPE UI is a modern React-based web interface for visualizing A2A (Agent-to-Agent) protocol messages with real-time streaming support. It provides:
+
+- **3-Panel Layout**: Use Cases Gallery, Interactive Chat, and A2A Message Visualization
+- **Real-time Streaming**: Server-Sent Events (SSE) for live agent communication
+- **A2UI Widget Support**: Interactive forms, buttons, and structured UI components
+- **Knowledge Graph**: Visual representation using Sigma.js
+- **Authentication**: NextAuth.js with OAuth 2.0 support
+
+**Run with Docker Compose:**
+
+```bash
+COMPOSE_PROFILES=caipe-ui docker compose -f docker-compose.dev.yaml up
+```
+
+**Or use Make target:**
+
+```bash
+make caipe-ui
+```
+
+Once the container is started, open the UI in your browser:
+```
+http://localhost:3000
+```
+
+**View Documentation Site:**
+```
+http://localhost:3001/ai-platform-engineering/ui/
+```

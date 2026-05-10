@@ -231,6 +231,18 @@ services:
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
     depends_on:
       caipe-mongodb:
         condition: service_healthy
@@ -356,6 +368,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - AWS_REGION=${AWS_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -403,6 +427,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
     profiles:
       - petstore
       - all-agents
@@ -448,6 +484,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - GH_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}  # gh CLI authentication (PAT fallback)
       # GitHub App authentication (recommended - auto-refreshing tokens)
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
@@ -487,6 +535,18 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - GIT_AUTHOR_NAME=${GIT_AUTHOR_NAME:-AI Agent}
       - GIT_AUTHOR_EMAIL=${GIT_AUTHOR_EMAIL:-ai-agent@cnoe.io}
       - GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-AI Agent}
@@ -1266,6 +1326,11 @@ services:
       # `/api/autonomous` still treats anonymous sessions as non-admin and returns
       # 403 "Admin view access required" even though the tab is visible.
       - ALLOW_ANONYMOUS_ADMIN=${ALLOW_ANONYMOUS_ADMIN:-true}
+      # Skill Scanner — when the `skill-scanner` profile is enabled, the UI
+      # uploads ZIP'd skill packages to this service for security scanning.
+      # If unreachable the UI gracefully reports "scanner unavailable" instead
+      # of failing the skill save.
+      - SKILL_SCANNER_URL=${SKILL_SCANNER_URL:-http://skill-scanner:8000}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
@@ -1329,20 +1394,23 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       # Runtime configuration
-      - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
-      # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
-      # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
+      - LOG_LEVEL=${DYNAMIC_AGENTS_LOG_LEVEL:-DEBUG}
+      - DEFAULT_RUNTIME_BACKEND=${DEFAULT_RUNTIME_BACKEND:-store}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-60}
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
-
-      # Checkpoint configuration
-      - LANGGRAPH_CHECKPOINT_TYPE=mongodb
-      - LANGGRAPH_CHECKPOINT_MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      # Use /healthz (matches FastAPI route in routes/health.py and the Helm chart probes).
+      # Parse the JSON body: a 200 response with {"status": "unhealthy"} (e.g. Mongo down)
+      # must still fail the healthcheck, otherwise the container appears healthy while broken.
+      test: ["CMD-SHELL", "python -c \"import json,urllib.request,sys; r=urllib.request.urlopen('http://localhost:8001/healthz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='healthy' else 1)\""]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - dynamic-agents
@@ -2152,6 +2220,18 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-30000}
+      # Skill payloads are scrubbed in-process by
+      # `ai_platform_engineering.utils.tracing.install_skill_content_scrubber`
+      # (attached to the TracerProvider on agent boot). That keeps
+      # SKILL.md bodies + ancillary file contents out of every span
+      # without redacting normal chat / tool I/O. Set
+      # SKILL_TRACE_SCRUB_ENABLED=false to bypass for one debug
+      # session.
+      - SKILL_TRACE_SCRUB_ENABLED=${SKILL_TRACE_SCRUB_ENABLED:-true}
+      # Defensive per-attribute cap (256 KiB) so one oversized
+      # attribute can't push the OTel batch past Langfuse's 1 MiB
+      # nginx body limit. Set to 0 to disable.
+      - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
@@ -2297,6 +2377,48 @@ services:
     restart: unless-stopped
     profiles:
       - langgraph-mongodb
+
+  ####################################################################################################
+  #                                      Skill Scanner                                               #
+  ####################################################################################################
+  # cisco-ai-defense/skill-scanner running its built-in REST API server. The
+  # CAIPE UI POSTs zipped SKILL packages to /scan-upload to get static +
+  # (optionally) LLM-driven safety findings.
+  #
+  # Why standalone (not co-located with caipe-supervisor):
+  #   - Avoid coupling MAS lifecycle to scanner pip installs.
+  #   - Independent upgrade path (scanner releases ship frequently).
+  #   - Stays unauthenticated only on the internal docker network — never
+  #     map this port on a public interface.
+  skill-scanner:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.skill-scanner
+      args:
+        # Bumping requires verifying /scan-upload response shape vs
+        # ui/src/lib/skill-scan.ts.
+        - SKILL_SCANNER_VERSION=${SKILL_SCANNER_VERSION:-2.0.11}
+    image: ghcr.io/cnoe-io/skill-scanner:${IMAGE_TAG:-localtag}
+    container_name: skill-scanner
+    # Bind to 127.0.0.1 only — the API has no auth and accepts arbitrary
+    # ZIPs, so it must never be reachable from outside the host.
+    ports:
+      - "127.0.0.1:8765:8000"
+    environment:
+      # Optional LLM-analyzer credentials. Leave unset to run static-only
+      # scans (still useful for catching obvious unsafe patterns).
+      - SKILL_SCANNER_LLM_API_KEY=${SKILL_SCANNER_LLM_API_KEY:-}
+      - SKILL_SCANNER_LLM_MODEL=${SKILL_SCANNER_LLM_MODEL:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2).status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - skill-scanner
+      - caipe-ui
 
 volumes:
   mongodb_data:

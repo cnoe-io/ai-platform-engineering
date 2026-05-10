@@ -44,10 +44,18 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "rag-ingestors.serviceAccountName" $ }}
       automountServiceAccountToken: {{ $.Values.serviceAccount.automount | default true }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: ingestor
           image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default (include "rag-ingestors.appVersion" $) }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- with $.Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             # Core ingestor configuration
             - name: INGESTOR_TYPE

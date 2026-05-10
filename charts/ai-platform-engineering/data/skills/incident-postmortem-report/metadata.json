@@ -1,0 +1,25 @@
+{
+  "title": "Incident Post-Mortem Report",
+  "category": "Operations",
+  "icon": "FileText",
+  "tags": [
+    "postmortem",
+    "incident",
+    "SRE",
+    "documentation"
+  ],
+  "input_variables": [
+    {
+      "name": "incident_summary",
+      "label": "Incident summary",
+      "required": false,
+      "placeholder": "One-line description or ticket/incident ID"
+    },
+    {
+      "name": "severity",
+      "label": "Severity / priority",
+      "required": false,
+      "placeholder": "e.g. SEV-1, customer impact"
+    }
+  ]
+}

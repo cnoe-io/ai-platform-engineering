@@ -12,7 +12,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
  *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from /api/skill-templates and /api/agent-skills.
+ *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -34,7 +34,7 @@ import type { SkillHubDoc } from "@/lib/hub-crawl";
  *   503 — { error: "skills_unavailable", message: "..." }
  */
 
-interface CatalogSkill {
+export interface CatalogSkill {
   id: string;
   name: string;
   description: string;
@@ -42,6 +42,80 @@ interface CatalogSkill {
   source_id: string | null;
   content: string | null;
   metadata: Record<string, unknown>;
+  /**
+   * Sibling files (paths relative to the skill folder). Populated only
+   * when the caller asks for `include_content=true`. Lets API gateway
+   * consumers (Claude Code, Cursor, install.sh) materialise the full
+   * skill folder verbatim instead of only SKILL.md.
+   */
+  ancillary_files?: Record<string, string>;
+  /** Operator-facing summary of what was captured / skipped. */
+  ancillary_summary?: {
+    total_files: number;
+    total_bytes: number;
+    skipped_binary: number;
+    skipped_too_large: number;
+    truncated_at_count_cap: boolean;
+    truncated_at_size_cap: boolean;
+  };
+  /**
+   * Cached scan state, hydrated from the appropriate collection per source:
+   *   - `agent_skills` doc directly (already projected here)
+   *   - `builtin_skill_scans` keyed by template id (joined below)
+   *   - hub crawler returns these on its own
+   * Absent when the skill has never been scanned. The scanner only
+   * ever writes one of the three values; the admin override is a
+   * SEPARATE field (``scan_override`` below), not a magic status.
+   */
+  scan_status?: "passed" | "flagged" | "unscanned";
+  scan_summary?: string;
+  scan_updated_at?: string;
+  /**
+   * Admin override sub-doc — the audit record AND the runtime gate
+   * signal for a flagged skill.
+   *
+   * Populated by ``POST /api/admin/skills/:source/:source_id/scan-override``
+   * (and the hub variant) when an operator explicitly green-lights
+   * a flagged skill with a written reason. Cleared by the matching
+   * DELETE handler. Scanner write paths (per-skill rescan, scan-all,
+   * hub auto-scan) never touch this field, so an override survives
+   * any number of rescans until an admin explicitly clears it.
+   *
+   * Treated as runnable HERE (``applyRunnableGate``) AND on the
+   * Python loader side (``scan_gate.is_skill_blocked``) when
+   * present + ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on (default).
+   * Setting the env to ``false`` removes the escape hatch in
+   * lockstep across both tiers — flagged becomes unconditional
+   * regardless of override.
+   *
+   * ``prior_scan_status`` is the verdict the override replaced
+   * (always ``"flagged"`` — there's no reason to override a passed
+   * or unscanned skill) so the report dialog can render "Override
+   * active. Scanner had returned: flagged" without a second lookup.
+   */
+  scan_override?: {
+    set_by: string;
+    set_at: string;
+    reason: string;
+    prior_scan_status: "flagged";
+    prior_scan_summary?: string;
+  };
+  /**
+   * Whether the skill is runnable / installable / ingestible. Set to
+   * `false` whenever the security scanner has flagged the skill AND
+   * there is no active admin override — the UI surfaces this as a
+   * disabled card with a "Disabled — flagged" badge so admins can
+   * still see and re-scan it. Defaults to `true` when omitted.
+   *
+   * The supervisor + dynamic agents enforce the same rule
+   * independently (Python ``scan_gate`` module) so a stale UI badge
+   * cannot make a flagged skill executable. A flagged skill with an
+   * active ``scan_override`` is runnable on both sides (UI here,
+   * Python there) when the admin-override feature is enabled.
+   */
+  runnable?: boolean;
+  /** Operator-visible reason for ``runnable=false``. */
+  blocked_reason?: "scan_flagged";
 }
 
 interface CatalogResponse {
@@ -234,7 +308,7 @@ async function fetchFromBackend(
 
 /**
  * Local aggregation fallback: merge skill-templates (filesystem) and
- * agent-skills (MongoDB) into a single catalog.
+ * persisted agent skills from MongoDB (`agent_skills`) into a single catalog.
  */
 async function aggregateLocally(
   includeContent: boolean,
@@ -249,6 +323,44 @@ async function aggregateLocally(
       "./skill-templates-loader"
     );
     const templates = loadSkillTemplatesInternal();
+
+    // Best-effort lookup of cached scan results so the gallery shield
+    // shows fresh badges immediately after a sweep / per-template scan.
+    // If Mongo is down we just leave scan_status undefined → "Unscanned".
+    // Built-in skills can never be admin-overridden today (templates
+    // live on disk and have no per-skill admin UI). The override
+    // sub-doc is still projected for symmetry with the catalog
+    // shape — a hand-edited row in builtin_skill_scans should round-
+    // trip cleanly rather than crash the union narrowing — but no
+    // UI flow writes it.
+    type BuiltinScanDoc = {
+      id: string;
+      scan_status: "passed" | "flagged" | "unscanned";
+      scan_summary?: string;
+      scan_updated_at?: Date;
+      scan_override?: CatalogSkill["scan_override"];
+    };
+    let builtinScans = new Map<string, BuiltinScanDoc>();
+    try {
+      const { getCollection: getColForScans, isMongoDBConfigured: scansMongoOk } =
+        await import("@/lib/mongodb");
+      if (scansMongoOk) {
+        const scansCol = await getColForScans<BuiltinScanDoc>(
+          "builtin_skill_scans",
+        );
+        const scanDocs = await scansCol
+          .find({})
+          .project<BuiltinScanDoc>({ _id: 0 })
+          .toArray();
+        builtinScans = new Map(scanDocs.map((d) => [d.id, d]));
+      }
+    } catch (err) {
+      console.warn(
+        "[Skills] Failed to load builtin_skill_scans cache (badges will show as Unscanned):",
+        err,
+      );
+    }
+
     for (const t of templates) {
       const meta: Record<string, unknown> = {
         category: t.category,
@@ -258,6 +370,7 @@ async function aggregateLocally(
       if (t.input_variables && t.input_variables.length > 0) {
         meta.input_variables = t.input_variables;
       }
+      const scan = builtinScans.get(t.id);
       skills.push({
         id: t.id,
         name: t.name,
@@ -266,6 +379,19 @@ async function aggregateLocally(
         source_id: null,
         content: includeContent ? t.content : null,
         metadata: meta,
+        ...(scan?.scan_status ? { scan_status: scan.scan_status } : {}),
+        ...(scan?.scan_summary !== undefined
+          ? { scan_summary: scan.scan_summary }
+          : {}),
+        ...(scan?.scan_updated_at
+          ? {
+              scan_updated_at:
+                scan.scan_updated_at instanceof Date
+                  ? scan.scan_updated_at.toISOString()
+                  : String(scan.scan_updated_at),
+            }
+          : {}),
+        ...(scan?.scan_override ? { scan_override: scan.scan_override } : {}),
       });
     }
     sourcesLoaded.push("default");
@@ -304,6 +430,16 @@ async function aggregateLocally(
               is_system: 1,
               category: 1,
               metadata: 1,
+              ancillary_files: 1,
+              scan_status: 1,
+              scan_summary: 1,
+              scan_updated_at: 1,
+              // Admin override metadata (set_by / set_at / reason /
+              // prior_scan_status / prior_scan_summary). Pulled in
+              // every catalog response so the report-status dialog
+              // can render the audit trail without an extra round
+              // trip. Absent on docs without an override.
+              scan_override: 1,
             },
           },
         )
@@ -326,6 +462,39 @@ async function aggregateLocally(
             visibility: doc.visibility,
             is_system: doc.is_system,
           },
+          ancillary_files:
+            includeContent && doc.ancillary_files
+              ? (doc.ancillary_files as Record<string, string>)
+              : undefined,
+          ...(doc.scan_status
+            ? {
+                scan_status: doc.scan_status as
+                  | "passed"
+                  | "flagged"
+                  | "unscanned",
+              }
+            : {}),
+          ...(doc.scan_summary !== undefined
+            ? { scan_summary: String(doc.scan_summary) }
+            : {}),
+          ...(doc.scan_updated_at
+            ? {
+                scan_updated_at:
+                  doc.scan_updated_at instanceof Date
+                    ? doc.scan_updated_at.toISOString()
+                    : String(doc.scan_updated_at),
+              }
+            : {}),
+          // Pass-through override audit metadata. We don't validate
+          // the shape here — the override route is the only writer
+          // and the type narrowing in the dialog component handles
+          // missing fields defensively (a hand-edited doc with a
+          // partial override should still render).
+          ...(doc.scan_override
+            ? {
+                scan_override: doc.scan_override as CatalogSkill["scan_override"],
+              }
+            : {}),
         });
       }
       sourcesLoaded.push("agent_skills");
@@ -347,7 +516,16 @@ async function aggregateLocally(
       for (const hub of enabledHubs) {
         try {
           const hubSkills = await getHubSkills(hub);
-          skills.push(...hubSkills);
+          for (const s of hubSkills) {
+            // Hub crawler always returns content + ancillary_files in the
+            // CatalogSkill shape; strip them when the caller didn't ask
+            // for content so the listing payload stays small.
+            skills.push({
+              ...s,
+              content: includeContent ? s.content : null,
+              ancillary_files: includeContent ? s.ancillary_files : undefined,
+            });
+          }
           sourcesLoaded.push(`hub:${hub.id}`);
         } catch (err) {
           console.error(`[Skills] Hub ${hub.location} failed:`, err);
@@ -401,13 +579,81 @@ function sanitizeSkillContent(content: string | null): string | null {
   return content.replace(/^(<!--[\s\S]*?-->\s*\n?)+/, "");
 }
 
+/**
+ * Whether the admin scan-override feature is enabled. Defaults to true
+ * to match the Python ``scan_gate.is_admin_override_enabled``: regulated
+ * deployments flip ``ADMIN_SCAN_OVERRIDE_ENABLED=false`` to remove the
+ * escape hatch entirely. We mirror the Python parsing here (any non-
+ * explicit-false string keeps it on) so a typo can't silently disable
+ * the feature on only one of the two sides.
+ *
+ * Exported for tests; not meant for use outside this module.
+ */
+export function isAdminOverrideEnabled(): boolean {
+  const raw = (process.env.ADMIN_SCAN_OVERRIDE_ENABLED ?? "true")
+    .trim()
+    .toLowerCase();
+  return !["false", "0", "no", "off"].includes(raw);
+}
+
+/**
+ * Stamp ``runnable`` / ``blocked_reason`` on every skill based on its
+ * cached scan status AND any active admin override. Default is
+ * ``runnable: true``.
+ *
+ * Flagging rules (mirror ``scan_gate.is_status_blocked`` in Python):
+ *   - ``flagged`` WITHOUT an active ``scan_override`` ⇒ not-runnable.
+ *   - ``flagged`` WITH ``scan_override`` AND
+ *     ``ADMIN_SCAN_OVERRIDE_ENABLED`` on (default) ⇒ runnable. The
+ *     admin's audit-logged "I trust this" assertion is honoured.
+ *   - ``flagged`` WITH ``scan_override`` AND the env flag flipped to
+ *     false ⇒ not-runnable. A single env flip removes the escape
+ *     hatch in lockstep with the Python tier.
+ *   - everything else (including ``unscanned``) ⇒ runnable here. The
+ *     Python loader applies stricter ``SKILL_SCANNER_GATE=strict`` rules
+ *     for the runtime; this UI gate is intentionally permissive so the
+ *     gallery still shows skills the runtime would refuse, with the
+ *     scan-status badge explaining why.
+ *
+ * Why the override is a separate field, not a magic ``scan_status``
+ * value: the previous implementation set ``scan_status =
+ * "admin_overridden"``, which collided with every scanner write
+ * path — any rescan would blindly overwrite ``scan_status =
+ * "flagged"`` and silently nuke the override. Splitting the signals
+ * means scan routes only ever touch ``scan_status``/``scan_summary``
+ * and the override stays stable until an admin clears it.
+ *
+ * This is the single UI-facing enforcement point so the gallery,
+ * runner, and downstream consumers (Skills API gateway, install.sh)
+ * all agree without each having to re-derive the rule. The Python
+ * supervisor and dynamic agents enforce the same policy via
+ * ``scan_gate.py``; this stamp is for UI affordances + defense in
+ * depth against a backend that hasn't yet been updated.
+ */
+export function applyRunnableGate(skill: CatalogSkill): CatalogSkill {
+  if (skill.scan_status === "flagged") {
+    const hasOverride = !!skill.scan_override;
+    if (hasOverride && isAdminOverrideEnabled()) {
+      // Admin override honoured — runnable despite scanner verdict.
+      // Leave ``scan_status`` and ``scan_override`` as-is so the
+      // gallery can render the amber "Admin override active" badge
+      // alongside the audit metadata.
+      return { ...skill, runnable: true };
+    }
+    return { ...skill, runnable: false, blocked_reason: "scan_flagged" };
+  }
+  return { ...skill, runnable: skill.runnable ?? true };
+}
+
 function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
   return {
     ...data,
-    skills: data.skills.map((s) => ({
-      ...s,
-      content: sanitizeSkillContent(s.content),
-    })),
+    skills: data.skills.map((s) =>
+      applyRunnableGate({
+        ...s,
+        content: sanitizeSkillContent(s.content),
+      }),
+    ),
   };
 }
 
@@ -432,7 +678,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });
-    return NextResponse.json(response);
+    return NextResponse.json(sanitizeCatalogResponse(response));
   } catch (err) {
     console.error("[Skills] Catalog unavailable:", err);
     return NextResponse.json(
