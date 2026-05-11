@@ -479,7 +479,8 @@ def reconcile_comment(body: str) -> None:
             if error.status != 404:
                 raise
             print(f"Managed prebuild comment {target['id']} disappeared; retrying.")
-            return reconcile_comment(body)
+            reconcile_comment(body)
+            return
 
         for duplicate in managed[1:]:
             try:
