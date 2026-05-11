@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, Loader2, Pause, Play, RotateCcw, X, Zap } from "lucide-react";
+import { Clock3, Loader2, Pause, Play, RotateCcw, Square, X, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { repoUpdateHighlightStyle } from "@/lib/agentic-sdlc/highlight-timing";
@@ -110,6 +110,22 @@ export function RepoCatchUpTimeline({ owner, repo }: RepoCatchUpTimelineProps) {
     [owner, repo],
   );
 
+  const stopReplay = useCallback(
+    (closePanel = false) => {
+      setIsPlaying(false);
+      setActiveIndex(0);
+      window.dispatchEvent(
+        new CustomEvent("agentic-sdlc:board-replay-stop", {
+          detail: { owner, repo },
+        }),
+      );
+      if (closePanel) {
+        setOpen(false);
+      }
+    },
+    [owner, repo],
+  );
+
   useEffect(() => {
     if (!isPlaying) return;
     const snapshot = snapshots[activeIndex];
@@ -201,8 +217,8 @@ export function RepoCatchUpTimeline({ owner, repo }: RepoCatchUpTimelineProps) {
             </div>
             <button
               type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close catch-up replay"
+              onClick={() => stopReplay(true)}
+              aria-label="Stop and close catch-up replay"
               className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/40 bg-background/60 text-muted-foreground transition hover:bg-background hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
@@ -259,6 +275,15 @@ export function RepoCatchUpTimeline({ owner, repo }: RepoCatchUpTimelineProps) {
           >
             <Pause className="h-3.5 w-3.5" aria-hidden />
             Pause
+          </button>
+          <button
+            type="button"
+            disabled={snapshots.length === 0}
+            onClick={() => stopReplay(false)}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/40 px-2.5 text-[11px] text-muted-foreground transition hover:bg-background/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Square className="h-3.5 w-3.5" aria-hidden />
+            Stop
           </button>
           <button
             type="button"

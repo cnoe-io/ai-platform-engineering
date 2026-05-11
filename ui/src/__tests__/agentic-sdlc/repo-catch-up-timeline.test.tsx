@@ -14,8 +14,10 @@ describe("RepoCatchUpTimeline", () => {
   it("plays curated replay events and highlights the current artifact", async () => {
     const highlightSpy = jest.fn();
     const snapshotSpy = jest.fn();
+    const stopSpy = jest.fn();
     window.addEventListener("agentic-sdlc:replay-highlight", highlightSpy);
     window.addEventListener("agentic-sdlc:board-snapshot", snapshotSpy);
+    window.addEventListener("agentic-sdlc:board-replay-stop", stopSpy);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -85,8 +87,17 @@ describe("RepoCatchUpTimeline", () => {
         }),
       ),
     );
+    fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
+    await waitFor(() =>
+      expect(stopSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          detail: { owner: "demoorg", repo: "agentic-demo" },
+        }),
+      ),
+    );
     window.removeEventListener("agentic-sdlc:replay-highlight", highlightSpy);
     window.removeEventListener("agentic-sdlc:board-snapshot", snapshotSpy);
+    window.removeEventListener("agentic-sdlc:board-replay-stop", stopSpy);
   });
 
   it("starts as a floating replay button to preserve repo detail screen space", async () => {

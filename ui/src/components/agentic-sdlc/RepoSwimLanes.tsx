@@ -131,13 +131,22 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
         replaceHighlightedArtifacts([detail.snapshot.artifact_id]);
       }
     }
+    function onBoardReplayStop(event: Event) {
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
+      if (detail?.owner === owner && detail?.repo === repo) {
+        setReplaySnapshot(null);
+        replaceHighlightedArtifacts([]);
+      }
+    }
     window.addEventListener("agentic-sdlc:repo-synced", onRepoSynced);
     window.addEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
     window.addEventListener("agentic-sdlc:board-snapshot", onBoardSnapshot);
+    window.addEventListener("agentic-sdlc:board-replay-stop", onBoardReplayStop);
     return () => {
       window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
       window.removeEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
       window.removeEventListener("agentic-sdlc:board-snapshot", onBoardSnapshot);
+      window.removeEventListener("agentic-sdlc:board-replay-stop", onBoardReplayStop);
     };
   }, [highlightChangedArtifacts, owner, repo, replaceHighlightedArtifacts]);
 
