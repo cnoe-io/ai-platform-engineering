@@ -1,38 +1,45 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for the /tasks router run-history endpoints.
+"""Tests for ``autonomous_agents.routes.tasks``.
 
-These tests focus on the contract between the router and the
-``RunStore`` abstraction -- specifically, the ``limit`` arguments the
-router passes through. We don't need a FastAPI ``TestClient`` here:
-the router functions are plain ``async def`` callables, so we can
-``await`` them directly with tiny in-file fakes that satisfy the
-``TaskStore`` / ``RunStore`` Protocols in ``services/mongo.py``.
-
-Why in-file fakes rather than mongomock
----------------------------------------
-Production persistence is MongoDB-only (the in-memory fallback was
-removed when the Mongo stack consolidated into ``services/mongo.py``).
-Running every router unit test against ``mongomock_motor`` would pull
-that dependency into hot paths and make the assertions read as
-"does Mongo do the right thing?" rather than "does the router hand
-its store the right call shape?". The fakes here are deliberately
-minimal -- they implement only the Protocol methods the router uses.
+Covers CRUD endpoints (via FastAPI ``TestClient``), the run-history
+endpoints (called as plain awaitables), and the dynamic-agent
+routing branch in ``_run_preflight_and_persist`` and
+``_serialize_task``. Production persistence is MongoDB-only;
+in-file fakes satisfy the ``TaskStore`` / ``RunStore`` Protocols so
+failures point at the router rather than at Mongo semantics.
 """
 
+from __future__ import annotations
+
+import asyncio
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from autonomous_agents.models import CronTrigger, TaskDefinition, TaskRun, TaskStatus
+from autonomous_agents.models import (
+    CronTrigger,
+    TaskDefinition,
+    TaskRun,
+    TaskStatus,
+)
 from autonomous_agents.routes import tasks as tasks_route
+from autonomous_agents.routes import webhooks as webhooks_route
 from autonomous_agents.routes.tasks import (
     _MAX_TASK_RUNS,
+    _run_preflight_and_persist,
+    _serialize_task,
     get_task_runs,
     list_all_runs,
     set_task_store,
 )
+from autonomous_agents.scheduler import get_scheduler
+from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
@@ -40,14 +47,7 @@ from autonomous_agents.services.mongo import (
 
 
 class _DictTaskStore:
-    """Minimal in-file ``TaskStore`` fake for route tests.
-
-    Satisfies the Protocol surface used by the /tasks handlers
-    (``list_all`` / ``get`` / ``create`` / ``update`` / ``delete``)
-    via a plain dict. Production code goes through
-    :class:`MongoTaskStoreAdapter` instead; this fake exists only so
-    route tests can assert handler behaviour without a live Mongo.
-    """
+    """In-file ``TaskStore`` Protocol fake backed by a plain dict."""
 
     def __init__(self) -> None:
         self._tasks: dict[str, TaskDefinition] = {}
@@ -79,11 +79,7 @@ class _DictTaskStore:
 
 
 class _RecordingStore:
-    """RunStore stub that captures the ``limit`` it was invoked with.
-
-    Lets each test assert on the exact call shape the router used
-    without standing up a real backend.
-    """
+    """RunStore stub that captures each ``limit`` it was invoked with."""
 
     def __init__(self, runs: list[TaskRun] | None = None) -> None:
         self._runs = runs or []
@@ -95,7 +91,6 @@ class _RecordingStore:
 
     async def list_by_task(self, task_id: str, limit: int = 100) -> list[TaskRun]:
         self.list_by_task_calls.append((task_id, limit))
-        # Filter + cap so tests can also assert on returned data.
         matching = [r for r in self._runs if r.task_id == task_id]
         return matching[:limit]
 
@@ -124,18 +119,65 @@ def _make_task(task_id: str = "t1") -> TaskDefinition:
     )
 
 
+def _cron_task(task_id: str = "t1", *, enabled: bool = True) -> dict:
+    return {
+        "id": task_id,
+        "name": f"Task {task_id}",
+        "agent": "github",
+        "prompt": "do the thing",
+        "trigger": {"type": "cron", "schedule": "0 9 * * *"},
+        "enabled": enabled,
+    }
+
+
+def _interval_task(task_id: str = "t1", *, seconds: int = 30) -> dict:
+    return {
+        "id": task_id,
+        "name": f"Task {task_id}",
+        "agent": "github",
+        "prompt": "do the thing",
+        "trigger": {"type": "interval", "seconds": seconds},
+        "enabled": True,
+    }
+
+
+def _webhook_task(task_id: str = "hook1", *, secret: str | None = None) -> dict:
+    payload = {
+        "id": task_id,
+        "name": f"Webhook {task_id}",
+        "agent": "github",
+        "prompt": "respond",
+        "trigger": {"type": "webhook"},
+        "enabled": True,
+    }
+    if secret is not None:
+        payload["trigger"]["secret"] = secret
+    return payload
+
+
+def _ok_ack() -> Acknowledgement:
+    return Acknowledgement(
+        ack_status="ok",
+        ack_detail="Dynamic agent reachable.",
+        routed_to="agent-x",
+        tools=[],
+        available_agents=[],
+        credentials_status={},
+        dry_run_summary="Will route to dynamic agent 'My Agent'.",
+        ack_at=datetime.now(timezone.utc),
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_router_state():
     """Reset module-level singletons between tests so state doesn't bleed."""
     yield
     tasks_route._task_store = None
-    tasks_route._run_store = None if hasattr(tasks_route, "_run_store") else None
 
 
 @pytest.fixture
 def _swap_run_store(monkeypatch):
-    """Patch ``get_run_store`` for the route module so tests inject
-    a stub without touching the scheduler's global state."""
+    """Patch ``get_run_store`` for the route module without touching scheduler globals."""
 
     def _apply(store):
         monkeypatch.setattr(tasks_route, "get_run_store", lambda: store)
@@ -145,63 +187,469 @@ def _swap_run_store(monkeypatch):
 
 
 async def _seed_tasks(tasks: list[TaskDefinition]) -> None:
-    """Replace the router's TaskStore with a fresh fake pre-populated
-    with ``tasks``. Each test calls this with the exact set it expects
-    so ordering / leakage between tests is impossible."""
+    """Replace the router's TaskStore with a fresh fake pre-populated with ``tasks``."""
     store = _DictTaskStore()
     for t in tasks:
         await store.create(t)
     set_task_store(store)
 
 
-async def test_get_task_runs_passes_max_task_runs_limit(_swap_run_store):
-    """Regression: the router must pass an explicit limit, not rely on
-    RunStore.list_by_task's protocol default of 100. Pre-fix this
-    truncated history for any task with more than 100 past runs."""
-    store = _swap_run_store(_RecordingStore([_make_run(f"r{i}") for i in range(120)]))
-    await _seed_tasks([_make_task("t1")])
+@pytest.fixture
+def client():
+    """FastAPI app with only the /tasks router and an in-file fake store + paused BackgroundScheduler."""
+    import autonomous_agents.scheduler as scheduler_mod
 
-    runs = await get_task_runs("t1")
+    scheduler_mod._scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler_mod._scheduler.start(paused=True)
+    scheduler_mod._run_store = None
+    tasks_route._task_store = _DictTaskStore()
+    webhooks_route._webhook_tasks = {}
 
-    assert store.list_by_task_calls == [("t1", _MAX_TASK_RUNS)]
-    assert _MAX_TASK_RUNS >= 500, "raise this guard if the cap shrinks"
-    assert len(runs) == 120
+    app = FastAPI()
+    app.include_router(tasks_route.router, prefix="/api/v1")
 
+    with TestClient(app) as tc:
+        yield tc
 
-async def test_get_task_runs_404_when_unknown_task_and_no_history(_swap_run_store):
-    """Existing behaviour: a 404 should still fire when the task has
-    neither a registered definition nor any historical runs."""
-    from fastapi import HTTPException
-
-    _swap_run_store(_RecordingStore())
-    await _seed_tasks([])
-
-    with pytest.raises(HTTPException) as exc:
-        await get_task_runs("ghost")
-    assert exc.value.status_code == 404
+    if scheduler_mod._scheduler is not None and scheduler_mod._scheduler.running:
+        scheduler_mod._scheduler.shutdown(wait=False)
+    scheduler_mod._scheduler = None
+    tasks_route._task_store = None
+    webhooks_route._webhook_tasks = {}
 
 
-async def test_get_task_runs_returns_history_for_removed_tasks(_swap_run_store):
-    """Existing behaviour: if a task is no longer in the store but its
-    runs are still in the run store, the endpoint must still return
-    them rather than 404. Codifies the intent behind the existing
-    check, so a future refactor can't silently regress it."""
-    store = _swap_run_store(_RecordingStore([_make_run("old", task_id="removed")]))
-    await _seed_tasks([])
+class TestListAndGet:
+    """``GET /tasks`` and ``GET /tasks/{id}``."""
 
-    runs = await get_task_runs("removed")
+    def test_list_tasks_initially_empty(self, client: TestClient):
+        """Empty store returns an empty list."""
+        response = client.get("/api/v1/tasks")
+        assert response.status_code == 200
+        assert response.json() == []
 
-    assert len(runs) == 1
-    assert store.list_by_task_calls == [("removed", _MAX_TASK_RUNS)]
+    def test_get_task_404_for_unknown_id(self, client: TestClient):
+        """Unknown id returns 404."""
+        response = client.get("/api/v1/tasks/ghost")
+        assert response.status_code == 404
 
 
-async def test_list_all_runs_uses_default_limit(_swap_run_store):
-    """``/runs`` accepts no params today, so it should hit the store
-    with no override and rely on the protocol default (500)."""
-    store = _swap_run_store(_RecordingStore([_make_run("r1")]))
-    await _seed_tasks([])
+class TestCreate:
+    """``POST /tasks`` validation, persistence, and runtime side effects."""
 
-    runs = await list_all_runs()
+    def test_returns_201_and_serialized_payload(self, client: TestClient):
+        """201 + serialized payload includes every field the UI edit dialog needs."""
+        response = client.post("/api/v1/tasks", json=_cron_task("cron-1"))
 
-    assert len(runs) == 1
-    assert store.list_all_calls == [500]
+        assert response.status_code == 201
+        body = response.json()
+        assert body["id"] == "cron-1"
+        assert body["name"] == "Task cron-1"
+        assert body["trigger"]["type"] == "cron"
+        assert body["enabled"] is True
+        for required in ("agent", "prompt", "llm_provider", "timeout_seconds", "max_retries"):
+            assert required in body
+
+    def test_registers_with_scheduler(self, client: TestClient):
+        """A freshly-created cron task lands as an APScheduler job."""
+        client.post("/api/v1/tasks", json=_cron_task("cron-1"))
+
+        job_ids = [j.id for j in get_scheduler().get_jobs()]
+        assert job_ids == ["cron-1"]
+
+    def test_with_webhook_trigger_registers_in_webhook_table(self, client: TestClient):
+        """Webhook tasks land in the webhook registry, not in APScheduler."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
+
+        assert "hook1" in webhooks_route._webhook_tasks
+        assert get_scheduler().get_jobs() == []
+
+    def test_with_disabled_flag_skips_scheduler(self, client: TestClient):
+        """Disabled tasks persist but are not scheduled."""
+        response = client.post(
+            "/api/v1/tasks", json=_cron_task("dis-1", enabled=False)
+        )
+        assert response.status_code == 201
+        assert get_scheduler().get_jobs() == []
+        listed = client.get("/api/v1/tasks").json()
+        assert [t["id"] for t in listed] == ["dis-1"]
+
+    def test_returns_409_for_duplicate_id(self, client: TestClient):
+        """Duplicate id returns 409 and leaves the store unchanged."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        response = client.post("/api/v1/tasks", json=_cron_task("t1"))
+        assert response.status_code == 409
+        listed = client.get("/api/v1/tasks").json()
+        assert len(listed) == 1
+
+    def test_returns_422_for_unknown_trigger_type(self, client: TestClient):
+        """Discriminated-union validation rejects unknown trigger types at the edge."""
+        bad = _cron_task("t1")
+        bad["trigger"] = {"type": "smoke-signal"}
+        response = client.post("/api/v1/tasks", json=bad)
+        assert response.status_code == 422
+
+    def test_returns_422_for_missing_required_field(self, client: TestClient):
+        """Missing ``prompt`` returns 422."""
+        bad = _cron_task("t1")
+        del bad["prompt"]
+        response = client.post("/api/v1/tasks", json=bad)
+        assert response.status_code == 422
+
+    def test_succeeds_when_agent_omitted(self, client: TestClient):
+        """``agent`` is optional and persists as null."""
+        body = _cron_task("t-no-agent")
+        del body["agent"]
+        response = client.post("/api/v1/tasks", json=body)
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["agent"] is None
+
+    def test_rolls_back_when_scheduler_sync_fails(self, client: TestClient):
+        """Malformed cron expression rolls back the persisted row so retry works."""
+        bad = _cron_task("bad-cron")
+        bad["trigger"]["schedule"] = "this is not a cron expression"
+
+        response = client.post("/api/v1/tasks", json=bad)
+        assert response.status_code == 400
+        assert "could not be scheduled" in response.json()["detail"]
+
+        listed = client.get("/api/v1/tasks").json()
+        assert listed == []
+        assert get_scheduler().get_jobs() == []
+
+        fixed = _cron_task("bad-cron")
+        retry = client.post("/api/v1/tasks", json=fixed)
+        assert retry.status_code == 201, "rollback must clear the way for retry"
+
+
+class TestUpdate:
+    """``PUT /tasks/{id}`` re-syncs the scheduler / webhook registry."""
+
+    def test_replaces_definition_and_re_syncs_scheduler(self, client: TestClient):
+        """PUT swaps both the persisted definition and the live trigger spec."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+
+        updated_payload = _cron_task("t1")
+        updated_payload["name"] = "Task renamed"
+        updated_payload["trigger"]["schedule"] = "0 18 * * *"
+        response = client.put("/api/v1/tasks/t1", json=updated_payload)
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "Task renamed"
+        job = get_scheduler().get_job("t1")
+        assert job is not None
+        assert "hour='18'" in str(job.trigger)
+
+    def test_swap_from_cron_to_webhook_detaches_old_runtime(self, client: TestClient):
+        """Cron => webhook swap removes the prior APScheduler job."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+
+        swap = _webhook_task("t1")
+        response = client.put("/api/v1/tasks/t1", json=swap)
+        assert response.status_code == 200
+
+        assert get_scheduler().get_jobs() == []
+        assert "t1" in webhooks_route._webhook_tasks
+
+    def test_swap_from_webhook_to_cron_detaches_webhook(self, client: TestClient):
+        """Webhook => cron swap removes the prior webhook registration."""
+        client.post("/api/v1/tasks", json=_webhook_task("t1"))
+        assert "t1" in webhooks_route._webhook_tasks
+
+        swap = _cron_task("t1")
+        response = client.put("/api/v1/tasks/t1", json=swap)
+        assert response.status_code == 200
+
+        assert "t1" not in webhooks_route._webhook_tasks
+        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+
+    def test_404_for_unknown_id(self, client: TestClient):
+        """PUT on unknown id returns 404."""
+        response = client.put("/api/v1/tasks/ghost", json=_cron_task("ghost"))
+        assert response.status_code == 404
+
+    def test_coerces_id_to_path(self, client: TestClient):
+        """Path id wins over body id."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+
+        body = _cron_task("t1")
+        body["id"] = "different"
+        response = client.put("/api/v1/tasks/t1", json=body)
+        assert response.status_code == 200
+        assert response.json()["id"] == "t1"
+
+        listed = client.get("/api/v1/tasks").json()
+        assert [t["id"] for t in listed] == ["t1"]
+
+    def test_disable_removes_scheduler_job(self, client: TestClient):
+        """Toggling enabled=true => false pulls the APScheduler entry."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+
+        disabled = _cron_task("t1", enabled=False)
+        response = client.put("/api/v1/tasks/t1", json=disabled)
+        assert response.status_code == 200
+
+        assert get_scheduler().get_job("t1") is None
+        listed = client.get("/api/v1/tasks").json()
+        assert [t["id"] for t in listed] == ["t1"]
+        assert listed[0]["enabled"] is False
+
+    def test_re_enable_re_attaches_scheduler_job(self, client: TestClient):
+        """Toggling enabled=false => true re-creates the APScheduler job."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        client.put("/api/v1/tasks/t1", json=_cron_task("t1", enabled=False))
+        assert get_scheduler().get_job("t1") is None
+
+        response = client.put("/api/v1/tasks/t1", json=_cron_task("t1", enabled=True))
+        assert response.status_code == 200
+        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+
+
+class TestWebhookSecretRedaction:
+    """The HMAC ``secret`` is redacted on every read path."""
+
+    def test_create_response_redacts_secret(self, client: TestClient):
+        """POST response replaces ``secret`` with ``has_secret``."""
+        response = client.post(
+            "/api/v1/tasks", json=_webhook_task("hook1", secret="super-secret")
+        )
+        assert response.status_code == 201
+        trigger = response.json()["trigger"]
+        assert "secret" not in trigger
+        assert trigger["has_secret"] is True
+
+    def test_list_and_get_never_echo_secret(self, client: TestClient):
+        """List and get both redact the secret on every webhook task."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="s"))
+
+        listed = client.get("/api/v1/tasks").json()
+        assert "secret" not in listed[0]["trigger"]
+        assert listed[0]["trigger"]["has_secret"] is True
+
+        fetched = client.get("/api/v1/tasks/hook1").json()
+        assert "secret" not in fetched["trigger"]
+        assert fetched["trigger"]["has_secret"] is True
+
+    def test_without_secret_reports_has_secret_false(self, client: TestClient):
+        """Webhook task with no secret reports ``has_secret=False``."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
+        fetched = client.get("/api/v1/tasks/hook1").json()
+        assert fetched["trigger"]["has_secret"] is False
+
+
+class TestWebhookSecretPreservationOnPut:
+    """A PUT with no secret means ``keep what's there``, not ``wipe``."""
+
+    def test_preserves_existing_secret_when_omitted(self, client: TestClient):
+        """PUT with secret omitted preserves the stored secret."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="original-secret"))
+
+        update = _webhook_task("hook1")
+        response = client.put("/api/v1/tasks/hook1", json=update)
+        assert response.status_code == 200
+        assert response.json()["trigger"]["has_secret"] is True
+
+        stored = tasks_route._task_store
+        assert stored is not None
+
+        task = asyncio.run(stored.get("hook1"))
+        assert task is not None
+        assert task.trigger.secret == "original-secret"
+
+    def test_can_explicitly_replace_secret(self, client: TestClient):
+        """PUT with a new secret value rotates the stored secret."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="old"))
+
+        update = _webhook_task("hook1", secret="new-secret")
+        response = client.put("/api/v1/tasks/hook1", json=update)
+        assert response.status_code == 200
+
+        stored = tasks_route._task_store
+        assert stored is not None
+
+        task = asyncio.run(stored.get("hook1"))
+        assert task is not None
+        assert task.trigger.secret == "new-secret"
+
+
+class TestDelete:
+    """``DELETE /tasks/{id}`` removes the task from store and runtime registries."""
+
+    def test_removes_from_store_and_scheduler(self, client: TestClient):
+        """DELETE removes both store and APScheduler entries."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"))
+
+        response = client.delete("/api/v1/tasks/t1")
+        assert response.status_code == 204
+
+        assert client.get("/api/v1/tasks").json() == []
+        assert get_scheduler().get_jobs() == []
+
+    def test_removes_webhook_registration(self, client: TestClient):
+        """DELETE removes the webhook registry entry."""
+        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
+        assert "hook1" in webhooks_route._webhook_tasks
+
+        response = client.delete("/api/v1/tasks/hook1")
+        assert response.status_code == 204
+        assert "hook1" not in webhooks_route._webhook_tasks
+
+    def test_404_for_unknown_id(self, client: TestClient):
+        """DELETE on unknown id returns 404."""
+        response = client.delete("/api/v1/tasks/ghost")
+        assert response.status_code == 404
+
+    def test_round_trip_create_get_update_delete(self, client: TestClient):
+        """Sanity smoke covering the full UI flow in one shot."""
+        create = client.post("/api/v1/tasks", json=_interval_task("t1", seconds=15))
+        assert create.status_code == 201
+
+        got = client.get("/api/v1/tasks/t1")
+        assert got.status_code == 200
+        assert got.json()["trigger"]["seconds"] == 15
+
+        updated_payload = _interval_task("t1", seconds=60)
+        updated = client.put("/api/v1/tasks/t1", json=updated_payload)
+        assert updated.status_code == 200
+        assert updated.json()["trigger"]["seconds"] == 60
+
+        deleted = client.delete("/api/v1/tasks/t1")
+        assert deleted.status_code == 204
+
+        assert client.get("/api/v1/tasks/t1").status_code == 404
+
+
+class TestRunHistory:
+    """``GET /tasks/{id}/runs`` and ``GET /runs`` pass the right ``limit`` to the RunStore."""
+
+    async def test_get_task_runs_passes_max_task_runs_limit(self, _swap_run_store):
+        """Router passes an explicit ``_MAX_TASK_RUNS`` limit, not the protocol default."""
+        store = _swap_run_store(_RecordingStore([_make_run(f"r{i}") for i in range(120)]))
+        await _seed_tasks([_make_task("t1")])
+
+        runs = await get_task_runs("t1")
+
+        assert store.list_by_task_calls == [("t1", _MAX_TASK_RUNS)]
+        assert _MAX_TASK_RUNS >= 500, "raise this guard if the cap shrinks"
+        assert len(runs) == 120
+
+    async def test_get_task_runs_404_when_unknown_task_and_no_history(self, _swap_run_store):
+        """Unknown task with no history returns 404."""
+        from fastapi import HTTPException
+
+        _swap_run_store(_RecordingStore())
+        await _seed_tasks([])
+
+        with pytest.raises(HTTPException) as exc:
+            await get_task_runs("ghost")
+        assert exc.value.status_code == 404
+
+    async def test_get_task_runs_returns_history_for_removed_tasks(self, _swap_run_store):
+        """A task removed from the store still surfaces its historical runs."""
+        store = _swap_run_store(_RecordingStore([_make_run("old", task_id="removed")]))
+        await _seed_tasks([])
+
+        runs = await get_task_runs("removed")
+
+        assert len(runs) == 1
+        assert store.list_by_task_calls == [("removed", _MAX_TASK_RUNS)]
+
+    async def test_list_all_runs_uses_default_limit(self, _swap_run_store):
+        """``/runs`` relies on the RunStore protocol default of 500."""
+        store = _swap_run_store(_RecordingStore([_make_run("r1")]))
+        await _seed_tasks([])
+
+        runs = await list_all_runs()
+
+        assert len(runs) == 1
+        assert store.list_all_calls == [500]
+
+
+class TestDynamicAgentRouting:
+    """Tasks with ``dynamic_agent_id`` route through the dynamic-agents preflight, not the supervisor's."""
+
+    async def test_routes_dynamic_agent_to_dynamic_preflight(self):
+        """``dynamic_agent_id`` set => dynamic preflight runs and supervisor preflight does not."""
+        store = _DictTaskStore()
+        set_task_store(store)
+        await store.create(
+            TaskDefinition(
+                id="custom-task",
+                name="Custom Task",
+                dynamic_agent_id="agent-x",
+                prompt="run the custom thing",
+                trigger=CronTrigger(schedule="0 9 * * *"),
+            )
+        )
+
+        da_preflight = AsyncMock(return_value=_ok_ack())
+        sup_preflight = AsyncMock(return_value=_ok_ack())
+
+        with (
+            patch("autonomous_agents.routes.tasks.preflight_dynamic_agent", new=da_preflight),
+            patch("autonomous_agents.routes.tasks.preflight", new=sup_preflight),
+        ):
+            await _run_preflight_and_persist("custom-task")
+
+        da_preflight.assert_awaited_once()
+        sup_preflight.assert_not_awaited()
+        assert da_preflight.await_args.kwargs["agent_id"] == "agent-x"
+
+        refreshed = await store.get("custom-task")
+        assert refreshed is not None
+        assert refreshed.last_ack is not None
+        assert refreshed.last_ack.ack_status == "ok"
+
+    async def test_routes_supervisor_task_to_supervisor_preflight(self):
+        """No ``dynamic_agent_id`` => supervisor preflight runs."""
+        store = _DictTaskStore()
+        set_task_store(store)
+        await store.create(
+            TaskDefinition(
+                id="supervisor-task",
+                name="Supervisor Task",
+                agent="github",
+                prompt="open a PR",
+                trigger=CronTrigger(schedule="0 9 * * *"),
+            )
+        )
+
+        da_preflight = AsyncMock(return_value=_ok_ack())
+        sup_preflight = AsyncMock(return_value=_ok_ack())
+
+        with (
+            patch("autonomous_agents.routes.tasks.preflight_dynamic_agent", new=da_preflight),
+            patch("autonomous_agents.routes.tasks.preflight", new=sup_preflight),
+        ):
+            await _run_preflight_and_persist("supervisor-task")
+
+        sup_preflight.assert_awaited_once()
+        da_preflight.assert_not_awaited()
+
+    def test_serialize_task_round_trips_dynamic_agent_id(self):
+        """``_serialize_task`` echoes ``dynamic_agent_id`` for the UI label."""
+        task = TaskDefinition(
+            id="custom-task",
+            name="Custom Task",
+            dynamic_agent_id="agent-x",
+            prompt="run the custom thing",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+        )
+        serialized = _serialize_task(task, next_run_iso=None)
+        assert serialized["dynamic_agent_id"] == "agent-x"
+        assert serialized["agent"] is None
+
+    def test_serialize_task_keeps_dynamic_agent_id_null_for_supervisor_tasks(self):
+        """Supervisor tasks serialise ``dynamic_agent_id=null`` and ``agent=<name>``."""
+        task = TaskDefinition(
+            id="supervisor-task",
+            name="Supervisor Task",
+            agent="github",
+            prompt="open a PR",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+        )
+        serialized = _serialize_task(task, next_run_iso=None)
+        assert serialized["dynamic_agent_id"] is None
+        assert serialized["agent"] == "github"

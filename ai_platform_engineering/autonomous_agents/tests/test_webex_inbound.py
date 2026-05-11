@@ -3,16 +3,8 @@
 
 """Tests for the in-process Webex dispatcher.
 
-Ported from ``integrations/webex_bot/tests/test_dispatcher.py`` with one
-substantive change: the ``ThreadLookup`` contract now returns a
-:class:`WebexThreadEntry` dataclass instead of a raw dict, so test fakes
-construct dataclasses. The dispatcher itself reads attributes
-(``mapping.task_id`` / ``mapping.run_id``) rather than ``.get()``.
-
-``verify_webex_signature`` and ``forward_followup`` are NOT ported -- they
-existed only to bridge the cross-process HTTP hop. The webex YAML
-adapter (covered in test_webhook_adapters.py) replaces the former, and
-in-process the route calls fire_webhook_task directly.
+The dispatcher decides loopguard / not-thread-reply / no-mapping /
+forward verdicts for inbound Webex events.
 """
 
 from __future__ import annotations
@@ -27,10 +19,6 @@ from autonomous_agents.services.webex_inbound import (
     dispatch_message_event,
 )
 from autonomous_agents.services.webex_threads import WebexThreadEntry
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_message(
@@ -61,180 +49,167 @@ def _fetch(messages: Mapping[str, dict]):
 
 
 def _lookup(rows: Mapping[str, WebexThreadEntry | None]):
-    """Build an async ``lookup_thread`` stub backed by a dict of typed entries.
-
-    Differs from the legacy bot's _lookup fixture: tests now construct
-    ``WebexThreadEntry`` values, mirroring the
-    :class:`MongoWebexThreadMapAdapter.lookup` production contract.
-    """
-
     async def _impl(parent_id: str) -> WebexThreadEntry | None:
         return rows.get(parent_id)
 
     return _impl
 
 
-# ---------------------------------------------------------------------------
-# Dispatcher verdicts
-# ---------------------------------------------------------------------------
+class TestDispatcherVerdicts:
+    """``dispatch_message_event`` produces drop / forward verdicts."""
 
+    @pytest.mark.asyncio
+    async def test_drops_event_authored_by_bot_via_event_personid(self):
+        """Event ``personId == bot`` short-circuits without calling fetch_message."""
+        fetch_called = False
 
-@pytest.mark.asyncio
-async def test_drops_event_authored_by_bot_via_event_personid():
-    """Cheap path: event already says ``personId == bot``, so we
-    short-circuit *without* calling fetch_message."""
-    fetch_called = False
+        async def fetch(_id: str):  # pragma: no cover - asserted not called
+            nonlocal fetch_called
+            fetch_called = True
+            return {}
 
-    async def fetch(_id: str):  # pragma: no cover - asserted not called
-        nonlocal fetch_called
-        fetch_called = True
-        return {}
+        async def lookup(_pid: str) -> WebexThreadEntry | None:
+            return None
 
-    async def lookup(_pid: str) -> WebexThreadEntry | None:
-        return None
+        event = {"data": {"id": "msg-1", "personId": "BOT"}}
 
-    event = {"data": {"id": "msg-1", "personId": "BOT"}}
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=fetch,
+            lookup_thread=lookup,
+        )
 
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=fetch,
-        lookup_thread=lookup,
-    )
+        assert result.verdict is Verdict.DROP_LOOPGUARD
+        assert fetch_called is False, "loopguard pre-check must avoid fetch_message"
 
-    assert result.verdict is Verdict.DROP_LOOPGUARD
-    assert fetch_called is False, "loopguard pre-check must avoid fetch_message"
+    @pytest.mark.asyncio
+    async def test_drops_event_authored_by_bot_via_fetched_message(self):
+        """Loopguard via the fetched message's personId."""
+        msg = _make_message(person_id="BOT")
+        event = {"data": {"id": msg["id"]}}
 
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup({}),
+        )
 
-@pytest.mark.asyncio
-async def test_drops_event_authored_by_bot_via_fetched_message():
-    """Slow path: event lacks personId, fetched message's personId
-    matches the bot. Still a loopguard drop."""
-    msg = _make_message(person_id="BOT")
-    event = {"data": {"id": msg["id"]}}
+        assert result.verdict is Verdict.DROP_LOOPGUARD
 
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup({}),
-    )
+    @pytest.mark.asyncio
+    async def test_drops_top_level_message_with_no_parent(self):
+        """Messages without ``parentId`` are not thread replies."""
+        msg = _make_message(parent_id=None)
+        event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
 
-    assert result.verdict is Verdict.DROP_LOOPGUARD
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup({}),
+        )
 
+        assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
 
-@pytest.mark.asyncio
-async def test_drops_top_level_message_with_no_parent():
-    msg = _make_message(parent_id=None)
-    event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
+    @pytest.mark.asyncio
+    async def test_drops_when_parent_not_in_thread_map(self):
+        """A reply to a parent we never recorded yields ``DROP_NO_MAPPING``."""
+        msg = _make_message(parent_id="msg-someone-else")
+        event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
 
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup({}),
-    )
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup({}),
+        )
 
-    assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
+        assert result.verdict is Verdict.DROP_NO_MAPPING
 
+    @pytest.mark.asyncio
+    async def test_drops_when_message_text_is_empty(self):
+        """Empty message text is not actionable."""
+        msg = _make_message(text="")
+        event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
 
-@pytest.mark.asyncio
-async def test_drops_when_parent_not_in_thread_map():
-    msg = _make_message(parent_id="msg-someone-else")
-    event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup(
+                {
+                    "msg-task-1": WebexThreadEntry(
+                        message_id="msg-task-1", task_id="T", run_id="R"
+                    )
+                }
+            ),
+        )
 
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup({}),  # empty map
-    )
+        assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
 
-    assert result.verdict is Verdict.DROP_NO_MAPPING
+    @pytest.mark.asyncio
+    async def test_forwards_legitimate_followup(self):
+        """A real thread reply is forwarded with the original task / run ids."""
+        msg = _make_message(text="please retry")
+        event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
 
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup(
+                {
+                    "msg-task-1": WebexThreadEntry(
+                        message_id="msg-task-1",
+                        task_id="task-abc",
+                        run_id="run-xyz",
+                    )
+                }
+            ),
+        )
 
-@pytest.mark.asyncio
-async def test_drops_when_message_text_is_empty():
-    msg = _make_message(text="")
-    event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
+        assert result.verdict is Verdict.FORWARD
+        assert result.payload == FollowUpPayload(
+            task_id="task-abc",
+            parent_run_id="run-xyz",
+            user_text="please retry",
+            user_ref="ops@example.com",
+            transport="webex",
+        )
 
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup(
-            {
-                "msg-task-1": WebexThreadEntry(
-                    message_id="msg-task-1", task_id="T", run_id="R"
-                )
-            }
-        ),
-    )
+    @pytest.mark.asyncio
+    async def test_forward_strips_whitespace_and_optional_user_ref_omitted(self):
+        """Forward payloads strip whitespace and omit user_ref when missing."""
+        msg = _make_message(text="   help   ", person_email=None)
+        event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
 
-    assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
+        result = await dispatch_message_event(
+            event,
+            bot_person_id="BOT",
+            fetch_message=_fetch({msg["id"]: msg}),
+            lookup_thread=_lookup(
+                {
+                    "msg-task-1": WebexThreadEntry(
+                        message_id="msg-task-1", task_id="T", run_id="R"
+                    )
+                }
+            ),
+        )
 
+        assert result.verdict is Verdict.FORWARD
+        assert result.payload is not None
+        assert result.payload.user_text == "help"
+        assert result.payload.user_ref is None
 
-@pytest.mark.asyncio
-async def test_forwards_legitimate_followup():
-    msg = _make_message(text="please retry")
-    event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
-
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup(
-            {
-                "msg-task-1": WebexThreadEntry(
-                    message_id="msg-task-1",
-                    task_id="task-abc",
-                    run_id="run-xyz",
-                )
-            }
-        ),
-    )
-
-    assert result.verdict is Verdict.FORWARD
-    assert result.payload == FollowUpPayload(
-        task_id="task-abc",
-        parent_run_id="run-xyz",
-        user_text="please retry",
-        user_ref="ops@example.com",
-        transport="webex",
-    )
-
-
-@pytest.mark.asyncio
-async def test_forward_strips_whitespace_and_optional_user_ref_omitted():
-    msg = _make_message(text="   help   ", person_email=None)
-    event = {"data": {"id": msg["id"], "personId": msg["personId"]}}
-
-    result = await dispatch_message_event(
-        event,
-        bot_person_id="BOT",
-        fetch_message=_fetch({msg["id"]: msg}),
-        lookup_thread=_lookup(
-            {
-                "msg-task-1": WebexThreadEntry(
-                    message_id="msg-task-1", task_id="T", run_id="R"
-                )
-            }
-        ),
-    )
-
-    assert result.verdict is Verdict.FORWARD
-    assert result.payload is not None
-    assert result.payload.user_text == "help"
-    assert result.payload.user_ref is None
-
-
-@pytest.mark.asyncio
-async def test_drops_event_with_no_data_id():
-    """Defensive: events without data.id should be dropped, not crash."""
-    result = await dispatch_message_event(
-        {"data": {}},
-        bot_person_id="BOT",
-        fetch_message=_fetch({}),
-        lookup_thread=_lookup({}),
-    )
-    assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
+    @pytest.mark.asyncio
+    async def test_drops_event_with_no_data_id(self):
+        """Events lacking ``data.id`` are dropped defensively."""
+        result = await dispatch_message_event(
+            {"data": {}},
+            bot_person_id="BOT",
+            fetch_message=_fetch({}),
+            lookup_thread=_lookup({}),
+        )
+        assert result.verdict is Verdict.DROP_NOT_THREAD_REPLY
