@@ -26,8 +26,27 @@ serviceAccount:
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
-securityContext: {}
+# Security contexts are set to satisfy the Kubernetes Pod Security Standards Baseline
+# profile (enforced) and meet all Restricted profile requirements except
+# readOnlyRootFilesystem, which is left false because agent workloads may write to
+# /tmp at runtime. To enforce the policy at the namespace level:
+#   kubectl label namespace <ns> \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/audit=restricted
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
 
 # Service configuration
 service:
@@ -108,6 +127,17 @@ config:
   CORS_ORIGINS: '["*"]'
   # Tracing disabled by default
   ENABLE_TRACING: "false"
+  # Strip skill payloads (SKILL.md bodies, ancillary files,
+  # skills_metadata channel) and task_config workflow prompts
+  # (tasks/todos channels, workflow tool IO) from OTel spans
+  # before they ship to Langfuse. Has no effect when ENABLE_TRACING
+  # is false. Set to "false" for one-off debug sessions only.
+  SKILL_TRACE_SCRUB_ENABLED: "true"
+  # Defensive per-attribute byte cap to keep OTel spans under
+  # Langfuse's 1 MiB nginx body limit even when non-skill
+  # attributes (tool defs, message history) blow up. 256 KiB
+  # default. Set to "0" to disable.
+  SKILL_TRACE_MAX_ATTR_BYTES: "262144"
 
 # Pre-existing secret with MONGODB_URI and other sensitive values
 # Dynamic-agents uses the same MongoDB as CAIPE UI, so you can reference

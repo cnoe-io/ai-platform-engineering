@@ -22,13 +22,21 @@ import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 /**
  * Mirrors ``isFlaggedSkill`` in ``components/skills/SkillsGallery.tsx``
  * and the bash filters in ``install.sh``: a skill the security scanner
- * has flagged must never be runnable, addable to an agent, or
- * installed by the bulk script. We check all three signals the
- * gateway stamps (``scan_status``, ``runnable``, ``blocked_reason``)
- * so a future schema tweak can't silently undo the gate.
+ * has flagged AND that no admin has green-lit must never be runnable,
+ * addable to an agent, or installed by the bulk script.
+ *
+ * The override is read from the separate ``scan_override`` sub-doc
+ * (presence = active override). The catalog API also stamps
+ * ``runnable: true`` for overridden flagged skills via
+ * ``applyRunnableGate``; this predicate is the UI mirror so the
+ * picker doesn't optimistically disable the row before the API
+ * stamp lands. See the ``isFlaggedSkill`` doc-string in
+ * ``SkillsGallery.tsx`` for the design rationale.
  */
 function isFlaggedSkill(skill: AgentSkill): boolean {
-  return skill.scan_status === "flagged";
+  if (skill.scan_status !== "flagged") return false;
+  if (skill.scan_override) return false;
+  return true;
 }
 
 interface SkillsSelectorProps {

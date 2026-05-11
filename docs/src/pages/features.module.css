@@ -1,0 +1,201 @@
+/* ── Hero ───────────────────────────────────────────────────────── */
+.hero {
+  background: linear-gradient(150deg, #0f172a 0%, #0c4a6e 55%, #0e7490 100%);
+  color: #fff;
+  padding: 5rem 1.5rem 4rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    rgba(56, 189, 248, 0.18) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.heroInner {
+  max-width: 720px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+.heroTitle {
+  font-size: clamp(2rem, 4.5vw, 3rem) !important;
+  font-weight: 800 !important;
+  line-height: 1.15 !important;
+  margin: 0 0 1rem !important;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+
+.heroSubtitle {
+  font-size: 1.05rem;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 540px;
+  margin: 0 auto 2rem;
+  line-height: 1.65;
+}
+
+.heroCtas {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.primaryBtn {
+  background: #0284c7;
+  color: #fff !important;
+  border: 1px solid transparent;
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none !important;
+  transition: background 0.15s, transform 0.12s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.primaryBtn:hover {
+  background: #026ba1;
+  transform: translateY(-1px);
+  color: #fff !important;
+}
+
+.secondaryBtn {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 0.65rem 1.4rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none !important;
+  transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.secondaryBtn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff !important;
+}
+
+/* ── Grid ───────────────────────────────────────────────────────── */
+.grid {
+  padding: 4rem 1.5rem 5rem;
+  background: var(--ifm-background-color);
+}
+
+.gridInner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--ifm-card-background-color, #fff);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(2, 132, 199, 0.12);
+}
+
+[data-theme='dark'] .card {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.1rem 1.4rem;
+  background: color-mix(in srgb, var(--card-color, #0284c7) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--card-color, #0284c7) 20%, transparent);
+}
+
+.cardIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.cardTitle {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  margin: 0 !important;
+  color: var(--card-color, #0284c7);
+}
+
+[data-theme='dark'] .cardTitle {
+  color: color-mix(in srgb, var(--card-color, #38bdf8) 80%, white);
+}
+
+.cardList {
+  margin: 0;
+  padding: 1.1rem 1.4rem 1.4rem 2.4rem;
+  list-style: disc;
+}
+
+.cardItem {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #475569;
+  margin-bottom: 0.3rem;
+}
+
+.cardItem:last-child { margin-bottom: 0; }
+
+[data-theme='dark'] .cardItem {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ── CTA ────────────────────────────────────────────────────────── */
+.cta {
+  padding: 5rem 1.5rem;
+  text-align: center;
+  background: #f8fafc;
+}
+
+[data-theme='dark'] .cta {
+  background: #1e293b;
+}
+
+.ctaTitle {
+  font-size: clamp(1.4rem, 2.5vw, 1.9rem) !important;
+  font-weight: 800 !important;
+  margin: 0 0 0.75rem !important;
+}
+
+.ctaSubtitle {
+  font-size: 1rem;
+  color: #64748b;
+  margin-bottom: 2rem;
+}
+
+[data-theme='dark'] .ctaSubtitle {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .hero { padding: 3.5rem 1rem 3rem; }
+  .gridInner { grid-template-columns: 1fr; }
+  .heroCtas { flex-direction: column; align-items: center; }
+}

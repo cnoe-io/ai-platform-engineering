@@ -43,6 +43,25 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting Dynamic Agents service...")
 
+    # Eagerly initialise tracing + scrubber so the OTel processor
+    # is registered before any span fires (FastAPI middleware,
+    # MongoDB ping, etc.). The per-AgentRuntime install is kept as
+    # a defence-in-depth idempotent fallback in case the lifespan
+    # hook is bypassed (e.g. some unit-test setups instantiate
+    # AgentRuntime without going through main:app).
+    # Vendored scrubber lives under
+    # ``dynamic_agents.services.skill_scrubber`` — see the file
+    # header for the source-of-truth location.
+    try:
+        from cnoe_agent_utils.tracing import TracingManager
+
+        from dynamic_agents.services.skill_scrubber import install_skill_content_scrubber
+
+        TracingManager()
+        install_skill_content_scrubber()
+    except Exception as exc:  # noqa: BLE001 — tracing is best-effort
+        logger.warning("Eager tracing/scrubber init failed: %s", exc)
+
     # MongoDB connection with retry logic
     max_retries = 5
     base_delay = 2  # seconds
@@ -68,6 +87,14 @@ async def lifespan(app: FastAPI):
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
     cache.start()
+
+    # Ensure GridFS TTL index for automatic file expiry
+    if mongo._db is not None:
+        from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
+
+        store = MongoDBGridFSStore(db=mongo._db, bucket_name=settings.gridfs_bucket_name)
+        store.ensure_ttl_index()
+        logger.info("GridFS TTL index ensured (per-document expireAt)")
 
     yield
 

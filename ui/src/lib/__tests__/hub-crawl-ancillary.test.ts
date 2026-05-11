@@ -118,7 +118,7 @@ describe("crawlGitHubRepo (ancillary collection)", () => {
 
     installFakeFetch(repo);
 
-    const skills = await crawlGitHubRepo("anthropic", "skills");
+    const { skills } = await crawlGitHubRepo("anthropic", "skills");
     expect(skills).toHaveLength(1);
     const [skill] = skills;
     expect(skill.id).toBe("pdf");
@@ -155,7 +155,8 @@ describe("crawlGitHubRepo (ancillary collection)", () => {
     };
     installFakeFetch(repo);
 
-    const [skill] = await crawlGitHubRepo("o", "r");
+    const { skills: oneSkill } = await crawlGitHubRepo("o", "r");
+    const [skill] = oneSkill;
     expect(Object.keys(skill.ancillary_files ?? {})).toEqual(["scripts/run.sh"]);
     expect(skill.ancillary_summary?.skipped_binary).toBe(1);
   });
@@ -179,7 +180,7 @@ describe("crawlGitHubRepo (ancillary collection)", () => {
     };
     installFakeFetch(repo);
 
-    const skills = await crawlGitHubRepo("o", "r");
+    const { skills } = await crawlGitHubRepo("o", "r");
     expect(skills.map((s) => s.id).sort()).toEqual(["child", "parent"]);
     const parent = skills.find((s) => s.id === "parent")!;
     const child = skills.find((s) => s.id === "child")!;
@@ -205,7 +206,8 @@ describe("crawlGitHubRepo (ancillary collection)", () => {
     };
     installFakeFetch(repo);
 
-    const [skill] = await crawlGitHubRepo("o", "r");
+    const { skills: oneSkill } = await crawlGitHubRepo("o", "r");
+    const [skill] = oneSkill;
     expect(skill.metadata).toMatchObject({ category: "demo", tags: ["a"] });
     expect(skill.ancillary_files?.["metadata.json"]).toBe(meta);
   });

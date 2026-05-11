@@ -1,3 +1,101 @@
+## 0.4.10 (2026-05-08)
+
+### Feat
+
+- **overthink**: add OVERTHINK_BOILERPLATE as server-side template variable (#1364)
+
+### Fix
+
+- **overthink**: move boilerplate to slack-bot, inject via client_context (#1369)
+- **docs**: migrate onBrokenMarkdownLinks to markdown.hooks (#1362)
+
+## 0.4.9 (2026-05-07)
+
+### Feat
+
+- **docs**: redesign site — landing page, community page, teal/cyan theme (#1359)
+
+## 0.4.8-dev.3 (2026-05-07)
+
+### Feat
+
+- **dynamic-agents**: HITL tool approval, GridFS backend, custom themes & bug fixes (#1351)
+
+## 0.4.8-dev.2 (2026-05-07)
+
+### Feat
+
+- **ui**: add search filter and scroll to agent selection dropdown (#1361)
+
+### Fix
+
+- **docs**: escape MDX angle bracket in spec plan + add PR docs build check (#1360)
+
+## 0.4.8-dev.1 (2026-05-07)
+
+### Feat
+
+- **skills**: release-docs skill — release notes + migration guide generator (#1356)
+
+### Fix
+
+- **ingestor**: prevent UnboundLocalError in finally block when client.initialize() fails (#1357)
+
+## 0.4.8 (2026-05-06)
+
+## 0.4.7-dev.9 (2026-05-06)
+
+### Feat
+
+- **mcp-aws**: add AWS MCP server with aws_cli_execute and eks_kubectl_execute (#1324)
+
+## 0.4.7-dev.7 (2026-05-06)
+
+### Fix
+
+- **ui**: suppress synthetic "Task <status> (ID: ...)" filler in chat (#1275)
+
+## 0.4.7-dev.6 (2026-05-06)
+
+### Fix
+
+- **tracing**: update skill_scrubber test to use renamed _strip_known_sections (#1342)
+
+## 0.4.7-dev.5 (2026-05-06)
+
+### Fix
+
+- **tracing**: scrub skill/workflow content + cap span attribute size for Langfuse (#1330)
+
+## 0.4.7-dev.4 (2026-05-06)
+
+### Feat
+
+- **supervisor**: add ToolCallLimitMiddleware and ModelCallLimitMiddleware with configurable env vars (#1319)
+
+## 0.4.7-dev.3 (2026-05-06)
+
+### Feat
+
+- **charts**: configures Helm charts for Kubernetes Pod Security Standards Baseline compliance (#1337)
+
+### Fix
+
+- **slack-bot**: use correct Slack mention syntax for subteam/usergroup IDs in escalation (#1341)
+
+## 0.4.7-dev.2 (2026-05-06)
+
+### Fix
+
+- **mcp**: remove trailing slash from default HTTP MCP path (#1339)
+- replace bash 4+ case conversion for POSIX compat (#1340)
+
+## 0.4.7-dev.1 (2026-05-06)
+
+### Feat
+
+- **skills**: admin scan override + hub-crawl pagination/caps + live crawl console (#1338)
+
 ## 0.4.7 (2026-05-05)
 
 ## 0.4.6-dev.2 (2026-05-05)

@@ -430,6 +430,13 @@ export async function scanHubSkillsAsync(
         // *why* a hub skill is unscanned without digging into logs.
         const persistedSummary =
           result.scan_summary ?? result.unscanned_reason ?? null;
+        // Write only ``scan_status`` / ``scan_summary``. The
+        // ``scan_override`` sub-doc (when present, set by the
+        // admin override route) is intentionally untouched —
+        // recrawl-triggered auto-scans must NOT clear an admin's
+        // explicit "I trust this" assertion. Status and override
+        // are independent fields by design; see the override
+        // route's docstring for the why.
         await hubSkillsCol.updateOne(
           { hub_id: ref.hub_id, skill_id: ref.skill_id },
           {

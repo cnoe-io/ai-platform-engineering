@@ -43,8 +43,55 @@ import { parseSkillMd, type ParsedSkillMd } from "@/lib/skill-md-parser";
 
 // --- Caps ------------------------------------------------------------------
 
-/** Reject zips with more entries than this. */
-export const MAX_ZIP_ENTRIES = 1000;
+/**
+ * Default reject threshold for total zip entries.
+ *
+ * Sized to comfortably accommodate hub-style monorepo archives
+ * (e.g. ``cisco-ai-defense/skills`` weighs in around 3.2k entries
+ * with sibling docs and license files). The earlier 1000-entry cap
+ * was chosen for single-skill folders and rejected most real-world
+ * "skills-repo.zip" downloads outright.
+ *
+ * The hard-stop protections against zip bombs and runaway memory
+ * remain the byte caps below (50 MB total, 1 MB per file) and the
+ * 50-SKILL.md cap, all of which catch the actual abuse modes. The
+ * entry count cap is now mostly a safety net against pathological
+ * archives that pack millions of empty entries — those are still
+ * rejected, but legitimate skills monorepos are not.
+ *
+ * Override with the ``SKILL_IMPORT_MAX_ZIP_ENTRIES`` env var if a
+ * specific deployment needs to ingest larger archives without a
+ * code change.
+ */
+export const DEFAULT_MAX_ZIP_ENTRIES = 25000;
+
+/**
+ * Resolve the active entry cap, honoring the env override.
+ *
+ * Read on every call rather than at module load so a single Next.js
+ * runtime can pick up a config change after restart-less reloads
+ * (relevant for serverless deployments where the module may stay
+ * resident across redeploys). Invalid / non-positive values fall
+ * back to the default.
+ */
+export function getMaxZipEntries(): number {
+  const raw = process.env.SKILL_IMPORT_MAX_ZIP_ENTRIES;
+  if (!raw) return DEFAULT_MAX_ZIP_ENTRIES;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_ZIP_ENTRIES;
+  return parsed;
+}
+
+/**
+ * Backwards-compatible export of the entry cap. Returns the
+ * effective limit including any env override; existing callers
+ * that imported the constant get the right value without changes.
+ *
+ * Note: this is evaluated once at module load. Tests that need to
+ * override at runtime should import ``getMaxZipEntries`` instead so
+ * the env var is re-read per call.
+ */
+export const MAX_ZIP_ENTRIES = getMaxZipEntries();
 
 /** Reject zips whose total uncompressed bytes exceed this. */
 export const MAX_TOTAL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -153,11 +200,17 @@ export async function parseSkillZip(
     };
   }
 
-  if (entries.length > MAX_ZIP_ENTRIES) {
+  // Use the live getter so an env-var bump applies on the next
+  // request without a code redeploy.
+  const maxEntries = getMaxZipEntries();
+  if (entries.length > maxEntries) {
     return {
       ok: false,
       reason: "too_many_entries",
-      message: `Zip has ${entries.length} entries; maximum allowed is ${MAX_ZIP_ENTRIES}.`,
+      message:
+        `Zip has ${entries.length} entries; maximum allowed is ${maxEntries}. ` +
+        `Set SKILL_IMPORT_MAX_ZIP_ENTRIES to raise this limit if your ` +
+        `archive is legitimately larger (e.g. a full skills monorepo).`,
     };
   }
   const totalBytes = entries.reduce((sum, e) => sum + e.bytes, 0);

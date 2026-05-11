@@ -214,23 +214,120 @@ async function importFromGitLab(
   // work without a token; we only set the header when one is resolved.
   if (token) headers["PRIVATE-TOKEN"] = token;
 
-  const treeUrl = `${apiBase}/projects/${encodedProject}/repository/tree?recursive=true&per_page=100`;
-  const treeResp = await fetch(treeUrl, {
-    headers,
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!treeResp.ok) {
-    // GitLab returns 404 for unauthenticated reads of private projects,
-    // which is misleading. Surface a friendlier hint when no token is set.
-    if ((treeResp.status === 404 || treeResp.status === 401 || treeResp.status === 403) && !token) {
+  // Walk the GitLab tree across pages. Without this loop a project with
+  // more than 100 entries would silently truncate (only the first page is
+  // returned), the prefix scan would find no blobs, and the importer would
+  // succeed with `count: 0`. Mirrors the pagination contract in
+  // `crawlGitLabRepo`. The cap is conservative for an inline import flow
+  // (50 pages × 100 = 5,000 entries); admins can raise it via env if a
+  // monorepo legitimately needs deeper traversal.
+  const maxTreePages = (() => {
+    const raw = process.env.GITLAB_IMPORT_MAX_TREE_PAGES;
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 500) : 50;
+  })();
+  const entries: GitLabTreeItem[] = [];
+  let truncatedAtCap = false;
+  for (let page = 1; page <= maxTreePages; page += 1) {
+    const treeUrl =
+      `${apiBase}/projects/${encodedProject}/repository/tree` +
+      `?recursive=true&per_page=100&page=${page}`;
+    const treeResp = await fetch(treeUrl, {
+      headers,
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!treeResp.ok) {
+      // GitLab returns 404 for unauthenticated reads of private
+      // projects, which is misleading — bucket 401/403/404 into the
+      // same diagnostic cluster ("can't see this project") and
+      // tailor the hint based on whether a token was configured.
+      // Mirrors ``formatGitLabFetchError`` in lib/hub-crawl.ts so
+      // the two GitLab-tree call sites give consistent operator
+      // guidance.
+      const apiHost = (() => {
+        try {
+          return new URL(apiBase).host;
+        } catch {
+          return apiBase;
+        }
+      })();
+      if (
+        treeResp.status === 401 ||
+        treeResp.status === 403 ||
+        treeResp.status === 404
+      ) {
+        if (!token) {
+          throw new ApiError(
+            `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost}). ` +
+              `No GitLab token is configured. For private or self-hosted projects, ` +
+              `set GITLAB_TOKEN to a personal access token with the "read_repository" scope ` +
+              `that's valid for ${apiHost}, or pass credentials_ref.`,
+            502,
+          );
+        }
+        throw new ApiError(
+          `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost}). ` +
+            `A GitLab token is set, but it does not grant access to this project on ${apiHost}. ` +
+            `Verify the token belongs to the same GitLab instance as GITLAB_API_URL, has the ` +
+            `"read_repository" scope, and that the user owning it can see the project. For ` +
+            `self-hosted GitLab the gitlab.com token will not work — generate one on ${apiHost}.`,
+          502,
+        );
+      }
+      if (treeResp.status === 429) {
+        throw new ApiError(
+          `GitLab tree fetch failed: 429 (project: ${projectPath}, API: ${apiHost}). ` +
+            `Rate limited by GitLab. Wait and retry, or use an authenticated token to raise the rate limit.`,
+          502,
+        );
+      }
       throw new ApiError(
-        `GitLab tree fetch failed: ${treeResp.status} (set GITLAB_TOKEN or pass credentials_ref for private projects)`,
+        `GitLab tree fetch failed: ${treeResp.status} (project: ${projectPath}, API: ${apiHost})`,
         502,
       );
     }
-    throw new ApiError(`GitLab tree fetch failed: ${treeResp.status}`, 502);
+    // Defensive: if GitLab (or a proxy in front of it) returns a non-JSON
+    // body — e.g. an SSO HTML redirect — surface a useful 502 instead of
+    // letting `await .json()` throw the opaque
+    // ``Unexpected token '<', "<!DOCTYPE "`` to the client.
+    const ct = treeResp.headers.get("content-type") ?? "";
+    if (!ct.toLowerCase().includes("json")) {
+      const preview = await treeResp.text().catch(() => "");
+      throw new ApiError(
+        `GitLab tree fetch returned non-JSON response ` +
+          `(HTTP ${treeResp.status}, Content-Type: ${ct || "unset"}). ` +
+          `This usually means a proxy/SSO challenge intercepted the request. ` +
+          `Body starts with: ${preview.slice(0, 200)}`,
+        502,
+      );
+    }
+    let pageEntries: GitLabTreeItem[];
+    try {
+      pageEntries = (await treeResp.json()) as GitLabTreeItem[];
+    } catch (err) {
+      throw new ApiError(
+        `GitLab tree response was not parseable JSON: ${err instanceof Error ? err.message : String(err)}`,
+        502,
+      );
+    }
+    if (!Array.isArray(pageEntries) || pageEntries.length === 0) break;
+    entries.push(...pageEntries);
+    if (pageEntries.length < 100) break;
+    if (page === maxTreePages) {
+      truncatedAtCap = true;
+      break;
+    }
   }
-  const entries: GitLabTreeItem[] = await treeResp.json();
+  if (truncatedAtCap) {
+    // Surface truncation as an inline warning in the response. We
+    // *don't* fail the import — partial results are better than none —
+    // but the caller can show it as a toast.
+    // (Future: add a structured `truncation` field to ImportResult.)
+    console.warn(
+      `[skills/import] GitLab tree for ${projectPath} hit the ${maxTreePages}-page cap; ` +
+        `some files may be missing. Raise GITLAB_IMPORT_MAX_TREE_PAGES if needed.`,
+    );
+  }
 
   const result: ImportResult = { files: {}, count: 0, conflicts: [] };
   const ownership = new Map<string, string>();

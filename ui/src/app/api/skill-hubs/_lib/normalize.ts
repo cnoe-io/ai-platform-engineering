@@ -15,6 +15,7 @@
  * module so the two surfaces can never drift.
  */
 import { ApiError } from "@/lib/api-error";
+import { MAX_TREE_PAGES_HARD_LIMIT } from "@/lib/hub-crawl-constants";
 
 /**
  * Resolve the configured GitLab API host (without scheme/port) so we can
@@ -89,6 +90,41 @@ export function detectHubProviderFromUrl(
 }
 
 /**
+ * Strip a trailing ``.git`` suffix from the last path segment.
+ *
+ * The clone-URL form admins copy from GitHub/GitLab UIs ends in
+ * ``.git`` (e.g. ``https://gitlab.com/group/project.git``).
+ * Both providers' REST APIs reject the literal ``.git`` suffix
+ * inside a project path:
+ *
+ *   - GitHub: ``GET /repos/owner/repo.git/git/trees/HEAD`` →
+ *     404 ("repo.git" is treated as a literal repo name and no
+ *     such repo exists).
+ *
+ *   - GitLab: ``GET /projects/group%2Fproject.git/repository/tree``
+ *     → 404 (the URL-encoded project path includes the ``.git``
+ *     suffix and no project named "project.git" exists).
+ *
+ * This was the root cause of the reported screenshot bug:
+ * pasting ``https://cd.splunkdev.com/kkantesaria/skills-marketplace.git``
+ * produced a confusing 404 that sent the operator down a long
+ * "is the URL right? scope? subgroup?" debugging path before
+ * the trailing ``.git`` was identified as the culprit.
+ *
+ * Stripped exactly when the FINAL segment ends with ``.git`` --
+ * we don't touch intermediate segments because a real repo could
+ * legitimately be named ``something.git-stuff`` mid-path.
+ */
+function stripGitSuffix(segments: readonly string[]): string[] {
+  if (segments.length === 0) return [...segments];
+  const last = segments[segments.length - 1];
+  if (last.endsWith(".git") && last.length > ".git".length) {
+    return [...segments.slice(0, -1), last.slice(0, -".git".length)];
+  }
+  return [...segments];
+}
+
+/**
  * Normalize a hub `location` value. Accepts a raw `owner/repo` (or
  * `group/.../project`) string OR a full URL pointing at a github.com /
  * gitlab.com / `GITLAB_API_URL` host.
@@ -99,11 +135,15 @@ export function detectHubProviderFromUrl(
  *    configured GITLAB_API_URL host) preserve **every** path segment
  *    so nested subgroups (`mycorp/devops/platform`) are not silently
  *    truncated. GitLab UI suffixes like `/-/tree/main` are stripped.
+ *  - Trailing ``.git`` clone-URL suffix is stripped from the final
+ *    segment (see ``stripGitSuffix`` for rationale).
  *  - URLs whose host does not match either provider are returned
  *    unchanged — including hostname-bypass attempts like
  *    `evil-gitlab.com/owner/repo`. The `hubType` parameter is a hint
  *    for callers but is NOT used to bypass the host check (security).
- *  - Non-URL inputs are returned trimmed and unchanged.
+ *  - Non-URL inputs are trimmed and have their trailing ``.git``
+ *    stripped (so canonical-form pastes like
+ *    ``kkantesaria/skills-marketplace.git`` work too).
  */
 export function normalizeHubLocation(
   rawLocation: string,
@@ -124,7 +164,12 @@ export function normalizeHubLocation(
     if (isGitHubHost(host)) {
       // GitHub is flat owner/repo — keep the existing two-segment truncation
       // so `https://github.com/owner/repo/tree/main` collapses correctly.
-      return `${rawSegments[0]}/${rawSegments[1]}`;
+      // Strip ``.git`` from the repo segment; ``owner.git`` would be
+      // unusual but we only ever apply the strip to segments[1].
+      const repo = rawSegments[1].endsWith(".git")
+        ? rawSegments[1].slice(0, -".git".length)
+        : rawSegments[1];
+      return `${rawSegments[0]}/${repo}`;
     }
 
     const glHost = gitlabApiHost();
@@ -135,11 +180,15 @@ export function normalizeHubLocation(
       const dashIdx = rawSegments.indexOf("-");
       const projectSegments = dashIdx >= 0 ? rawSegments.slice(0, dashIdx) : rawSegments;
       if (projectSegments.length >= 2) {
-        return projectSegments.join("/");
+        return stripGitSuffix(projectSegments).join("/");
       }
     }
   } catch {
-    // Not a URL — leave as-is (already in the canonical form)
+    // Not a URL — strip trailing .git anyway so canonical-form pastes
+    // copied from a clone command (``group/project.git``) work.
+    if (loc.endsWith(".git") && loc.length > ".git".length) {
+      return loc.slice(0, -".git".length);
+    }
   }
   return loc;
 }
@@ -210,4 +259,51 @@ export function validateIncludePaths(value: unknown): string[] | undefined {
   }
 
   return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Validate + clamp an admin-supplied `max_tree_pages` value for a
+ * GitLab hub. Each page returns up to 100 entries, so the cap directly
+ * shapes how much of a monorepo we walk.
+ *
+ *  - Accepts numbers and numeric strings; trims surrounding whitespace.
+ *  - Rejects negatives, zero, NaN, and non-finite values with a 400.
+ *  - Rejects values above {@link MAX_TREE_PAGES_HARD_LIMIT} (currently
+ *    500 → 50,000 entries) so a misconfigured admin entry can't make
+ *    the Node process walk an unbounded number of pages.
+ *  - Returns `undefined` for absent/empty input so callers can omit
+ *    the field on PATCH (existing docs untouched).
+ *  - Returns `null` only when the caller explicitly passes `null` — the
+ *    PATCH route uses that to clear a previously-set value.
+ */
+export function validateMaxTreePages(
+  value: unknown,
+): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    value = Number(trimmed);
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ApiError(
+      "max_tree_pages must be a positive integer",
+      400,
+    );
+  }
+  const intValue = Math.floor(value);
+  if (intValue <= 0) {
+    throw new ApiError(
+      "max_tree_pages must be a positive integer",
+      400,
+    );
+  }
+  if (intValue > MAX_TREE_PAGES_HARD_LIMIT) {
+    throw new ApiError(
+      `max_tree_pages exceeds the hard limit of ${MAX_TREE_PAGES_HARD_LIMIT} pages`,
+      400,
+    );
+  }
+  return intValue;
 }
