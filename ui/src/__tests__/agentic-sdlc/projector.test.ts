@@ -185,6 +185,34 @@ describe("projectEvent — issues", () => {
     expect(out.epic_id).toBe(null);
     expect(out.current_stage).toBe("specify");
   });
+
+  it.each([
+    ["agent:architect", "plan"],
+    ["agent:deep-think", "plan"],
+  ])("treats a root %s issue as an Epic", (label, expectedStage) => {
+    const ev = makeEvent(
+      "issues",
+      {
+        issue: {
+          node_id: "I_ARCHITECTURE",
+          title: "Plan the system",
+          body: "",
+          state: "open",
+          labels: [{ name: label }],
+          assignees: [],
+          html_url: "u",
+        },
+      },
+      { artifact_id: "I_ARCHITECTURE" },
+    );
+
+    const out = projectEvent(ev, makeRepo())!;
+
+    expect(out.kind).toBe("epic");
+    expect(out.artifact_id).toBe("I_ARCHITECTURE");
+    expect(out.epic_id).toBe(null);
+    expect(out.current_stage).toBe(expectedStage);
+  });
 });
 
 describe("projectEvent — sub_issues", () => {

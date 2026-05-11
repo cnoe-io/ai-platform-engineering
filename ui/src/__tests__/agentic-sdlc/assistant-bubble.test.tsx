@@ -61,7 +61,7 @@ describe("AgenticSdlcAssistantBubble", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.localStorage.clear();
-    mockPathname = "/agentic-sdlc/cisco-eti/sri-speckit-test/epics/I_42";
+    mockPathname = "/agentic-sdlc/cnoe-io/ai-platform-engineering/epics/I_42";
     mockUseAgenticSdlcFeature.mockReturnValue({
       enabled: true,
       assistantEnabled: true,
@@ -148,13 +148,31 @@ describe("AgenticSdlcAssistantBubble", () => {
     expect(JSON.parse(chat.getAttribute("data-context") ?? "{}")).toMatchObject(
       {
         source: "agentic-sdlc",
-        route: "/agentic-sdlc/cisco-eti/sri-speckit-test/epics/I_42",
+        route: "/agentic-sdlc/cnoe-io/ai-platform-engineering/epics/I_42",
         scope: "epic",
-        owner: "cisco-eti",
-        repo: "sri-speckit-test",
+        screen: "epic-detail",
+        repository: "cnoe-io/ai-platform-engineering",
+        owner: "cnoe-io",
+        repo: "ai-platform-engineering",
         epicId: "I_42",
       },
     );
+  });
+
+  it("normalizes repo detail routes into tool and prompt friendly context", () => {
+    expect(
+      buildAgenticSdlcPageContext(
+        "/apps/agentic-sdlc/cnoe-io/ai-platform-engineering",
+      ),
+    ).toMatchObject({
+      source: "agentic-sdlc",
+      route: "/apps/agentic-sdlc/cnoe-io/ai-platform-engineering",
+      scope: "repo",
+      screen: "repo-detail",
+      owner: "cnoe-io",
+      repo: "ai-platform-engineering",
+      repository: "cnoe-io/ai-platform-engineering",
+    });
   });
 
   it("bounds the embedded chat view so the composer is not clipped by popup chrome", async () => {
@@ -336,7 +354,7 @@ describe("AgenticSdlcAssistantBubble", () => {
 
   it("passes context-aware suggested prompts for repo pages", async () => {
     const user = userEvent.setup();
-    mockPathname = "/agentic-sdlc/cisco-eti/sri-speckit-test";
+    mockPathname = "/agentic-sdlc/cnoe-io/ai-platform-engineering";
     render(<AgenticSdlcAssistantBubble />);
 
     await user.click(
@@ -353,7 +371,7 @@ describe("AgenticSdlcAssistantBubble", () => {
     ) as string[];
     expect(prompts).toEqual(
       expect.arrayContaining([
-        "Create a test Epic and child tasks for cisco-eti/sri-speckit-test.",
+        "Create a test Epic and child tasks for cnoe-io/ai-platform-engineering.",
         "Summarize what happened in this repo in the last 10 minutes.",
       ]),
     );
@@ -490,20 +508,20 @@ describe("buildAgenticSdlcPageContext", () => {
       scope: "home",
     });
     expect(
-      buildAgenticSdlcPageContext("/agentic-sdlc/cisco-eti/sri-speckit-test"),
+      buildAgenticSdlcPageContext("/agentic-sdlc/cnoe-io/ai-platform-engineering"),
     ).toMatchObject({
       scope: "repo",
-      owner: "cisco-eti",
-      repo: "sri-speckit-test",
+      owner: "cnoe-io",
+      repo: "ai-platform-engineering",
     });
     expect(
       buildAgenticSdlcPageContext(
-        "/agentic-sdlc/cisco-eti/sri-speckit-test/epics/I_42",
+        "/agentic-sdlc/cnoe-io/ai-platform-engineering/epics/I_42",
       ),
     ).toMatchObject({
       scope: "epic",
-      owner: "cisco-eti",
-      repo: "sri-speckit-test",
+      owner: "cnoe-io",
+      repo: "ai-platform-engineering",
       epicId: "I_42",
     });
   });
@@ -513,7 +531,7 @@ describe("buildAgenticSdlcSuggestedPrompts", () => {
   it("does not hardcode a specific repo on non-repo pages", () => {
     const prompts = buildAgenticSdlcSuggestedPrompts({ scope: "home" });
 
-    expect(prompts.join("\n")).not.toContain("cisco-eti/sri-speckit-test");
+    expect(prompts.join("\n")).not.toContain("cnoe-io/ai-platform-engineering");
     expect(prompts).toEqual(
       expect.arrayContaining([
         "Create a test Epic and child tasks for the selected repo.",

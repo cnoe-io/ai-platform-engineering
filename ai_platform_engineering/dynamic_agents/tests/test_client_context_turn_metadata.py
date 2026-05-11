@@ -9,8 +9,8 @@ def test_turn_messages_include_client_context_as_hidden_metadata():
     ctx = ClientContext(
         source="agentic-sdlc",
         screen="repo-detail",
-        owner="cisco-eti",
-        repo="sri-speckit-test",
+        owner="cnoe-io",
+        repo="ai-platform-engineering",
     )
 
     messages = _build_turn_messages("Create tasks for this repo", ctx)
@@ -19,7 +19,7 @@ def test_turn_messages_include_client_context_as_hidden_metadata():
     assert messages[0]["role"] == "user"
     assert "Client context metadata" in messages[0]["content"]
     assert '"screen": "repo-detail"' in messages[0]["content"]
-    assert '"repo": "sri-speckit-test"' in messages[0]["content"]
+    assert '"repo": "ai-platform-engineering"' in messages[0]["content"]
     assert "Create tasks for this repo" in messages[0]["content"]
 
 

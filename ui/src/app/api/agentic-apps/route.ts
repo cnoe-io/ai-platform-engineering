@@ -29,6 +29,9 @@ type ListedAgenticApp = {
   canLaunch: boolean;
   blockedReasons: AgenticAppBlockedReason[];
   surfaces: AgenticAppPackageRecord["manifest"]["surfaces"];
+  assistantEnabled: boolean;
+  assistantLabel?: string;
+  assistantAgentName?: string;
 };
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -49,6 +52,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
       for (const inst of installations) {
         if (!inst.installed) continue;
+        if (inst.visible === false) continue;
         const pkg = byPackageId.get(inst.packageId);
         if (!pkg?.manifest?.surfaces?.showInHub) continue;
         const { manifest } = pkg;
@@ -65,6 +69,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           canLaunch: access.canLaunch,
           blockedReasons: access.blockedReasons,
           surfaces: manifest.surfaces,
+          assistantEnabled: manifest.assistant?.enabled !== false,
+          assistantLabel: manifest.assistant?.label,
+          assistantAgentName: manifest.assistant?.agentName,
         });
         if (manifest.id) seenManifestIds.add(manifest.id);
       }
@@ -97,6 +104,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         canLaunch: passes,
         blockedReasons,
         surfaces: manifest.surfaces,
+        assistantEnabled: manifest.assistant?.enabled !== false,
+        assistantLabel: manifest.assistant?.label,
+        assistantAgentName: manifest.assistant?.agentName,
       });
     }
 

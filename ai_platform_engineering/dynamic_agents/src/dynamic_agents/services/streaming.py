@@ -252,6 +252,16 @@ class StreamingMixin:
             f"[stream] Completed stream for agent '{self.config.name}': "
             f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
         )
+        structured_frame_builder = getattr(encoder, "on_structured_output", None)
+        get_structured_response = getattr(self, "get_structured_response", None)
+        if callable(structured_frame_builder) and callable(get_structured_response):
+            structured_output = get_structured_response()
+            if structured_output is not None:
+                get_schema_id = getattr(self, "get_structured_response_schema_id", None)
+                schema_id = get_schema_id() if callable(get_schema_id) else None
+                for frame in structured_frame_builder(structured_output, schema_id):
+                    yield frame
+
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
         self._record_turn(turn_start, "stream", turn_status)

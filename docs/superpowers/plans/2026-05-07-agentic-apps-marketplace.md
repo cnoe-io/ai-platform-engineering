@@ -16,8 +16,8 @@ Create:
 
 - `ui/src/lib/agentic-apps/manifest-validation.ts` — runtime validation for trusted admin-imported manifest JSON.
 - `ui/src/lib/agentic-apps/guard.ts` — shared install-gate helper for route handlers and server components.
-- `ui/src/lib/agentic-apps/builtin-packages.ts` — built-in Agentic SDLC, FinOps, and Weather Starter package metadata seeds.
-- `ui/apps/weather-starter/server.mjs` — CopilotKit/AG-UI-first template app runtime.
+- `ui/src/lib/agentic-apps/builtin-packages.ts` — built-in Agentic SDLC, FinOps, and Weather package metadata seeds.
+- `ui/apps/agentic-apps/weather/server.mjs` — Open-Meteo powered CopilotKit/AG-UI reference runtime.
 - `ui/src/lib/agentic-apps/store.ts` — MongoDB repository helpers for packages, installations, events, and effective policy.
 - `ui/src/lib/agentic-apps/access.ts` — user-specific launch eligibility and blocked reason evaluation.
 - `ui/src/lib/agentic-apps/health.ts` — per-installation health check helpers.

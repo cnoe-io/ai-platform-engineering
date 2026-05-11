@@ -4,6 +4,7 @@ import { AlertTriangle, BarChart3, GitPullRequest, Loader2 } from "lucide-react"
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 
+import { CollapsiblePanel } from "@/components/agentic-sdlc/CollapsiblePanel";
 import { StageBadge } from "@/components/agentic-sdlc/visualizations/StageBadge";
 import type { AgenticSdlcStage, ArtifactKindStored } from "@/types/agentic-sdlc";
 
@@ -86,7 +87,7 @@ export function RepoOperatingMetrics({
   if (error) {
     return (
       <aside className="space-y-3">
-        <MetricPanel title="Repo operating graph" icon={BarChart3}>
+        <MetricPanel title="Repo operating snapshot" icon={BarChart3}>
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
             <AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden />
             Could not load repo metrics ({error}).
@@ -99,7 +100,7 @@ export function RepoOperatingMetrics({
   if (!summary) {
     return (
       <aside className="space-y-3">
-        <MetricPanel title="Repo operating graph" icon={BarChart3}>
+        <MetricPanel title="Repo operating snapshot" icon={BarChart3}>
           <div className="flex items-center justify-center rounded-lg border border-border/30 bg-background/30 px-3 py-8 text-xs text-muted-foreground">
             <Loader2 className="mr-2 h-3 w-3 animate-spin" aria-hidden />
             Loading repo metrics…
@@ -111,8 +112,8 @@ export function RepoOperatingMetrics({
 
   return (
     <aside className="space-y-3">
-      <MetricPanel title="Repo operating graph" icon={BarChart3}>
-        <StageBars stageCounts={summary.stage_counts} />
+      <MetricPanel title="Repo operating snapshot" icon={BarChart3}>
+        <StageSummary stageCounts={summary.stage_counts} />
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
           <MetricPill label="Open Epics" value={summary.counts.open_epics} />
           <MetricPill
@@ -179,7 +180,7 @@ export function RepoOperatingMetrics({
   );
 }
 
-function StageBars({
+function StageSummary({
   stageCounts,
 }: {
   stageCounts: { stage: AgenticSdlcStage; count: number }[];
@@ -188,34 +189,22 @@ function StageBars({
     () => stageCounts.filter((item) => item.stage !== "unknown"),
     [stageCounts],
   );
-  const max = useMemo(
-    () => Math.max(1, ...visibleStageCounts.map((item) => item.count)),
-    [visibleStageCounts],
-  );
-  const bars = visibleStageCounts;
-
   return (
-    <div className="mt-4 h-32 rounded-lg border border-border/30 bg-background/30 p-3">
-      {bars.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+    <div className="mt-4 rounded-lg border border-border/30 bg-background/30 p-3">
+      {visibleStageCounts.length === 0 ? (
+        <div className="text-xs text-muted-foreground">
           No staged Agentic SDLC work yet.
         </div>
       ) : (
-        <div className="flex h-full items-end gap-2">
-          {bars.map((item) => (
-            <div key={item.stage} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-              <div
-                className="w-full rounded-t bg-gradient-to-t from-cyan-500/25 via-sky-400/45 to-violet-300/80"
-                style={{
-                  height: `${Math.max(8, Math.round((item.count / max) * 100))}%`,
-                }}
-                title={`${item.stage}: ${item.count}`}
-                aria-label={`${item.stage}: ${item.count}`}
-              />
-              <span className="max-w-full truncate text-[9px] text-muted-foreground">
-                {item.stage.replace("_", " ")}
-              </span>
-            </div>
+        <div className="flex flex-wrap gap-1.5">
+          {visibleStageCounts.map((item) => (
+            <span
+              key={item.stage}
+              className="inline-flex items-center gap-1 rounded-full border border-border/40 bg-card/60 px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              <StageBadge stage={item.stage} compact />
+              <span className="font-semibold text-foreground">{item.count}</span>
+            </span>
           ))}
         </div>
       )}
@@ -233,13 +222,15 @@ function MetricPanel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="glass-panel rounded-xl border border-border/40 p-4">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-sky-300" aria-hidden />
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
+    <CollapsiblePanel
+      title={title}
+      leading={<Icon className="h-4 w-4 text-sky-300" aria-hidden />}
+      className="glass-panel"
+      titleClassName="text-foreground normal-case tracking-normal"
+      contentClassName="pt-3"
+    >
       {children}
-    </div>
+    </CollapsiblePanel>
   );
 }
 

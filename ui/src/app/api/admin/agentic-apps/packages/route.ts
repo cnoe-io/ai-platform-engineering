@@ -14,6 +14,7 @@ import {
 import { requireAgenticAppsInstallEnabled } from "@/lib/agentic-apps/guard";
 import { validateAgenticAppManifest } from "@/lib/agentic-apps/manifest-validation";
 import { parseAgenticPackageCatalogInput } from "@/lib/agentic-apps/package-catalog-input";
+import { normalizeAgenticAppMountPath } from "@/lib/agentic-apps/registry";
 import {
   appendAgenticAppEvent,
   listAppPackages,
@@ -62,6 +63,27 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
     const source = parseSource(body.source);
     const catalog = parseAgenticPackageCatalogInput(body.catalog);
+    const existingPackages = await listAppPackages();
+    const normalizedMountPath = normalizeAgenticAppMountPath(result.manifest.runtime.mountPath);
+    const conflictingPackage = existingPackages.find((pkg) => {
+      if (pkg.packageId === packageId) {
+        return false;
+      }
+      return normalizeAgenticAppMountPath(pkg.manifest.runtime.mountPath) === normalizedMountPath;
+    });
+    if (conflictingPackage) {
+      await appendAgenticAppEvent({
+        type: "agentic_app_package_rejected",
+        actorEmail: user.email,
+        packageId,
+        payload: {
+          reasonCode: "route_conflict",
+          normalizedMountPath,
+          conflictingPackageId: conflictingPackage.packageId,
+        },
+      });
+      throw new ApiError(`route conflict for ${normalizedMountPath}`, 409, "route_conflict");
+    }
 
     await upsertAppPackageFromManifest({
       packageId,

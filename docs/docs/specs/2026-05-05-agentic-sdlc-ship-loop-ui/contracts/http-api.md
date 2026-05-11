@@ -21,9 +21,9 @@ List repos onboarded by the calling user (or visible to them).
   "items": [
     {
       "repo_id": "1234567",
-      "owner": "cisco-outshift",
+      "owner": "cnoe-io",
       "name": "ai-platform-engineering",
-      "full_name": "cisco-outshift/ai-platform-engineering",
+      "full_name": "cnoe-io/ai-platform-engineering",
       "sandbox_environment": "sandbox-eks",
       "webhook_status": "healthy",
       "counts": {
@@ -44,7 +44,7 @@ Onboard a new repo.
 **Request**
 ```json
 {
-  "owner": "cisco-outshift",
+  "owner": "cnoe-io",
   "name": "ai-platform-engineering",
   "sandbox_environment": "sandbox-eks",
   "label_to_stage_overrides": { "agent:design": "specify" }
@@ -70,7 +70,7 @@ and updates `last_reconciled_at` on the repo.
 ```json
 {
   "synced": true,
-  "repo": "cisco-eti/sri-react-app",
+  "repo": "cnoe-io/ai-platform-engineering",
   "issues_seen": 42,
   "pull_requests_seen": 8,
   "artifacts_upserted": 47,
@@ -98,7 +98,7 @@ List Epics. Supports `?stage=`, `?needs_me=true`, `?stalled=true`, `?limit=`, `?
       "needs_human": false,
       "stalled_since": null,
       "child_counts": { "subtasks": 5, "prs": 3, "deploys": 1 },
-      "github_url": "https://github.com/cisco-outshift/.../issues/142",
+      "github_url": "https://github.com/cnoe-io/.../issues/142",
       "last_event_at": "2026-05-05T20:14:33Z"
     }
   ],

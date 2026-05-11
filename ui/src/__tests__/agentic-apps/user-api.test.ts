@@ -92,6 +92,7 @@ describe("user-facing agentic-apps APIs", () => {
     mongoGate.configured = true;
     primeMongoEnv(true);
     process.env.AGENTIC_APPS_INSTALL_ENABLED = "true";
+    process.env.AGENTIC_APPS_ENABLED = "";
 
     const store = jest.requireMock("@/lib/agentic-apps/store") as {
       listAppPackages: jest.Mock;
@@ -140,6 +141,45 @@ describe("user-facing agentic-apps APIs", () => {
     expect(row.canLaunch).toBe(true);
     expect(row.blockedReasons).toEqual([]);
     expect(row.href).toBe("/apps/finops");
+    expect(row.assistantEnabled).toBe(true);
+  });
+
+  it("GET /api/agentic-apps exposes assistantEnabled false from manifest configuration", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+    };
+    store.listAppInstallations.mockResolvedValue([
+      {
+        appId: "demo-catalog-app",
+        packageId: "demo-catalog-app",
+        installed: true,
+        enabled: true,
+        runtimeHealth: "healthy",
+      },
+    ]);
+    store.listAppPackages.mockResolvedValue([
+      {
+        packageId: "demo-catalog-app",
+        source: "admin-import",
+        manifest: {
+          ...finopsManifestAuthorized,
+          id: "demo-catalog-app",
+          displayName: "Demo Catalog App",
+          runtime: { ...finopsManifestAuthorized.runtime, mountPath: "/apps/demo-catalog-app" },
+          assistant: { enabled: false },
+        },
+      },
+    ]);
+    sessionMock().mockResolvedValue(userSession());
+
+    const { GET } = await import("@/app/api/agentic-apps/route");
+    const res = await GET(new Request("http://localhost/api/agentic-apps"));
+
+    expect(res.status).toBe(200);
+    const row = (await res.json()).items[0];
+    expect(row.appId).toBe("demo-catalog-app");
+    expect(row.assistantEnabled).toBe(false);
   });
 
   it("GET /api/agentic-apps blocks launch when installation runtime health is degraded", async () => {
@@ -168,6 +208,33 @@ describe("user-facing agentic-apps APIs", () => {
     expect(row.canLaunch).toBe(false);
     expect(row.blockedReasons).toContain("unhealthy");
     expect(row.href).toBe("/apps/finops");
+  });
+
+  it("GET /api/agentic-apps hides installations marked visible false", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+    };
+    store.listAppInstallations.mockResolvedValue([
+      {
+        appId: "finops-instance",
+        packageId: "finops",
+        installed: true,
+        enabled: true,
+        visible: false,
+        runtimeHealth: "healthy",
+      },
+    ]);
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifestAuthorized },
+    ]);
+    sessionMock().mockResolvedValue(userSession());
+
+    const { GET } = await import("@/app/api/agentic-apps/route");
+    const res = await GET(new Request("http://localhost/api/agentic-apps"));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).items).toEqual([]);
   });
 
   it("GET /api/agentic-apps/packages returns Gallery packages with install status and blockedReasons", async () => {
@@ -401,6 +468,38 @@ describe("user-facing agentic-apps APIs", () => {
     expect(body.package).not.toHaveProperty("agents");
     expect(body.package.runtime).not.toHaveProperty("origin");
     expect(body.package).not.toHaveProperty("health");
+  });
+
+  it("GET /api/agentic-apps/[appId] applies installation access overrides before manifest roles", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+    };
+    store.listAppInstallations.mockResolvedValue([
+      {
+        appId: "override-app",
+        packageId: "finops",
+        installed: true,
+        enabled: true,
+        runtimeHealth: "healthy",
+        accessOverrides: { requiredRoles: ["admin"] },
+      },
+    ]);
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifestAuthorized },
+    ]);
+    sessionMock().mockResolvedValue(userSession());
+
+    const { GET } = await import("@/app/api/agentic-apps/[appId]/route");
+    const res = await GET(
+      new Request("http://localhost/api/agentic-apps/override-app"),
+      { params: Promise.resolve({ appId: "override-app" }) },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.canLaunch).toBe(false);
+    expect(body.blockedReasons).toContain("unauthorized");
   });
 
   it("GET /api/agentic-apps/[appId] reflects unreachable health and blocks launch with unhealthy reason", async () => {

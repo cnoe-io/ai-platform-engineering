@@ -1,16 +1,11 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import type { AgenticAppManifest } from "@/types/agentic-app";
-import {
-  AGENTIC_SDLC_APP_ID,
-  AGENTIC_SDLC_MANIFEST,
-} from "./builtin-packages";
-import {
-  FINOPS_APP_ID,
-  FINOPS_MANIFEST,
-  WEATHER_APP_ID,
-  WEATHER_MANIFEST,
-} from "./sample-manifests";
+import { AGENTIC_SDLC_MANIFEST } from "./builtin-packages";
+import { FINOPS_MANIFEST } from "../../../apps/agentic-apps/finops/manifest.mjs";
+import { WEATHER_MANIFEST } from "../../../apps/agentic-apps/weather/manifest.mjs";
+import { OSS_REPO_MANAGEMENT_MANIFEST } from "../../../apps/agentic-apps/oss-repo-management/manifest.mjs";
+import { JIRA_PROJECT_DASHBOARD_MANIFEST } from "../../../apps/agentic-apps/jira-project-dashboard/manifest.mjs";
 
 /**
  * Built-in agentic app catalog. The platform itself ships only the apps that
@@ -40,9 +35,11 @@ interface BuiltInAppEntry {
 }
 
 const BUILT_IN_APPS: BuiltInAppEntry[] = [
-  { manifest: AGENTIC_SDLC_MANIFEST, isProductEnabled: isAgenticSdlcEnabled },
-  { manifest: FINOPS_MANIFEST },
-  { manifest: WEATHER_MANIFEST },
+  { manifest: AGENTIC_SDLC_MANIFEST as AgenticAppManifest, isProductEnabled: isAgenticSdlcEnabled },
+  { manifest: FINOPS_MANIFEST as AgenticAppManifest },
+  { manifest: WEATHER_MANIFEST as AgenticAppManifest },
+  { manifest: OSS_REPO_MANAGEMENT_MANIFEST as AgenticAppManifest },
+  { manifest: JIRA_PROJECT_DASHBOARD_MANIFEST as AgenticAppManifest },
 ];
 
 const BUILT_IN_APP_IDS: readonly string[] = BUILT_IN_APPS.map((entry) => entry.manifest.id);
@@ -68,6 +65,51 @@ export function getAgenticAppById(appId: string): AgenticAppManifest | null {
 
 export function isAgenticAppsInstallEnabled(): boolean {
   return process.env.AGENTIC_APPS_INSTALL_ENABLED === "true";
+}
+
+export interface AgenticAppRouteCandidate {
+  appId: string;
+  mountPath: string;
+}
+
+export interface AgenticAppRouteConflict {
+  normalizedMountPath: string;
+  appIds: string[];
+}
+
+export function normalizeAgenticAppMountPath(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = trimmed.startsWith("/")
+    ? trimTrailingSlash(trimmed)
+    : `/${trimTrailingSlash(trimmed)}`;
+  const resolvedPath = new URL(normalized, "http://caipe.local").pathname;
+  return resolvedPath.startsWith("/apps/") ? resolvedPath : null;
+}
+
+export function findAgenticAppRouteConflict(
+  candidates: AgenticAppRouteCandidate[],
+): AgenticAppRouteConflict | null {
+  const byMountPath = new Map<string, string[]>();
+  for (const candidate of candidates) {
+    const normalizedMountPath = normalizeAgenticAppMountPath(candidate.mountPath);
+    if (!normalizedMountPath) {
+      continue;
+    }
+    const appIds = byMountPath.get(normalizedMountPath) ?? [];
+    appIds.push(candidate.appId);
+    byMountPath.set(normalizedMountPath, appIds);
+  }
+
+  for (const [normalizedMountPath, appIds] of byMountPath.entries()) {
+    const uniqueAppIds = [...new Set(appIds)];
+    if (uniqueAppIds.length > 1) {
+      return { normalizedMountPath, appIds: uniqueAppIds };
+    }
+  }
+  return null;
 }
 
 function isAgenticSdlcEnabled(): boolean {

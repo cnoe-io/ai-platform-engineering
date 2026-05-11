@@ -31,6 +31,9 @@ export interface AgenticAppListItem {
   href: string;
   canLaunch: boolean;
   blockedReasons?: string[];
+  assistantEnabled?: boolean;
+  assistantLabel?: string;
+  assistantAgentName?: string;
 }
 
 export interface AgenticAppsListResponse {

@@ -353,13 +353,13 @@ describe("AgenticSdlcHome", () => {
             stage_pressure: [
               {
                 repo_id: "1",
-                repo_name: "cisco-eti/sri-speckit-test",
+                repo_name: "cnoe-io/ai-platform-engineering",
                 stage: "implement",
                 count: 4,
               },
               {
                 repo_id: "1",
-                repo_name: "cisco-eti/sri-speckit-test",
+                repo_name: "cnoe-io/ai-platform-engineering",
                 stage: "review_hitl",
                 count: 2,
               },
@@ -386,7 +386,7 @@ describe("AgenticSdlcHome", () => {
     expect(screen.getAllByText("5").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/cisco-eti\/sri-speckit-test/i).length,
+      screen.getAllByText(/cnoe-io\/ai-platform-engineering/i).length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText("RBAC")).not.toBeInTheDocument();
     expect(screen.queryByText("Trend")).not.toBeInTheDocument();

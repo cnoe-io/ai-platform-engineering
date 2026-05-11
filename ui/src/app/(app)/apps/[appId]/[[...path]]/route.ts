@@ -1,7 +1,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { NextRequest } from "next/server";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { evaluateAppAccess } from "@/lib/agentic-apps/access";
 import {
@@ -11,11 +11,24 @@ import {
   isExecutableProxyRuntimeManifest,
   resolveEffectiveRuntimeOrigin,
 } from "@/lib/agentic-apps/execution-gateway";
-import { listAppInstallations, listAppPackages } from "@/lib/agentic-apps/store";
+import { buildPdpDecisionRecord, decideAgenticAppPdp } from "@/lib/agentic-apps/pdp";
+import { getAgenticAppById } from "@/lib/agentic-apps/registry";
+import {
+  appendAppTokenGrant,
+  appendPdpDecision,
+  listAppInstallations,
+  listAppPackages,
+} from "@/lib/agentic-apps/store";
+import { mintAppScopedToken } from "@/lib/agentic-apps/tokens";
 import { ApiError } from "@/lib/api-error";
 import { getAuthenticatedUser } from "@/lib/api-middleware";
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import type { AgenticAppBlockedReason } from "@/types/agentic-app";
+import type {
+  AgenticAppBlockedReason,
+  AgenticAppInstallationRecord,
+  AgenticAppManifest,
+  AgenticAppPackageRecord,
+} from "@/types/agentic-app";
 
 const BLOCKED_RESPONSE_HEADERS = new Set([
   "connection",
@@ -113,33 +126,25 @@ async function proxyAgenticAppRequest(
     throw e;
   }
 
-  if (!isMongoDBConfigured) {
-    return Response.json({ error: "mongodb_required" }, { status: 503 });
-  }
-
   const params = await context.params;
   const appId = params.appId;
+  const correlationId = request.headers.get("x-correlation-id") ?? randomUUID();
 
-  let installations: Awaited<ReturnType<typeof listAppInstallations>>;
-  let packages: Awaited<ReturnType<typeof listAppPackages>>;
-  try {
-    [installations, packages] = await Promise.all([listAppInstallations(), listAppPackages()]);
-  } catch {
-    return Response.json({ error: "gateway_store_unavailable" }, { status: 503 });
+  const binding = await resolveExecutionBinding(appId);
+  if (binding.error) {
+    return Response.json({ error: binding.error }, { status: binding.status });
   }
-
-  const installation = installations.find((i) => i.appId === appId) ?? null;
-  const pkg =
-    installation !== null
-      ? packages.find((p) => p.packageId === installation.packageId) ?? null
-      : null;
-
+  const { installation, pkg } = binding;
   if (!installation || !pkg) {
     return Response.json({ error: "app_not_found" }, { status: 404 });
   }
 
   if (!isExecutableProxyRuntimeManifest(pkg.manifest)) {
     return Response.json({ error: "unsupported_runtime" }, { status: 501 });
+  }
+
+  if (shouldRedirectTopLevelIframeChromeRequest(request, pkg.manifest)) {
+    return Response.redirect(new URL(`/apps/embed/${appId}`, request.url), 307);
   }
 
   const accessResult = evaluateAppAccess({
@@ -156,6 +161,68 @@ async function proxyAgenticAppRequest(
       : { status: 404 as const, error: "app_not_found" };
     return Response.json({ error }, { status });
   }
+
+  const subjectId = deriveUserId({ session, email: user.email });
+  const action = `proxy:${request.method.toUpperCase()}`;
+  const pdpDecision = decideAgenticAppPdp({
+    action,
+    user,
+    session,
+    pkg,
+    installation,
+    metadata: {
+      path: `/${(params.path ?? []).join("/")}`,
+      method: request.method.toUpperCase(),
+    },
+  });
+  await appendPdpDecision(
+    buildPdpDecisionRecord({
+      appId,
+      action,
+      decision: pdpDecision,
+      correlationId,
+      userSubjectHash: hashStableIdentifier(subjectId),
+      route: request.url,
+      method: request.method.toUpperCase(),
+    }),
+  );
+  if (pdpDecision.effect !== "allow") {
+    return Response.json(
+      {
+        error: "pdp_denied",
+        decisionId: pdpDecision.decisionId,
+        reasonCode: pdpDecision.reasonCode,
+      },
+      {
+        status: 403,
+        headers: {
+          "x-caipe-decision-id": pdpDecision.decisionId,
+          "x-correlation-id": correlationId,
+        },
+      },
+    );
+  }
+
+  const appToken = await mintAppScopedToken({
+    appId,
+    subject: subjectId,
+    email: user.email,
+    scopes: pdpDecision.scopes,
+    decisionId: pdpDecision.decisionId,
+    correlationId,
+  });
+  await appendAppTokenGrant({
+    jti: appToken.jti,
+    decisionId: pdpDecision.decisionId,
+    correlationId,
+    appId,
+    audience: appToken.audience,
+    scopes: pdpDecision.scopes,
+    issuedAt: new Date().toISOString(),
+    expiresAt: appToken.expiresAt,
+    subject: { subjectHash: hashStableIdentifier(subjectId) },
+    tokenHash: appToken.tokenHash,
+  });
 
   const origin = resolveEffectiveRuntimeOrigin(installation, pkg.manifest);
   if (!isExecutableProxiedHttpOrigin(origin)) {
@@ -181,8 +248,10 @@ async function proxyAgenticAppRequest(
       headers: buildForwardHeaders({
         request,
         appId,
-        idToken: typeof session.idToken === "string" ? session.idToken : undefined,
-        userId: deriveUserId({ session, email: user.email }),
+        appToken: appToken.token,
+        decisionId: pdpDecision.decisionId,
+        correlationId,
+        userId: subjectId,
         roles: deriveRoles({ session, role: user.role }),
       }),
       ...(bodyBuffer ? { body: toArrayBuffer(bodyBuffer) } : {}),
@@ -195,14 +264,106 @@ async function proxyAgenticAppRequest(
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: filterResponseHeaders(upstream.headers),
+    headers: withGatewayResponseHeaders(
+      filterResponseHeaders(upstream.headers),
+      pdpDecision.decisionId,
+      correlationId,
+    ),
   });
+}
+
+type ExecutionBindingResult =
+  | {
+      installation: AgenticAppInstallationRecord;
+      pkg: AgenticAppPackageRecord;
+      error?: undefined;
+      status?: undefined;
+    }
+  | {
+      installation?: undefined;
+      pkg?: undefined;
+      error: string;
+      status: number;
+    };
+
+async function resolveExecutionBinding(appId: string): Promise<ExecutionBindingResult> {
+  if (isMongoDBConfigured) {
+    let installations: Awaited<ReturnType<typeof listAppInstallations>>;
+    let packages: Awaited<ReturnType<typeof listAppPackages>>;
+    try {
+      [installations, packages] = await Promise.all([listAppInstallations(), listAppPackages()]);
+    } catch {
+      return { error: "gateway_store_unavailable", status: 503 };
+    }
+
+    const installation = installations.find((i) => i.appId === appId) ?? null;
+    const pkg =
+      installation !== null
+        ? packages.find((p) => p.packageId === installation.packageId) ?? null
+        : null;
+
+    if (installation && pkg) {
+      return { installation, pkg };
+    }
+  }
+
+  const manifest = getAgenticAppById(appId);
+  if (!manifest) {
+    if (!isMongoDBConfigured) {
+      return { error: "mongodb_required", status: 503 };
+    }
+    return { error: "app_not_found", status: 404 };
+  }
+
+  return buildEnvConfiguredExecutionBinding(manifest);
+}
+
+function buildEnvConfiguredExecutionBinding(manifest: AgenticAppManifest): ExecutionBindingResult {
+  const now = new Date().toISOString();
+  return {
+    pkg: {
+      packageId: manifest.id,
+      source: "builtin",
+      manifest,
+      importedAt: now,
+      importedBy: "env-registry",
+      ...(manifest.catalog ? { catalog: manifest.catalog } : {}),
+    },
+    installation: {
+      appId: manifest.id,
+      packageId: manifest.id,
+      installed: true,
+      enabled: true,
+      visible: true,
+      runtimeMountPath: manifest.runtime.mountPath,
+      runtimeHealth: "unknown",
+      healthPolicy: {
+        blockLaunchWhen: manifest.health.blockLaunchWhen ?? ["degraded", "unreachable"],
+      },
+      routeOwnership: { normalizedMountPath: manifest.runtime.mountPath },
+      updatedAt: now,
+      updatedBy: "env-registry",
+    },
+  };
+}
+
+function shouldRedirectTopLevelIframeChromeRequest(
+  request: Request,
+  manifest: AgenticAppManifest,
+): boolean {
+  if (manifest.runtime.chrome !== "iframe") {
+    return false;
+  }
+  const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
+  return fetchDest === "document";
 }
 
 function buildForwardHeaders(input: {
   request: Request;
   appId: string;
-  idToken: string | undefined;
+  appToken: string;
+  decisionId: string;
+  correlationId: string;
   userId: string;
   roles: string[];
 }): Headers {
@@ -218,11 +379,21 @@ function buildForwardHeaders(input: {
   headers.set("x-caipe-app-id", input.appId);
   if (input.userId) headers.set("x-caipe-user", input.userId);
   if (input.roles.length > 0) headers.set("x-caipe-roles", input.roles.join(","));
+  headers.set("x-caipe-decision-id", input.decisionId);
+  headers.set("x-correlation-id", input.correlationId);
 
-  // Authoritative identity: the user's OIDC id_token. Apps verify it via JWKS.
-  if (input.idToken && input.idToken.length > 0) {
-    headers.set("authorization", `Bearer ${input.idToken}`);
-  }
+  // Authoritative identity: short-lived app-scoped token minted by CAIPE.
+  headers.set("authorization", `Bearer ${input.appToken}`);
+  return headers;
+}
+
+function withGatewayResponseHeaders(
+  headers: Headers,
+  decisionId: string,
+  correlationId: string,
+): Headers {
+  headers.set("x-caipe-decision-id", decisionId);
+  headers.set("x-correlation-id", correlationId);
   return headers;
 }
 
@@ -276,4 +447,8 @@ function deriveRoles(input: {
     set.add("user");
   }
   return Array.from(set).sort();
+}
+
+function hashStableIdentifier(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }

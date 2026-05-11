@@ -1,0 +1,27 @@
+# Agentic embedded app runtime
+# Runs standalone Node-based embedded app servers from ui/apps.
+
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --omit=dev
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+RUN apk update && apk upgrade --no-cache && \
+    addgroup --system --gid 1001 appgroup && \
+    adduser --system --uid 1001 --ingroup appgroup appuser
+
+COPY --from=deps --chown=appuser:appgroup /app/node_modules ./node_modules
+COPY --chown=appuser:appgroup ui/package.json ./package.json
+COPY --chown=appuser:appgroup ui/apps ./apps
+
+USER appuser
+
+EXPOSE 3010 3020 3040 3041
+
+CMD ["node", "apps/agentic-apps/weather/server.mjs"]

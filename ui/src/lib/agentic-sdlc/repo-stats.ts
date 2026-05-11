@@ -47,6 +47,10 @@ export interface RepoSwimLaneItem {
   title: string;
   current_stage: AgenticSdlcStage;
   actor_kind: "agent" | "human" | "system";
+  agent_label: string | null;
+  agent_name: string | null;
+  status_label: string | null;
+  escalation_labels: string[];
   github_url: string;
   last_event_at: string;
 }
@@ -194,6 +198,7 @@ export async function getRepoOperatingSummary(
             title: 1,
             current_stage: 1,
             needs_human: 1,
+            labels: 1,
             agent_labels: 1,
             github_url: 1,
             last_event_at: 1,
@@ -240,6 +245,7 @@ function buildSwimLanes(
     title: string;
     current_stage: AgenticSdlcStage;
     needs_human?: boolean;
+    labels?: string[];
     agent_labels?: string[];
     github_url: string;
     last_event_at: Date;
@@ -249,6 +255,8 @@ function buildSwimLanes(
 
   for (const row of rows) {
     const items = lanes.get(row.current_stage) ?? [];
+    const labels = row.labels ?? [];
+    const persona = deriveAgentPersona([...(row.agent_labels ?? []), ...labels]);
     items.push({
       artifact_id: row.artifact_id,
       kind: row.kind,
@@ -257,9 +265,13 @@ function buildSwimLanes(
       actor_kind:
         row.needs_human || row.current_stage === "review_hitl"
           ? "human"
-          : row.agent_labels && row.agent_labels.length > 0
+          : persona.agent_label
             ? "agent"
             : "system",
+      agent_label: persona.agent_label,
+      agent_name: persona.agent_name,
+      status_label: labels.find((label) => label.startsWith("status:")) ?? null,
+      escalation_labels: labels.filter((label) => label.startsWith("needs:")),
       github_url: row.github_url,
       last_event_at: row.last_event_at.toISOString(),
     });
@@ -268,6 +280,41 @@ function buildSwimLanes(
 
   return Array.from(lanes.entries()).map(([stage, items]) => ({
     stage,
-    items: items.slice(0, 6),
+    items,
   }));
 }
+
+const AGENT_PERSONAS: Array<{ label: string; name: string }> = [
+  { label: "agent:architect", name: "Architect" },
+  { label: "agent:deep-think", name: "Deep Think" },
+  { label: "agent:coder", name: "Coder" },
+  { label: "agent:tester", name: "Tester" },
+  { label: "agent:reviewer", name: "Reviewer" },
+  { label: "agent:deployer", name: "Deployer" },
+  { label: "agent:specify", name: "Specifier" },
+  { label: "agent:plan", name: "Planner" },
+  { label: "agent:tasks", name: "Tasker" },
+  { label: "agent:implement", name: "Coder" },
+  { label: "agent:unit-test", name: "Tester" },
+  { label: "agent:test", name: "Tester" },
+  { label: "agent:awaiting-review", name: "Reviewer" },
+  { label: "agent:deploy-sandbox", name: "Deployer" },
+  { label: "agent:validate", name: "Validator" },
+  { label: "agent:observe", name: "Observer" },
+];
+
+function deriveAgentPersona(labels: string[]): {
+  agent_label: string | null;
+  agent_name: string | null;
+} {
+  for (const persona of AGENT_PERSONAS) {
+    if (labels.includes(persona.label)) {
+      return { agent_label: persona.label, agent_name: persona.name };
+    }
+  }
+  return { agent_label: null, agent_name: null };
+}
+
+export const _internal = {
+  deriveAgentPersona,
+};

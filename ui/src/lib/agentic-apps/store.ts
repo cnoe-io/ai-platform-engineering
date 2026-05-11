@@ -2,11 +2,16 @@
 
 import { getCollection } from "@/lib/mongodb";
 import type {
+  AgenticAppAssistantContextRecord,
+  AgenticAppHealthSnapshotRecord,
   AgenticAppInstallationRecord,
   AgenticAppManifest,
   AgenticAppPackageCatalogMeta,
   AgenticAppPackageRecord,
   AgenticAppPackageSource,
+  AgenticAppPdpDecisionRecord,
+  AgenticAppTokenGrantRecord,
+  AgenticAppWebhookDeliveryRecord,
 } from "@/types/agentic-app";
 
 export type { AgenticAppPackageCatalogMeta };
@@ -14,6 +19,11 @@ export type { AgenticAppPackageCatalogMeta };
 export const AGENTIC_APP_PACKAGES_COLLECTION = "agentic_app_packages";
 export const AGENTIC_APP_INSTALLATIONS_COLLECTION = "agentic_app_installations";
 export const AGENTIC_APP_EVENTS_COLLECTION = "agentic_app_events";
+export const AGENTIC_APP_PDP_DECISIONS_COLLECTION = "agentic_app_pdp_decisions";
+export const AGENTIC_APP_TOKEN_GRANTS_COLLECTION = "agentic_app_token_grants";
+export const AGENTIC_APP_WEBHOOK_DELIVERIES_COLLECTION = "agentic_app_webhook_deliveries";
+export const AGENTIC_APP_ASSISTANT_CONTEXTS_COLLECTION = "agentic_app_assistant_contexts";
+export const AGENTIC_APP_HEALTH_SNAPSHOTS_COLLECTION = "agentic_app_health_snapshots";
 
 export type UpsertAppPackageFromManifestInput = {
   packageId: string;
@@ -29,7 +39,14 @@ export type InstallAppPackageInput = {
   packageId: string;
   installed?: boolean;
   enabled?: boolean;
+  visible?: boolean;
   isDefaultLanding?: boolean;
+  runtimeMountPath?: string;
+  runtimeOriginOverride?: string;
+  accessOverrides?: AgenticAppInstallationRecord["accessOverrides"];
+  healthPolicy?: AgenticAppInstallationRecord["healthPolicy"];
+  routeOwnership?: AgenticAppInstallationRecord["routeOwnership"];
+  updatedBy?: string;
 };
 
 export type EffectiveAppForUser = {
@@ -146,6 +163,47 @@ export async function appendAgenticAppEvent(input: AppendAgenticAppEventInput): 
   });
 }
 
+export async function appendPdpDecision(input: AgenticAppPdpDecisionRecord): Promise<void> {
+  const col = await getCollection<AgenticAppPdpDecisionRecord>(
+    AGENTIC_APP_PDP_DECISIONS_COLLECTION,
+  );
+  await col.insertOne(input);
+}
+
+export async function appendAppTokenGrant(input: AgenticAppTokenGrantRecord): Promise<void> {
+  const col = await getCollection<AgenticAppTokenGrantRecord>(
+    AGENTIC_APP_TOKEN_GRANTS_COLLECTION,
+  );
+  await col.insertOne(input);
+}
+
+export async function appendWebhookDelivery(
+  input: AgenticAppWebhookDeliveryRecord,
+): Promise<void> {
+  const col = await getCollection<AgenticAppWebhookDeliveryRecord>(
+    AGENTIC_APP_WEBHOOK_DELIVERIES_COLLECTION,
+  );
+  await col.insertOne(input);
+}
+
+export async function appendAssistantContext(
+  input: AgenticAppAssistantContextRecord,
+): Promise<void> {
+  const col = await getCollection<AgenticAppAssistantContextRecord>(
+    AGENTIC_APP_ASSISTANT_CONTEXTS_COLLECTION,
+  );
+  await col.insertOne(input);
+}
+
+export async function appendHealthSnapshot(
+  input: AgenticAppHealthSnapshotRecord,
+): Promise<void> {
+  const col = await getCollection<AgenticAppHealthSnapshotRecord>(
+    AGENTIC_APP_HEALTH_SNAPSHOTS_COLLECTION,
+  );
+  await col.insertOne(input);
+}
+
 export async function upsertAppPackageFromManifest(
   input: UpsertAppPackageFromManifestInput,
 ): Promise<void> {
@@ -207,6 +265,27 @@ export async function installAppPackage(input: InstallAppPackageInput): Promise<
   if (input.isDefaultLanding !== undefined) {
     $set.isDefaultLanding = input.isDefaultLanding;
   }
+  if (input.visible !== undefined) {
+    $set.visible = input.visible;
+  }
+  if (input.runtimeMountPath !== undefined) {
+    $set.runtimeMountPath = input.runtimeMountPath;
+  }
+  if (input.runtimeOriginOverride !== undefined) {
+    $set.runtimeOriginOverride = input.runtimeOriginOverride;
+  }
+  if (input.accessOverrides !== undefined) {
+    $set.accessOverrides = input.accessOverrides;
+  }
+  if (input.healthPolicy !== undefined) {
+    $set.healthPolicy = input.healthPolicy;
+  }
+  if (input.routeOwnership !== undefined) {
+    $set.routeOwnership = input.routeOwnership;
+  }
+  if (input.updatedBy !== undefined) {
+    $set.updatedBy = input.updatedBy;
+  }
   await col.updateOne({ appId: input.appId }, { $set }, { upsert: true });
 }
 
@@ -234,6 +313,9 @@ export async function listEffectiveAppsForUser(
   const out: EffectiveAppForUser[] = [];
 
   for (const inst of activeInstalls) {
+    if (inst.visible === false) {
+      continue;
+    }
     const pkg = byPackageId.get(inst.packageId);
     if (!pkg) {
       continue;

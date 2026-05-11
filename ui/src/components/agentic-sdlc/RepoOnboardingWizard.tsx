@@ -48,6 +48,22 @@ const LABEL_CONTRACT = [
   "agent:validate",
   "agent:observe",
   "agent:blocked",
+  // assisted-by Codex Codex-sonnet-4-6
+  "agent:architect",
+  "agent:coder",
+  "agent:reviewer",
+  "agent:tester",
+  "agent:deployer",
+  "agent:deep-think",
+  "status:ready",
+  "status:in-progress",
+  "status:blocked",
+  "status:needs-review",
+  "status:needs-test",
+  "status:done",
+  "needs:arthur",
+  "needs:decision",
+  "needs:repo-access",
 ];
 
 export function RepoOnboardingWizard() {

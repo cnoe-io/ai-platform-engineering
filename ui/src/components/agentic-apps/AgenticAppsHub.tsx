@@ -19,10 +19,20 @@ import { createPortal } from "react-dom";
 
 import { apiClient } from "@/lib/api-client";
 import { resolveAgenticAppLaunchUrl } from "@/lib/agentic-apps/launch-url";
-import type { AgenticAppManifest } from "@/types/agentic-app";
+import type {
+  AgenticAppBlockedReason,
+  AgenticAppHealthStatus,
+  AgenticAppManifest,
+} from "@/types/agentic-app";
+
+type AgenticAppsHubApp = AgenticAppManifest & {
+  canLaunch?: boolean;
+  blockedReasons?: AgenticAppBlockedReason[];
+  runtimeStatus?: AgenticAppHealthStatus;
+};
 
 interface AgenticAppsHubProps {
-  apps: AgenticAppManifest[];
+  apps: AgenticAppsHubApp[];
 }
 
 export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
@@ -69,25 +79,25 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
   }
 
   return (
-    <main className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_34rem),radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.12),transparent_28rem),#020617] px-6 py-8 text-slate-100">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-8 shadow-2xl shadow-cyan-950/30 backdrop-blur">
-          <div className="absolute -right-20 -top-24 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
+    <main className="flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.16),transparent_34rem),radial-gradient(circle_at_80%_20%,rgba(168,85,247,0.12),transparent_28rem),#020617] px-5 py-5 text-slate-100">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+        <section className="relative overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-cyan-950/30 backdrop-blur">
+          <div className="absolute -right-20 -top-24 h-60 w-60 rounded-full bg-cyan-300/20 blur-3xl" />
           <div className="absolute bottom-0 right-32 h-40 w-40 rounded-full bg-violet-400/10 blur-2xl" />
-          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">
                 CAIPE extensibility
               </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight">Agentic Apps Hub</h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Agentic Apps Hub</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
                 Discover trusted agentic apps that keep CAIPE in control of shell,
                 RBAC, tokens, and policy while app runtimes stay independently owned.
               </p>
             </div>
             <a
               href="/apps/create"
-              className="group relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:scale-105 hover:bg-cyan-300/20"
+              className="group relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:scale-105 hover:bg-cyan-300/20"
               aria-label="Create or add your app"
               title="Create or add your app"
             >
@@ -121,31 +131,33 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
             </p>
           </section>
         ) : (
-          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {apps.map((app) => {
               const presentation = getAppPresentation(app);
               const Icon = presentation.Icon;
               const isFavorite = favoriteAppIds.includes(app.id);
+              const isBlocked = app.canLaunch === false;
+              const blockedLabel = formatBlockedReasons(app.blockedReasons);
 
               return (
                 <article
                   key={app.id}
-                  className="group relative flex min-h-80 flex-col overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-900/78 p-6 shadow-xl shadow-slate-950/40 transition duration-200 hover:-translate-y-1 hover:border-cyan-200/30 hover:bg-slate-900/92"
+                  className="group relative flex min-h-64 flex-col overflow-hidden rounded-[1.35rem] border border-white/10 bg-slate-900/78 p-4 shadow-xl shadow-slate-950/40 transition duration-200 hover:-translate-y-1 hover:border-cyan-200/30 hover:bg-slate-900/92"
                 >
                   <div
-                    className={`absolute -right-20 -top-24 h-56 w-56 rounded-full bg-gradient-to-br ${presentation.glow} opacity-80 blur-3xl transition group-hover:opacity-100`}
+                    className={`absolute -right-20 -top-24 h-48 w-48 rounded-full bg-gradient-to-br ${presentation.glow} opacity-80 blur-3xl transition group-hover:opacity-100`}
                   />
-                  <div className="relative flex items-start justify-between gap-4">
+                  <div className="relative flex items-start justify-between gap-3">
                     <div
                       aria-label={`${app.displayName} app icon`}
-                      className={`flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-white/15 bg-gradient-to-br ${presentation.gradient} text-white shadow-2xl shadow-slate-950/30`}
+                      className={`flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-gradient-to-br ${presentation.gradient} text-white shadow-2xl shadow-slate-950/30`}
                     >
-                      <Icon className="h-8 w-8" aria-hidden />
+                      <Icon className="h-5 w-5" aria-hidden />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        className={`group/favorite relative inline-flex h-10 w-10 items-center justify-center rounded-full border transition ${
+                        className={`group/favorite relative inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
                           isFavorite
                             ? "border-amber-200/50 bg-amber-300/20 text-amber-100"
                             : "border-white/10 bg-white/[0.06] text-slate-300 hover:border-amber-200/40 hover:bg-amber-300/10 hover:text-amber-100"
@@ -163,7 +175,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                         }
                       >
                         <Star
-                          className="h-4 w-4"
+                          className="h-3.5 w-3.5"
                           fill={isFavorite ? "currentColor" : "none"}
                           aria-hidden
                         />
@@ -173,45 +185,70 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                       </button>
                       <RuntimeInfoTooltip app={app} />
                       <IconTooltip label="Verified app contract">
-                        <ShieldCheck className="h-4 w-4" aria-hidden />
+                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                       </IconTooltip>
-                      <a
-                        className="group/action relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
-                        href={resolveAgenticAppLaunchUrl(app)}
-                        aria-label={`Open ${app.displayName}`}
-                        title={`Open ${app.displayName}`}
-                      >
-                        <ArrowUpRight className="h-4 w-4" aria-hidden />
-                        <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden whitespace-nowrap rounded-full border border-white/10 bg-slate-950/95 px-3 py-1.5 text-xs font-semibold text-slate-100 shadow-xl group-hover/action:block">
-                          Launch {app.displayName}
+                      {isBlocked ? (
+                        <span
+                          className="relative inline-flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-full border border-amber-200/20 bg-amber-300/10 text-amber-100"
+                          aria-label={`${app.displayName} launch blocked`}
+                          title={`Launch blocked: ${blockedLabel}`}
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                         </span>
-                      </a>
+                      ) : (
+                        <a
+                          className="group/action relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
+                          href={resolveAgenticAppLaunchUrl(app)}
+                          aria-label={`Open ${app.displayName}`}
+                          title={`Open ${app.displayName}`}
+                        >
+                          <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+                          <span className="pointer-events-none absolute right-0 top-full z-10 mt-2 hidden whitespace-nowrap rounded-full border border-white/10 bg-slate-950/95 px-3 py-1.5 text-xs font-semibold text-slate-100 shadow-xl group-hover/action:block">
+                            Launch {app.displayName}
+                          </span>
+                        </a>
+                      )}
                     </div>
                   </div>
 
-                  <div className="relative mt-6 flex items-center gap-2">
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${presentation.badge}`}>
+                  <div className="relative mt-4 flex items-center gap-2">
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${presentation.badge}`}>
                       {presentation.category}
                     </span>
                   </div>
 
-                  <h2 className="relative mt-5 text-2xl font-semibold text-white">
+                  <h2 className="relative mt-3 line-clamp-1 text-lg font-semibold text-white">
                     {app.displayName}
                   </h2>
-                  <p className="relative mt-3 flex-1 text-sm leading-6 text-slate-300">
+                  <p className="relative mt-2 line-clamp-3 flex-1 text-xs leading-5 text-slate-300">
                     {app.description}
                   </p>
 
-                  <div className="relative mt-5 flex flex-wrap gap-2">
-                    {app.access.tokenScopes.map((scope) => (
+                  {isBlocked ? (
+                    <div className="relative mt-3 rounded-2xl border border-amber-200/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                      <p className="font-semibold">Launch blocked</p>
+                      <p className="mt-1 text-amber-100/80">{blockedLabel}</p>
+                    </div>
+                  ) : null}
+
+                  <div className="relative mt-4 flex flex-wrap gap-1.5">
+                    {app.access.tokenScopes.slice(0, 3).map((scope) => (
                       <span
                         key={scope}
-                        className="rounded-full border border-white/10 bg-slate-950/55 px-2.5 py-1 text-[11px] text-slate-400"
+                        className="max-w-full truncate rounded-full border border-white/10 bg-slate-950/55 px-2 py-0.5 text-[10px] text-slate-400"
                         title={`Token scope: ${scope}`}
                       >
                         {scope}
                       </span>
                     ))}
+                    {app.access.tokenScopes.length > 3 ? (
+                      <span
+                        className="rounded-full border border-white/10 bg-slate-950/55 px-2 py-0.5 text-[10px] text-slate-400"
+                        title={app.access.tokenScopes.slice(3).join(", ")}
+                      >
+                        +{app.access.tokenScopes.length - 3}
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -232,7 +269,7 @@ function IconTooltip({
 }) {
   return (
     <span
-      className="group/tip relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-emerald-100"
+      className="group/tip relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-emerald-100"
       aria-label={label}
       title={label}
     >
@@ -282,6 +319,13 @@ function getAppPresentation(app: AgenticAppManifest) {
     glow: "from-violet-300/35 to-cyan-500/10",
     badge: "bg-violet-400/10 text-violet-200",
   };
+}
+
+function formatBlockedReasons(reasons: AgenticAppBlockedReason[] | undefined): string {
+  if (!reasons || reasons.length === 0) {
+    return "policy denied";
+  }
+  return reasons.join(", ").replaceAll("_", " ");
 }
 
 function runtimeLabel(kind: AgenticAppManifest["runtime"]["kind"]): string {
@@ -340,14 +384,14 @@ function RuntimeInfoTooltip({ app }: { app: AgenticAppManifest }) {
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-slate-200 transition hover:border-cyan-200/40 hover:bg-cyan-300/10 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-slate-200 transition hover:border-cyan-200/40 hover:bg-cyan-300/10 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
         aria-label={`Runtime details for ${app.displayName}`}
         title={`Runtime: ${activeLabel} — click for details`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <Info className="h-4 w-4" aria-hidden />
+        <Info className="h-3.5 w-3.5" aria-hidden />
       </button>
       {mounted &&
         createPortal(

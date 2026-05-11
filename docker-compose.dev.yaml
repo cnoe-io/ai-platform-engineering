@@ -336,6 +336,8 @@ services:
       - MCP_MODE=http
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
+      - MCP_HOST=mcp-aws
+      - MCP_PORT=8000
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -353,9 +355,11 @@ services:
       # attribute can't push the OTel batch past Langfuse's 1 MiB
       # nginx body limit. Set to 0 to disable.
       - SKILL_TRACE_MAX_ATTR_BYTES=${SKILL_TRACE_MAX_ATTR_BYTES:-262144}
-      - AWS_REGION=${AWS_REGION}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
       - ENABLE_EKS_MCP=${ENABLE_EKS_MCP:-false}
       - ENABLE_COST_EXPLORER_MCP=${ENABLE_COST_EXPLORER_MCP:-false}
       - ENABLE_IAM_MCP=${ENABLE_IAM_MCP:-false}
@@ -367,6 +371,53 @@ services:
       - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
       - STRANDS_LOG_LEVEL=${STRANDS_LOG_LEVEL:-INFO}
       - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+    depends_on:
+      mcp-aws:
+        condition: service_healthy
+    profiles:
+      - aws
+      - all-agents
+
+  mcp-aws:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=aws
+        - INSTALL_AWS_CLI=true
+        - INSTALL_KUBECTL=true
+    image: ghcr.io/cnoe-io/mcp-aws:${IMAGE_TAG:-localtag}
+    container_name: mcp-aws
+    env_file: [.env]
+    ports: ["18012:8000"]
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      - SERVER_NAME=AWS
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-west-2}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
+      - AWS_CLI_MAX_EXECUTION_TIME=${AWS_CLI_MAX_EXECUTION_TIME:-30}
+      - KUBECTL_MAX_EXECUTION_TIME=${KUBECTL_MAX_EXECUTION_TIME:-45}
+      - AWS_CLI_MAX_OUTPUT_SIZE=${AWS_CLI_MAX_OUTPUT_SIZE:-20000}
+      - RESTRICT_KUBECTL_SECRETS=${RESTRICT_KUBECTL_SECRETS:-true}
+      - RESTRICT_KUBECTL_PROXY=${RESTRICT_KUBECTL_PROXY:-true}
+      - RESTRICT_KUBECTL_EXEC=${RESTRICT_KUBECTL_EXEC:-false}
+      - RESTRICT_KUBECTL_ATTACH=${RESTRICT_KUBECTL_ATTACH:-false}
+      - RESTRICT_KUBECTL_CP=${RESTRICT_KUBECTL_CP:-false}
+      - RESTRICT_KUBECTL_PORT_FORWARD=${RESTRICT_KUBECTL_PORT_FORWARD:-false}
+      - FASTMCP_LOG_LEVEL=${FASTMCP_LOG_LEVEL:-ERROR}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     profiles:
       - aws
       - all-agents
@@ -597,6 +648,31 @@ services:
       - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     profiles:
       - weather
+      - all-agents
+
+  # Open-Meteo MCP Server (HTTP mode)
+  # Dynamic Agents connects to this via the config-driven mcp-weather entry in
+  # config/app-config.yaml. The host binding is local-only; containers use
+  # http://open-meteo-mcp:3000/mcp on the compose network.
+  open-meteo-mcp:
+    image: node:22-alpine
+    container_name: open-meteo-mcp
+    command: ["npx", "-y", "-p", "open-meteo-mcp-server@1.6.1", "open-meteo-mcp-server"]
+    environment:
+      - TRANSPORT=http
+      - PORT=3000
+    ports:
+      - "127.0.0.1:3031:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - weather
+      - dynamic-agents
       - all-agents
 
   # Backstage Agent
@@ -1232,6 +1308,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
+      target: dev
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
@@ -1239,18 +1316,23 @@ services:
     image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}
     container_name: caipe-ui
     ports: ["3000:3000"]
+    command: ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
     env_file:
       - .env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+      - WATCHPACK_POLLING=${CAIPE_UI_WATCHPACK_POLLING:-true}
+      - CHOKIDAR_USEPOLLING=${CAIPE_UI_CHOKIDAR_USEPOLLING:-true}
       # CAIPE supervisor A2A endpoint URL
       # Override with A2A_BASE_URL environment variable
       - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
       # Enable/Disable RAG Knowledge Bases (default: true)
       - RAG_ENABLED=${RAG_ENABLED:-true}
       # RAG Server URL for knowledge base API (internal Docker network)
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag_server:9446}
-      - RAG_URL=${RAG_URL:-http://localhost:9446}
+      - RAG_SERVER_URL=${CAIPE_UI_RAG_SERVER_URL:-http://rag_server:9446}
+      # Use CAIPE_UI_RAG_URL so host-shell local-dev RAG_URL values do not leak into the container.
+      - RAG_URL=${CAIPE_UI_RAG_URL:-http://rag_server:9446}
       # NextAuth configuration (required for production)
       # Generate a secret with: openssl rand -base64 32
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
@@ -1280,7 +1362,9 @@ services:
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
-      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Use CAIPE_UI_DYNAMIC_AGENTS_URL so host-shell local-dev DYNAMIC_AGENTS_URL
+      # values such as http://localhost:8100 do not leak into the container.
+      - DYNAMIC_AGENTS_URL=${CAIPE_UI_DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
       # Skill Scanner — when the `skill-scanner` profile is enabled, the UI
       # uploads ZIP'd skill packages to this service for security scanning.
       # If unreachable the UI gracefully reports "scanner unavailable" instead
@@ -1288,19 +1372,211 @@ services:
       - SKILL_SCANNER_URL=${SKILL_SCANNER_URL:-http://skill-scanner:8000}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      # Use CAIPE_UI_MONGODB_URI so host-shell local-dev MONGODB_URI values do not leak into the container.
+      - MONGODB_URI=${CAIPE_UI_MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # App config: loaded at Next.js startup via instrumentation.ts
-      - APP_CONFIG_PATH=/app/config/app-config.yaml
+      - APP_CONFIG_PATH=/config/app-config.yaml
+      # Embedded agentic app runtimes (proxied by CAIPE at /apps/<app-id>)
+      - AGENTIC_APPS_INSTALL_ENABLED=${AGENTIC_APPS_INSTALL_ENABLED:-true}
+      - AGENTIC_APPS_ENABLED=${CAIPE_UI_AGENTIC_APPS_ENABLED:-agentic-sdlc,finops,weather,oss-repo-management,jira-project-dashboard}
+      - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
+      - AGENTIC_APP_FINOPS_ORIGIN=${CAIPE_UI_AGENTIC_APP_FINOPS_ORIGIN:-http://agentic-app-finops:3010}
+      - AGENTIC_APP_WEATHER_ORIGIN=${CAIPE_UI_AGENTIC_APP_WEATHER_ORIGIN:-http://agentic-app-weather:3020}
+      - AGENTIC_APP_OSS_REPO_MANAGEMENT_ORIGIN=${CAIPE_UI_AGENTIC_APP_OSS_REPO_MANAGEMENT_ORIGIN:-http://agentic-app-oss-repo-management:3040}
+      - AGENTIC_APP_JIRA_PROJECT_DASHBOARD_ORIGIN=${CAIPE_UI_AGENTIC_APP_JIRA_PROJECT_DASHBOARD_ORIGIN:-http://agentic-app-jira-project-dashboard:3041}
     volumes:
+      # Hot reload: bind mount UI sources while keeping dependency/cache
+      # directories container-local for speed and host filesystem hygiene.
+      - ./ui:/app
+      - /app/node_modules
+      - /app/.next
       # Override host path with CAIPE_APP_CONFIG_FILE (e.g. ./config/app-config.local.yaml)
-      - ${CAIPE_APP_CONFIG_FILE:-./config/app-config.yaml}:/app/config/app-config.yaml:ro
+      - ${CAIPE_APP_CONFIG_FILE:-./config/app-config.yaml}:/config/app-config.yaml:ro
+      - ./config/agentic-apps:/config/agentic-apps:ro
       - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
     depends_on:
       caipe-supervisor:
         condition: service_started
         required: false
+      agentic-app-finops:
+        condition: service_started
+        required: false
+      agentic-app-weather:
+        condition: service_started
+        required: false
+      agentic-app-oss-repo-management:
+        condition: service_started
+        required: false
+      agentic-app-jira-project-dashboard:
+        condition: service_started
+        required: false
     profiles:
+      - caipe-ui
+
+  # Embedded Agentic App: FinOps Command Center
+  agentic-app-finops:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.agentic-app
+    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    container_name: agentic-app-finops
+    command: ["node", "apps/agentic-apps/finops/server.mjs"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - FINOPS_APP_PORT=3010
+      - AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY=${AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY:-true}
+      - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
+    ports: ["3010:3010"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3010/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - caipe-ui
+      - agentic-apps
+
+  # Embedded Agentic App: Weather Lab
+  agentic-app-weather:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.agentic-app
+    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    container_name: agentic-app-weather
+    command: ["node", "apps/agentic-apps/weather/server.mjs"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - WEATHER_APP_PORT=3020
+      - AGENTIC_APP_WEATHER_JWT_SKIP_VERIFY=${AGENTIC_APP_WEATHER_JWT_SKIP_VERIFY:-true}
+      - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
+    ports: ["3020:3020"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3020/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - caipe-ui
+      - agentic-apps
+
+  # Embedded Agentic App: OSS Repo Management
+  agentic-app-oss-repo-management:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.agentic-app
+    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    container_name: agentic-app-oss-repo-management
+    command: ["node", "apps/agentic-apps/oss-repo-management/server.mjs"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - OSS_REPO_MANAGEMENT_APP_PORT=3040
+      - AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_SKIP_VERIFY=${AGENTIC_APP_OSS_REPO_MANAGEMENT_JWT_SKIP_VERIFY:-true}
+      - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
+    ports: ["3040:3040"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3040/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - caipe-ui
+      - agentic-apps
+
+  # Embedded Agentic App: Jira Project Dashboard
+  agentic-app-jira-project-dashboard:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.agentic-app
+    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    container_name: agentic-app-jira-project-dashboard
+    command: ["node", "apps/agentic-apps/jira-project-dashboard/server.mjs"]
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      - JIRA_PROJECT_DASHBOARD_APP_PORT=3041
+      - AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_SKIP_VERIFY=${AGENTIC_APP_JIRA_PROJECT_DASHBOARD_JWT_SKIP_VERIFY:-true}
+      - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
+    ports: ["3041:3041"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3041/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - caipe-ui
+      - agentic-apps
+
+  ####################################################################################################
+  #                              GitHub Webhook Receiver (Agentic SDLC)                              #
+  ####################################################################################################
+  # Long-running SQS poller that forwards GitHub webhook deliveries parked in
+  # the AWS SQS `github-webhook-sqs` queue to caipe-ui's Agentic SDLC HMAC-
+  # verified webhook endpoint. Sources live in `integrations/github-webhook-receiver/`.
+  #
+  # The container reads AWS credentials from CAIPE's shared `.env` (the same
+  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY pair already used by Bedrock).
+  # No assume-role hop is required when those credentials already live
+  # in the SQS-owning account.
+  #
+  # Profile-gated so it only runs when the operator explicitly wants live
+  # GitHub events flowing into the local stack.
+  github-webhook-receiver:
+    build:
+      context: ./integrations/github-webhook-receiver
+      dockerfile: Dockerfile
+    image: caipe/github-webhook-receiver:${IMAGE_TAG:-localtag}
+    container_name: github-webhook-receiver
+    env_file:
+      - .env
+    environment:
+      # Region override — the SQS queue lives in us-east-2 regardless of any
+      # other CAIPE service's default region.
+      - AWS_REGION=${GITHUB_WEBHOOK_AWS_REGION:-us-east-2}
+      - SQS_QUEUE_NAME=${GITHUB_WEBHOOK_SQS_QUEUE:-github-webhook-sqs}
+      - CAIPE_WEBHOOK_URL=${GITHUB_WEBHOOK_FORWARD_URL:-http://caipe-ui:3000/api/agentic-sdlc/webhooks/github}
+      - RECEIVER_BATCH_SIZE=${GITHUB_WEBHOOK_BATCH_SIZE:-10}
+      - RECEIVER_WAIT_SECONDS=${GITHUB_WEBHOOK_WAIT_SECONDS:-20}
+      - RECEIVER_REQUEST_TIMEOUT=${GITHUB_WEBHOOK_REQUEST_TIMEOUT:-15}
+      - LOG_LEVEL=${GITHUB_WEBHOOK_LOG_LEVEL:-INFO}
+      - LOG_PAYLOAD=${GITHUB_WEBHOOK_LOG_PAYLOAD:-0}
+      # Base credentials: the shared CAIPE IAM user (or its dedicated
+      # overrides). These keys grant `sts:AssumeRole` on the queue-reader
+      # role below — they do NOT themselves have SQS access.
+      - AWS_ACCESS_KEY_ID=${GITHUB_WEBHOOK_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
+      - AWS_SECRET_ACCESS_KEY=${GITHUB_WEBHOOK_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
+      - AWS_SESSION_TOKEN=${GITHUB_WEBHOOK_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}
+      # Cross-account assume-role hop. Default values match the canonical
+      # caipe-local-github-webhook-sqs-reader role in the queue-owning
+      # account (626007623524). Unset AWS_ASSUME_ROLE_ARN to skip the hop
+      # and talk to SQS directly with the base credentials.
+      - AWS_ASSUME_ROLE_ARN=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-arn:aws:iam::626007623524:role/caipe-local-github-webhook-sqs-reader}
+      - AWS_ASSUME_ROLE_EXTERNAL_ID=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-caipe-local-github-webhook-forwarder}
+      - AWS_ASSUME_ROLE_SESSION_NAME=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_SESSION_NAME:-caipe-github-webhook-receiver}
+      - AWS_ASSUME_ROLE_DURATION_SECONDS=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_DURATION_SECONDS:-3600}
+    # No hard `depends_on: caipe-ui` so this service is usable across compose
+    # profiles where caipe-ui isn't part of the activated set. If caipe-ui
+    # isn't reachable the receiver leaves the SQS message in flight; SQS
+    # visibility timeout + redrive policy handle the retry.
+    restart: unless-stopped
+    profiles:
+      - agentic-sdlc
+      - github-webhook
       - caipe-ui
 
   ####################################################################################################
@@ -1334,7 +1610,9 @@ services:
       - AWS_BEDROCK_USE_CONVERSE_API=${AWS_BEDROCK_USE_CONVERSE_API:-true}
       - AWS_BEDROCK_BASE_MODEL_ID=${AWS_BEDROCK_BASE_MODEL_ID:-}
       # MongoDB (same as CAIPE UI)
-      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      # Do not inherit host-local MONGODB_URI from .env here: inside Docker,
+      # localhost points at this container, not the compose MongoDB service.
+      - MONGODB_URI=${DYNAMIC_AGENTS_MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
       # Authentication (same OIDC config as CAIPE UI)
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -2186,7 +2464,7 @@ services:
   ####################################################################################################
   #                                      Skill Scanner                                               #
   ####################################################################################################
-  # cisco-ai-defense/skill-scanner running its built-in REST API server. The
+  # Skill scanner running its built-in REST API server. The
   # CAIPE UI POSTs zipped SKILL packages to /scan-upload to get static +
   # (optionally) LLM-driven safety findings.
   #

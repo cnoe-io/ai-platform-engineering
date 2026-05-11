@@ -248,21 +248,21 @@ describe("GET /api/agentic-sdlc/repos", () => {
     );
   });
 
-  it("reuses an existing eticloud webhook when onboarding a real repo", async () => {
+  it("reuses an existing webhook when onboarding a real repo", async () => {
     process.env.GITHUB_TOKEN = "token";
     mockReader.mockResolvedValue(MOCK_USER);
     const updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
     mockGetReposCollection.mockResolvedValue({ updateOne });
     const getRepoMetadata = jest.fn().mockResolvedValue({
       id: 987654321,
-      full_name: "cisco-eti/sri-speckit-test",
+      full_name: "cnoe-io/ai-platform-engineering",
       default_branch: "main",
       permissions: { admin: true, push: true, pull: true },
     });
     const listRepoWebhooks = jest.fn().mockResolvedValue([
       {
         id: 555,
-        url: "https://api.github.com/repos/cisco-eti/sri-speckit-test/hooks/555",
+        url: "https://api.github.com/repos/cnoe-io/ai-platform-engineering/hooks/555",
         active: true,
         events: ["issues", "pull_request"],
         config: {
@@ -283,8 +283,8 @@ describe("GET /api/agentic-sdlc/repos", () => {
       new Request("http://localhost/api/agentic-sdlc/repos", {
         method: "POST",
         body: JSON.stringify({
-          owner: "cisco-eti",
-          repo: "sri-speckit-test",
+          owner: "cnoe-io",
+          repo: "ai-platform-engineering",
           callback_url: "https://github-webhook.eticloud.io/github",
           webhook_secret: "local-secret",
           sandbox_environment: "sandbox-eks",
@@ -299,9 +299,9 @@ describe("GET /api/agentic-sdlc/repos", () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           repo_id: "987654321",
-          owner: "cisco-eti",
-          name: "sri-speckit-test",
-          full_name: "cisco-eti/sri-speckit-test",
+          owner: "cnoe-io",
+          name: "ai-platform-engineering",
+          full_name: "cnoe-io/ai-platform-engineering",
           webhook_id: 555,
           webhook_status: "healthy",
         }),
@@ -312,7 +312,7 @@ describe("GET /api/agentic-sdlc/repos", () => {
       expect.objectContaining({
         item: expect.objectContaining({
           repo_id: "987654321",
-          full_name: "cisco-eti/sri-speckit-test",
+          full_name: "cnoe-io/ai-platform-engineering",
           webhook_id: 555,
           webhook_url: "https://github-webhook.eticloud.io/github",
         }),
@@ -355,8 +355,8 @@ describe("GET /api/agentic-sdlc/metrics", () => {
       countDocuments: jest.fn().mockResolvedValue(2),
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
-          { repo_id: "1", full_name: "cisco-eti/sri-speckit-test" },
-          { repo_id: "2", full_name: "cisco-eti/another-repo" },
+          { repo_id: "1", full_name: "cnoe-io/ai-platform-engineering" },
+          { repo_id: "2", full_name: "example-org/another-repo" },
         ]),
       }),
     });
@@ -403,19 +403,19 @@ describe("GET /api/agentic-sdlc/metrics", () => {
       stage_pressure: [
         {
           repo_id: "1",
-          repo_name: "cisco-eti/sri-speckit-test",
+          repo_name: "cnoe-io/ai-platform-engineering",
           stage: "implement",
           count: 4,
         },
         {
           repo_id: "1",
-          repo_name: "cisco-eti/sri-speckit-test",
+          repo_name: "cnoe-io/ai-platform-engineering",
           stage: "review_hitl",
           count: 2,
         },
         {
           repo_id: "2",
-          repo_name: "cisco-eti/another-repo",
+          repo_name: "example-org/another-repo",
           stage: "deploy",
           count: 1,
         },
@@ -859,9 +859,9 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
     mockGetReposCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         repo_id: "123",
-        owner: "cisco-eti",
-        name: "sri-react-app",
-        full_name: "cisco-eti/sri-react-app",
+        owner: "cnoe-io",
+        name: "ai-platform-engineering",
+        full_name: "cnoe-io/ai-platform-engineering",
         label_to_stage_overrides: {},
         offboarded_at: null,
       }),
@@ -881,7 +881,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
         state: "open",
         labels: [{ name: "epic" }, { name: "agent:specify" }],
         assignees: [{ login: "agentic-sdlc-bot" }],
-        html_url: "https://github.com/cisco-eti/sri-react-app/issues/11",
+        html_url: "https://github.com/cnoe-io/ai-platform-engineering/issues/11",
         updated_at: "2026-05-07T08:00:00Z",
       },
       {
@@ -892,7 +892,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
         state: "open",
         labels: [{ name: "agent:implement" }],
         assignees: [],
-        html_url: "https://github.com/cisco-eti/sri-react-app/issues/12",
+        html_url: "https://github.com/cnoe-io/ai-platform-engineering/issues/12",
         updated_at: "2026-05-07T08:05:00Z",
       },
       {
@@ -902,7 +902,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
         state: "open",
         labels: [],
         pull_request: {},
-        html_url: "https://github.com/cisco-eti/sri-react-app/pull/13",
+        html_url: "https://github.com/cnoe-io/ai-platform-engineering/pull/13",
         updated_at: "2026-05-07T08:08:00Z",
       },
     ]);
@@ -917,7 +917,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
             state: "open",
             labels: [{ name: "agent:implement" }],
             assignees: [],
-            html_url: "https://github.com/cisco-eti/sri-react-app/issues/12",
+            html_url: "https://github.com/cnoe-io/ai-platform-engineering/issues/12",
             updated_at: "2026-05-07T08:05:00Z",
           },
         ]);
@@ -935,7 +935,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
         labels: [{ name: "agent:awaiting-review" }],
         assignees: [{ login: "agentic-sdlc-bot" }],
         requested_reviewers: [{ login: "sraradhy" }],
-        html_url: "https://github.com/cisco-eti/sri-react-app/pull/13",
+        html_url: "https://github.com/cnoe-io/ai-platform-engineering/pull/13",
         updated_at: "2026-05-07T08:09:00Z",
       },
     ]);
@@ -950,37 +950,37 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/sync", () => {
     );
     const res = await POST(
       new Request(
-        "http://localhost/api/agentic-sdlc/repos/cisco-eti/sri-react-app/sync",
+        "http://localhost/api/agentic-sdlc/repos/cnoe-io/ai-platform-engineering/sync",
         { method: "POST" },
       ),
-      { params: Promise.resolve({ owner: "cisco-eti", repo: "sri-react-app" }) },
+      { params: Promise.resolve({ owner: "cnoe-io", repo: "ai-platform-engineering" }) },
     );
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
       synced: true,
-      repo: "cisco-eti/sri-react-app",
+      repo: "cnoe-io/ai-platform-engineering",
       issues_seen: 3,
       pull_requests_seen: 1,
       artifacts_upserted: 3,
       events_recorded: 3,
     });
     expect(mockCreateGitHubClient).toHaveBeenCalledWith({ authToken: "token" });
-    expect(listRepoIssues).toHaveBeenCalledWith("cisco-eti", "sri-react-app", {
+    expect(listRepoIssues).toHaveBeenCalledWith("cnoe-io", "ai-platform-engineering", {
       perPage: 100,
       state: "all",
     });
     expect(listRepoPullRequests).toHaveBeenCalledWith(
-      "cisco-eti",
-      "sri-react-app",
+      "cnoe-io",
+      "ai-platform-engineering",
       {
         perPage: 100,
         state: "all",
       },
     );
     expect(listIssueSubIssues).toHaveBeenCalledWith(
-      "cisco-eti",
-      "sri-react-app",
+      "cnoe-io",
+      "ai-platform-engineering",
       11,
       { perPage: 100 },
     );
@@ -1037,9 +1037,9 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/simulate", () => {
     mockReader.mockResolvedValue(MOCK_USER);
     const repoDoc = {
       repo_id: "987654321",
-      owner: "cisco-eti",
-      name: "sri-speckit-test",
-      full_name: "cisco-eti/sri-speckit-test",
+      owner: "cnoe-io",
+      name: "ai-platform-engineering",
+      full_name: "cnoe-io/ai-platform-engineering",
       sandbox_environment: "sandbox-eks",
       webhook_status: "healthy",
     };
@@ -1063,13 +1063,13 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/simulate", () => {
     );
     const res = await POST(
       new Request(
-        "http://localhost/api/agentic-sdlc/repos/cisco-eti/sri-speckit-test/simulate",
+        "http://localhost/api/agentic-sdlc/repos/cnoe-io/ai-platform-engineering/simulate",
         { method: "POST" },
       ),
       {
         params: Promise.resolve({
-          owner: "cisco-eti",
-          repo: "sri-speckit-test",
+          owner: "cnoe-io",
+          repo: "ai-platform-engineering",
         }),
       },
     );
@@ -1123,7 +1123,7 @@ describe("POST /api/agentic-sdlc/repos/{owner}/{repo}/simulate", () => {
     await expect(res.json()).resolves.toEqual(
       expect.objectContaining({
         simulated: true,
-        repo: "cisco-eti/sri-speckit-test",
+        repo: "cnoe-io/ai-platform-engineering",
         artifacts_created: 5,
         events_created: 6,
         epic_id: expect.stringMatching(/^SIM_EPIC_/),

@@ -368,6 +368,11 @@ describe("RepoDetailShell", () => {
     const refresh = await screen.findByRole("button", {
       name: /refresh from github/i,
     });
+    expect(refresh).toHaveAttribute(
+      "title",
+      expect.stringMatching(/pull current issues and prs/i),
+    );
+    expect(screen.queryByText(/github state refresh/i)).not.toBeInTheDocument();
 
     fireEvent.click(refresh);
 
@@ -385,6 +390,88 @@ describe("RepoDetailShell", () => {
   it("renders the repo command center with swim lanes and Epic drilldown", async () => {
     global.fetch = jest.fn((input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.includes("/event-feed")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                id: "event-1",
+                category: "pull_request",
+                tone: "agent",
+                title: "PR opened",
+                description: "pull request PR_node_…",
+                actor_label: "coder-bot",
+                actor_kind: "agent",
+                artifact_label: "pull request PR_node_…",
+                occurred_at: "2026-05-05T20:00:00.000Z",
+                details: {
+                  source: "github",
+                  github_event_type: "pull_request",
+                  github_action: "opened",
+                  artifact_kind: "pull_request",
+                  artifact_id: "PR_node_1234567890",
+                  epic_id: "I_epic",
+                  projection_status: "projected",
+                  delivered_at: "2026-05-05T20:00:00.000Z",
+                },
+              },
+              {
+                id: "event-2",
+                category: "deploy",
+                tone: "success",
+                title: "Deployment succeeded",
+                description: "deploy DEP_node_…",
+                actor_label: "deployer-bot",
+                actor_kind: "agent",
+                artifact_label: "deploy DEP_node_…",
+                occurred_at: "2026-05-05T21:00:00.000Z",
+                details: {
+                  source: "github",
+                  github_event_type: "deployment_status",
+                  github_action: "success",
+                  artifact_kind: "deploy",
+                  artifact_id: "DEP_node_1234567890",
+                  epic_id: "I_epic",
+                  projection_status: "projected",
+                  delivered_at: "2026-05-05T21:00:00.000Z",
+                },
+              },
+              {
+                id: "event-3",
+                category: "issue",
+                tone: "default",
+                title: "Issue synchronized",
+                description: "task I_issue_…",
+                actor_label: "system",
+                actor_kind: "system",
+                artifact_label: "task I_issue_…",
+                occurred_at: "2026-05-05T19:00:00.000Z",
+                duplicate_count: 4,
+                details: {
+                  source: "ui",
+                  github_event_type: "issues",
+                  github_action: "synchronize",
+                  artifact_kind: "subtask",
+                  artifact_id: "I_issue_1234567890",
+                  epic_id: null,
+                  projection_status: "projected",
+                  delivered_at: "2026-05-05T19:00:00.000Z",
+                },
+              },
+            ],
+            pagination: {
+              page: url.includes("page=2") ? 2 : 1,
+              page_size: url.includes("limit=25") ? 25 : 10,
+              page_size_options: [10, 25, 50, 100, 500],
+              has_previous: url.includes("page=2"),
+              has_next: !url.includes("page=2"),
+              total_visible: 42,
+            },
+          }),
+        } as Response);
+      }
       if (!url.includes("/epics") && !url.includes("/simulate")) {
         return Promise.resolve({
           ok: true,
@@ -475,12 +562,66 @@ describe("RepoDetailShell", () => {
     expect(screen.getByText(/repo detail view/i)).toBeInTheDocument();
     expect(screen.queryByText(/loop state/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/receiver/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/live repo swim lanes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/github state refresh/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /refresh from github/i })).toHaveAttribute(
+      "title",
+      expect.stringMatching(/pull current issues and prs/i),
+    );
+    expect(screen.getAllByText(/agents in action/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/live swim lanes/i)).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /swim lanes/i })).toBeInTheDocument();
-    expect(await screen.findByText("Create an SDLC Dashboard")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: /architect work/i })).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByText("Create an SDLC Dashboard").length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText(/wire skills middleware/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/approve pr #482/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/repo operating graph/i)).toBeInTheDocument();
+    expect(screen.getByText(/repo operating snapshot/i)).toBeInTheDocument();
+    expect(await screen.findByText(/repo event feed/i)).toBeInTheDocument();
+    expect(screen.getByText("PR opened")).toBeInTheDocument();
+    expect(screen.getByText("Deployment succeeded")).toBeInTheDocument();
+    expect(screen.getByText("Issue synchronized")).toBeInTheDocument();
+    expect(screen.getByText("4 repeats")).toBeInTheDocument();
+    expect(screen.getByLabelText(/show events/i)).toHaveValue("10");
+    expect(screen.getByText(/page 1/i)).toBeInTheDocument();
+    expect(
+      (global.fetch as jest.Mock).mock.calls.some((call) =>
+        String(call[0]).includes("/event-feed?limit=10&page=1"),
+      ),
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText(/show events/i), {
+      target: { value: "25" },
+    });
+    await waitFor(() =>
+      expect(
+        (global.fetch as jest.Mock).mock.calls.some((call) =>
+          String(call[0]).includes("/event-feed?limit=25&page=1"),
+        ),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /next page/i }));
+    await waitFor(() =>
+      expect(
+        (global.fetch as jest.Mock).mock.calls.some((call) =>
+          String(call[0]).includes("/event-feed?limit=25&page=2"),
+        ),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /issues/i }));
+    expect(screen.getByText("Issue synchronized")).toBeInTheDocument();
+    expect(screen.queryByText("PR opened")).not.toBeInTheDocument();
+    expect(screen.queryByText("Deployment succeeded")).not.toBeInTheDocument();
+    expect(screen.queryByText(/event type/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /issue synchronized/i }));
+    expect(screen.getByText(/event type/i)).toBeInTheDocument();
+    expect(screen.getByText("issues")).toBeInTheDocument();
+    expect(screen.getByText("projected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /deploys/i }));
+    expect(screen.queryByText("PR opened")).not.toBeInTheDocument();
+    expect(screen.queryByText("Issue synchronized")).not.toBeInTheDocument();
+    expect(screen.getByText("Deployment succeeded")).toBeInTheDocument();
     expect(
       screen.queryByText(/placeholder for repo velocity/i),
     ).not.toBeInTheDocument();
@@ -494,6 +635,119 @@ describe("RepoDetailShell", () => {
     await waitFor(() =>
       expect(screen.getByText("Add OAuth device flow")).toBeInTheDocument(),
     );
+  });
+
+  it("lets operators collapse repo detail panels to focus the page", async () => {
+    global.fetch = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes("/epics") && !url.includes("/simulate")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            counts: {
+              open_epics: 1,
+              in_flight_subtasks: 1,
+              prs_awaiting_review: 1,
+              deploys_24h: 0,
+            },
+            activity_24h: 2,
+            stage_counts: [{ stage: "implement", count: 1 }],
+            human_queue: {
+              needs_human_count: 1,
+              oldest_waiting_since: "2026-05-07T08:01:00Z",
+              items: [
+                {
+                  artifact_id: "PR_1",
+                  kind: "pull_request",
+                  title: "Needs review",
+                  current_stage: "review_hitl",
+                  github_url: "https://github.com/demoorg/agentic-demo/pull/1",
+                  last_event_at: "2026-05-07T08:01:00Z",
+                },
+              ],
+            },
+            swim_lanes: [
+              {
+                stage: "implement",
+                items: [
+                  {
+                    artifact_id: "I_1",
+                    kind: "subtask",
+                    title: "Implement collapsible panels",
+                    current_stage: "implement",
+                    actor_kind: "agent",
+                    agent_name: "Coder",
+                    agent_label: "agent:coder",
+                    status_label: "status:in-progress",
+                    escalation_labels: [],
+                    github_url: "https://github.com/demoorg/agentic-demo/issues/1",
+                    last_event_at: "2026-05-07T08:00:00Z",
+                  },
+                ],
+              },
+            ],
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          items: [
+            {
+              artifact_id: "I_2",
+              title: "Plan repo dashboard",
+              current_stage: "plan",
+              needs_human: false,
+              stalled_since: null,
+              child_counts: { subtasks: 1, prs: 0, deploys: 0 },
+              github_url: "https://github.com/demoorg/agentic-demo/issues/2",
+              last_event_at: "2026-05-07T08:00:00Z",
+            },
+          ],
+          next_cursor: null,
+        }),
+      } as Response);
+    }) as unknown as typeof fetch;
+
+    render(<RepoDetailShell owner="demoorg" repo="agentic-demo" />);
+
+    await waitFor(() =>
+      expect(screen.getAllByText("Implement collapsible panels").length).toBeGreaterThan(0),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Plan repo dashboard")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /collapse agents in action/i }),
+    );
+    expect(
+      screen.queryByRole("region", { name: /coder work/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText(/agents in action/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /collapse live swim lanes/i }),
+    );
+    expect(
+      screen.queryByRole("img", { name: /swim lanes/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /collapse epics/i }));
+    expect(screen.queryByText("Plan repo dashboard")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /collapse repo operating snapshot/i }),
+    );
+    expect(screen.queryByText(/events in the last 24h/i)).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /collapse human queue/i }),
+    );
+    expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
   });
 
   it("does not render an Unknown swim lane for unlabeled reconciled issues", async () => {
@@ -565,8 +819,8 @@ describe("RepoDetailShell", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("Refactor react app to be template app"),
-      ).toBeInTheDocument(),
+        screen.getAllByText("Refactor react app to be template app").length,
+      ).toBeGreaterThan(0),
     );
     expect(screen.queryByText(/unknown/i)).not.toBeInTheDocument();
     expect(

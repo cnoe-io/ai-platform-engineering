@@ -25,6 +25,11 @@ import type {
 } from "@/types/agentic-sdlc";
 
 const GITHUB_PAGE_SIZE = 100;
+const ROOT_EPIC_AGENT_LABELS = new Set([
+  "agent:specify",
+  "agent:architect",
+  "agent:deep-think",
+]);
 
 async function handle(
   req: Request,
@@ -252,7 +257,7 @@ function isEpicIssue(issue: RepoIssue): boolean {
     labels.includes("epic") ||
     labels.includes("Epic") ||
     Boolean(issue.sub_issues_summary?.total && issue.sub_issues_summary.total > 0) ||
-    labels.includes("agent:specify")
+    labels.some((label) => ROOT_EPIC_AGENT_LABELS.has(label))
   );
 }
 

@@ -331,6 +331,15 @@ class SkillContentScrubbingProcessor:
     def on_start(self, span, parent_context=None) -> None:  # noqa: D401, ARG002
         return None
 
+    def _on_ending(self, span) -> None:  # noqa: D401
+        """Compatibility hook for newer OpenTelemetry SDKs.
+
+        OpenTelemetry calls this private hook before finalizing spans. Keep
+        it as an alias so the scrubber still runs before export without
+        raising from the processor pipeline.
+        """
+        self.on_end(span)
+
     def on_end(self, span) -> None:  # noqa: D401
         try:
             attrs = getattr(span, "attributes", None)

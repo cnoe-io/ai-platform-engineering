@@ -2,44 +2,32 @@
 
 import type { AgenticAppManifest } from "@/types/agentic-app";
 import {
+  AGENTIC_SDLC_APP_ID,
+  AGENTIC_SDLC_MANIFEST,
+} from "../../../apps/agentic-sdlc/manifest.mjs";
+import {
   FINOPS_APP_ID,
   FINOPS_MANIFEST,
+} from "../../../apps/agentic-apps/finops/manifest.mjs";
+import {
   WEATHER_APP_ID,
   WEATHER_MANIFEST,
-} from "./sample-manifests";
+} from "../../../apps/agentic-apps/weather/manifest.mjs";
+import {
+  OSS_REPO_MANAGEMENT_APP_ID,
+  OSS_REPO_MANAGEMENT_MANIFEST,
+} from "../../../apps/agentic-apps/oss-repo-management/manifest.mjs";
+import {
+  JIRA_PROJECT_DASHBOARD_APP_ID,
+  JIRA_PROJECT_DASHBOARD_MANIFEST,
+} from "../../../apps/agentic-apps/jira-project-dashboard/manifest.mjs";
 
 /**
  * Built-in marketplace rows (metadata + validated manifest shape only).
  * Host-specific runtime fields such as `origin` are applied at read time in `registry.ts` / gateway code.
  */
 
-export const AGENTIC_SDLC_APP_ID = "agentic-sdlc";
-
-export const AGENTIC_SDLC_MANIFEST: AgenticAppManifest = {
-  id: AGENTIC_SDLC_APP_ID,
-  displayName: "Agentic SDLC",
-  description:
-    "Spec-driven development, ship loop coordination, and SDLC workflows integrated with CAIPE agents.",
-  apiVersion: "1.0",
-  runtime: {
-    kind: "in-process",
-    mountPath: "/apps/agentic-sdlc",
-  },
-  surfaces: {
-    showInHub: true,
-    showInTopNav: true,
-    navOrder: 5,
-    homeEligible: true,
-  },
-  access: {
-    requiredRoles: ["user"],
-    tokenScopes: ["agents:invoke"],
-  },
-  health: {
-    endpoint: "/healthz",
-    timeoutMs: 2000,
-  },
-};
+export { AGENTIC_SDLC_APP_ID, AGENTIC_SDLC_MANIFEST };
 
 export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
   {
@@ -56,8 +44,8 @@ export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
     source: "builtin" as const,
     manifest: FINOPS_MANIFEST,
     catalog: {
-      categories: ["finops", "cost"],
-      capabilities: ["cost-summary", "anomaly-explanation"],
+      categories: ["reference", "finops", "aws"],
+      capabilities: ["aws-cost-explorer", "assistant-context-bridge"],
     },
   },
   {
@@ -65,8 +53,26 @@ export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
     source: "builtin" as const,
     manifest: WEATHER_MANIFEST,
     catalog: {
-      categories: ["starter", "weather", "copilotkit"],
-      capabilities: ["ag-ui-layout", "copilotkit-action", "forecast-summary"],
+      categories: ["reference", "weather"],
+      capabilities: ["open-meteo", "embedded-agent", "forecast-charts"],
+    },
+  },
+  {
+    packageId: OSS_REPO_MANAGEMENT_APP_ID,
+    source: "builtin" as const,
+    manifest: OSS_REPO_MANAGEMENT_MANIFEST,
+    catalog: {
+      categories: ["oss", "github", "repo-management"],
+      capabilities: ["github-issues", "pull-request-context", "embedded-agent", "action-cards", "structured-output"],
+    },
+  },
+  {
+    packageId: JIRA_PROJECT_DASHBOARD_APP_ID,
+    source: "builtin" as const,
+    manifest: JIRA_PROJECT_DASHBOARD_MANIFEST,
+    catalog: {
+      categories: ["project-management", "jira"],
+      capabilities: ["jira-issues", "sprint-summary", "blocker-analysis", "embedded-agent", "action-cards", "structured-output"],
     },
   },
 ] as const;

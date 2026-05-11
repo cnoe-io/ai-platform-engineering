@@ -13,8 +13,12 @@
     "ship-loop:create-indexes": "ts-node --transpile-only --project scripts/tsconfig.json scripts/create-ship-loop-indexes.ts",
     "ship-loop:seed-mock-repo": "ts-node --transpile-only --project scripts/tsconfig.json scripts/seed-ship-loop-mock-repo.ts",
     "agentic-sdlc:demo-real-repo": "ts-node --transpile-only --project scripts/tsconfig.json scripts/agentic-sdlc-real-repo-demo.ts",
-    "agentic-apps:finops": "node apps/finops-dashboard/server.mjs",
-    "agentic-apps:weather": "node apps/weather-starter/server.mjs"
+    "agentic-apps:finops": "node apps/agentic-apps/finops/server.mjs",
+    "agentic-apps:weather": "node apps/agentic-apps/weather/server.mjs",
+    "agentic-apps:oss-repo-management": "node apps/agentic-apps/oss-repo-management/server.mjs",
+    "agentic-apps:jira-project-dashboard": "node apps/agentic-apps/jira-project-dashboard/server.mjs",
+    "agentic-apps:sdlc": "node apps/agentic-sdlc/server.mjs",
+    "agentic-apps:seed": "ts-node --transpile-only --project scripts/tsconfig.json scripts/seed-agentic-app.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",

@@ -43,20 +43,36 @@ export function LiveStatusIndicator({
       )}
     >
       {transient ? (
-        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+        <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" aria-hidden>
+          <span className="absolute inset-0 rounded-full border border-amber-300/30 motion-safe:animate-ping" />
+          <Loader2
+            data-live-spinner
+            className="relative h-3 w-3 motion-safe:animate-spin"
+          />
+        </span>
       ) : status === "closed" ? (
         <WifiOff className="h-3 w-3" aria-hidden />
       ) : (
         <span
-          data-live-dot
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            connected
-              ? "bg-emerald-300 motion-safe:animate-pulse"
-              : "bg-muted-foreground/70",
-          )}
+          className="relative inline-flex h-2.5 w-2.5 items-center justify-center"
           aria-hidden
-        />
+        >
+          {connected ? (
+            <span
+              data-live-halo
+              className="absolute inline-flex h-full w-full rounded-full bg-emerald-300/50 opacity-75 motion-safe:animate-ping"
+            />
+          ) : null}
+          <span
+            data-live-dot
+            className={cn(
+              "relative h-1.5 w-1.5 rounded-full",
+              connected
+                ? "bg-emerald-300 shadow-[0_0_10px_rgba(110,231,183,0.8)] motion-safe:animate-pulse"
+                : "bg-muted-foreground/70",
+            )}
+          />
+        </span>
       )}
       <span>{connected ? "Live" : STATUS_LABEL[status]}</span>
     </span>

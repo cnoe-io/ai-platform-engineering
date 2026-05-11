@@ -38,6 +38,19 @@ RUN set -e; \
       npm cache clean --force; \
     done
 
+# ---------- Stage 1b: Local development runtime ----------
+# Used by docker-compose.dev.yaml for hot reload. Source is bind-mounted at
+# runtime, while node_modules and .next stay in container volumes.
+FROM deps AS dev
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV WATCHPACK_POLLING=true
+ENV CHOKIDAR_USEPOLLING=true
+RUN mkdir -p /app/.next && chown -R node:node /app
+USER node
+EXPOSE 3000
+CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+
 # ---------- Stage 2: Build application ----------
 # Also pinned to BUILDPLATFORM — next build uses @next/swc at compile time only;
 # the standalone output is platform-independent JavaScript.

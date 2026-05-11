@@ -114,4 +114,67 @@ describe("AgenticAppsHub", () => {
     expect(screen.getAllByText(/create or add your app/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/AGENTIC_APPS_ENABLED=finops/i)).toBeInTheDocument();
   });
+
+  it("renders disabled launch controls for blocked app records", () => {
+    render(
+      <AgenticAppsHub
+        apps={[
+          {
+            ...finopsApp,
+            canLaunch: false,
+            blockedReasons: ["unauthorized"],
+            runtimeStatus: "healthy",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Launch blocked")).toBeInTheDocument();
+    expect(screen.getByText(/unauthorized/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open FinOps Dashboard" })).not.toBeInTheDocument();
+  });
+
+  it("renders blocked cards for disabled, unhealthy, unsupported, and unauthorized states", () => {
+    render(
+      <AgenticAppsHub
+        apps={[
+          {
+            ...finopsApp,
+            id: "disabled",
+            displayName: "Disabled App",
+            canLaunch: false,
+            blockedReasons: ["disabled"],
+          },
+          {
+            ...finopsApp,
+            id: "unhealthy",
+            displayName: "Unhealthy App",
+            canLaunch: false,
+            blockedReasons: ["unhealthy"],
+          },
+          {
+            ...finopsApp,
+            id: "unsupported",
+            displayName: "Unsupported App",
+            canLaunch: false,
+            blockedReasons: ["unsupported_runtime"],
+          },
+          {
+            ...finopsApp,
+            id: "unauthorized",
+            displayName: "Unauthorized App",
+            canLaunch: false,
+            blockedReasons: ["unauthorized"],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("Launch blocked")).toHaveLength(4);
+    expect(screen.getByText("disabled")).toBeInTheDocument();
+    expect(screen.getByText("unhealthy")).toBeInTheDocument();
+    expect(screen.getByText("unsupported runtime")).toBeInTheDocument();
+    expect(screen.getByText("unauthorized")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Open Disabled App/i })).not.toBeInTheDocument();
+  });
 });

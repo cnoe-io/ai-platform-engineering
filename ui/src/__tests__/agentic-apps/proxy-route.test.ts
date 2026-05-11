@@ -34,6 +34,8 @@ jest.mock("@/lib/agentic-apps/store", () => {
     ...actual,
     listAppPackages: jest.fn(),
     listAppInstallations: jest.fn(),
+    appendPdpDecision: jest.fn(),
+    appendAppTokenGrant: jest.fn(),
   };
 });
 
@@ -45,6 +47,8 @@ function storeMocks() {
   return jest.requireMock("@/lib/agentic-apps/store") as {
     listAppPackages: jest.Mock;
     listAppInstallations: jest.Mock;
+    appendPdpDecision: jest.Mock;
+    appendAppTokenGrant: jest.Mock;
   };
 }
 
@@ -80,6 +84,10 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     jest.resetModules();
     process.env = { ...originalEnv };
     process.env.AGENTIC_APPS_INSTALL_ENABLED = "true";
+    process.env.NEXTAUTH_SECRET = "test-agentic-app-token-secret";
+    delete process.env.AGENTIC_APPS_ENABLED;
+    delete process.env.AGENTIC_APP_FINOPS_ORIGIN;
+    delete process.env.AGENTIC_APP_WEATHER_ORIGIN;
     mongoGate.configured = true;
 
     const store = storeMocks();
@@ -95,6 +103,8 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
         runtimeHealth: "healthy",
       },
     ]);
+    store.appendPdpDecision.mockReset().mockResolvedValue(undefined);
+    store.appendAppTokenGrant.mockReset().mockResolvedValue(undefined);
 
     sessionMock().mockReset();
     sessionMock().mockResolvedValue({
@@ -137,7 +147,12 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     );
     const proxiedHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(proxiedHeaders.get("x-caipe-app-id")).toBe("finops");
+    expect(proxiedHeaders.get("x-caipe-decision-id")).toBeTruthy();
+    expect(proxiedHeaders.get("x-correlation-id")).toBeTruthy();
+    expect(proxiedHeaders.get("authorization") ?? "").toMatch(/^Bearer /);
     expect(res.status).toBe(200);
+    expect(res.headers.get("x-caipe-decision-id")).toBeTruthy();
+    expect(res.headers.get("x-correlation-id")).toBeTruthy();
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(res.headers.has("set-cookie")).toBe(false);
     expect(res.headers.has("x-frame-options")).toBe(false);
@@ -191,6 +206,83 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
       "http://upstream.example:9000/a/b",
       expect.anything(),
     );
+  });
+
+  it("proxies env-enabled built-in apps when Mongo has no installation record", async () => {
+    const store = storeMocks();
+    store.listAppPackages.mockResolvedValue([]);
+    store.listAppInstallations.mockResolvedValue([]);
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_ORIGIN = "http://localhost:3010";
+
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response("<html>finops env</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(new Request("http://localhost/apps/finops"), {
+      params: Promise.resolve({ appId: "finops", path: [] }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3010/",
+      expect.objectContaining({ method: "GET" }),
+    );
+    const proxiedHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(proxiedHeaders.get("x-caipe-app-id")).toBe("finops");
+    expect(proxiedHeaders.get("authorization") ?? "").toMatch(/^Bearer /);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>finops env</html>");
+  });
+
+  it("redirects direct browser document navigation for iframe-chrome apps to the embed shell", async () => {
+    const store = storeMocks();
+    store.listAppPackages.mockResolvedValue([]);
+    store.listAppInstallations.mockResolvedValue([]);
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_ORIGIN = "http://localhost:3010";
+
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(
+      new Request("http://localhost/apps/finops", {
+        headers: { "sec-fetch-dest": "document" },
+      }),
+      { params: Promise.resolve({ appId: "finops", path: [] }) },
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("http://localhost/apps/embed/finops");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps iframe requests for iframe-chrome apps on the internal proxy path", async () => {
+    const store = storeMocks();
+    store.listAppPackages.mockResolvedValue([]);
+    store.listAppInstallations.mockResolvedValue([]);
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_ORIGIN = "http://localhost:3010";
+
+    const fetchMock = jest.fn().mockResolvedValue(new Response("<html>finops iframe</html>", { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(
+      new Request("http://localhost/apps/finops", {
+        headers: { "sec-fetch-dest": "iframe" },
+      }),
+      { params: Promise.resolve({ appId: "finops", path: [] }) },
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3010/", expect.anything());
+    expect(await res.text()).toBe("<html>finops iframe</html>");
   });
 
   it("returns 404 and does not call upstream when server install gate is off", async () => {
@@ -268,6 +360,31 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns 403 and does not call upstream when access override denies the user", async () => {
+    const store = storeMocks();
+    store.listAppInstallations.mockResolvedValue([
+      {
+        appId: "finops",
+        packageId: "finops-pkg",
+        installed: true,
+        enabled: true,
+        runtimeHealth: "healthy",
+        accessOverrides: { requiredRoles: ["admin"] },
+      },
+    ]);
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(new Request("http://localhost/apps/finops/private"), {
+      params: Promise.resolve({ appId: "finops", path: ["private"] }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "app_unauthorized" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns 502 upstream_unavailable when upstream fetch rejects", async () => {
     const fetchMock = jest.fn().mockRejectedValue(new TypeError("network error"));
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -304,9 +421,9 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     expect(proxiedHeaders.has("host")).toBe(false);
     expect(proxiedHeaders.has("proxy-authorization")).toBe(false);
     // Client-supplied Authorization header must never be passed through; only
-    // the gateway-minted Bearer (id_token) may travel to the upstream app. In
-    // this test the session has no id_token, so Authorization should be absent.
+    // the gateway-minted app-scoped Bearer may travel to the upstream app.
     expect(proxiedHeaders.get("authorization") ?? "").not.toContain("attacker-supplied");
+    expect(proxiedHeaders.get("authorization") ?? "").toMatch(/^Bearer /);
     expect(proxiedHeaders.get("accept-language")).toBe("en");
   });
 
@@ -594,12 +711,12 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  describe("JWT (id_token) forwarding to upstream", () => {
+  describe("app-scoped token forwarding to upstream", () => {
     function getHeaders(call: jest.Mock["mock"]["calls"][number]): Headers {
       return (call?.[1] as { headers: Headers }).headers;
     }
 
-    it("forwards the user's id_token as Authorization: Bearer when present on the session", async () => {
+    it("forwards a CAIPE-minted app-scoped token instead of the user's id_token", async () => {
       const fetchMock = jest.fn().mockResolvedValue(new Response("ok", { status: 200 }));
       global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -617,10 +734,13 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
       });
 
       const headers = getHeaders(fetchMock.mock.calls[0]);
-      expect(headers.get("authorization")).toBe("Bearer header.payload.signature");
+      expect(headers.get("authorization") ?? "").toMatch(/^Bearer ey/);
+      expect(headers.get("authorization")).not.toBe("Bearer header.payload.signature");
+      expect(headers.get("x-caipe-decision-id")).toBeTruthy();
+      expect(headers.get("x-correlation-id")).toBeTruthy();
     });
 
-    it("does not set Authorization when no id_token is on the session", async () => {
+    it("still sets Authorization when no id_token is on the session", async () => {
       const fetchMock = jest.fn().mockResolvedValue(new Response("ok", { status: 200 }));
       global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -636,7 +756,7 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
       });
 
       const headers = getHeaders(fetchMock.mock.calls[0]);
-      expect(headers.has("authorization")).toBe(false);
+      expect(headers.get("authorization") ?? "").toMatch(/^Bearer ey/);
     });
 
     it("attaches non-authoritative identity hints (x-caipe-app-id, x-caipe-user, x-caipe-roles)", async () => {

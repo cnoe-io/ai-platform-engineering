@@ -5,10 +5,10 @@ import {
 } from "../../../scripts/agentic-sdlc-real-repo-demo";
 
 describe("agentic-sdlc-real-repo-demo", () => {
-  it("defaults to dry-run against the sri-speckit-test repo", () => {
+  it("defaults to dry-run against the reference repo", () => {
     expect(parseDemoArgs([])).toMatchObject({
       apply: false,
-      repo: "cisco-eti/sri-speckit-test",
+      repo: "cnoe-io/ai-platform-engineering",
     });
   });
 

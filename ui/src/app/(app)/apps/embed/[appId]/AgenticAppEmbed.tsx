@@ -2,10 +2,13 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
-import { useEffect, useState } from "react";
-import { ArrowUpRight, ExternalLink } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ExternalLink } from "lucide-react";
 
+import { AgenticAppAssistantOverlay } from "@/components/agentic-apps/AgenticAppAssistantOverlay";
 import { apiClient } from "@/lib/api-client";
+import { validateAssistantContextMessage } from "@/lib/agentic-apps/assistant-context";
+import type { AgenticAppAssistantContextRecord } from "@/types/agentic-app";
 
 interface ResolvedApp {
   appId: string;
@@ -15,6 +18,9 @@ interface ResolvedApp {
   mountPath: string;
   canLaunch: boolean;
   blockedReasons: string[];
+  assistantEnabled?: boolean;
+  assistantLabel?: string;
+  assistantAgentName?: string;
 }
 
 interface State {
@@ -42,6 +48,10 @@ interface AgenticAppEmbedProps {
  */
 export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
   const [state, setState] = useState<State>({ status: "loading" });
+  const [assistantContext, setAssistantContext] = useState<AgenticAppAssistantContextRecord | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const assistantEnabled = state.app?.assistantEnabled !== false;
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +79,9 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
               mountPath,
               canLaunch: false,
               blockedReasons: found.blockedReasons ?? [],
+              assistantEnabled: found.assistantEnabled,
+              assistantLabel: found.assistantLabel,
+              assistantAgentName: found.assistantAgentName,
             },
           });
           return;
@@ -82,6 +95,9 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
             mountPath,
             canLaunch: true,
             blockedReasons: [],
+            assistantEnabled: found.assistantEnabled,
+            assistantLabel: found.assistantLabel,
+            assistantAgentName: found.assistantAgentName,
           },
         });
       } catch (err) {
@@ -97,6 +113,40 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
       cancelled = true;
     };
   }, [appId]);
+
+  useEffect(() => {
+    if (!assistantEnabled) {
+      setAssistantOpen(false);
+      setAssistantContext(null);
+      return;
+    }
+
+    function onMessage(event: MessageEvent) {
+      if (
+        isAssistantOpenMessage(event.data, appId) &&
+        event.origin === window.location.origin &&
+        event.source === (iframeRef.current?.contentWindow ?? null)
+      ) {
+        setAssistantOpen(true);
+        return;
+      }
+
+      const result = validateAssistantContextMessage({
+        message: event.data,
+        appId,
+        origin: event.origin,
+        expectedOrigin: window.location.origin,
+        source: event.source,
+        expectedSource: iframeRef.current?.contentWindow ?? null,
+      });
+      if (result.ok) {
+        setAssistantContext(result.record);
+      }
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [appId, assistantEnabled]);
 
   if (state.status === "loading") {
     return (
@@ -141,6 +191,7 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
       <div className="flex flex-1 flex-col">
         <EmbedToolbar app={state.app} />
         <iframe
+          ref={iframeRef}
           // eslint-disable-next-line jsx-a11y/iframe-has-title
           title={state.app.displayName}
           src={state.app.mountPath}
@@ -154,6 +205,19 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
           // `runtime.kind: "iframe-sandboxed"` and use a sandboxed embed.
           allow="clipboard-read; clipboard-write"
         />
+        {assistantEnabled ? (
+          <AgenticAppAssistantOverlay
+            appId={state.app.appId}
+            appName={state.app.displayName}
+            assistantLabel={state.app.assistantLabel}
+            assistantAgentName={state.app.assistantAgentName}
+            activeContext={assistantContext}
+            onClearContext={() => setAssistantContext(null)}
+            assistantAgentId={resolveAssistantAgentId(state.app.appId)}
+            open={assistantOpen}
+            onOpenChange={setAssistantOpen}
+          />
+        ) : null}
       </div>
     );
   }
@@ -161,24 +225,37 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
   return null;
 }
 
+function resolveAssistantAgentId(appId: string): string {
+  const assistantAgents: Record<string, string> = {
+    finops: "agent-aws-cost-explorer",
+    weather: "agent-weather-agent",
+    "agentic-sdlc": "agent-agentic-sdlc",
+  };
+  return assistantAgents[appId] ?? "agent-agentic-sdlc";
+}
+
+function isAssistantOpenMessage(message: unknown, appId: string): boolean {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "type" in message &&
+    "version" in message &&
+    "appId" in message &&
+    message.type === "caipe.agenticApp.assistant.open.v1" &&
+    message.version === "1.0" &&
+    message.appId === appId
+  );
+}
+
 function EmbedToolbar({ app }: { app: ResolvedApp }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-slate-950/60 px-4 py-2 text-sm text-slate-300">
+    <div className="flex items-center gap-3 border-b border-white/5 bg-slate-950/60 px-4 py-2 text-sm text-slate-300">
       <div className="flex items-center gap-2">
         <span className="font-semibold text-slate-100">{app.displayName}</span>
         <span className="text-xs uppercase tracking-[0.18em] text-slate-500">
           embedded
         </span>
       </div>
-      <a
-        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-cyan-100 transition hover:border-cyan-200/40 hover:bg-cyan-300/15"
-        href={app.mountPath}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Open in new tab
-        <ArrowUpRight className="h-3 w-3" aria-hidden />
-      </a>
     </div>
   );
 }

@@ -57,6 +57,11 @@ const ACCEPTED_EVENT_TYPES = new Set<string>([
   "ping",
   "sub_issues",
 ]);
+const ROOT_EPIC_AGENT_LABELS = new Set([
+  "agent:specify",
+  "agent:architect",
+  "agent:deep-think",
+]);
 
 export async function POST(req: Request): Promise<Response> {
   if (!isAgenticSdlcServerEnabled()) {
@@ -237,7 +242,8 @@ function summariseEvent(
     const labels =
       issue?.labels?.map((l) => l.name ?? "").filter(Boolean) ?? [];
     const isRootAgentEpic =
-      labels.includes("agent:specify") && !extractEpicId(labels, issue?.body ?? null);
+      labels.some((label) => ROOT_EPIC_AGENT_LABELS.has(label)) &&
+      !extractEpicId(labels, issue?.body ?? null);
     artifactKind =
       labels.includes("epic") || labels.includes("Epic") || isRootAgentEpic
         ? "epic"

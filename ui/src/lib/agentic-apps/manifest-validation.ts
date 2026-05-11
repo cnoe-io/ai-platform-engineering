@@ -16,6 +16,10 @@ const RUNTIME_KINDS: readonly AgenticAppRuntimeKind[] = [
   "web-component",
   "in-process",
 ] as const;
+const WEBHOOK_METHODS = new Set(["POST", "PUT"]);
+const WEBHOOK_VERIFICATION_OWNERS = new Set(["app", "caipe"]);
+const POLICY_DEFAULT_EFFECTS = new Set(["allow", "deny"]);
+const HEALTH_BLOCK_STATES = new Set(["unknown", "degraded", "unreachable"]);
 
 /** Key names that commonly carry credentials; `tokenScopes` is intentionally allowed by name (validated separately). */
 const SECRET_LIKE_KEY_NAMES = new Set([
@@ -234,6 +238,35 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     if (accessRaw.canUseCustomAgents !== undefined && typeof accessRaw.canUseCustomAgents !== "boolean") {
       errors.push("access.canUseCustomAgents must be a boolean when present");
     }
+    if (accessRaw.policyActions !== undefined) {
+      if (!Array.isArray(accessRaw.policyActions)) {
+        errors.push("access.policyActions must be an array when present");
+      } else {
+        accessRaw.policyActions.forEach((action, index) => {
+          if (!isPlainObject(action)) {
+            errors.push(`access.policyActions[${index}] must be an object`);
+            return;
+          }
+          if (typeof action.action !== "string" || action.action.length === 0) {
+            errors.push(`access.policyActions[${index}].action must be a non-empty string`);
+          }
+          if (action.description !== undefined && typeof action.description !== "string") {
+            errors.push(`access.policyActions[${index}].description must be a string when present`);
+          }
+          if (action.reasonCode !== undefined && typeof action.reasonCode !== "string") {
+            errors.push(`access.policyActions[${index}].reasonCode must be a string when present`);
+          }
+          if (
+            action.defaultEffect !== undefined &&
+            !POLICY_DEFAULT_EFFECTS.has(String(action.defaultEffect))
+          ) {
+            errors.push(
+              `access.policyActions[${index}].defaultEffect must be "allow" or "deny" when present`,
+            );
+          }
+        });
+      }
+    }
 
     if (Array.isArray(tokenScopes) && tokenScopes.every((s) => typeof s === "string")) {
       access = { tokenScopes: [...tokenScopes] };
@@ -252,6 +285,34 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
       if (typeof accessRaw.canUseCustomAgents === "boolean") {
         access.canUseCustomAgents = accessRaw.canUseCustomAgents;
       }
+      if (Array.isArray(accessRaw.policyActions)) {
+        const validPolicyActions = accessRaw.policyActions.every((action) => {
+          if (!isPlainObject(action)) return false;
+          if (typeof action.action !== "string" || action.action.length === 0) return false;
+          if (action.description !== undefined && typeof action.description !== "string") return false;
+          if (action.reasonCode !== undefined && typeof action.reasonCode !== "string") return false;
+          if (
+            action.defaultEffect !== undefined &&
+            !POLICY_DEFAULT_EFFECTS.has(String(action.defaultEffect))
+          ) {
+            return false;
+          }
+          return true;
+        });
+        if (validPolicyActions) {
+          access.policyActions = accessRaw.policyActions.map((action) => {
+            const a = action as Record<string, unknown>;
+            return {
+              action: a.action as string,
+              ...(typeof a.description === "string" ? { description: a.description } : {}),
+              ...(typeof a.reasonCode === "string" ? { reasonCode: a.reasonCode } : {}),
+              ...(a.defaultEffect === "allow" || a.defaultEffect === "deny"
+                ? { defaultEffect: a.defaultEffect }
+                : {}),
+            };
+          });
+        }
+      }
     }
   }
 
@@ -267,11 +328,194 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     if (healthRaw.timeoutMs !== undefined && typeof healthRaw.timeoutMs !== "number") {
       errors.push("health.timeoutMs must be a number when present");
     }
+    if (healthRaw.blockLaunchWhen !== undefined) {
+      if (
+        !Array.isArray(healthRaw.blockLaunchWhen) ||
+        !healthRaw.blockLaunchWhen.every((s) => typeof s === "string" && HEALTH_BLOCK_STATES.has(s))
+      ) {
+        errors.push("health.blockLaunchWhen must include only unknown, degraded, or unreachable");
+      }
+    }
 
     if (typeof healthRaw.endpoint === "string" && healthRaw.endpoint.length > 0) {
       health = { endpoint: healthRaw.endpoint };
       if (typeof healthRaw.timeoutMs === "number") {
         health.timeoutMs = healthRaw.timeoutMs;
+      }
+      if (
+        Array.isArray(healthRaw.blockLaunchWhen) &&
+        healthRaw.blockLaunchWhen.every((s) => typeof s === "string" && HEALTH_BLOCK_STATES.has(s))
+      ) {
+        health.blockLaunchWhen = healthRaw.blockLaunchWhen;
+      }
+    }
+  }
+
+  let assistant: AgenticAppManifest["assistant"];
+  if (root.assistant !== undefined) {
+    if (!isPlainObject(root.assistant)) {
+      errors.push("assistant must be an object when present");
+    } else {
+      const a = root.assistant;
+      if (a.enabled !== undefined && typeof a.enabled !== "boolean") {
+        errors.push("assistant.enabled must be a boolean when present");
+      }
+      if (
+        a.schemaVersions !== undefined &&
+        (!Array.isArray(a.schemaVersions) || !a.schemaVersions.every((v) => typeof v === "string"))
+      ) {
+        errors.push("assistant.schemaVersions must be an array of strings when present");
+      }
+      if (
+        a.maxContextBytes !== undefined &&
+        (typeof a.maxContextBytes !== "number" ||
+          a.maxContextBytes < 1 ||
+          a.maxContextBytes > 65536)
+      ) {
+        errors.push("assistant.maxContextBytes must be between 1 and 65536 when present");
+      }
+      if (a.capability !== undefined && typeof a.capability !== "string") {
+        errors.push("assistant.capability must be a string when present");
+      }
+      if (a.suggestions !== undefined && typeof a.suggestions !== "boolean") {
+        errors.push("assistant.suggestions must be a boolean when present");
+      }
+      if (
+        a.label !== undefined &&
+        (typeof a.label !== "string" || a.label.length < 1 || a.label.length > 32)
+      ) {
+        errors.push("assistant.label must be a string of 1-32 characters when present");
+      }
+      if (
+        a.agentName !== undefined &&
+        (typeof a.agentName !== "string" || a.agentName.length < 1 || a.agentName.length > 64)
+      ) {
+        errors.push("assistant.agentName must be a string of 1-64 characters when present");
+      }
+
+      const assistantValid =
+        (a.enabled === undefined || typeof a.enabled === "boolean") &&
+        (a.schemaVersions === undefined ||
+          (Array.isArray(a.schemaVersions) && a.schemaVersions.every((v) => typeof v === "string"))) &&
+        (a.maxContextBytes === undefined ||
+          (typeof a.maxContextBytes === "number" &&
+            a.maxContextBytes >= 1 &&
+            a.maxContextBytes <= 65536)) &&
+        (a.capability === undefined || typeof a.capability === "string") &&
+        (a.suggestions === undefined || typeof a.suggestions === "boolean") &&
+        (a.label === undefined ||
+          (typeof a.label === "string" && a.label.length >= 1 && a.label.length <= 32)) &&
+        (a.agentName === undefined ||
+          (typeof a.agentName === "string" && a.agentName.length >= 1 && a.agentName.length <= 64));
+      if (assistantValid) {
+        assistant = {};
+        if (typeof a.enabled === "boolean") assistant.enabled = a.enabled;
+        if (Array.isArray(a.schemaVersions)) assistant.schemaVersions = [...a.schemaVersions];
+        if (typeof a.maxContextBytes === "number") assistant.maxContextBytes = a.maxContextBytes;
+        if (typeof a.capability === "string") assistant.capability = a.capability;
+        if (typeof a.suggestions === "boolean") assistant.suggestions = a.suggestions;
+        if (typeof a.label === "string") assistant.label = a.label;
+        if (typeof a.agentName === "string") assistant.agentName = a.agentName;
+      }
+    }
+  }
+
+  let webhooks: AgenticAppManifest["webhooks"];
+  if (root.webhooks !== undefined) {
+    if (!Array.isArray(root.webhooks)) {
+      errors.push("webhooks must be an array when present");
+    } else {
+      const webhookKeys = new Set<string>();
+      root.webhooks.forEach((hook, index) => {
+        if (!isPlainObject(hook)) {
+          errors.push(`webhooks[${index}] must be an object`);
+          return;
+        }
+        if (typeof hook.provider === "string" && typeof hook.channel === "string") {
+          const key = `${hook.provider}/${hook.channel}`;
+          if (webhookKeys.has(key)) {
+            errors.push(`webhooks must not duplicate provider/channel "${key}"`);
+          }
+          webhookKeys.add(key);
+        }
+        if (typeof hook.provider !== "string" || hook.provider.length === 0) {
+          errors.push(`webhooks[${index}].provider must be a non-empty string`);
+        }
+        if (typeof hook.channel !== "string" || hook.channel.length === 0) {
+          errors.push(`webhooks[${index}].channel must be a non-empty string`);
+        }
+        if (typeof hook.upstreamPath !== "string" || !hook.upstreamPath.startsWith("/")) {
+          errors.push(`webhooks[${index}].upstreamPath must start with /`);
+        }
+        if (
+          !Array.isArray(hook.allowedMethods) ||
+          !hook.allowedMethods.every((m) => typeof m === "string" && WEBHOOK_METHODS.has(m))
+        ) {
+          errors.push(`webhooks[${index}].allowedMethods must include only POST or PUT`);
+        }
+        if (
+          typeof hook.verificationOwner !== "string" ||
+          !WEBHOOK_VERIFICATION_OWNERS.has(hook.verificationOwner)
+        ) {
+          errors.push(`webhooks[${index}].verificationOwner must be "app" or "caipe"`);
+        }
+        if (
+          typeof hook.maxBodyBytes !== "number" ||
+          hook.maxBodyBytes < 1 ||
+          hook.maxBodyBytes > 10485760
+        ) {
+          errors.push(`webhooks[${index}].maxBodyBytes must be between 1 and 10485760`);
+        }
+        if (
+          hook.preservedHeaders !== undefined &&
+          (!Array.isArray(hook.preservedHeaders) ||
+            !hook.preservedHeaders.every((h) => typeof h === "string"))
+        ) {
+          errors.push(`webhooks[${index}].preservedHeaders must be an array of strings when present`);
+        }
+        if (hook.policyAction !== undefined && typeof hook.policyAction !== "string") {
+          errors.push(`webhooks[${index}].policyAction must be a string when present`);
+        }
+      });
+
+      const hooksValid =
+        errors.every((error) => !error.startsWith("webhooks must not duplicate provider/channel")) &&
+        root.webhooks.every((hook) => {
+          if (!isPlainObject(hook)) return false;
+          return (
+            typeof hook.provider === "string" &&
+            hook.provider.length > 0 &&
+            typeof hook.channel === "string" &&
+            hook.channel.length > 0 &&
+            typeof hook.upstreamPath === "string" &&
+            hook.upstreamPath.startsWith("/") &&
+            Array.isArray(hook.allowedMethods) &&
+            hook.allowedMethods.every((m) => typeof m === "string" && WEBHOOK_METHODS.has(m)) &&
+            typeof hook.verificationOwner === "string" &&
+            WEBHOOK_VERIFICATION_OWNERS.has(hook.verificationOwner) &&
+            typeof hook.maxBodyBytes === "number" &&
+            hook.maxBodyBytes >= 1 &&
+            hook.maxBodyBytes <= 10485760 &&
+            (hook.preservedHeaders === undefined ||
+              (Array.isArray(hook.preservedHeaders) &&
+                hook.preservedHeaders.every((h) => typeof h === "string"))) &&
+            (hook.policyAction === undefined || typeof hook.policyAction === "string")
+          );
+        });
+      if (hooksValid) {
+        webhooks = root.webhooks.map((hook) => {
+          const h = hook as Record<string, unknown>;
+          return {
+            provider: h.provider as string,
+            channel: h.channel as string,
+            upstreamPath: h.upstreamPath as string,
+            allowedMethods: h.allowedMethods as Array<"POST" | "PUT">,
+            verificationOwner: h.verificationOwner as "app" | "caipe",
+            maxBodyBytes: h.maxBodyBytes as number,
+            ...(Array.isArray(h.preservedHeaders) ? { preservedHeaders: h.preservedHeaders as string[] } : {}),
+            ...(typeof h.policyAction === "string" ? { policyAction: h.policyAction } : {}),
+          };
+        });
       }
     }
   }
@@ -395,6 +639,54 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
     }
   }
 
+  let catalog: AgenticAppManifest["catalog"];
+  if (root.catalog !== undefined) {
+    if (!isPlainObject(root.catalog)) {
+      errors.push("catalog must be an object when present");
+    } else {
+      const c = root.catalog as Record<string, unknown>;
+      if (
+        c.categories !== undefined &&
+        (!Array.isArray(c.categories) || !c.categories.every((entry) => typeof entry === "string"))
+      ) {
+        errors.push("catalog.categories must be an array of strings when present");
+      }
+      if (
+        c.capabilities !== undefined &&
+        (!Array.isArray(c.capabilities) || !c.capabilities.every((entry) => typeof entry === "string"))
+      ) {
+        errors.push("catalog.capabilities must be an array of strings when present");
+      }
+      if (c.icon !== undefined && typeof c.icon !== "string") {
+        errors.push("catalog.icon must be a string when present");
+      }
+      if (c.supportUrl !== undefined && typeof c.supportUrl !== "string") {
+        errors.push("catalog.supportUrl must be a string when present");
+      }
+      if (c.compatibility !== undefined && typeof c.compatibility !== "string") {
+        errors.push("catalog.compatibility must be a string when present");
+      }
+
+      const catalogValid =
+        (c.categories === undefined ||
+          (Array.isArray(c.categories) && c.categories.every((entry) => typeof entry === "string"))) &&
+        (c.capabilities === undefined ||
+          (Array.isArray(c.capabilities) && c.capabilities.every((entry) => typeof entry === "string"))) &&
+        (c.icon === undefined || typeof c.icon === "string") &&
+        (c.supportUrl === undefined || typeof c.supportUrl === "string") &&
+        (c.compatibility === undefined || typeof c.compatibility === "string");
+
+      if (catalogValid) {
+        catalog = {};
+        if (Array.isArray(c.categories)) catalog.categories = c.categories as string[];
+        if (Array.isArray(c.capabilities)) catalog.capabilities = c.capabilities as string[];
+        if (typeof c.icon === "string") catalog.icon = c.icon;
+        if (typeof c.supportUrl === "string") catalog.supportUrl = c.supportUrl;
+        if (typeof c.compatibility === "string") catalog.compatibility = c.compatibility;
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors, warnings };
   }
@@ -432,6 +724,15 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
   }
   if (data) {
     manifest.data = data;
+  }
+  if (assistant) {
+    manifest.assistant = assistant;
+  }
+  if (webhooks) {
+    manifest.webhooks = webhooks;
+  }
+  if (catalog) {
+    manifest.catalog = catalog;
   }
 
   return { ok: true, manifest, warnings };

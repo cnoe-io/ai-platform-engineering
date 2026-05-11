@@ -54,6 +54,11 @@ from dynamic_agents.services.mcp_client import (
 from dynamic_agents.services.middleware import build_middleware
 from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
+from dynamic_agents.services.structured_response import (
+    build_structured_response_instruction,
+    create_submit_structured_response_tool,
+    extract_response_format,
+)
 
 if TYPE_CHECKING:
     from dynamic_agents.services.mongo import MongoDBService
@@ -200,6 +205,8 @@ class AgentRuntime(StreamingMixin):
         self._failed_servers_error: str = ""  # Error message for display
         self._failed_skills: list[str] = []  # Skill IDs that failed to load
         self._failed_skills_error: str = ""  # Error message for display
+        self._structured_response: dict[str, Any] | None = None
+        self._structured_response_schema_id: str | None = None
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
         self._mcp_servers_updated_at: datetime = max(
@@ -280,6 +287,9 @@ class AgentRuntime(StreamingMixin):
         except SystemPromptRenderError as exc:
             logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
+        response_format = self._get_allowed_structured_response_format(client_ctx)
+        if response_format:
+            system_prompt += build_structured_response_instruction(response_format)
 
         # 7. Create the LLM
         # model.id and model.provider are required fields - no fallback to env vars
@@ -406,6 +416,50 @@ class AgentRuntime(StreamingMixin):
             f"tools={len(tools)}, subagents={len(subagents) if subagents else 0}"
         )
 
+    def _capture_structured_response(self, payload: dict[str, Any], schema_id: str | None) -> None:
+        """Capture the latest validated structured response submitted by the agent."""
+        self._structured_response = payload
+        self._structured_response_schema_id = schema_id
+
+    def get_structured_response(self) -> dict[str, Any] | None:
+        """Return the latest validated structured response for this runtime turn."""
+        return self._structured_response
+
+    def get_structured_response_schema_id(self) -> str | None:
+        """Return the schema ID for the captured structured response."""
+        return self._structured_response_schema_id
+
+    def _get_allowed_structured_response_format(self, client_context: dict | None):
+        """Return requested structured response format only when agent enabled it."""
+        response_format = extract_response_format(client_context)
+        if response_format is None:
+            return None
+
+        features = self.config.features
+        if features is None:
+            return None
+
+        for entry in features.middleware:
+            if entry.type != "structured_response" or not entry.enabled:
+                continue
+
+            allowed_schema_ids = str(entry.params.get("allowed_schema_ids", "")).strip()
+            if not allowed_schema_ids:
+                return response_format
+
+            allowed = {item.strip() for item in allowed_schema_ids.split(",") if item.strip()}
+            if response_format.schema_id in allowed:
+                return response_format
+
+            logger.warning(
+                "Agent '%s': structured response schema '%s' not allowed",
+                self.config.name,
+                response_format.schema_id,
+            )
+            return None
+
+        return None
+
     def _build_builtin_tools(
         self,
         user: UserContext | None = None,
@@ -427,7 +481,23 @@ class AgentRuntime(StreamingMixin):
         tools = []
         config_summary: dict[str, Any] = {}
 
+        response_format = self._get_allowed_structured_response_format(client_context)
+        is_parent_agent = agent_config is None or config.id == self.config.id
+        if response_format and is_parent_agent:
+            tools.append(
+                create_submit_structured_response_tool(
+                    response_format=response_format,
+                    on_submit=lambda payload: self._capture_structured_response(
+                        payload,
+                        response_format.schema_id,
+                    ),
+                )
+            )
+            config_summary["submit_structured_response"] = {"schema_id": response_format.schema_id}
+
         if not config.builtin_tools:
+            if tools:
+                logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
             return tools
 
         # fetch_url tool (disabled by default)

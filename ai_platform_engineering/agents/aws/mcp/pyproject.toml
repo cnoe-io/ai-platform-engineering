@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "AWS MCP Server — aws_cli_execute and eks_kubectl_execute tools over HTTP/SSE"
 license = "Apache-2.0"
 authors = [
-  { name = "Sri Aradhyula", email = "sraradhy@cisco.com" }
+  { name = "AI Platform Engineering Contributors" }
 ]
 readme = "README.md"
 requires-python = ">=3.13"

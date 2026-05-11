@@ -46,6 +46,8 @@ export const AGENTIC_SDLC_STAGES: AgenticSdlcStage[] = [
 /**
  * Default agent label vocabulary. Per-repo overrides land in
  * `OnboardedRepo.label_to_stage_overrides` and take precedence.
+ *
+ * assisted-by Codex Codex-sonnet-4-6
  */
 export const DEFAULT_AGENT_LABEL_TO_STAGE: Record<string, AgenticSdlcStage> = {
   "agent:specify": "specify",
@@ -61,6 +63,23 @@ export const DEFAULT_AGENT_LABEL_TO_STAGE: Record<string, AgenticSdlcStage> = {
   "agent:observe": "observe",
   "agent:blocked": "blocked",
   "agent:paused": "blocked",
+
+  // Real repo operating taxonomy used by onboarded repositories.
+  "agent:architect": "plan",
+  "agent:coder": "implement",
+  "agent:reviewer": "review_hitl",
+  "agent:tester": "unit_test",
+  "agent:deployer": "deploy",
+  "agent:deep-think": "plan",
+  "status:ready": "tasks",
+  "status:in-progress": "implement",
+  "status:blocked": "blocked",
+  "status:needs-review": "review_hitl",
+  "status:needs-test": "unit_test",
+  "status:done": "observe",
+  "needs:arthur": "blocked",
+  "needs:decision": "blocked",
+  "needs:repo-access": "blocked",
 };
 
 // ---------------------------------------------------------------------------

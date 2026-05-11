@@ -256,6 +256,68 @@ describe("admin agentic-apps API", () => {
     );
   });
 
+  it("POST /api/admin/agentic-apps/packages rejects a new package that conflicts with an existing route", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      upsertAppPackageFromManifest: jest.Mock;
+      listAppPackages: jest.Mock;
+      appendAgenticAppEvent: jest.Mock;
+    };
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifest },
+    ]);
+
+    (sessionMock()).mockResolvedValue(adminSession());
+
+    const { POST } = await import("@/app/api/admin/agentic-apps/packages/route");
+    const res = await POST(
+      new Request("http://localhost/api/admin/agentic-apps/packages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          manifest: {
+            ...finopsManifest,
+            id: "weather",
+            displayName: "Weather",
+            runtime: { ...finopsManifest.runtime, mountPath: "/apps/finops" },
+          },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(store.upsertAppPackageFromManifest).not.toHaveBeenCalled();
+    expect(store.appendAgenticAppEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentic_app_package_rejected",
+        packageId: "weather",
+      }),
+    );
+  });
+
+  it("POST /api/admin/agentic-apps/packages allows re-importing the same package route", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      upsertAppPackageFromManifest: jest.Mock;
+      listAppPackages: jest.Mock;
+    };
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifest },
+    ]);
+
+    (sessionMock()).mockResolvedValue(adminSession());
+
+    const { POST } = await import("@/app/api/admin/agentic-apps/packages/route");
+    const res = await POST(
+      new Request("http://localhost/api/admin/agentic-apps/packages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ manifest: finopsManifest }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.upsertAppPackageFromManifest).toHaveBeenCalled();
+  });
+
   it("POST /api/admin/agentic-apps/packages audit payload includes only source and warnings", async () => {
     const store = jest.requireMock("@/lib/agentic-apps/store") as {
       upsertAppPackageFromManifest: jest.Mock;
@@ -404,7 +466,15 @@ describe("admin agentic-apps API", () => {
   });
 
   it("POST /api/admin/agentic-apps/installations calls installAppPackage for admin", async () => {
-    const store = jest.requireMock("@/lib/agentic-apps/store") as { installAppPackage: jest.Mock };
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      installAppPackage: jest.Mock;
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+    };
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifest },
+    ]);
+    store.listAppInstallations.mockResolvedValue([]);
 
     (sessionMock()).mockResolvedValue(adminSession());
 
@@ -429,6 +499,123 @@ describe("admin agentic-apps API", () => {
         packageId: "finops",
         enabled: true,
         installed: true,
+      }),
+    );
+  });
+
+  it("POST /api/admin/agentic-apps/installations rejects route conflicts before installing", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      installAppPackage: jest.Mock;
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+      appendAgenticAppEvent: jest.Mock;
+    };
+    store.listAppPackages.mockResolvedValue([
+      {
+        packageId: "finops",
+        source: "builtin",
+        manifest: finopsManifest,
+      },
+      {
+        packageId: "weather",
+        source: "builtin",
+        manifest: {
+          ...finopsManifest,
+          id: "weather",
+          runtime: { ...finopsManifest.runtime, mountPath: "/apps/finops" },
+        },
+      },
+    ]);
+    store.listAppInstallations.mockResolvedValue([
+      {
+        appId: "finops",
+        packageId: "finops",
+        installed: true,
+        enabled: true,
+        routeOwnership: { normalizedMountPath: "/apps/finops" },
+      },
+    ]);
+
+    (sessionMock()).mockResolvedValue(adminSession());
+
+    const { POST } = await import("@/app/api/admin/agentic-apps/installations/route");
+    const res = await POST(
+      new Request("http://localhost/api/admin/agentic-apps/installations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ appId: "weather", packageId: "weather" }),
+      }),
+    );
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("route conflict"),
+      }),
+    );
+    expect(store.installAppPackage).not.toHaveBeenCalled();
+    expect(store.appendAgenticAppEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentic_app_install_rejected",
+        appId: "weather",
+        packageId: "weather",
+      }),
+    );
+  });
+
+  it("POST /api/admin/agentic-apps/installations persists runtime, visibility, access, health, route, and audit metadata", async () => {
+    const store = jest.requireMock("@/lib/agentic-apps/store") as {
+      installAppPackage: jest.Mock;
+      listAppPackages: jest.Mock;
+      listAppInstallations: jest.Mock;
+      appendAgenticAppEvent: jest.Mock;
+    };
+    store.listAppPackages.mockResolvedValue([
+      { packageId: "finops", source: "builtin", manifest: finopsManifest },
+    ]);
+    store.listAppInstallations.mockResolvedValue([]);
+
+    (sessionMock()).mockResolvedValue(adminSession());
+
+    const { POST } = await import("@/app/api/admin/agentic-apps/installations/route");
+    const res = await POST(
+      new Request("http://localhost/api/admin/agentic-apps/installations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          appId: "finops",
+          packageId: "finops",
+          installed: true,
+          enabled: true,
+          visible: false,
+          runtimeOriginOverride: "http://localhost:3333",
+          runtimeMountPath: "/apps/custom-finops",
+          accessOverrides: { requiredRoles: ["admin"] },
+          healthPolicy: { blockLaunchWhen: ["unknown", "degraded", "unreachable"] },
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(store.installAppPackage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "finops",
+        packageId: "finops",
+        visible: false,
+        runtimeOriginOverride: "http://localhost:3333",
+        runtimeMountPath: "/apps/custom-finops",
+        accessOverrides: { requiredRoles: ["admin"] },
+        healthPolicy: { blockLaunchWhen: ["unknown", "degraded", "unreachable"] },
+        routeOwnership: { normalizedMountPath: "/apps/custom-finops" },
+        updatedBy: "admin@example.com",
+      }),
+    );
+    expect(store.appendAgenticAppEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentic_app_installation_updated",
+        actorEmail: "admin@example.com",
+        appId: "finops",
+        packageId: "finops",
       }),
     );
   });

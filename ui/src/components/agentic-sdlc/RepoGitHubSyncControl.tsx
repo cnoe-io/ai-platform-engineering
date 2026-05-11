@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -18,6 +18,7 @@ interface SyncResponse {
 }
 
 const AUTO_SYNC_TTL_MS = 5 * 60 * 1000;
+const REFRESH_TOOLTIP = "Pull current issues and PRs if webhooks were missed.";
 
 export function RepoGitHubSyncControl({
   owner,
@@ -27,7 +28,7 @@ export function RepoGitHubSyncControl({
     "idle",
   );
   const [message, setMessage] = useState(
-    "Pull current issues and PRs if webhooks were missed.",
+    REFRESH_TOOLTIP,
   );
 
   const syncUrl = `/api/agentic-sdlc/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/sync`;
@@ -73,35 +74,45 @@ export function RepoGitHubSyncControl({
   }, [owner, repo]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-sm font-semibold text-foreground">
-          GitHub state refresh
-        </p>
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-          {status === "ok" ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" aria-hidden />
-          ) : status === "error" ? (
-            <AlertTriangle className="h-3.5 w-3.5 text-amber-300" aria-hidden />
-          ) : null}
-          {message}
-        </p>
-      </div>
+    <div className="inline-flex items-center gap-2">
       <button
         type="button"
         onClick={() => void runSync()}
         disabled={status === "syncing"}
-        className="inline-flex items-center justify-center gap-2 rounded-md border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-60"
+        title={REFRESH_TOOLTIP}
+        aria-label="Refresh from GitHub"
+        className={[
+          "relative isolate inline-flex h-8 items-center justify-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-xs font-medium transition",
+          status === "ok"
+            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15"
+            : status === "error"
+              ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
+              : status === "syncing"
+                ? "border-cyan-300/50 bg-cyan-500/15 text-cyan-50 shadow-[0_0_18px_rgba(34,211,238,0.22)]"
+                : "border-cyan-400/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15",
+          "disabled:cursor-not-allowed disabled:opacity-60",
+        ].join(" ")}
       >
+        {status === "syncing" ? (
+          <span
+            data-github-refresh-halo
+            className="absolute inset-0 rounded-md border border-cyan-200/40 motion-safe:animate-ping"
+            aria-hidden
+          />
+        ) : null}
         <RefreshCw
+          data-github-refresh-icon
           className={[
-            "h-4 w-4",
-            status === "syncing" ? "animate-spin" : "",
+            "relative h-3.5 w-3.5",
+            status === "syncing" ? "motion-safe:animate-spin" : "",
           ].join(" ")}
           aria-hidden
         />
-        Refresh from GitHub
+        <span className="relative">Refresh</span>
       </button>
+      <span className="sr-only" role="status">
+        {message}
+      </span>
     </div>
   );
 }

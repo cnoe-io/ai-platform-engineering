@@ -17,6 +17,12 @@ import type {
   AgenticSdlcStage,
 } from "@/types/agentic-sdlc";
 
+const ROOT_EPIC_AGENT_LABELS = new Set([
+  "agent:specify",
+  "agent:architect",
+  "agent:deep-think",
+]);
+
 export type ArtifactPatch = Pick<
   AgenticSdlcArtifact,
   | "repo_id"
@@ -132,7 +138,7 @@ function projectIssue(
   const agentLabels = labels.filter((l) => l.startsWith("agent:"));
 
   const isEpic = labels.some((l) => l === "epic" || l === "Epic") ||
-    (labels.includes("agent:specify") && !ev.epic_id);
+    (!ev.epic_id && labels.some((label) => ROOT_EPIC_AGENT_LABELS.has(label)));
   const kind: ArtifactKindStored = isEpic ? "epic" : "subtask";
 
   return {

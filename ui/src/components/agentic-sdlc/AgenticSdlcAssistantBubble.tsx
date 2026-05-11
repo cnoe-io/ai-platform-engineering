@@ -16,6 +16,7 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const AGENTIC_SDLC_AGENT_ID = "agent-agentic-sdlc";
 const AGENTIC_SDLC_AGENT_NAME = "agentic-sdlc";
+const ASSISTANT_DISPLAY_NAME = "Ask Agentic SDLC";
 const DEFAULT_PANEL_SIZE = { width: 720, height: 780 };
 const MIN_PANEL_SIZE = { width: 480, height: 560 };
 const MAX_PANEL_SIZE = { width: 1180, height: 940 };
@@ -30,20 +31,25 @@ type AgenticSdlcPageContext =
       source: "agentic-sdlc";
       route: string;
       scope: "home";
+      screen: "home";
     }
   | {
       source: "agentic-sdlc";
       route: string;
       scope: "repo";
+      screen: "repo-detail";
       owner: string;
       repo: string;
+      repository: string;
     }
   | {
       source: "agentic-sdlc";
       route: string;
       scope: "epic";
+      screen: "epic-detail";
       owner: string;
       repo: string;
+      repository: string;
       epicId: string;
     };
 
@@ -62,8 +68,10 @@ export function buildAgenticSdlcPageContext(
       source: "agentic-sdlc",
       route: pathname,
       scope: "epic",
+      screen: "epic-detail",
       owner,
       repo,
+      repository: `${owner}/${repo}`,
       epicId,
     };
   }
@@ -73,8 +81,10 @@ export function buildAgenticSdlcPageContext(
       source: "agentic-sdlc",
       route: pathname,
       scope: "repo",
+      screen: "repo-detail",
       owner,
       repo,
+      repository: `${owner}/${repo}`,
     };
   }
 
@@ -82,6 +92,7 @@ export function buildAgenticSdlcPageContext(
     source: "agentic-sdlc",
     route: pathname,
     scope: "home",
+    screen: "home",
   };
 }
 
@@ -316,7 +327,7 @@ export function AgenticSdlcAssistantBubble() {
           >
             <div>
               <p className="text-sm font-semibold text-foreground">
-                Agentic SDLC Assistant
+                {ASSISTANT_DISPLAY_NAME}
               </p>
               <p className="text-xs text-muted-foreground">
                 Dynamic agent: <code>{AGENTIC_SDLC_AGENT_NAME}</code>
@@ -442,9 +453,10 @@ export function AgenticSdlcAssistantBubble() {
       <button
         type="button"
         aria-label="Open Agentic SDLC assistant"
+        title={ASSISTANT_DISPLAY_NAME}
         onClick={toggleOpen}
         className={cn(
-          "inline-flex h-14 w-14 items-center justify-center rounded-full border border-primary/40 bg-primary text-primary-foreground shadow-xl shadow-primary/20 transition hover:scale-105",
+          "inline-flex h-14 items-center justify-center gap-2 rounded-full border border-primary/40 bg-primary px-4 text-primary-foreground shadow-xl shadow-primary/20 transition hover:scale-105",
           open && "bg-background text-primary",
         )}
       >
@@ -453,6 +465,7 @@ export function AgenticSdlcAssistantBubble() {
           className="h-6 w-6"
           aria-hidden
         />
+        <span className="text-sm font-semibold">{ASSISTANT_DISPLAY_NAME}</span>
       </button>
     </div>
   );

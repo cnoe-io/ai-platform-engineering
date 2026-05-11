@@ -6,7 +6,7 @@
  * child task issues, demo spec files, a branch, and a PR in the target repo.
  */
 
-const DEFAULT_REPO = "cisco-eti/sri-speckit-test";
+const DEFAULT_REPO = "cnoe-io/ai-platform-engineering";
 const DEFAULT_DELAY_MS = 1_500;
 
 export interface DemoOptions {

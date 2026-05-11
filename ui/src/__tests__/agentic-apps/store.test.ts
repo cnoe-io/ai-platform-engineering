@@ -437,4 +437,101 @@ describe("agentic app store", () => {
       }),
     ]);
   });
+
+  it("exports collection constants for PDP, token, webhook, assistant context, health, and audit records", async () => {
+    const store = await import("@/lib/agentic-apps/store");
+
+    expect(store.AGENTIC_APP_PDP_DECISIONS_COLLECTION).toBe("agentic_app_pdp_decisions");
+    expect(store.AGENTIC_APP_TOKEN_GRANTS_COLLECTION).toBe("agentic_app_token_grants");
+    expect(store.AGENTIC_APP_WEBHOOK_DELIVERIES_COLLECTION).toBe(
+      "agentic_app_webhook_deliveries",
+    );
+    expect(store.AGENTIC_APP_ASSISTANT_CONTEXTS_COLLECTION).toBe(
+      "agentic_app_assistant_contexts",
+    );
+    expect(store.AGENTIC_APP_HEALTH_SNAPSHOTS_COLLECTION).toBe(
+      "agentic_app_health_snapshots",
+    );
+    expect(store.AGENTIC_APP_EVENTS_COLLECTION).toBe("agentic_app_events");
+  });
+
+  it("appends queryable platform records to their dedicated collections", async () => {
+    const { getCollection } = jest.requireMock("@/lib/mongodb") as {
+      getCollection: jest.Mock;
+    };
+    const insertOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    getCollection.mockResolvedValue({ insertOne });
+
+    const store = await import("@/lib/agentic-apps/store");
+
+    await store.appendPdpDecision({
+      decisionId: "dec_1",
+      correlationId: "corr_1",
+      appId: "neutral-app",
+      action: "app.proxy.request",
+      effect: "allow",
+      reasonCode: "allowed",
+      issuedAt: "2026-05-09T18:00:00.000Z",
+      expiresAt: "2026-05-09T18:05:00.000Z",
+    });
+    await store.appendAppTokenGrant({
+      jti: "tok_1",
+      decisionId: "dec_1",
+      correlationId: "corr_1",
+      appId: "neutral-app",
+      audience: "agentic-app:neutral-app",
+      scopes: ["neutral:read"],
+      issuedAt: "2026-05-09T18:00:00.000Z",
+      expiresAt: "2026-05-09T18:05:00.000Z",
+      tokenHash: "sha256-token",
+    });
+    await store.appendWebhookDelivery({
+      deliveryId: "wh_1",
+      appId: "neutral-app",
+      provider: "github",
+      channel: "repo-events",
+      status: "forwarded",
+      bodySha256: "sha256-body",
+      receivedAt: "2026-05-09T18:00:00.000Z",
+    });
+    await store.appendAssistantContext({
+      contextId: "ctx_1",
+      appId: "neutral-app",
+      sessionId: "session_1",
+      schemaVersion: "1.0",
+      route: "/",
+      payloadSizeBytes: 42,
+      validationStatus: "accepted",
+      createdAt: "2026-05-09T18:00:00.000Z",
+      expiresAt: "2026-05-09T18:15:00.000Z",
+    });
+    await store.appendHealthSnapshot({
+      appId: "neutral-app",
+      status: "healthy",
+      checkedAt: "2026-05-09T18:00:00.000Z",
+      expiresAt: "2026-05-09T18:05:00.000Z",
+    });
+
+    expect(getCollection).toHaveBeenNthCalledWith(
+      1,
+      store.AGENTIC_APP_PDP_DECISIONS_COLLECTION,
+    );
+    expect(getCollection).toHaveBeenNthCalledWith(
+      2,
+      store.AGENTIC_APP_TOKEN_GRANTS_COLLECTION,
+    );
+    expect(getCollection).toHaveBeenNthCalledWith(
+      3,
+      store.AGENTIC_APP_WEBHOOK_DELIVERIES_COLLECTION,
+    );
+    expect(getCollection).toHaveBeenNthCalledWith(
+      4,
+      store.AGENTIC_APP_ASSISTANT_CONTEXTS_COLLECTION,
+    );
+    expect(getCollection).toHaveBeenNthCalledWith(
+      5,
+      store.AGENTIC_APP_HEALTH_SNAPSHOTS_COLLECTION,
+    );
+    expect(insertOne).toHaveBeenCalledTimes(5);
+  });
 });

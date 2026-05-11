@@ -219,9 +219,6 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
 
-  // Agentic SDLC is now a regular agentic app under /apps/agentic-sdlc — no
-  // dedicated top-nav pill. The Apps tab covers it via the route prefix.
-
   const getActiveTab = () => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
@@ -229,7 +226,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
-    if (pathname?.startsWith("/apps") || pathname?.startsWith("/agentic-sdlc")) return "apps";
+    if (pathname?.startsWith("/apps")) return "apps";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
   };
@@ -382,9 +379,6 @@ export function AppHeader() {
               Apps
             </GuardedLink>
           )}
-          {/* Agentic SDLC is now a regular agentic app under /apps/agentic-sdlc.
-              It surfaces in the Apps Hub when AGENTIC_APPS_ENABLED includes
-              `agentic-sdlc` and SHIP_LOOP_ENABLED is on. */}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
           {canViewAdmin && (
             <TooltipProvider delayDuration={300}>

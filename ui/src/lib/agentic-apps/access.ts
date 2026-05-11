@@ -104,6 +104,10 @@ export function evaluateAppAccess(input: EvaluateAppAccessInput): EvaluateAppAcc
     blockedReasons.push("disabled");
     return { canLaunch: false, blockedReasons, href: hrefFor() };
   }
+  if (installation.visible === false) {
+    blockedReasons.push("disabled");
+    return { canLaunch: false, blockedReasons, href: hrefFor() };
+  }
   if (!pkg) {
     blockedReasons.push("not_installed");
     return { canLaunch: false, blockedReasons, href: hrefFor() };
@@ -119,15 +123,30 @@ export function evaluateAppAccess(input: EvaluateAppAccessInput): EvaluateAppAcc
     return { canLaunch: false, blockedReasons, href: hrefFor() };
   }
 
+  const effectiveManifest: AgenticAppManifest = installation.accessOverrides
+    ? {
+        ...manifest,
+        access: {
+          ...manifest.access,
+          ...(installation.accessOverrides.requiredRoles !== undefined
+            ? { requiredRoles: installation.accessOverrides.requiredRoles }
+            : {}),
+          ...(installation.accessOverrides.requiredGroups !== undefined
+            ? { requiredGroups: installation.accessOverrides.requiredGroups }
+            : {}),
+        },
+      }
+    : manifest;
   const ctx = buildEffectiveAppsUserContext(input.user, input.session);
-  if (!userPassesAgenticAppAccessGates(manifest, ctx)) {
+  if (!userPassesAgenticAppAccessGates(effectiveManifest, ctx)) {
     blockedReasons.push("unauthorized");
     return { canLaunch: false, blockedReasons, href: hrefFor() };
   }
 
   const health: AgenticAppHealthStatus =
     input.runtimeHealthStatus ?? input.installation?.runtimeHealth ?? "unknown";
-  if (health === "degraded" || health === "unreachable") {
+  const blockLaunchWhen = installation.healthPolicy?.blockLaunchWhen ?? ["degraded", "unreachable"];
+  if (blockLaunchWhen.includes(health)) {
     blockedReasons.push("unhealthy");
     return { canLaunch: false, blockedReasons, href: hrefFor() };
   }
