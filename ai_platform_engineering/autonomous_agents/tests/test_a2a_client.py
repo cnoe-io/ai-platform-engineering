@@ -331,7 +331,7 @@ async def test_a2a_error_envelope_raises_runtime_error():
 
 
 # ---------------------------------------------------------------------------
-# IMP-06: in-band routing directive
+# In-band routing directive
 # ---------------------------------------------------------------------------
 #
 # Background: the supervisor LLM router does not read
@@ -411,9 +411,9 @@ def test_build_prompt_no_context_omits_context_block():
 async def test_invoke_agent_sends_routing_directive_in_prompt(_fast_retries):
     """End-to-end: when ``agent`` is supplied to ``invoke_agent``, the
     payload posted to the supervisor must contain the directive in the
-    text part. This is the regression guard for IMP-06 -- if a future
-    refactor drops the directive, the UI agent-picker silently goes
-    back to being decorative.
+    text part. This is the regression guard -- if a future refactor
+    drops the directive, the UI agent-picker silently goes back to
+    being decorative.
     """
     captured_payloads: list[dict[str, Any]] = []
 
@@ -436,7 +436,7 @@ async def test_invoke_agent_sends_routing_directive_in_prompt(_fast_retries):
     assert "Check open PRs" in sent_text
 
     # Forward-compat: structured metadata is still present even though
-    # the supervisor ignores it today (per IMP-06 investigation).
+    # the supervisor ignores it today.
     sent_metadata = captured_payloads[0]["params"]["message"]["metadata"]
     assert sent_metadata["agent"] == "github"
 
@@ -465,11 +465,10 @@ async def test_invoke_agent_without_agent_omits_routing_directive(_fast_retries)
 
 
 # ---------------------------------------------------------------------------
-# IMP-06 follow-up (Copilot review on PR #13): consistency between the
-# in-band routing directive and the structured ``message.metadata.agent``
-# value. Both must come from the same single normalisation step or the
-# wire payload can disagree with itself (directive says "github",
-# metadata says "  github  ", or vice versa).
+# Routing directive / metadata consistency: both the in-band directive and
+# the structured ``message.metadata.agent`` value must come from the same
+# single normalisation step, or the wire payload can disagree with itself
+# (directive says "github", metadata says "  github  ", or vice versa).
 # ---------------------------------------------------------------------------
 
 

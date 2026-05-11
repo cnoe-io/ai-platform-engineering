@@ -160,7 +160,7 @@ Notes:
 - The directive is **permissive**. If the task name doesn't match a registered sub-agent (typo, decommissioned agent, etc.), the supervisor falls back to normal LLM routing instead of failing the run.
 - `agent` is a **required** task field (`TaskDefinition.agent`). To give no routing hint, set it to an empty string (`""`) or whitespace; the directive is skipped entirely and the supervisor chooses from prompt text alone.
 - The agent identifier is sanitised before interpolation: only `[A-Za-z0-9._-]` survives (real agent ids are simple identifiers like `github`, `argo-cd`, `aws_bedrock`). This prevents a malformed or hostile agent value from breaking out of the directive and injecting extra instructions into the supervisor prompt.
-- `llm_provider` and the **sanitised** `agent` are also sent as `message.metadata` for forward-compat. Today the supervisor only reads `metadata.user_id` / `metadata.user_email` from incoming messages, so the current routing effect comes entirely from the prompt directive above; structured fast-path routing on `metadata.agent` would be a separate supervisor PR (tracked as a future iteration of IMP-06 in `IMPROVEMENTS.md`).
+- `llm_provider` and the **sanitised** `agent` are also sent as `message.metadata` for forward-compat. Today the supervisor only reads `metadata.user_id` / `metadata.user_email` from incoming messages, so the current routing effect comes entirely from the prompt directive above; structured fast-path routing on `metadata.agent` would be a separate, future supervisor change.
 
 ### Environment Variables
 

@@ -13,8 +13,8 @@ The retry policy is configurable via ``Settings.a2a_max_retries`` and
 ``Settings.a2a_timeout_seconds``, with optional per-call overrides supplied
 by the scheduler (``TaskDefinition.max_retries`` / ``timeout_seconds``).
 
-Agent routing hint (IMP-06)
----------------------------
+Agent routing hint
+------------------
 The autonomous-tasks UI lets the operator pick a target sub-agent (e.g.
 ``github``, ``argocd``) per task. We surface that choice to the supervisor
 two ways and intentionally so:
@@ -34,9 +34,6 @@ two ways and intentionally so:
    ignores them today. They cost nothing on the wire and are already in
    place for a future supervisor change that adds structured fast-path
    routing (would skip the LLM router round-trip entirely).
-
-Investigation that led to this design is captured in
-``IMPROVEMENTS.md`` -> IMP-06.
 """
 
 import json
@@ -128,12 +125,11 @@ def build_prompt_with_routing(
         Context:                   (only if ``context`` is non-empty)
         <pretty-printed JSON>
 
-    The routing directive is the IMP-06 mitigation: the supervisor LLM
-    reads it as part of the user message and treats it as an operator
-    instruction to delegate to that sub-agent. Without this, the UI's
-    agent-picker is decorative -- the supervisor doesn't read
-    ``message.metadata.agent`` and would pick a sub-agent purely from
-    the prompt text.
+    The routing directive exists because the supervisor LLM reads it as
+    part of the user message and treats it as an operator instruction to
+    delegate to that sub-agent. Without this, the UI's agent-picker is
+    decorative -- the supervisor doesn't read ``message.metadata.agent``
+    and would pick a sub-agent purely from the prompt text.
 
     The directive is intentionally permissive ("unless the request
     cannot be fulfilled by that sub-agent") so a typo in the agent
@@ -254,8 +250,8 @@ async def invoke_agent(
     effective_timeout = timeout_seconds if timeout_seconds is not None else settings.a2a_timeout_seconds
     effective_max_retries = max_retries if max_retries is not None else settings.a2a_max_retries
 
-    # IMP-06: prepend the in-band routing directive when an agent hint
-    # was supplied, then append any context block. See
+    # Prepend the in-band routing directive when an agent hint was
+    # supplied, then append any context block. See
     # ``build_prompt_with_routing`` for the rationale -- short version:
     # the supervisor LLM router does not read ``message.metadata.agent``,
     # so without this directive the UI's agent-picker is cosmetic.
