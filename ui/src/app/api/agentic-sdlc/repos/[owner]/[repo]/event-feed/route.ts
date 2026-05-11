@@ -86,6 +86,12 @@ function parsePage(url: URL): number {
   return Math.max(raw, 1);
 }
 
+function parseWindowHours(url: URL): number | null {
+  const raw = Number.parseInt(url.searchParams.get("windowHours") ?? "", 10);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  return Math.min(raw, 24);
+}
+
 function isInteresting(ev: AgenticSdlcEvent): boolean {
   if (ev.projection_status === "failed") return true;
   if (ev.source === "ui") return true;
@@ -262,25 +268,37 @@ async function handle(
   const url = new URL(req.url);
   const limit = parseLimit(url);
   const page = parsePage(url);
+  const replay = url.searchParams.get("replay") === "true";
+  const windowHours = replay ? parseWindowHours(url) : null;
   const events = await getAgenticSdlcEventsCollection();
   const scanLimit = Math.min(
     MAX_SCAN_LIMIT,
     Math.max(limit * page * 3, limit + 1),
   );
+  const query: Record<string, unknown> = {
+    repo_id: repoDoc.repo_id,
+    $or: [
+      { projection_status: "failed" },
+      { source: "ui" },
+      { artifact_kind: { $in: INTERESTING_ARTIFACT_KINDS } },
+      { github_event_type: { $in: INTERESTING_EVENT_TYPES } },
+    ],
+  };
+  if (windowHours) {
+    query.occurred_at = {
+      $gte: new Date(Date.now() - windowHours * 60 * 60 * 1000),
+    };
+  }
   const rows = await events
     .find(
-      {
-        repo_id: repoDoc.repo_id,
-        $or: [
-          { projection_status: "failed" },
-          { source: "ui" },
-          { artifact_kind: { $in: INTERESTING_ARTIFACT_KINDS } },
-          { github_event_type: { $in: INTERESTING_EVENT_TYPES } },
-        ],
-      },
+      query,
       { projection: { _id: 0, payload: 0 } },
     )
-    .sort({ occurred_at: -1, delivered_at: -1 })
+    .sort(
+      replay
+        ? { occurred_at: 1, delivered_at: 1 }
+        : { occurred_at: -1, delivered_at: -1 },
+    )
     .limit(scanLimit)
     .toArray();
   const deduped = dedupeEvents(rows);

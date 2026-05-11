@@ -58,6 +58,20 @@ interface RepoRefreshDetail {
   changedArtifactIds?: string[];
 }
 
+interface BoardReplaySnapshot {
+  id: string;
+  occurred_at: string;
+  event_title: string;
+  artifact_id: string;
+  swim_lanes: RepoSwimLane[];
+}
+
+interface BoardSnapshotDetail {
+  owner?: string;
+  repo?: string;
+  snapshot?: BoardReplaySnapshot;
+}
+
 export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
   const [lanes, setLanes] = useState<RepoSwimLane[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -65,6 +79,7 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
   const [highlightedArtifactIds, setHighlightedArtifactIds] = useState<Set<string>>(new Set());
   const [showResolved, setShowResolved] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [replaySnapshot, setReplaySnapshot] = useState<BoardReplaySnapshot | null>(null);
   const hasLoadedRef = useRef(false);
   const highlightTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const { settings } = useAgenticSdlcUiSettings();
@@ -87,6 +102,13 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
     highlightTimersRef.current.push(timer);
   }, [settings.haloDurationSeconds]);
 
+  const replaceHighlightedArtifacts = useCallback((ids: string[] | undefined) => {
+    const validIds = (ids ?? []).filter(Boolean);
+    highlightTimersRef.current.forEach((timer) => clearTimeout(timer));
+    highlightTimersRef.current = [];
+    setHighlightedArtifactIds(new Set(validIds));
+  }, []);
+
   useEffect(() => {
     function onRepoSynced(event: Event) {
       const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
@@ -95,9 +117,29 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
         setRefreshKey((value) => value + 1);
       }
     }
+    function onReplayHighlight(event: Event) {
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
+      if (detail?.owner === owner && detail?.repo === repo) {
+        highlightChangedArtifacts(detail.changedArtifactIds);
+      }
+    }
+    function onBoardSnapshot(event: Event) {
+      const detail = (event as CustomEvent<BoardSnapshotDetail>).detail;
+      if (detail?.owner === owner && detail?.repo === repo && detail.snapshot) {
+        setReplaySnapshot(detail.snapshot);
+        setStatus("ready");
+        replaceHighlightedArtifacts([detail.snapshot.artifact_id]);
+      }
+    }
     window.addEventListener("agentic-sdlc:repo-synced", onRepoSynced);
-    return () => window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
-  }, [highlightChangedArtifacts, owner, repo]);
+    window.addEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
+    window.addEventListener("agentic-sdlc:board-snapshot", onBoardSnapshot);
+    return () => {
+      window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
+      window.removeEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
+      window.removeEventListener("agentic-sdlc:board-snapshot", onBoardSnapshot);
+    };
+  }, [highlightChangedArtifacts, owner, repo, replaceHighlightedArtifacts]);
 
   useEffect(() => {
     return () => {
@@ -149,12 +191,13 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
     };
   }, [owner, repo, refreshKey, settings.doneIssuesLookbackHours]);
 
+  const displayedLanes = replaySnapshot?.swim_lanes ?? lanes;
   const visibleLanes = useMemo(
     () =>
-      lanes.filter(
+      displayedLanes.filter(
         (lane) => lane.stage !== "unknown" && lane.items.length > 0,
       ),
-    [lanes],
+    [displayedLanes],
   );
   const { activeLanes, resolvedLanes, resolvedCount } = useMemo(
     () => splitResolvedLanes(visibleLanes),
@@ -179,6 +222,12 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
         <div className="flex justify-end text-[11px] text-muted-foreground">
           <RepoEventsStatus isRefreshing={isRefreshing} />
         </div>
+        {replaySnapshot ? (
+          <HistoricalReplayBanner
+            snapshot={replaySnapshot}
+            onReturnToLive={() => setReplaySnapshot(null)}
+          />
+        ) : null}
         <DoneIssuesToggle
           checked={showResolvedIssues}
           count={resolvedCount}
@@ -220,6 +269,14 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
           <div className="mb-2 flex justify-end text-[11px] text-muted-foreground">
             <RepoEventsStatus isRefreshing={isRefreshing} />
           </div>
+          {replaySnapshot ? (
+            <div className="mb-2">
+              <HistoricalReplayBanner
+                snapshot={replaySnapshot}
+                onReturnToLive={() => setReplaySnapshot(null)}
+              />
+            </div>
+          ) : null}
           <SwimLaneBody
             status={status}
             visibleLanes={activeLanes}
@@ -377,6 +434,32 @@ function RepoEventsStatus({ isRefreshing }: { isRefreshing: boolean }) {
   );
 }
 
+function HistoricalReplayBanner({
+  snapshot,
+  onReturnToLive,
+}: {
+  snapshot: BoardReplaySnapshot;
+  onReturnToLive: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-cyan-400/35 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-50 shadow-[0_0_22px_rgba(0,245,255,0.18)]">
+      <div>
+        <p className="font-semibold">Historical board replay</p>
+        <p className="text-[11px] text-cyan-100/75">
+          Showing snapshot from {formatReplayTimestamp(snapshot.occurred_at)} · {snapshot.event_title}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onReturnToLive}
+        className="rounded-full border border-cyan-300/45 bg-background/30 px-3 py-1 text-[11px] font-medium text-cyan-50 transition hover:bg-cyan-300/15"
+      >
+        Return to live
+      </button>
+    </div>
+  );
+}
+
 function DoneIssuesToggle({
   checked,
   count,
@@ -410,6 +493,15 @@ function DoneIssuesToggle({
       </span>
     </label>
   );
+}
+
+function formatReplayTimestamp(value: string): string {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "unknown time";
+  return new Date(parsed).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function DoneIssuesShelf({

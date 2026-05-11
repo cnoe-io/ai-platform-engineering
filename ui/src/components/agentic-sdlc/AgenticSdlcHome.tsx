@@ -841,7 +841,7 @@ function AgenticSdlcSettings() {
         <div className="glass-panel rounded-xl border border-border/40 p-4">
           <h3 className="text-sm font-semibold text-foreground">Repo update visuals</h3>
           <p className="mt-1 text-xs text-muted-foreground/75">
-            Tune the done-issues window and Tron-style halo used when repo
+            Tune the done-issues window and pulsing theme used when repo
             events update cards, Epics, and feed rows.
           </p>
           <div className="mt-4 grid gap-3 text-xs">
@@ -880,7 +880,24 @@ function AgenticSdlcSettings() {
               </span>
             </label>
             <label className="grid gap-1.5">
-              <span className="font-medium text-foreground">Halo color</span>
+              <span className="font-medium text-foreground">Replay interval</span>
+              <input
+                type="number"
+                min={1}
+                value={settings.replayIntervalSeconds}
+                onChange={(event) =>
+                  updateSettings({
+                    replayIntervalSeconds: Number(event.target.value),
+                  })
+                }
+                className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5 text-foreground"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Seconds between catch-up timeline events during playback.
+              </span>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="font-medium text-foreground">Pulse theme</span>
               <select
                 value={settings.haloColor}
                 onChange={(event) =>
@@ -902,7 +919,7 @@ function AgenticSdlcSettings() {
               ].join(" ")}
               style={repoUpdateHighlightStyle(settings.haloColor)}
             >
-              Tron update halo preview
+              Default pulse theme preview
             </div>
             <button
               type="button"

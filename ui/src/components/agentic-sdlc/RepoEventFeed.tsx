@@ -145,8 +145,18 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
         setRefreshKey((value) => value + 1);
       }
     }
+    function onReplayHighlight(event: Event) {
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
+      if (detail?.owner === owner && detail?.repo === repo) {
+        highlightChangedArtifacts(detail.changedArtifactIds);
+      }
+    }
     window.addEventListener("agentic-sdlc:repo-synced", onRepoSynced);
-    return () => window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
+    window.addEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
+    return () => {
+      window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
+      window.removeEventListener("agentic-sdlc:replay-highlight", onReplayHighlight);
+    };
   }, [highlightChangedArtifacts, owner, repo]);
 
   useEffect(() => {

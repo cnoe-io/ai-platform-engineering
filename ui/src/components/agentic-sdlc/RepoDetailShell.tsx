@@ -8,6 +8,7 @@ import { RepoEpicList } from "@/components/agentic-sdlc/RepoEpicList";
 import { AgenticSdlcSimulationControl } from "@/components/agentic-sdlc/AgenticSdlcSimulationControl";
 import { CollapsiblePanel } from "@/components/agentic-sdlc/CollapsiblePanel";
 import { RepoEventFeed } from "@/components/agentic-sdlc/RepoEventFeed";
+import { RepoCatchUpTimeline } from "@/components/agentic-sdlc/RepoCatchUpTimeline";
 import { RepoGitHubSyncControl } from "@/components/agentic-sdlc/RepoGitHubSyncControl";
 import { RepoOperatingMetrics } from "@/components/agentic-sdlc/RepoOperatingMetrics";
 import { RepoSwimLanes } from "@/components/agentic-sdlc/RepoSwimLanes";
@@ -25,7 +26,7 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
   const repoLive = useRepoAgenticSdlcLiveRefresh({ owner, repo, enabled: true });
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-4 p-4 md:p-6 lg:px-10">
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-3 p-3 md:p-4 lg:px-8">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Link href="/apps/agentic-sdlc" className="inline-flex items-center gap-1 hover:text-foreground">
           <ArrowLeft className="h-3 w-3" aria-hidden />
@@ -43,7 +44,7 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
         </span>
       </nav>
 
-      <section className="relative overflow-hidden rounded-2xl border border-border/40 bg-card/35 px-4 py-3">
+      <section className="relative overflow-hidden rounded-2xl border border-border/40 bg-card/35 px-4 py-2.5">
         <div
           aria-hidden
           className="absolute -right-24 -top-28 h-56 w-56 rounded-full bg-primary/20 blur-3xl"
@@ -63,6 +64,7 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
           </div>
           <div className="flex items-center gap-2">
             <RepoGitHubSyncControl owner={owner} repo={repo} />
+            <RepoCatchUpTimeline owner={owner} repo={repo} />
             <LiveStatusIndicator status={repoLive.status} label="Repo live" />
           </div>
         </div>

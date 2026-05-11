@@ -9,11 +9,12 @@ export const AGENTIC_SDLC_UI_SETTINGS_EVENT = "agentic-sdlc:ui-settings-changed"
 export interface AgenticSdlcUiSettings {
   doneIssuesLookbackHours: number;
   haloDurationSeconds: number;
+  replayIntervalSeconds: number;
   haloColor: string;
 }
 
 export const HALO_COLOR_OPTIONS: Array<{ label: string; value: string }> = [
-  { label: "Tron cyan", value: TRON_HALO_COLOR },
+  { label: "Default", value: TRON_HALO_COLOR },
   { label: "Grid blue", value: "#3b82f6" },
   { label: "Arc magenta", value: "#d946ef" },
   { label: "Signal amber", value: "#f59e0b" },
@@ -22,6 +23,7 @@ export const HALO_COLOR_OPTIONS: Array<{ label: string; value: string }> = [
 export const DEFAULT_AGENTIC_SDLC_UI_SETTINGS: AgenticSdlcUiSettings = {
   doneIssuesLookbackHours: 24,
   haloDurationSeconds: REPO_UPDATE_HIGHLIGHT_MS / 1000,
+  replayIntervalSeconds: 3,
   haloColor: TRON_HALO_COLOR,
 };
 
@@ -51,6 +53,10 @@ export function sanitizeAgenticSdlcUiSettings(
     haloDurationSeconds: positiveInteger(
       record.haloDurationSeconds,
       defaults.haloDurationSeconds,
+    ),
+    replayIntervalSeconds: positiveInteger(
+      record.replayIntervalSeconds,
+      defaults.replayIntervalSeconds,
     ),
     haloColor: sanitizeColor(record.haloColor, defaults.haloColor),
   };

@@ -102,8 +102,15 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
         setRefreshKey((value) => value + 1);
       }
     }
+    function highlightWhenReplayMatches(event: Event) {
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
+      if (detail?.owner === owner && detail?.repo === repo) {
+        highlightChangedArtifacts(detail.changedArtifactIds);
+      }
+    }
     window.addEventListener("ship-loop:simulation-seeded", refreshWhenRepoMatches);
     window.addEventListener("agentic-sdlc:repo-synced", refreshWhenRepoMatches);
+    window.addEventListener("agentic-sdlc:replay-highlight", highlightWhenReplayMatches);
     return () => {
       window.removeEventListener(
         "ship-loop:simulation-seeded",
@@ -112,6 +119,10 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
       window.removeEventListener(
         "agentic-sdlc:repo-synced",
         refreshWhenRepoMatches,
+      );
+      window.removeEventListener(
+        "agentic-sdlc:replay-highlight",
+        highlightWhenReplayMatches,
       );
     };
   }, [highlightChangedArtifacts, owner, repo]);

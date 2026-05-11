@@ -156,4 +156,74 @@ describe("GET /api/agentic-sdlc/repos/{owner}/{repo}/event-feed", () => {
       expect.any(Object),
     );
   });
+
+  it("returns chronological replay events for a selected lookback window", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-05-11T10:00:00Z").getTime());
+    mockReader.mockResolvedValue(READER);
+    mockGetReposCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ repo_id: "99000001" }),
+    });
+    const toArray = jest.fn().mockResolvedValue([
+      {
+        repo_id: "99000001",
+        source: "github",
+        github_delivery_id: "delivery-old",
+        github_event_type: "issues",
+        github_action: "opened",
+        artifact_kind: "subtask",
+        artifact_id: "I_old",
+        epic_id: null,
+        actor_kind: "agent",
+        actor_login: "architect-bot",
+        delivered_at: new Date("2026-05-11T08:30:00Z"),
+        occurred_at: new Date("2026-05-11T08:30:00Z"),
+        projection_status: "projected",
+        projection_attempts: 1,
+      },
+      {
+        repo_id: "99000001",
+        source: "github",
+        github_delivery_id: "delivery-new",
+        github_event_type: "pull_request",
+        github_action: "opened",
+        artifact_kind: "pull_request",
+        artifact_id: "PR_new",
+        epic_id: "I_old",
+        actor_kind: "agent",
+        actor_login: "coder-bot",
+        delivered_at: new Date("2026-05-11T09:45:00Z"),
+        occurred_at: new Date("2026-05-11T09:45:00Z"),
+        projection_status: "projected",
+        projection_attempts: 1,
+      },
+    ]);
+    const limit = jest.fn().mockReturnValue({ toArray });
+    const sort = jest.fn().mockReturnValue({ limit });
+    const find = jest.fn().mockReturnValue({ sort });
+    mockGetEventsCollection.mockResolvedValue({ find });
+
+    const { GET } = await import(
+      "@/app/api/agentic-sdlc/repos/[owner]/[repo]/event-feed/route"
+    );
+    const res = await GET(
+      new Request("http://localhost/x?replay=true&windowHours=2&limit=100"),
+      { params: Promise.resolve({ owner: "demoorg", repo: "agentic-demo" }) },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+      "delivery-old",
+      "delivery-new",
+    ]);
+    expect(find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo_id: "99000001",
+        occurred_at: { $gte: new Date("2026-05-11T08:00:00Z") },
+      }),
+      expect.any(Object),
+    );
+    expect(sort).toHaveBeenCalledWith({ occurred_at: 1, delivered_at: 1 });
+    jest.useRealTimers();
+  });
 });

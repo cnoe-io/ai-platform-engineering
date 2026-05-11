@@ -263,7 +263,7 @@ export async function getRepoOperatingSummary(
   };
 }
 
-function buildSwimLanes(
+export function buildSwimLanes(
   rows: Array<{
     artifact_id: string;
     kind: ArtifactKindStored;
