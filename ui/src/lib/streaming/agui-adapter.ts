@@ -40,13 +40,13 @@ const AGUI = {
   TOOL_CALL_START: "TOOL_CALL_START",
   TOOL_CALL_ARGS: "TOOL_CALL_ARGS",
   TOOL_CALL_END: "TOOL_CALL_END",
+  TOOL_CALL_RESULT: "TOOL_CALL_RESULT",
   CUSTOM: "CUSTOM",
 } as const;
 
 // CUSTOM event names
 const CUSTOM_NAMESPACE_CONTEXT = "NAMESPACE_CONTEXT";
 const CUSTOM_WARNING = "WARNING";
-const CUSTOM_TOOL_ERROR = "TOOL_ERROR";
 // Supervisor legacy HITL format (fallback)
 const CUSTOM_INPUT_REQUIRED = "INPUT_REQUIRED";
 
@@ -62,6 +62,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
   private currentNamespace: string[] = [];
   private toolCallIdToName = new Map<string, string>();
   private toolCallArgs = new Map<string, string>();
+  private toolCallResults = new Map<string, string>();
   private runId = "";
 
   constructor(accessToken?: string) {
@@ -124,7 +125,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
     const body = JSON.stringify({
       conversation_id: params.conversationId,
       agent_id: params.agentId,
-      form_data: params.formData,
+      resume_data: params.resumeData,
       protocol: "agui",
       ...(params.clientContext && { client_context: params.clientContext }),
     });
@@ -270,17 +271,33 @@ export class AGUIStreamAdapter implements StreamAdapter {
         return false;
       }
 
+      case AGUI.TOOL_CALL_RESULT: {
+        const toolCallId = parsed.tool_call_id as string;
+        const content = parsed.content as string;
+        if (toolCallId && content) {
+          this.toolCallResults.set(toolCallId, content);
+        }
+        return false;
+      }
+
       case AGUI.TOOL_CALL_END: {
         const toolCallId = parsed.toolCallId as string;
         const toolName = this.toolCallIdToName.get(toolCallId);
         const accumulatedArgs = this.toolCallArgs.get(toolCallId);
+        const resultContent = this.toolCallResults.get(toolCallId);
         this.toolCallArgs.delete(toolCallId);
+        this.toolCallResults.delete(toolCallId);
+
+        // Detect error from "ERROR:" prefix in result content
+        const error = resultContent?.startsWith("ERROR:") ? resultContent : undefined;
+
         callbacks.onToolEnd?.(
           toolCallId,
           toolName,
-          undefined, // no error — errors come via CUSTOM(TOOL_ERROR)
+          error,
           this.currentNamespace,
           accumulatedArgs,
+          resultContent,
         );
         return false;
       }
@@ -306,13 +323,25 @@ export class AGUIStreamAdapter implements StreamAdapter {
     if (outcome === "interrupt") {
       const interrupt = parsed.interrupt as Record<string, unknown> | undefined;
       if (interrupt) {
+        const reason = interrupt.reason as string | undefined;
         const payload = interrupt.payload as Record<string, unknown> | undefined;
-        callbacks.onInputRequired?.(
-          interrupt.id as string,
-          (payload?.prompt as string) || "",
-          (payload?.fields as InputFieldDefinition[]) || [],
-          (payload?.agent as string) || "",
-        );
+
+        if (reason === "tool_approval") {
+          callbacks.onToolApprovalRequired?.(
+            interrupt.id as string,
+            (payload?.tool_name as string) || "",
+            (payload?.tool_args as Record<string, unknown>) || {},
+            (payload?.allowed_decisions as string[]) || ["approve", "edit", "reject"],
+            (payload?.agent as string) || "",
+          );
+        } else {
+          callbacks.onInputRequired?.(
+            interrupt.id as string,
+            (payload?.prompt as string) || "",
+            (payload?.fields as InputFieldDefinition[]) || [],
+            (payload?.agent as string) || "",
+          );
+        }
       }
       return true;
     }
@@ -344,18 +373,6 @@ export class AGUIStreamAdapter implements StreamAdapter {
           (value?.namespace as string[]) || this.currentNamespace,
         );
         return false;
-
-      case CUSTOM_TOOL_ERROR: {
-        const toolCallId = value?.tool_call_id as string;
-        const toolName = this.toolCallIdToName.get(toolCallId);
-        callbacks.onToolEnd?.(
-          toolCallId,
-          toolName,
-          value?.error as string,
-          this.currentNamespace,
-        );
-        return false;
-      }
 
       case CUSTOM_INPUT_REQUIRED: {
         // Supervisor legacy HITL format — CUSTOM("INPUT_REQUIRED")

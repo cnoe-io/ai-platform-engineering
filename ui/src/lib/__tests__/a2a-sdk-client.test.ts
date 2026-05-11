@@ -417,6 +417,101 @@ describe('A2ASDKClient', () => {
       expect(events[0].shouldAppend).toBe(true)
     })
 
+    it('should leave displayContent empty for non-final task events with no artifacts', async () => {
+      // Lifecycle events (submitted, in-progress) carry no artifact text and
+      // should not render anything in the chat surface.
+      const taskEvent = {
+        kind: 'task',
+        id: 'task-no-artifacts-deadbeef',
+        contextId: 'test-ctx',
+        status: { state: 'submitted' },
+        // intentionally: no artifacts
+      }
+
+      mockTransport.sendMessageStream.mockImplementation(async function* () {
+        yield taskEvent
+      })
+
+      const transport = (client as any).transport
+      transport.sendMessageStream = mockTransport.sendMessageStream
+
+      const events: any[] = []
+
+      for await (const event of client.sendMessageStream('test')) {
+        events.push(event)
+      }
+
+      const parsed = events.find(e => e.type === 'task')
+      expect(parsed).toBeDefined()
+      expect(parsed?.taskId).toBe('task-no-artifacts-deadbeef')
+      expect(parsed?.displayContent).toBe('')
+    })
+
+    it('should show fallback message for completed task with no artifacts', async () => {
+      // A completed task with no artifact text shows a friendly fallback so
+      // the user knows the task finished without producing visible output.
+      const taskEvent = {
+        kind: 'task',
+        id: 'task-completed-no-output',
+        contextId: 'test-ctx',
+        status: { state: 'completed' },
+        // intentionally: no artifacts
+      }
+
+      mockTransport.sendMessageStream.mockImplementation(async function* () {
+        yield taskEvent
+      })
+
+      const transport = (client as any).transport
+      transport.sendMessageStream = mockTransport.sendMessageStream
+
+      const events: any[] = []
+
+      for await (const event of client.sendMessageStream('test')) {
+        events.push(event)
+      }
+
+      const parsed = events.find(e => e.type === 'task')
+      expect(parsed).toBeDefined()
+      expect(parsed?.displayContent).toBe(
+        'No output generated. If this is in error, please retry or reask the question.'
+      )
+    })
+
+    it('should still extract displayContent from task artifacts when present', async () => {
+      // Guardrail: only the no-artifact case is suppressed. When the supervisor
+      // does send artifact text on the task event, we must still surface it.
+      const taskEvent = {
+        kind: 'task',
+        id: 'task-with-final',
+        contextId: 'test-ctx',
+        status: { state: 'completed' },
+        artifacts: [
+          {
+            name: 'final_result',
+            parts: [{ kind: 'text', text: 'The real answer' }],
+          },
+        ],
+      }
+
+      mockTransport.sendMessageStream.mockImplementation(async function* () {
+        yield taskEvent
+      })
+
+      const transport = (client as any).transport
+      transport.sendMessageStream = mockTransport.sendMessageStream
+
+      const events: any[] = []
+      for await (const event of client.sendMessageStream('test')) {
+        events.push(event)
+      }
+
+      const parsed = events.find(e => e.type === 'task')
+      expect(parsed?.displayContent).toBe('The real answer')
+      expect(parsed?.artifactName).toBe('final_result')
+      expect(parsed?.isFinal).toBe(true)
+    })
+
     it('should detect final results correctly', async () => {
       const events = [
         {

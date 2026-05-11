@@ -8,6 +8,13 @@ import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
+import { ApiError } from '@/lib/api-error';
+import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
+
+// Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
+// call sites keep working — see ./api-error.ts for why the class lives
+// in its own server-runtime-free module now.
+export { ApiError };
 
 // ============================================================================
 // Helpers
@@ -614,53 +621,12 @@ export async function requireRbacPermission(
 // ============================================================================
 // Error Handling
 // ============================================================================
-
-/**
- * Stable machine-readable reason codes for auth/authz failures.
- *
- * Designed so clients (web UI toast, slack-bot, future bots) can branch on a
- * fixed vocabulary instead of fragile substring matches against `error`.
- * Treat as a public API — adding values is fine, renaming/removing is a
- * breaking change.
- */
-export type AuthFailureReason =
-  | 'not_signed_in'        // No session and no bearer token
-  | 'session_expired'      // Session/token expired (jose: ERR_JWT_EXPIRED, NextAuth refresh failure)
-  | 'bearer_invalid'       // Bearer token signature/issuer/format invalid
-  | 'audience_mismatch'    // Token aud claim does not match this service
-  | 'missing_role'         // Authenticated but lacking required realm role
-  | 'pdp_denied'           // Keycloak Authorization Services (UMA) denied
-  | 'pdp_unavailable'      // PDP unreachable, fail-closed
-  | 'cel_denied'           // Supplementary CEL policy denied
-  | 'forbidden';           // Generic forbidden (ownership, etc.)
-
-/**
- * UI hint indicating what the user can do to recover. Clients are free to
- * ignore this and show their own affordances; it is purely advisory.
- */
-export type AuthFailureAction =
-  | 'sign_in'        // Prompt re-authentication
-  | 'contact_admin'  // Out of the user's control — they need an admin grant
-  | 'retry'          // Transient (e.g. PDP unreachable) — retry later
-  | 'none';          // No recovery affordance
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number = 500,
-    public code?: string,
-    /**
-     * Machine-readable failure category. Optional for backward compat with
-     * existing throw-sites; auth/authz code paths should set it.
-     */
-    public reason?: AuthFailureReason,
-    /** UI recovery hint. */
-    public action?: AuthFailureAction
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
+//
+// `ApiError` lives in `@/lib/api-error` (a leaf module with no Next.js
+// server-runtime imports) so it can be safely pulled into client
+// components and jsdom tests. It is re-exported above for source
+// compatibility with existing `import { ApiError } from "@/lib/api-middleware"`
+// call sites.
 
 /**
  * Handle API errors and return appropriate response

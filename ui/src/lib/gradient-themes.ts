@@ -1,3 +1,5 @@
+import type { CustomThemeConfig } from "@/types/dynamic-agent";
+
 /**
  * Shared gradient theme definitions for the application.
  * Used by settings panel (global theme) and dynamic agents (per-agent theme).
@@ -106,24 +108,22 @@ export const gradientThemes: readonly GradientTheme[] = [
     to: "hsl(30,80%,50%)",
     preview: "from-[hsl(0,70%,50%)] to-[hsl(30,80%,50%)]"
   },
-  {
-    id: "midnight",
-    label: "Midnight (Indigo → Dark Blue)",
-    description: "Deep, focused",
-    from: "hsl(230,60%,45%)",
-    to: "hsl(220,70%,25%)",
-    preview: "from-[hsl(230,60%,45%)] to-[hsl(220,70%,25%)]"
-  },
 ] as const;
 
 export type GradientThemeId = typeof gradientThemes[number]["id"];
 
 /**
  * Get gradient colors for a theme ID.
+ * If themeId is "custom", uses the provided customConfig.
  * If themeId is empty/null, returns the current global theme from CSS variables.
  * If themeId is not found, returns the default theme colors.
  */
-export function getGradientColors(themeId?: string | null): { from: string; to: string } {
+export function getGradientColors(themeId?: string | null, customConfig?: CustomThemeConfig | null): { from: string; to: string } {
+  // Custom theme — use provided colors
+  if (themeId === "custom" && customConfig) {
+    return { from: customConfig.gradient_from, to: customConfig.gradient_to };
+  }
+
   // If no theme specified, try to get global theme from CSS variables
   if (!themeId) {
     if (typeof window !== "undefined") {
@@ -152,11 +152,22 @@ export function getGradientColors(themeId?: string | null): { from: string; to: 
  * Get inline style object for a gradient background.
  * Useful for applying gradients to elements via style prop.
  */
-export function getGradientStyle(themeId?: string | null): React.CSSProperties {
-  const { from, to } = getGradientColors(themeId);
+export function getGradientStyle(themeId?: string | null, customConfig?: CustomThemeConfig | null): React.CSSProperties {
+  const { from, to } = getGradientColors(themeId, customConfig);
   return {
     background: `linear-gradient(to bottom right, ${from}, ${to})`,
   };
+}
+
+/**
+ * Get the accent color for the bot avatar SVG tint.
+ * Returns the accent_color from custom config, or null for presets (use default white).
+ */
+export function getAccentColor(themeId?: string | null, customConfig?: CustomThemeConfig | null): string | null {
+  if (themeId === "custom" && customConfig?.accent_color) {
+    return customConfig.accent_color;
+  }
+  return null;
 }
 
 /**

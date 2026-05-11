@@ -117,6 +117,16 @@ class AIPlatformEngineerA2ABinding:
       set_mas_instance(self._mas_instance)
       self.graph = None  # Set after ensure_initialized()
       self.tracing = TracingManager()
+      # Attach the skill-content scrubber to the just-initialised
+      # TracerProvider. This must happen AFTER ``TracingManager()``
+      # (which sets up the provider + BatchSpanProcessor) and BEFORE
+      # the first span fires, so doing it here on binding construction
+      # is the right seam. Idempotent + safe when tracing is disabled.
+      try:
+          from ai_platform_engineering.utils.tracing import install_skill_content_scrubber
+          install_skill_content_scrubber()
+      except Exception as exc:  # noqa: BLE001 — never block startup on tracing
+          logging.warning("Skill-trace scrubber install failed: %s", exc)
       self._initialized = False
 
   async def ensure_initialized(self) -> None:

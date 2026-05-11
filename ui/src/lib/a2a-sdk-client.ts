@@ -523,19 +523,22 @@ export class A2ASDKClient {
       }
     }
 
-    // If no text content from artifacts, create a meaningful default message
-    if (!textContent) {
-      const status = task.status?.state || "unknown";
-      textContent = `Task ${status} (ID: ${task.id.substring(0, 8)}...)`;
-    }
-
+    // For intermediate lifecycle events (submitted, in-progress, etc.) leave
+    // displayContent empty — they are signals, not user-facing content.
+    // For a completed task with no artifact text, show a friendly fallback so
+    // the user knows the task finished but produced no visible output.
     const isFinal = task.status?.state === "completed";
+    const resolvedContent =
+      textContent ||
+      (isFinal
+        ? "No output generated. If this is in error, please retry or reask the question."
+        : "");
 
     return {
       raw: task,
       type: "task",
       artifactName,
-      displayContent: textContent,
+      displayContent: resolvedContent,
       isFinal,
       shouldAppend: false, // Task events typically replace content
       contextId: task.contextId,

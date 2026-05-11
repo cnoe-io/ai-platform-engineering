@@ -40,7 +40,6 @@ class EscalationConfig(BaseModel):
 class OverthinkConfig(BaseModel):
   enabled: bool = False
   skip_markers: list[str] = Field(default_factory=lambda: ["DEFER", "LOW_CONFIDENCE"])
-  custom_prompt: str | None = None
   followup_prompt: str | None = None
 
 

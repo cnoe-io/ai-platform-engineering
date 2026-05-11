@@ -177,6 +177,20 @@ resources:
 
 podAnnotations: {}
 
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
+
 podDisruptionBudget:
   enabled: false
   minAvailable: 1

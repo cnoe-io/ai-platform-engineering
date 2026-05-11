@@ -28,12 +28,89 @@ logger = logging.getLogger(__name__)
 CATALOG_API_KEY_HEADER = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key").strip() or "X-Caipe-Catalog-Key"
 
 
-class SkillHubCrawlBody(BaseModel):
-    """Request body for GitHub hub crawl preview (no persistence)."""
+def _gitlab_api_host() -> str:
+    """Return the configured GitLab host (without scheme/port).
 
-    type: str = Field(default="github", description="Hub type; only github supported for crawl.")
-    location: str = Field(..., description="owner/repo")
-    credentials_ref: str | None = Field(default=None, description="Env var name for GitHub token.")
+    Mirrors ``gitlabApiHost`` in ``ui/src/app/api/skill-hubs/_lib/normalize.ts``
+    so the Python and JS sides recognize the same set of self-hosted
+    GitLab endpoints.
+    """
+    raw = os.getenv("GITLAB_API_URL", "").strip()
+    if not raw:
+        return "gitlab.com"
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw)
+        return parsed.hostname or "gitlab.com"
+    except Exception:  # pragma: no cover - urlparse is robust
+        return "gitlab.com"
+
+
+def _is_github_host(host: str) -> bool:
+    """Strict github.com host check (no substring match).
+
+    Mirrors ``isGitHubHost`` in the JS normalize module.
+    """
+    return (
+        host == "github.com"
+        or host == "www.github.com"
+        or host.endswith(".github.com")
+    )
+
+
+def _is_gitlab_host(host: str, configured: str) -> bool:
+    """Strict gitlab.com / configured GitLab host check (no substring match).
+
+    Mirrors ``isGitLabHost`` in the JS normalize module.
+    """
+    if host == "gitlab.com" or host.endswith(".gitlab.com"):
+        return True
+    if configured and host == configured:
+        return True
+    if configured and host.endswith(f".{configured}"):
+        return True
+    return False
+
+
+def detect_hub_provider_from_url(location: str) -> str | None:
+    """Return ``"github"`` / ``"gitlab"`` / ``None`` based on the URL host.
+
+    The Python twin of ``detectHubProviderFromUrl`` in
+    ``ui/src/app/api/skill-hubs/_lib/normalize.ts``. Kept as a
+    reusable helper for any Python caller that needs to tell GitHub
+    from GitLab from a URL — the original in-process consumer (the
+    ``POST /skill-hubs/crawl`` preview endpoint) has been removed
+    because the Python middleware no longer crawls GitHub/GitLab
+    itself; that work moved to the Next.js UI's
+    ``ui/src/lib/hub-crawl.ts`` and writes into the ``hub_skills``
+    Mongo collection that this service reads.
+
+    Returns ``None`` for non-URL inputs, unparseable URLs, schemes
+    other than http/https, and hosts not on either provider's
+    allow-list — including hostname-bypass attempts like
+    ``evil-github.com`` or ``github.com.attacker.com`` (security:
+    NEVER use substring matching).
+    """
+    trimmed = (location or "").strip()
+    if not trimmed:
+        return None
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(trimmed)
+    except Exception:
+        return None
+    if parsed.scheme not in ("http", "https"):
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    if _is_github_host(host):
+        return "github"
+    if _is_gitlab_host(host, _gitlab_api_host()):
+        return "gitlab"
+    return None
 
 
 class CatalogAuthContext(BaseModel):
@@ -292,8 +369,10 @@ async def refresh_skills(
 
     Query params:
         include_hubs: If false, keep the hub cache intact and only re-merge
-            default + agent_skills sources.  Useful after agent-skills CRUD
-            to avoid the expensive GitHub hub re-fetch.
+            default + agent_skills sources.  The hub portion is now sourced
+            from MongoDB ``hub_skills`` (populated by the UI crawler), so
+            invalidating it is cheap, but skipping it still avoids a Mongo
+            round-trip on hot agent_skills CRUD paths.
     """
     from ai_platform_engineering.skills_middleware.catalog import invalidate_skills_cache
     from ai_platform_engineering.skills_middleware.mas_registry import get_mas_instance
@@ -406,40 +485,6 @@ async def delete_catalog_api_key(
     return {"revoked": ok}
 
 
-@router.post("/skill-hubs/crawl")
-async def skill_hub_crawl(
-    body: SkillHubCrawlBody,
-    _auth: CatalogAuthContext = Depends(get_catalog_auth),
-) -> dict[str, Any]:
-    """Preview SKILL.md paths for a GitHub repo without registering a hub (FR-017)."""
-    from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-        preview_github_hub_skills,
-    )
-
-    if body.type.lower() != "github":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "unsupported_type", "message": f"Crawl not supported for type: {body.type}"},
-        )
-    result = preview_github_hub_skills(
-        body.location.strip(),
-        body.credentials_ref,
-        max_paths=200,
-    )
-    err = result.get("error")
-    if err == "invalid_location":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_location", "message": "Expected owner/repo location."},
-        )
-    if err:
-        raise HTTPException(
-            status_code=502,
-            detail={"error": "crawl_failed", "message": err},
-        )
-    return result
-
-
 class ScanContentBody(BaseModel):
     """Request body for scanning a single skill's content (FR-027)."""
 
@@ -463,7 +508,8 @@ async def scan_skill_content(
     )
     from ai_platform_engineering.skills_middleware.hub_skill_scan import _persist_scan_run
 
-    gate = os.getenv("SKILL_SCANNER_GATE", "warn").strip().lower()
+    from ai_platform_engineering.skills_middleware.scan_gate import get_scan_gate
+    gate = get_scan_gate()
     fail_on = (os.getenv("SKILL_SCANNER_FAIL_ON") or "").strip().lower()
     if gate == "strict" and not fail_on:
         fail_on = "high"

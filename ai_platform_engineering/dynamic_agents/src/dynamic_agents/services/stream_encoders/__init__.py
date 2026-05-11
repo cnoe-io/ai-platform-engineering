@@ -69,29 +69,35 @@ class StreamEncoder(ABC):
     def on_input_required(
         self,
         interrupt_id: str,
+        interrupt_type: str,
         prompt: str,
         fields: list[dict[str, Any]],
         agent: str,
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        allowed_decisions: list[str] | None = None,
     ) -> list[str]:
-        """Agent requests user input via a HITL form.
+        """Agent execution paused — requires human input or approval.
 
-        Called when the agent invokes ``request_user_input`` and execution
-        is paused. The UI should render a form and call ``/resume-stream``
-        with the user's response.
+        Emitted for both form-based input (``request_user_input``) and tool
+        approval interrupts.  The ``interrupt_type`` discriminator tells the
+        UI which component to render:
+
+        - ``"form_input"``: render a form with ``fields`` and ``prompt``.
+        - ``"tool_approval"``: render an approval card with ``tool_name``,
+          ``tool_args``, and ``allowed_decisions``.
 
         The caller must **not** follow this with ``on_run_finish()`` — the
         interrupt terminates the run.
-
-        Args:
-            interrupt_id: Unique ID for this interrupt (used to resume).
-            prompt: Message explaining what information is needed.
-            fields: List of field definitions for the form.
-            agent: The agent name that requested input.
         """
 
     @abstractmethod
     def get_accumulated_content(self) -> str:
-        """Return all accumulated text content from the stream."""
+        """Return final answer content (after the last tool call)."""
+
+    @abstractmethod
+    def get_thinking_content(self) -> str:
+        """Return all content emitted during the run (thinking + final answer)."""
 
 
 # ═══════════════════════════════════════════════════════════════

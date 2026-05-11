@@ -323,6 +323,17 @@ export async function proxyRequest(
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text().catch(() => "");
       console.error(`${logPrefix} Backend error: ${backendResponse.status}`, errorText);
+
+      // Try to forward the backend's JSON error body as-is
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed && typeof parsed === "object") {
+          return NextResponse.json(parsed, { status: backendResponse.status });
+        }
+      } catch {
+        // Not JSON — fall through to generic message
+      }
+
       return NextResponse.json(
         {
           success: false,

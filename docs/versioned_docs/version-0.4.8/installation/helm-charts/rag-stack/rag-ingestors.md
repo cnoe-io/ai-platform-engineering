@@ -1,0 +1,82 @@
+---
+id: rag-ingestors-chart
+sidebar_label: rag-ingestors
+---
+
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
+# rag-ingestors
+
+Configurable ingestors for RAG system - supports AWS, K8s, ArgoCD, Slack, and Webex
+
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
+
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install rag-ingestors oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` |  |
+| defaultResources.limits.cpu | string | `"500m"` |  |
+| defaultResources.limits.ephemeral-storage | string | `"1Gi"` |  |
+| defaultResources.limits.memory | string | `"512Mi"` |  |
+| defaultResources.requests.cpu | string | `"100m"` |  |
+| defaultResources.requests.ephemeral-storage | string | `"256Mi"` |  |
+| defaultResources.requests.memory | string | `"256Mi"` |  |
+| image.pullPolicy | string | `"IfNotPresent"` |  |
+| image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
+| image.tag | string | `""` |  |
+| imagePullSecrets | list | `[]` |  |
+| ingestors | list | `[]` |  |
+| nodeSelector | object | `{}` |  |
+| podAnnotations | object | `{}` |  |
+| podLabels | object | `{}` |  |
+| ragServerUrl | string | `"http://rag-server:9446"` |  |
+| revisionHistoryLimit | int | `3` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| tolerations | list | `[]` |  |
+
