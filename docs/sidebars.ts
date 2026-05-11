@@ -266,6 +266,11 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
+          id: 'features/agentic-apps',
+          label: 'Agentic Apps',
+        },
+        {
+          type: 'doc',
           id: 'features/skills/README',
           label: 'Skills',
         },
