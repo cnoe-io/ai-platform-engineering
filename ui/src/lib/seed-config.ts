@@ -14,9 +14,17 @@
  */
 
 import fs from "fs";
+import { dirname, isAbsolute, join } from "node:path";
 import yaml from "js-yaml";
+import { validateAgenticAppManifest } from "@/lib/agentic-apps/manifest-validation";
 import { getCollection } from "@/lib/mongodb";
 import { isMongoDBConfigured } from "@/lib/mongodb";
+import type {
+  AgenticAppHealthStatus,
+  AgenticAppManifest,
+  AgenticAppPackageCatalogMeta,
+  AgenticAppPackageSource,
+} from "@/types/agentic-app";
 import type {
   DynamicAgentConfig,
   MCPServerConfig,
@@ -43,6 +51,34 @@ interface SeedConfig {
   models: SeedModel[];
   agents: Record<string, unknown>[];
   mcp_servers: Record<string, unknown>[];
+  agentic_apps: SeedAgenticApps;
+}
+
+interface SeedAgenticApps {
+  packages: SeedAgenticAppPackage[];
+  installations: SeedAgenticAppInstallation[];
+}
+
+interface SeedAgenticAppPackage {
+  package_id: string;
+  source?: AgenticAppPackageSource;
+  manifest?: Record<string, unknown>;
+  manifest_path?: string;
+  catalog?: AgenticAppPackageCatalogMeta;
+}
+
+interface SeedAgenticAppInstallation {
+  app_id: string;
+  package_id: string;
+  installed?: boolean;
+  enabled?: boolean;
+  visible?: boolean;
+  runtime_mount_path?: string;
+  runtime_origin_override?: string;
+  access_overrides?: Record<string, unknown>;
+  health_policy?: {
+    block_launch_when?: AgenticAppHealthStatus[];
+  };
 }
 
 /** Shape of documents in the llm_models collection. */
@@ -107,7 +143,7 @@ function loadSeedConfig(configPath: string): SeedConfig {
     console.warn(
       `[seed-config] Config not found at ${configPath}, skipping seed`,
     );
-    return { models: [], agents: [], mcp_servers: [] };
+    return { models: [], agents: [], mcp_servers: [], agentic_apps: emptyAgenticAppsConfig() };
   }
 
   const raw = fs.readFileSync(configPath, "utf-8");
@@ -124,8 +160,19 @@ function loadSeedConfig(configPath: string): SeedConfig {
     string,
     unknown
   >[];
+  const agentic_apps_raw = expandEnvVars(parsed.agentic_apps ?? {}) as Partial<SeedAgenticApps>;
+  const agentic_apps = {
+    packages: Array.isArray(agentic_apps_raw.packages) ? agentic_apps_raw.packages : [],
+    installations: Array.isArray(agentic_apps_raw.installations)
+      ? agentic_apps_raw.installations
+      : [],
+  };
 
-  return { models, agents, mcp_servers };
+  return { models, agents, mcp_servers, agentic_apps };
+}
+
+function emptyAgenticAppsConfig(): SeedAgenticApps {
+  return { packages: [], installations: [] };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -178,6 +225,9 @@ async function seedAgents(
       builtin_tools:
         (agentData.builtin_tools as DynamicAgentConfig["builtin_tools"]) ??
         undefined,
+      ui: (agentData.ui as DynamicAgentConfig["ui"]) ?? undefined,
+      features: (agentData.features as DynamicAgentConfig["features"]) ?? undefined,
+      interrupt_on: (agentData.interrupt_on as DynamicAgentConfig["interrupt_on"]) ?? undefined,
       enabled: (agentData.enabled as boolean) ?? true,
       owner_id: "system",
       is_system: false,
@@ -276,6 +326,168 @@ async function seedModels(models: SeedModel[]): Promise<number> {
   return count;
 }
 
+async function seedAgenticApps(
+  agenticApps: SeedAgenticApps,
+  configPath: string,
+): Promise<{ packageCount: number; installationCount: number }> {
+  const packageCount = await seedAgenticAppPackages(agenticApps.packages, configPath);
+  const installationCount = await seedAgenticAppInstallations(agenticApps.installations);
+  return { packageCount, installationCount };
+}
+
+async function seedAgenticAppPackages(
+  packages: SeedAgenticAppPackage[],
+  configPath: string,
+): Promise<number> {
+  if (packages.length === 0) return 0;
+
+  const collection = await getCollection("agentic_app_packages");
+  let count = 0;
+
+  for (const packageData of packages) {
+    const packageId = packageData.package_id;
+    if (!packageId) {
+      console.warn("[seed-config] Skipping agentic app package without package_id");
+      continue;
+    }
+
+    const manifestInput = loadAgenticAppManifest(packageData, configPath);
+    if (!manifestInput) {
+      console.warn(`[seed-config] Skipping agentic app package without manifest: ${packageId}`);
+      continue;
+    }
+
+    const validation = validateAgenticAppManifest(manifestInput);
+    if (validation.ok === false) {
+      console.warn(
+        `[seed-config] Skipping invalid agentic app package ${packageId}: ` +
+          validation.errors.join("; "),
+      );
+      continue;
+    }
+    if (validation.manifest.id !== packageId) {
+      console.warn(
+        `[seed-config] Skipping agentic app package ${packageId}: manifest.id must match package_id`,
+      );
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    await collection.updateOne(
+      { packageId },
+      {
+        $set: {
+          packageId,
+          source: packageData.source ?? "admin-import",
+          manifest: validation.manifest,
+          importedAt: now,
+          importedBy: "seed-config",
+          config_driven: true,
+          catalog: packageData.catalog ?? validation.manifest.catalog ?? {},
+        },
+      },
+      { upsert: true },
+    );
+    console.log(`[seed-config] Seeded agentic app package: ${packageId}`);
+    count++;
+  }
+
+  return count;
+}
+
+async function seedAgenticAppInstallations(
+  installations: SeedAgenticAppInstallation[],
+): Promise<number> {
+  if (installations.length === 0) return 0;
+
+  const collection = await getCollection("agentic_app_installations");
+  let count = 0;
+
+  for (const installationData of installations) {
+    const appId = installationData.app_id;
+    const packageId = installationData.package_id;
+    if (!appId || !packageId) {
+      console.warn("[seed-config] Skipping agentic app installation without app_id/package_id");
+      continue;
+    }
+
+    const mountPath = normalizeAgenticAppMountPath(
+      installationData.runtime_mount_path ?? `/apps/${appId}`,
+    );
+    if (!mountPath) {
+      console.warn(`[seed-config] Skipping agentic app installation with invalid mount path: ${appId}`);
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const runtimeOrigin = trimTrailingSlash(installationData.runtime_origin_override ?? "");
+    await collection.updateOne(
+      { appId },
+      {
+        $set: {
+          appId,
+          packageId,
+          installed: installationData.installed ?? true,
+          enabled: installationData.enabled ?? true,
+          visible: installationData.visible ?? true,
+          runtimeMountPath: mountPath,
+          ...(runtimeOrigin ? { runtimeOriginOverride: runtimeOrigin } : {}),
+          ...(installationData.access_overrides
+            ? { accessOverrides: installationData.access_overrides }
+            : {}),
+          healthPolicy: {
+            blockLaunchWhen: installationData.health_policy?.block_launch_when ?? [
+              "degraded",
+              "unreachable",
+            ],
+          },
+          routeOwnership: { normalizedMountPath: mountPath },
+          runtimeHealth: "unknown",
+          config_driven: true,
+          updatedAt: now,
+          updatedBy: "seed-config",
+        },
+        $setOnInsert: {
+          installedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+    console.log(`[seed-config] Seeded agentic app installation: ${appId}`);
+    count++;
+  }
+
+  return count;
+}
+
+function loadAgenticAppManifest(
+  packageData: SeedAgenticAppPackage,
+  configPath: string,
+): Record<string, unknown> | null {
+  if (packageData.manifest) {
+    return packageData.manifest;
+  }
+  if (!packageData.manifest_path) {
+    return null;
+  }
+  const manifestPath = isAbsolute(packageData.manifest_path)
+    ? packageData.manifest_path
+    : join(dirname(configPath), packageData.manifest_path);
+  return JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as Record<string, unknown>;
+}
+
+function normalizeAgenticAppMountPath(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.startsWith("/") ? trimTrailingSlash(trimmed) : `/${trimTrailingSlash(trimmed)}`;
+  const resolvedPath = new URL(normalized, "http://caipe.local").pathname;
+  return resolvedPath.startsWith("/apps/") ? resolvedPath : null;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Stale cleanup
 // ═══════════════════════════════════════════════════════════════
@@ -290,6 +502,8 @@ async function cleanupStaleConfigDriven(
   currentAgentIds: Set<string>,
   currentServerIds: Set<string>,
   currentModelIds: Set<string>,
+  currentAgenticAppPackageIds: Set<string>,
+  currentAgenticAppIds: Set<string>,
 ): Promise<void> {
   // Cleanup stale agents
   const agentCollection =
@@ -341,10 +555,46 @@ async function cleanupStaleConfigDriven(
     }
   }
 
-  if (agentsDeleted || serversDeleted || modelsDeleted) {
+  const appPackagesCollection = await getCollection("agentic_app_packages");
+  const stalePackages = await appPackagesCollection
+    .find({ config_driven: true })
+    .toArray();
+  let appPackagesDeleted = 0;
+  for (const pkg of stalePackages) {
+    const packageId = (pkg as { packageId?: string }).packageId;
+    if (packageId && !currentAgenticAppPackageIds.has(packageId)) {
+      console.log(`[seed-config] Removing stale config-driven agentic app package: ${packageId}`);
+      await appPackagesCollection.deleteOne({ packageId });
+      appPackagesDeleted++;
+    }
+  }
+
+  const appInstallationsCollection = await getCollection("agentic_app_installations");
+  const staleInstallations = await appInstallationsCollection
+    .find({ config_driven: true })
+    .toArray();
+  let appInstallationsDeleted = 0;
+  for (const installation of staleInstallations) {
+    const appId = (installation as { appId?: string }).appId;
+    if (appId && !currentAgenticAppIds.has(appId)) {
+      console.log(`[seed-config] Removing stale config-driven agentic app installation: ${appId}`);
+      await appInstallationsCollection.deleteOne({ appId });
+      appInstallationsDeleted++;
+    }
+  }
+
+  if (
+    agentsDeleted ||
+    serversDeleted ||
+    modelsDeleted ||
+    appPackagesDeleted ||
+    appInstallationsDeleted
+  ) {
     console.log(
       `[seed-config] Cleaned up stale config-driven entities: ` +
-        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models`,
+        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models, ` +
+        `${appPackagesDeleted} agentic app packages, ` +
+        `${appInstallationsDeleted} agentic app installations`,
     );
   }
 }
@@ -381,7 +631,9 @@ export async function applySeedConfig(): Promise<void> {
     console.log(
       `[seed-config] Found ${config.models.length} models, ` +
         `${config.mcp_servers.length} MCP servers, ` +
-        `${config.agents.length} agents in config`,
+        `${config.agents.length} agents, ` +
+        `${config.agentic_apps.packages.length} agentic app packages, ` +
+        `${config.agentic_apps.installations.length} agentic app installations in config`,
     );
 
     // Extract current IDs for stale cleanup
@@ -400,22 +652,38 @@ export async function applySeedConfig(): Promise<void> {
         .map((m) => m.model_id)
         .filter(Boolean),
     );
+    const currentAgenticAppPackageIds = new Set(
+      config.agentic_apps.packages
+        .map((pkg) => pkg.package_id)
+        .filter(Boolean),
+    );
+    const currentAgenticAppIds = new Set(
+      config.agentic_apps.installations
+        .map((installation) => installation.app_id)
+        .filter(Boolean),
+    );
 
     // Seed entities
     const modelCount = await seedModels(config.models);
     const serverCount = await seedMCPServers(config.mcp_servers);
     const agentCount = await seedAgents(config.agents);
+    const { packageCount: agenticAppPackageCount, installationCount: agenticAppInstallationCount } =
+      await seedAgenticApps(config.agentic_apps, configPath);
 
     // Cleanup stale config-driven entities
     await cleanupStaleConfigDriven(
       currentAgentIds,
       currentServerIds,
       currentModelIds,
+      currentAgenticAppPackageIds,
+      currentAgenticAppIds,
     );
 
     console.log(
       `[seed-config] Applied: ${modelCount} models, ` +
-        `${serverCount} MCP servers, ${agentCount} agents`,
+        `${serverCount} MCP servers, ${agentCount} agents, ` +
+        `${agenticAppPackageCount} agentic app packages, ` +
+        `${agenticAppInstallationCount} agentic app installations`,
     );
   } catch (err) {
     // Log but don't crash — seeding failure shouldn't prevent startup

@@ -54,7 +54,19 @@ models:
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"
-mcp_servers: []
+mcp_servers:
+  - id: "mcp-weather"
+    name: "Weather"
+    description: "Open-Meteo MCP server for forecasts, geocoding, air quality, and weather models"
+    transport: "http"
+    endpoint: "http://open-meteo-mcp:3000/mcp"
+    enabled: true
+  - id: "mcp-aws"
+    name: "AWS"
+    description: "AWS MCP server for read-only AWS CLI and EKS kubectl operations"
+    transport: "http"
+    endpoint: "http://mcp-aws:8000/mcp"
+    enabled: true
   # - id: "github-mcp"
   #   name: "GitHub"
   #   description: "GitHub MCP server for repository operations"
@@ -74,3 +86,11 @@ agents: []
   #   allowed_tools: {}
   #   subagents: []
   #   enabled: true
+
+# ── External Agentic Apps ─────────────────────────────────────────
+# These are config-driven app packages and installations. CAIPE owns the
+# manifest contract, tokens, RBAC/PDP, proxy, and health policy; each external
+# app owns its runtime and app-specific configuration.
+agentic_apps:
+  packages: []
+  installations: []

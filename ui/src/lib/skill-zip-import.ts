@@ -47,7 +47,7 @@ import { parseSkillMd, type ParsedSkillMd } from "@/lib/skill-md-parser";
  * Default reject threshold for total zip entries.
  *
  * Sized to comfortably accommodate hub-style monorepo archives
- * (e.g. ``cisco-ai-defense/skills`` weighs in around 3.2k entries
+ * (e.g. large hub archives can weigh in around 3.2k entries
  * with sibling docs and license files). The earlier 1000-entry cap
  * was chosen for single-skill folders and rejected most real-world
  * "skills-repo.zip" downloads outright.

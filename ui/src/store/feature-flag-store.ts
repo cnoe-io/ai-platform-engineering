@@ -3,7 +3,7 @@ import { apiClient } from "@/lib/api-client";
 
 const STORAGE_KEY = "caipe-feature-flags";
 
-export type FeatureFlagIcon = "Brain" | "Bug" | "Eye" | "ArrowDownToLine" | "Clock";
+export type FeatureFlagIcon = "Brain" | "Bug" | "Eye" | "ArrowDownToLine" | "Clock" | "Ship" | "MessagesSquare" | "Sparkles";
 export type FeatureFlagCategory = "ai" | "chat" | "developer";
 
 export const CATEGORY_LABELS: Record<FeatureFlagCategory, string> = {
@@ -83,6 +83,33 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     category: "developer",
     defaultValue: false,
     preferencesKey: "debug_mode_enabled",
+  },
+  // Note: the per-user `shipLoop` visibility flag was retired. Agentic SDLC
+  // is now an Agentic App; visibility is controlled by SHIP_LOOP_ENABLED
+  // (server env) and the standard Agentic Apps install/enabled gates.
+  // Companion chat bubble. The server env remains the source of truth;
+  // this preference only controls the Settings display/default.
+  {
+    id: "shipLoopAssistant",
+    label: "Agentic SDLC Assistant",
+    description: "Assistant chat bubble scoped to the current Agentic SDLC page",
+    detail:
+      "Adds a chat bubble inside Agentic SDLC, backed by a preconfigured CAIPE Dynamic Agent. The agent can explain blockers and surface context. Requires SHIP_LOOP_ENABLED and SHIP_LOOP_ASSISTANT_ENABLED on the server.",
+    icon: "MessagesSquare",
+    category: "developer",
+    defaultValue: true,
+    preferencesKey: "ship_loop_assistant_enabled",
+  },
+  {
+    id: "shipLoopSimulation",
+    label: "Agentic SDLC Simulation Mode",
+    description: "Show local simulation controls on repo detail pages",
+    detail:
+      "Reveals a development-only control that seeds local GitHub-shaped Epics, issues, PRs, labels, review, and sandbox deploy events. No GitHub writes are performed.",
+    icon: "Sparkles",
+    category: "developer",
+    defaultValue: false,
+    preferencesKey: "ship_loop_simulation_enabled",
   },
 ];
 

@@ -25,9 +25,9 @@ description: "Anchore Grype vulnerability scan — filesystem on all events, con
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   workflow_dispatch:
     inputs:
       tag:
@@ -91,6 +91,7 @@ jobs:
           - ai-platform-engineering
           # UI
           - caipe-ui
+          - caipe-agentic-app-runtime
           # Dynamic agents runtime
           - caipe-dynamic-agents
           # Bots
@@ -148,7 +149,7 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: scan
         with:
-          image: "ghcr.io/cnoe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
+          image: "ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
           fail-build: false
           severity-cutoff: high
           output-format: sarif

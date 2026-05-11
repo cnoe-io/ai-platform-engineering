@@ -136,6 +136,11 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /**
+   * Whether the host shell exposes the Agentic Apps Hub.
+   * Controlled by AGENTIC_APPS_INSTALL_ENABLED and does not expose app origins/tokens.
+   */
+  agenticAppsEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -167,6 +172,31 @@ export interface Config {
   ticketProvider: 'jira' | 'github' | null;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /**
+   * Whether the Agentic SDLC UI is available.
+   * When false (default), the entire feature is gated off — `/api/agentic-sdlc/**`
+   * routes return 404, the `/apps/agentic-sdlc` route returns 404, and the
+   * Agentic SDLC manifest is hidden from the Agentic Apps registry. Set
+   * SHIP_LOOP_ENABLED=true to enable.
+   *
+   * Agentic SDLC is exposed as an Agentic App (in-process runtime), so the
+   * additional `agenticAppsEnabled` install gate and per-app RBAC also apply.
+   * The retired `shipLoop` per-user feature flag is no longer consulted.
+   */
+  shipLoopEnabled: boolean;
+  /**
+   * Whether the Agentic SDLC assistant chat bubble is enabled.
+   * Independent sub-toggle of the Agentic SDLC feature; allows shipping the
+   * dashboard without the assistant. Set SHIP_LOOP_ASSISTANT_ENABLED=true
+   * (default false) to enable. Has no effect when `shipLoopEnabled` is false.
+   */
+  shipLoopAssistantEnabled: boolean;
+  /**
+   * Number of hours that recently resolved Agentic SDLC artifacts remain
+   * visible in the separated "done issues" UI bucket. Set
+   * SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS to override the 24h default.
+   */
+  shipLoopResolvedArtifactLookbackHours: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +214,7 @@ const DEFAULT_FONT_SIZE = 'medium';
 const DEFAULT_FONT_FAMILY = 'inter';
 const DEFAULT_THEME = 'dark';
 const DEFAULT_GRADIENT_THEME = 'default';
+const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
 
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
@@ -227,6 +258,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  agenticAppsEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -238,6 +270,9 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   oidcRequiredGroup: 'backstage-access',
+  shipLoopEnabled: false,
+  shipLoopAssistantEnabled: false,
+  shipLoopResolvedArtifactLookbackHours: DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
 };
 
 // ---------------------------------------------------------------------------
@@ -273,6 +308,11 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
 /** Return value if it's in the allowed list, otherwise return fallback. */
 function validated(value: string | undefined, allowed: string[], fallback: string): string {
   return value && allowed.includes(value) ? value : fallback;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -324,6 +364,7 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const agenticAppsEnabled = process.env.AGENTIC_APPS_INSTALL_ENABLED === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -332,6 +373,12 @@ export function getServerConfig(): Config {
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
+  const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
+  const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
+  const shipLoopResolvedArtifactLookbackHours = positiveInteger(
+    env('SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS'),
+    DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
+  );
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -383,6 +430,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    agenticAppsEnabled,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
@@ -394,6 +442,9 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    shipLoopEnabled,
+    shipLoopAssistantEnabled,
+    shipLoopResolvedArtifactLookbackHours,
   };
 }
 

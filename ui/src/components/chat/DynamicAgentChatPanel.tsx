@@ -27,6 +27,8 @@ import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { buildChatClientContext } from "./client-context";
+import { SuggestedPromptChips } from "./SuggestedPromptChips";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -42,9 +44,16 @@ interface ChatPanelProps {
   agentName?: string; // Agent name for display
   agentSkills?: string[]; // Configured skill IDs for this agent
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
+  clientContext?: Record<string, unknown>; // Extra page/module context for the backend
+  suggestedPrompts?: string[]; // Optional prompt chips shown above the composer
+  suggestedPromptsInitiallyHidden?: boolean; // Whether prompt chips start collapsed
+  emptyStateTitle?: string; // Optional title for specialized/embedded chat views
+  emptyStateSubtitle?: string; // Optional subtitle for specialized/embedded chat views
+  surface?: "default" | "glass"; // Optional visual treatment for embedded surfaces
+  fontScale?: "compact" | "default" | "large"; // Optional embedded font scale
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages, clientContext: extraClientContext, suggestedPrompts, suggestedPromptsInitiallyHidden = false, emptyStateTitle, emptyStateSubtitle, surface = "default", fontScale = "default" }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -303,15 +312,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   useEffect(() => {
     // Skip if no conversationId (new conversation) or agentId
     if (!conversationId || !agentId) return;
-    
+
     // Wait for messages to be loaded (race condition on page refresh:
     // this effect can fire before ChatContainer finishes loading messages
     // from MongoDB, causing lastMsg to be undefined and recovery to fail)
     if (isLoadingMessages) return;
-    
+
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
-    
+
     // Mark as checked BEFORE async to prevent duplicate checks in Strict Mode
     interruptCheckedRef.current.add(conversationId);
 
@@ -831,10 +840,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     // Build client context for system prompt rendering and user_info tool
     const conv = getActiveConversation();
-    const clientContext: Record<string, unknown> = {
-      source: "webui",
-      ...(conv?.sharing && { chat_sharing: conv.sharing }),
-    };
+    const clientContext = buildChatClientContext(conv?.sharing, extraClientContext);
     clearStreamEvents(convId);
 
     // Add user message - generate turnId for this request/response pair
@@ -899,7 +905,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       // Set interrupted status on error — store auto-saves on streaming=null
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, extraClientContext]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1130,10 +1136,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     // Build client context for system prompt rendering and user_info tool
     const conv = getActiveConversation();
-    const clientContext: Record<string, unknown> = {
-      source: "webui",
-      ...(conv?.sharing && { chat_sharing: conv.sharing }),
-    };
+    const clientContext = buildChatClientContext(conv?.sharing, extraClientContext);
 
     // Send form data as discriminated resume payload
     const formDataJson = JSON.stringify({ type: "form_input", values: formData });
@@ -1173,8 +1176,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming,
-      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
+      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, getActiveConversation, extraClientContext]);
 
   // Handle tool approval decisions (approve/reject/edit)
   const handleToolApprovalDecision = useCallback(async (
@@ -1355,14 +1357,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
   };
 
+  const handleSuggestedPrompt = useCallback((prompt: string) => {
+    setInput(prompt);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, []);
+
   return (
-    <div className="h-full w-full flex flex-col bg-background relative">
+    <div
+      className={cn(
+        "h-full w-full flex flex-col relative",
+        surface === "glass" ? "bg-transparent" : "bg-background",
+        chatFontScaleClass(fontScale),
+      )}
+    >
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
-              <div className="text-center py-20">
+              <div className="text-center py-12 sm:py-16">
                 {isLoadingMessages ? (
                   <>
                     <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
@@ -1389,9 +1402,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                         </div>
                       );
                     })()}
-                    <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
+                    <h2 className="text-2xl font-bold mb-4">
+                      {emptyStateTitle ?? `Welcome to ${getConfig('appName')}`}
+                    </h2>
                     <p className="text-muted-foreground mb-3">
-                      Start your conversation with
+                      {emptyStateSubtitle ?? "Start your conversation with"}
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       {(() => {
@@ -1632,16 +1647,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 10 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-10"
+            className="absolute bottom-28 right-5 z-10"
           >
             <Button
+              aria-label="New messages"
               onClick={() => scrollToBottom("smooth")}
               size="sm"
               variant="secondary"
-              className="rounded-full shadow-lg border border-border/50 gap-1.5 px-4 hover:bg-primary hover:text-primary-foreground transition-colors"
+              className="h-7 rounded-full border border-border/40 bg-background/70 px-2.5 text-muted-foreground shadow-sm backdrop-blur-md gap-1 hover:bg-background/90 hover:text-foreground transition-colors"
             >
-              <ArrowDown className="h-4 w-4" />
-              <span className="text-xs font-medium">New messages</span>
+              <ArrowDown className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-medium leading-none">New</span>
             </Button>
           </motion.div>
         )}
@@ -1687,8 +1703,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           </div>
         </div>
       ) : (
-      <div className="border-t border-border bg-background shrink-0">
+      <div
+        className={cn(
+          "border-t shrink-0",
+          surface === "glass"
+            ? "border-cyan-200/20 bg-slate-950/20 backdrop-blur-2xl"
+            : "border-border bg-background",
+        )}
+      >
         <div className="max-w-7xl mx-auto px-6 py-3 space-y-2">
+          {suggestedPrompts && suggestedPrompts.length > 0 && !input.trim() && (
+            <SuggestedPromptChips
+              prompts={suggestedPrompts}
+              onSelect={handleSuggestedPrompt}
+              initiallyHidden={suggestedPromptsInitiallyHidden}
+            />
+          )}
+
           {/* Queued Messages Display */}
           {queuedMessages.length > 0 && (
             <div className="space-y-2">
@@ -1739,7 +1770,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               visible={showSlashMenu}
             />
 
-            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+            <div
+              className={cn(
+                "relative flex items-center gap-3 rounded-xl border p-3 transition-all duration-200",
+                surface === "glass"
+                  ? "border-cyan-200/30 bg-slate-950/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_0_30px_rgba(34,211,238,0.12)] backdrop-blur-2xl"
+                  : "border-border bg-card",
+              )}
+            >
               <TextareaAutosize
                 ref={inputRef}
                 value={input}
@@ -1838,6 +1876,32 @@ function filterEventsForTurn(
 
 const INITIAL_VISIBLE_TURNS = 3;
 const LOAD_MORE_BATCH_SIZE = 3;
+
+function chatFontScaleClass(
+  fontScale: NonNullable<ChatPanelProps["fontScale"]>,
+): string {
+  if (fontScale === "compact") {
+    return [
+      "[&_textarea]:text-[13px]",
+      "[&_p]:text-[12px]",
+      "[&_li]:text-[12px]",
+      "[&_span]:text-[12px]",
+      "[&_button]:text-[12px]",
+      "[&_h2]:text-xl",
+    ].join(" ");
+  }
+  if (fontScale === "large") {
+    return [
+      "[&_textarea]:text-base",
+      "[&_p]:text-[15px]",
+      "[&_li]:text-[15px]",
+      "[&_span]:text-[14px]",
+      "[&_button]:text-[13px]",
+      "[&_h2]:text-3xl",
+    ].join(" ");
+  }
+  return "";
+}
 
 interface Turn {
   userMsg?: ChatMessageType;

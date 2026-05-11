@@ -6,7 +6,7 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-29
+Auto-generated from all feature plans. Last updated: 2026-05-09
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
@@ -16,13 +16,17 @@ Auto-generated from all feature plans. Last updated: 2026-04-29
 - MongoDB (`skill_hubs`, optional `skills`, agent projections); filesystem `SKILLS_DIR`; in-process `StateBackend` for middleware (097-skills-middleware-integration)
 - Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind (097-skills-middleware-integration)
 - MongoDB (`agent_skills`, optional `skills`, `skill_hubs`, `catalog_api_keys`, `skill_scan_findings`); filesystem `SKILLS_DIR` for packaged defaults; in-process catalog cache with explicit generation counters (097-skills-middleware-integration)
-- Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional **`cisco-ai-skill-scanner`** CLI/package for hub/CI scans per [skill-scanner](https://github.com/cisco-ai-defense/skill-scanner) (097-skills-middleware-integration)
+- Python 3.11+ (supervisor, `skills_middleware`); TypeScript / Node 20+ (Next.js UI) + LangGraph, LangChain, `deepagents` (≥0.3.8, `SkillsMiddleware`), FastAPI, A2A protocol; Next.js 16, React 19, Tailwind; optional skill-scanner CLI/package for hub/CI scans (097-skills-middleware-integration)
 - Python 3.11+ + LangGraph, deepagents, LangChain, FastAPI (098-unify-single-distributed-binding)
 - MongoDB/Redis (checkpointer/store — unchanged by this feature) (098-unify-single-distributed-binding)
 - Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8) (098-unify-single-distributed-binding)
 - MongoDB (checkpoints, store), Redis (alternative checkpointer), InMemorySaver (fallback) (098-unify-single-distributed-binding)
 - TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware (fix/skills-ai-generate-use-dynamic-agents)
 - MongoDB collection `agent_skills` only (no new collection); chart-mounted `SKILL.md` + `metadata.json` for packaged templates (fix/skills-ai-generate-use-dynamic-agents)
+- TypeScript 5.x (Next.js 16, React 19) for the UI; Python 3.11+ for any new agent/webhook receiver hooks (none required for MVP — see research). (2026-05-05-agentic-sdlc-ship-loop-ui)
+- MongoDB (existing connection via `ui/src/lib/mongodb.ts → getCollection`). Three new collections: `ship_loop_repos`, `ship_loop_events`, `ship_loop_artifacts`. See `mongodb-migration.md`. (2026-05-05-agentic-sdlc-ship-loop-ui)
+- TypeScript 6.0.2 with Next.js 16.2.3 and React 19.2.4 for the UI host and SDK/UI kit; Node 20+ runtime for local reference app servers; Python 3.11+ remains available for existing CAIPE agent/backend services but is not required for the first host-platform slice. + Next.js App Router route handlers, NextAuth, MongoDB Node driver 7.1.1, `jose` 6.2.2 for app-scoped JWTs, existing `@/lib/api-middleware`, existing `@/lib/agentic-apps/*`, existing `@octokit/webhooks` patterns for provider webhook tests, Jest and Testing Library. (2026-05-09-external-agentic-apps)
+- MongoDB via `ui/src/lib/mongodb.ts`. Existing collections `agentic_app_packages`, `agentic_app_installations`, and `agentic_app_events` are extended; new collections are introduced for PDP decision audit, app token records or revocation metadata, webhook deliveries, assistant context snapshots, and optional health snapshots. (2026-05-09-external-agentic-apps)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -42,9 +46,9 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
+- 2026-05-09-external-agentic-apps: Added TypeScript 6.0.2 with Next.js 16.2.3 and React 19.2.4 for the UI host and SDK/UI kit; Node 20+ runtime for local reference app servers; Python 3.11+ remains available for existing CAIPE agent/backend services but is not required for the first host-platform slice. + Next.js App Router route handlers, NextAuth, MongoDB Node driver 7.1.1, `jose` 6.2.2 for app-scoped JWTs, existing `@/lib/api-middleware`, existing `@/lib/agentic-apps/*`, existing `@octokit/webhooks` patterns for provider webhook tests, Jest and Testing Library.
+- 2026-05-05-agentic-sdlc-ship-loop-ui: Added TypeScript 5.x (Next.js 16, React 19) for the UI; Python 3.11+ for any new agent/webhook receiver hooks (none required for MVP — see research).
 - fix/skills-ai-generate-use-dynamic-agents: Added TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware
-- fix/skills-ai-generate-use-dynamic-agents: Added TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware
-- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -282,6 +282,11 @@ const sidebars: SidebarsConfig = {
         { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
         { type: 'doc', id: 'features/byo-agents', label: 'BYO A2A & MCP Servers' },
         {
+          type: 'doc',
+          id: 'features/agentic-apps',
+          label: 'Agentic Apps',
+        },
+        {
           type: 'category',
           label: 'Rich Web UI',
           items: [

@@ -125,8 +125,16 @@ docs/_build/
 
 # Logs
 *.log
+*.log*
 
 # Environment variables
 .env
 .env.local
 .env.*.local
+.env*
+
+# Node.js / UI build outputs
+node_modules/
+**/node_modules/
+dist/
+coverage/

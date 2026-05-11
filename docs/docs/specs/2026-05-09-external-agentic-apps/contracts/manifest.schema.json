@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caipe.dev/schemas/agentic-app-manifest-1.0.json",
+  "title": "CAIPE Agentic App Manifest",
+  "type": "object",
+  "required": ["id", "apiVersion", "displayName", "description", "runtime", "surfaces", "access", "health"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
+    "apiVersion": {
+      "const": "1.0"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["kind", "mountPath"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["proxied-next-zone", "iframe-sandboxed", "web-component", "in-process"]
+        },
+        "origin": {
+          "type": "string",
+          "format": "uri"
+        },
+        "mountPath": {
+          "type": "string",
+          "pattern": "^/apps/[a-z0-9][a-z0-9-]*(/.*)?$"
+        },
+        "assetPrefix": {
+          "type": "string"
+        },
+        "preserveMountPath": {
+          "type": "boolean"
+        },
+        "chrome": {
+          "enum": ["fullscreen", "iframe"]
+        }
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "required": ["showInHub"],
+      "additionalProperties": false,
+      "properties": {
+        "showInHub": { "type": "boolean" },
+        "showInTopNav": { "type": "boolean" },
+        "navOrder": { "type": "number" },
+        "homeEligible": { "type": "boolean" },
+        "overlays": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "required": ["tokenScopes"],
+      "additionalProperties": false,
+      "properties": {
+        "requiredRoles": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "requiredGroups": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "tokenScopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "canUseCustomAgents": { "type": "boolean" },
+        "policyActions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["action"],
+            "additionalProperties": false,
+            "properties": {
+              "action": { "type": "string" },
+              "description": { "type": "string" },
+              "defaultEffect": { "enum": ["allow", "deny"] }
+            }
+          }
+        }
+      }
+    },
+    "assistant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "schemaVersions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "maxContextBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "capability": { "type": "string" },
+        "suggestions": { "type": "boolean" }
+      }
+    },
+    "webhooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["provider", "channel", "upstreamPath", "allowedMethods", "verificationOwner", "maxBodyBytes"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": { "type": "string" },
+          "channel": { "type": "string" },
+          "upstreamPath": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "allowedMethods": {
+            "type": "array",
+            "items": { "enum": ["POST", "PUT"] },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "verificationOwner": {
+            "enum": ["app", "caipe"]
+          },
+          "preservedHeaders": {
+            "type": "array",
+            "items": { "type": "string" },
+            "uniqueItems": true
+          },
+          "maxBodyBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10485760
+          },
+          "policyAction": { "type": "string" }
+        }
+      },
+      "uniqueItems": true
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "apiBasePath": { "type": "string" },
+        "eventChannels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "mongoCollections": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "required": ["endpoint"],
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 30000
+        },
+        "blockLaunchWhen": {
+          "type": "array",
+          "items": { "enum": ["unknown", "degraded", "unreachable"] },
+          "uniqueItems": true
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "icon": { "type": "string" },
+        "supportUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "compatibility": { "type": "string" }
+      }
+    }
+  }
+}

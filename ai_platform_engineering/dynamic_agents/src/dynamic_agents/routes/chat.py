@@ -34,6 +34,7 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    client_context: ClientContext | None = Field(None, description="Opaque client context for resumed turns")
 
 
 async def _generate_sse_events(
@@ -163,6 +164,7 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    client_context: ClientContext | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -184,6 +186,7 @@ async def _generate_resume_sse_events(
             mcp_servers,
             session_id,
             user=user,
+            client_context=client_context,
         )
 
         # Resume streaming with form data
@@ -248,6 +251,7 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            client_context=request.client_context,
         ),
         media_type="text/event-stream",
         headers={
@@ -323,10 +327,19 @@ async def chat_invoke(
                     },
                 )
 
+            get_structured_response = getattr(runtime, "get_structured_response", None)
+            get_structured_response_schema_id = getattr(runtime, "get_structured_response_schema_id", None)
+            structured_output = get_structured_response() if callable(get_structured_response) else None
+            structured_output_schema_id = (
+                get_structured_response_schema_id() if callable(get_structured_response_schema_id) else None
+            )
+
             return {
                 "success": True,
                 "content": encoder.get_accumulated_content(),
                 "thinking": encoder.get_thinking_content() or None,
+                "structured_output": structured_output,
+                "structured_output_schema_id": structured_output_schema_id,
                 "agent_id": agent.id,
                 "conversation_id": request.conversation_id,
                 "trace_id": request.trace_id,

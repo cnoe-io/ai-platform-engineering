@@ -1,0 +1,18 @@
+{
+  "//": "Tsconfig used by ts-node when running scripts under ui/scripts/.",
+  "//1": "The project tsconfig (../tsconfig.json) targets the Next.js bundler",
+  "//2": "and uses moduleResolution=bundler, which ts-node cannot execute.",
+  "//3": "These options keep the scripts directory self-contained.",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "target": "ES2020",
+    "rootDir": "."
+  },
+  "include": ["./**/*.ts"]
+}

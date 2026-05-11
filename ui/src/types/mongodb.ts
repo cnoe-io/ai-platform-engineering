@@ -182,6 +182,7 @@ export interface UserSettings {
     show_thinking_enabled: string;
     auto_scroll_enabled: string;
     show_timestamps_enabled: string;
+    favorite_agentic_apps?: string[];
   };
   notifications: {
     email_enabled: boolean;
@@ -213,6 +214,7 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
     show_thinking_enabled: 'true',
     auto_scroll_enabled: 'true',
     show_timestamps_enabled: 'false',
+    favorite_agentic_apps: [],
   },
   notifications: {
     email_enabled: true,

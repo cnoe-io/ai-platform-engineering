@@ -7,14 +7,17 @@ configured per-agent with access controls (e.g., domain restrictions).
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
 from langgraph.store.base import GetOp, PutOp
+from pymongo import MongoClient
+from pymongo.database import Database
 
+from dynamic_agents.config import get_settings
 from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
 
 logger = logging.getLogger(__name__)
@@ -86,6 +89,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             name="Self Identity",
             description="Returns this agent's identity and configuration — the agent MUST use this to know who it is",
             enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="agentic_sdlc_query",
+            name="Agentic SDLC Query",
+            description="Read-only access to Agentic SDLC repo, Epic, and recent event state",
+            enabled_by_default=False,
             config_fields=[],
         ),
     ]
@@ -543,6 +553,223 @@ def create_self_identity_tool(
     return self_identity
 
 
+def create_agentic_sdlc_query_tool(
+    client_context: dict | None = None,
+    mongo_client: MongoClient | None = None,
+):
+    """Create a read-only Agentic SDLC query tool.
+
+    The tool only reads projected Agentic SDLC collections and defaults to
+    repo/Epic identifiers from page context when present.
+    """
+
+    @tool
+    def agentic_sdlc_query(
+        query: Literal["repo_summary", "recent_events", "epic_state"],
+        owner: str = "",
+        repo: str = "",
+        epic_id: str = "",
+        minutes: int = 10,
+    ) -> dict[str, Any]:
+        """Query read-only Agentic SDLC state for the active repo or Epic.
+
+        Args:
+            query: One of repo_summary, recent_events, or epic_state.
+            owner: GitHub owner. Defaults from current Agentic SDLC page context.
+            repo: GitHub repo. Defaults from current Agentic SDLC page context.
+            epic_id: Epic node/id for epic_state. Defaults from page context.
+            minutes: Lookback window for recent_events, capped at 240 minutes.
+        """
+        ctx = client_context or {}
+        owner_name = owner or str(ctx.get("owner") or "")
+        repo_name = repo or str(ctx.get("repo") or "")
+        requested_epic_id = epic_id or str(ctx.get("epicId") or "")
+
+        if not owner_name or not repo_name:
+            return {
+                "error": "missing_repo",
+                "message": "Provide owner and repo, or open the assistant from an Agentic SDLC repo page.",
+            }
+
+        db = _agentic_sdlc_database(mongo_client)
+        repo_doc = db.ship_loop_repos.find_one(
+            {"owner": owner_name, "name": repo_name, "offboarded_at": None},
+            {"_id": 0},
+        )
+        if not repo_doc:
+            return {
+                "error": "repo_not_onboarded",
+                "repo": f"{owner_name}/{repo_name}",
+            }
+
+        repo_id = repo_doc["repo_id"]
+
+        if query == "repo_summary":
+            return _query_agentic_sdlc_repo_summary(db, repo_doc)
+        if query == "recent_events":
+            return _query_agentic_sdlc_recent_events(db, repo_id, minutes)
+        if query == "epic_state":
+            if not requested_epic_id:
+                return {"error": "missing_epic_id"}
+            return _query_agentic_sdlc_epic_state(db, repo_id, requested_epic_id)
+
+        return {"error": "unsupported_query", "query": query}
+
+    return agentic_sdlc_query
+
+
+def _agentic_sdlc_database(mongo_client: MongoClient | None) -> Database:
+    settings = get_settings()
+    client = mongo_client or MongoClient(settings.mongodb_uri, tz_aware=True)
+    return client[settings.mongodb_database]
+
+
+def _query_agentic_sdlc_repo_summary(db: Database, repo_doc: dict[str, Any]) -> dict[str, Any]:
+    repo_id = repo_doc["repo_id"]
+    artifacts = db.ship_loop_artifacts
+    by_kind = {
+        row["_id"]: row["count"]
+        for row in artifacts.aggregate(
+            [
+                {"$match": {"repo_id": repo_id}},
+                {"$group": {"_id": "$kind", "count": {"$sum": 1}}},
+            ]
+        )
+    }
+    by_stage = {
+        row["_id"]: row["count"]
+        for row in artifacts.aggregate(
+            [
+                {"$match": {"repo_id": repo_id, "state": {"$ne": "closed"}}},
+                {"$group": {"_id": "$current_stage", "count": {"$sum": 1}}},
+            ]
+        )
+    }
+    recent_epics = list(
+        artifacts.find(
+            {"repo_id": repo_id, "kind": "epic"},
+            {
+                "_id": 0,
+                "artifact_id": 1,
+                "title": 1,
+                "current_stage": 1,
+                "needs_human": 1,
+                "last_event_at": 1,
+                "github_url": 1,
+            },
+            sort=[("last_event_at", -1)],
+            limit=5,
+        )
+    )
+    return {
+        "repo": repo_doc["full_name"],
+        "webhook_status": repo_doc.get("webhook_status"),
+        "webhook_last_event_at": _iso(repo_doc.get("webhook_last_event_at")),
+        "counts_by_kind": by_kind,
+        "counts_by_stage": by_stage,
+        "recent_epics": [_json_safe(row) for row in recent_epics],
+    }
+
+
+def _query_agentic_sdlc_recent_events(
+    db: Database,
+    repo_id: str,
+    minutes: int,
+) -> dict[str, Any]:
+    bounded_minutes = max(1, min(minutes, 240))
+    since = datetime.now(timezone.utc).timestamp() - (bounded_minutes * 60)
+    since_dt = datetime.fromtimestamp(since, tz=timezone.utc)
+    rows = list(
+        db.ship_loop_events.find(
+            {"repo_id": repo_id, "occurred_at": {"$gte": since_dt}},
+            {
+                "_id": 0,
+                "github_event_type": 1,
+                "github_action": 1,
+                "artifact_kind": 1,
+                "artifact_id": 1,
+                "epic_id": 1,
+                "actor_kind": 1,
+                "actor_login": 1,
+                "occurred_at": 1,
+                "projection_status": 1,
+            },
+            sort=[("occurred_at", -1)],
+            limit=50,
+        )
+    )
+    artifacts = list(
+        db.ship_loop_artifacts.find(
+            {"repo_id": repo_id, "last_event_at": {"$gte": since_dt}},
+            {
+                "_id": 0,
+                "kind": 1,
+                "artifact_id": 1,
+                "epic_id": 1,
+                "title": 1,
+                "current_stage": 1,
+                "state": 1,
+                "github_url": 1,
+                "last_event_at": 1,
+            },
+            sort=[("last_event_at", -1)],
+            limit=50,
+        )
+    )
+    return {
+        "minutes": bounded_minutes,
+        "events": [_json_safe(row) for row in rows],
+        "recent_artifacts": [_json_safe(row) for row in artifacts],
+    }
+
+
+def _query_agentic_sdlc_epic_state(
+    db: Database,
+    repo_id: str,
+    epic_id: str,
+) -> dict[str, Any]:
+    epic = db.ship_loop_artifacts.find_one(
+        {"repo_id": repo_id, "kind": "epic", "artifact_id": epic_id},
+        {"_id": 0},
+    )
+    children = list(
+        db.ship_loop_artifacts.find(
+            {"repo_id": repo_id, "epic_id": epic_id, "kind": {"$ne": "epic"}},
+            {
+                "_id": 0,
+                "kind": 1,
+                "artifact_id": 1,
+                "title": 1,
+                "current_stage": 1,
+                "state": 1,
+                "needs_human": 1,
+                "github_url": 1,
+                "last_event_at": 1,
+            },
+            sort=[("last_event_at", -1)],
+            limit=100,
+        )
+    )
+    return {
+        "epic": _json_safe(epic) if epic else None,
+        "children": [_json_safe(row) for row in children],
+    }
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    return value
+
+
+def _iso(value: Any) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
 def create_format_file_tool(store, namespace_factory):
     """Create a format_file tool that reformats single-line files into multi-line.
 
@@ -630,6 +857,7 @@ def create_format_file_tool(store, namespace_factory):
 
 
 __all__ = [
+    "create_agentic_sdlc_query_tool",
     "create_fetch_url_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",

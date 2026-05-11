@@ -53,3 +53,8 @@ if (typeof global.TextEncoder === 'undefined') {
   global.TextEncoder = TextEncoder
   global.TextDecoder = TextDecoder
 }
+
+// Web Fetch globals (Request/Response/Headers/fetch) come from Node 20+
+// natively. Tests that need them in a jsdom env should use a per-file
+// `@jest-environment node` directive (jsdom doesn't ship these); see
+// `src/__tests__/ship-loop/guard.test.ts` for an example.
