@@ -2,7 +2,7 @@
 # Live monitor for the Agentic SDLC webhook pipeline.
 #
 # Watches all four hops simultaneously:
-#   ① SQS queue depth (cross-account, via assumed reader role)
+#   ① SQS queue depth (direct credentials or optional assumed reader role)
 #   ② github-webhook-receiver container logs (SQS poll + forward)
 #   ③ caipe-ui webhook route activity
 #   ④ MongoDB ship_loop_events + ship_loop_artifacts (new docs and recent stage transitions)
@@ -18,7 +18,7 @@
 # Dependencies (all already in CAIPE dev env):
 #   - docker compose, docker logs
 #   - mongosh inside caipe-mongodb-dev
-#   - aws cli on host (with creds that can AssumeRole into the reader role)
+#   - aws cli on host (with creds that can read the queue or assume a reader role)
 
 set -euo pipefail
 
@@ -41,9 +41,11 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-QUEUE_URL="https://sqs.us-east-2.amazonaws.com/626007623524/github-webhook-sqs"
-ROLE_ARN="arn:aws:iam::626007623524:role/caipe-local-github-webhook-sqs-reader"
-EXTERNAL_ID="caipe-local-github-webhook-forwarder"
+QUEUE_URL="${GITHUB_WEBHOOK_SQS_QUEUE_URL:-}"
+QUEUE_NAME="${GITHUB_WEBHOOK_SQS_QUEUE:-}"
+AWS_REGION_FOR_QUEUE="${GITHUB_WEBHOOK_AWS_REGION:-${AWS_REGION:-us-east-1}}"
+ROLE_ARN="${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}"
+EXTERNAL_ID="${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}"
 
 # --- ANSI helpers -----------------------------------------------------------
 if [[ -t 1 ]]; then
@@ -57,21 +59,35 @@ fi
 # Cache STS creds across iterations; only re-assume when expired (~55min).
 TMP_STS="${TMPDIR:-/tmp}/.caipe-monitor-sts"
 sts_refresh() {
+  if [[ -z "$ROLE_ARN" ]]; then
+    rm -f "$TMP_STS"
+    return 0
+  fi
+
   # Load base creds from .env
   set +u
   source <(grep -E '^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_REGION)=' .env | sed 's/^/export /')
   set -u
   unset AWS_SESSION_TOKEN
-  AWS_DEFAULT_REGION="${AWS_REGION:-us-east-2}" \
-  aws sts assume-role \
-    --role-arn "$ROLE_ARN" \
-    --role-session-name caipe-monitor \
-    --external-id "$EXTERNAL_ID" \
-    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken,Expiration]' \
-    --output text 2>/dev/null > "$TMP_STS" || true
+  local assume_args=(
+    sts assume-role
+    --role-arn "$ROLE_ARN"
+    --role-session-name caipe-monitor
+    --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken,Expiration]'
+    --output text
+  )
+  if [[ -n "$EXTERNAL_ID" ]]; then
+    assume_args+=(--external-id "$EXTERNAL_ID")
+  fi
+  AWS_DEFAULT_REGION="$AWS_REGION_FOR_QUEUE" aws "${assume_args[@]}" 2>/dev/null > "$TMP_STS" || true
 }
 
 sts_load() {
+  export AWS_DEFAULT_REGION="$AWS_REGION_FOR_QUEUE"
+  if [[ -z "$ROLE_ARN" ]]; then
+    return 0
+  fi
+
   if [[ ! -s "$TMP_STS" ]] || [[ $(find "$TMP_STS" -mmin +50 2>/dev/null | wc -l) -gt 0 ]]; then
     sts_refresh
   fi
@@ -80,14 +96,23 @@ sts_load() {
     export AWS_ACCESS_KEY_ID="$AKI"
     export AWS_SECRET_ACCESS_KEY="$SAK"
     export AWS_SESSION_TOKEN="$STK"
-    export AWS_DEFAULT_REGION=us-east-2
+    export AWS_DEFAULT_REGION="$AWS_REGION_FOR_QUEUE"
   fi
 }
 
 queue_depth() {
   sts_load
+  local queue_url="$QUEUE_URL"
+  if [[ -z "$queue_url" && -n "$QUEUE_NAME" ]]; then
+    queue_url="$(aws sqs get-queue-url --queue-name "$QUEUE_NAME" --query QueueUrl --output text 2>/dev/null || true)"
+  fi
+  if [[ -z "$queue_url" ]]; then
+    echo "(queue not configured)"
+    return 0
+  fi
+
   aws sqs get-queue-attributes \
-    --queue-url "$QUEUE_URL" \
+    --queue-url "$queue_url" \
     --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible ApproximateNumberOfMessagesDelayed \
     --output json 2>/dev/null \
   | python3 -c '

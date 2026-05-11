@@ -1545,28 +1545,23 @@ services:
     env_file:
       - .env
     environment:
-      # Region override — the SQS queue lives in us-east-2 regardless of any
-      # other CAIPE service's default region.
-      - AWS_REGION=${GITHUB_WEBHOOK_AWS_REGION:-us-east-2}
-      - SQS_QUEUE_NAME=${GITHUB_WEBHOOK_SQS_QUEUE:-github-webhook-sqs}
+      # Region and queue are operator-provided so this example stays portable.
+      - AWS_REGION=${GITHUB_WEBHOOK_AWS_REGION:-us-east-1}
+      - SQS_QUEUE_NAME=${GITHUB_WEBHOOK_SQS_QUEUE:-}
       - CAIPE_WEBHOOK_URL=${GITHUB_WEBHOOK_FORWARD_URL:-http://caipe-ui:3000/api/agentic-sdlc/webhooks/github}
       - RECEIVER_BATCH_SIZE=${GITHUB_WEBHOOK_BATCH_SIZE:-10}
       - RECEIVER_WAIT_SECONDS=${GITHUB_WEBHOOK_WAIT_SECONDS:-20}
       - RECEIVER_REQUEST_TIMEOUT=${GITHUB_WEBHOOK_REQUEST_TIMEOUT:-15}
       - LOG_LEVEL=${GITHUB_WEBHOOK_LOG_LEVEL:-INFO}
       - LOG_PAYLOAD=${GITHUB_WEBHOOK_LOG_PAYLOAD:-0}
-      # Base credentials: the shared CAIPE IAM user (or its dedicated
-      # overrides). These keys grant `sts:AssumeRole` on the queue-reader
-      # role below — they do NOT themselves have SQS access.
+      # Base credentials: use dedicated overrides when the shared credentials
+      # should not talk to the queue directly.
       - AWS_ACCESS_KEY_ID=${GITHUB_WEBHOOK_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
       - AWS_SECRET_ACCESS_KEY=${GITHUB_WEBHOOK_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
       - AWS_SESSION_TOKEN=${GITHUB_WEBHOOK_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}
-      # Cross-account assume-role hop. Default values match the canonical
-      # caipe-local-github-webhook-sqs-reader role in the queue-owning
-      # account (626007623524). Unset AWS_ASSUME_ROLE_ARN to skip the hop
-      # and talk to SQS directly with the base credentials.
-      - AWS_ASSUME_ROLE_ARN=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-arn:aws:iam::626007623524:role/caipe-local-github-webhook-sqs-reader}
-      - AWS_ASSUME_ROLE_EXTERNAL_ID=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-caipe-local-github-webhook-forwarder}
+      # Optional assume-role hop for queues that require a separate reader role.
+      - AWS_ASSUME_ROLE_ARN=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}
+      - AWS_ASSUME_ROLE_EXTERNAL_ID=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}
       - AWS_ASSUME_ROLE_SESSION_NAME=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_SESSION_NAME:-caipe-github-webhook-receiver}
       - AWS_ASSUME_ROLE_DURATION_SECONDS=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_DURATION_SECONDS:-3600}
     # No hard `depends_on: caipe-ui` so this service is usable across compose

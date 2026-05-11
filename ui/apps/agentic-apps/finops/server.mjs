@@ -92,7 +92,7 @@ function buildFinOpsAgentPlan() {
       forecastCost: 1567.89,
       services: [{ name: "Amazon EC2", amount: 500.0 }],
       trend: [{ date: "2026-05-01", amount: 123.45 }],
-      rawCost: [{ date: "2026-05-01", service: "Amazon EC2", account: "123456789012", amount: 123.45, unit: "USD" }],
+      rawCost: [{ date: "2026-05-01", service: "Amazon EC2", account: "example-account", amount: 123.45, unit: "USD" }],
       anomalies: [{ service: "Amazon EC2", impact: 120.0, explanation: "Short explanation" }],
       recommendations: ["Actionable recommendation"],
     },
