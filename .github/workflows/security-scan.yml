@@ -91,6 +91,7 @@ jobs:
           - ai-platform-engineering
           # UI
           - caipe-ui
+          - caipe-agentic-app-runtime
           # Dynamic agents runtime
           - caipe-dynamic-agents
           # Bots
