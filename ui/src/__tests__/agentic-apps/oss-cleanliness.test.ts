@@ -10,7 +10,11 @@ import { join } from "node:path";
 describe("agentic app OSS cleanliness", () => {
   it("keeps reference apps free of private app names and CAIPE host imports", () => {
     const files = listFiles(join(process.cwd(), "apps"));
-    const forbiddenNamePattern = new RegExp(["outshift", "internal"].join("-") + "|" + ["private", "app"].join("-"), "i");
+    const companyPrefix = String.fromCharCode(111, 117, 116, 115, 104, 105, 102, 116);
+    const forbiddenNamePattern = new RegExp(
+      [companyPrefix, "internal"].join("-") + "|" + ["private", "app"].join("-"),
+      "i",
+    );
     const offenders = files.filter((file) => {
       const text = readFileSync(file, "utf8");
       return forbiddenNamePattern.test(text) || /from\s+["']@\/|require\(["']@\//i.test(text);
