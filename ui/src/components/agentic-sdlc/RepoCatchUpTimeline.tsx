@@ -126,6 +126,31 @@ export function RepoCatchUpTimeline({ owner, repo }: RepoCatchUpTimelineProps) {
     [owner, repo],
   );
 
+  const restartReplay = useCallback(() => {
+    setIsPlaying(false);
+    setActiveIndex(0);
+    const firstSnapshot = snapshots[0];
+    if (firstSnapshot) {
+      dispatchReplaySnapshot(firstSnapshot);
+    } else {
+      stopReplay(false);
+    }
+  }, [dispatchReplaySnapshot, snapshots, stopReplay]);
+
+  useEffect(() => {
+    function onBoardReplayStop(event: Event) {
+      const detail = (event as CustomEvent<{ owner?: string; repo?: string }>).detail;
+      if (detail?.owner === owner && detail?.repo === repo) {
+        setIsPlaying(false);
+        setActiveIndex(0);
+      }
+    }
+    window.addEventListener("agentic-sdlc:board-replay-stop", onBoardReplayStop);
+    return () => {
+      window.removeEventListener("agentic-sdlc:board-replay-stop", onBoardReplayStop);
+    };
+  }, [owner, repo]);
+
   useEffect(() => {
     if (!isPlaying) return;
     const snapshot = snapshots[activeIndex];
@@ -288,10 +313,7 @@ export function RepoCatchUpTimeline({ owner, repo }: RepoCatchUpTimelineProps) {
           <button
             type="button"
             disabled={snapshots.length === 0}
-            onClick={() => {
-              setIsPlaying(false);
-              setActiveIndex(0);
-            }}
+            onClick={restartReplay}
             className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/40 px-2.5 text-[11px] text-muted-foreground transition hover:bg-background/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden />

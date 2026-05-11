@@ -9,6 +9,7 @@ on:
       - "ui/package.json"
       - "ui/package-lock.json"
       - "build/Dockerfile.agentic-app"
+      - "docker-compose.dev.yaml"
       - ".github/workflows/ci-agentic-app-runtime.yml"
       - ".github/workflows/prebuild-agentic-app-runtime.yml"
 

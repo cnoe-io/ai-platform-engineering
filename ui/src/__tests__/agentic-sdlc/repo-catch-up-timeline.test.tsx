@@ -87,6 +87,8 @@ describe("RepoCatchUpTimeline", () => {
         }),
       ),
     );
+    fireEvent.click(screen.getByRole("button", { name: /restart/i }));
+    await waitFor(() => expect(snapshotSpy).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
     await waitFor(() =>
       expect(stopSpy).toHaveBeenCalledWith(

@@ -234,7 +234,7 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
         {replaySnapshot ? (
           <HistoricalReplayBanner
             snapshot={replaySnapshot}
-            onReturnToLive={() => setReplaySnapshot(null)}
+            onReturnToLive={() => returnToLive(owner, repo)}
           />
         ) : null}
         <DoneIssuesToggle
@@ -282,7 +282,7 @@ export function RepoSwimLanes({ owner, repo, className }: RepoSwimLanesProps) {
             <div className="mb-2">
               <HistoricalReplayBanner
                 snapshot={replaySnapshot}
-                onReturnToLive={() => setReplaySnapshot(null)}
+                onReturnToLive={() => returnToLive(owner, repo)}
               />
             </div>
           ) : null}
@@ -466,6 +466,14 @@ function HistoricalReplayBanner({
         Return to live
       </button>
     </div>
+  );
+}
+
+function returnToLive(owner: string, repo: string): void {
+  window.dispatchEvent(
+    new CustomEvent("agentic-sdlc:board-replay-stop", {
+      detail: { owner, repo },
+    }),
   );
 }
 
