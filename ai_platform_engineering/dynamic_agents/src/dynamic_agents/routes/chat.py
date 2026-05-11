@@ -4,15 +4,15 @@ import logging
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
-from dynamic_agents.services.runtime_cache import get_runtime_cache
-from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runtime_cache
+from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class ResumeStreamRequest(BaseModel):
 
     agent_id: str
     conversation_id: str
-    form_data: str  # JSON string of form values, or rejection message
+    resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
 
@@ -75,6 +75,10 @@ async def _generate_sse_events(
         async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
             yield frame
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity: {e}")
+        for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
+            yield frame
     except Exception as e:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
         for frame in encoder.on_run_error(str(e)):
@@ -155,7 +159,7 @@ async def _generate_resume_sse_events(
     mcp_servers: list,
     session_id: str,
     user: UserContext,
-    form_data: str,
+    resume_data: str,
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
@@ -183,9 +187,13 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, form_data, trace_id, encoder):
+        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
             yield frame
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity: {e}")
+        for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
+            yield frame
     except Exception as e:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
         for frame in encoder.on_run_error(str(e)):
@@ -198,11 +206,13 @@ async def chat_resume_stream(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> StreamingResponse:
-    """Resume an interrupted stream after user provides form input.
+    """Resume an interrupted stream after user provides input or approval.
 
-    Called after the agent emitted an input_required event. The form_data
-    should be a JSON string of the form values, or a rejection message
-    if the user dismissed the form.
+    Called after the agent emitted an input_required event. The resume_data
+    should be a JSON string with a type discriminator:
+    - {"type": "form_input", "values": {...}} for form submissions
+    - {"type": "form_input", "dismissed": true} for form dismissals
+    - {"type": "tool_approval", "decision": "approve"|"reject"|"edit", ...}
 
     Body field ``protocol`` selects the wire format:
         - "custom" (default): legacy SSE event types
@@ -234,7 +244,7 @@ async def chat_resume_stream(
             mcp_servers=mcp_servers,
             session_id=request.conversation_id,
             user=user,
-            form_data=request.form_data,
+            resume_data=request.resume_data,
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
@@ -278,39 +288,62 @@ async def chat_invoke(
     cache.set_mongo_service(mongo)
 
     try:
-        runtime = await cache.get_or_create(
+        async with cache.ephemeral(
             agent,
             mcp_servers,
             request.conversation_id,
             user=user,
             client_context=request.client_context,
-        )
+        ) as runtime:
+            # Use custom encoder for invoke — we just need accumulated content
+            encoder = get_encoder("custom")
 
-        # Use custom encoder for invoke — we just need accumulated content
-        encoder = get_encoder("custom")
+            async for _frame in runtime.stream(
+                request.message, request.conversation_id, user.email, request.trace_id, encoder
+            ):
+                pass  # Frames are SSE strings, we don't need them for invoke
 
-        async for _frame in runtime.stream(
-            request.message, request.conversation_id, user.email, request.trace_id, encoder
-        ):
-            pass  # Frames are SSE strings, we don't need them for invoke
+            # Check if the agent was interrupted (HITL: tool approval or user input form)
+            interrupt = await runtime.has_pending_interrupt(request.conversation_id)
+            if interrupt:
+                interrupt_type = interrupt.get("type", "unknown")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": (
+                            "Agent requires human interaction which is not supported via the invoke endpoint. "
+                            "Use the streaming chat endpoint or consider disabling tool approvals "
+                            "and the user input tool for this agent."
+                        ),
+                        "interrupt_type": interrupt_type,
+                        "agent_id": agent.id,
+                        "conversation_id": request.conversation_id,
+                        "trace_id": request.trace_id,
+                    },
+                )
 
-        return {
-            "success": True,
-            "content": encoder.get_accumulated_content(),
-            "agent_id": agent.id,
-            "conversation_id": request.conversation_id,
-            "trace_id": request.trace_id,
-        }
+            return {
+                "success": True,
+                "content": encoder.get_accumulated_content(),
+                "thinking": encoder.get_thinking_content() or None,
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            }
 
-    except Exception:
+    except Exception as e:
         logger.exception(f"Error invoking agent '{agent.name}'")
-        return {
-            "success": False,
-            "error": "An internal error occurred while invoking the agent.",
-            "agent_id": agent.id,
-            "conversation_id": request.conversation_id,
-            "trace_id": request.trace_id,
-        }
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
 
 
 @router.post("/restart-runtime")

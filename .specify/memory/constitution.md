@@ -25,7 +25,7 @@ Favor composition and dependency injection over class hierarchies. Keep modules 
 
 ### V. Specs as Source of Truth
 
-All features start as a specification in `docs/docs/specs/<###-feature-name>/`. Code serves the spec. The spec-driven workflow (specify → plan → tasks → implement) is the standard development process. Details in `.specify/SPECS.md`.
+All features start as a specification in `docs/docs/specs/<YYYY-MM-DD-feature-name>/`. Code serves the spec. The spec-driven workflow (specify → plan → tasks → implement) is the standard development process. Details in `.specify/SPECS.md`.
 
 ### VI. CI Gates Are Non-Negotiable
 

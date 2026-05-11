@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, User, Bot, ChevronLeft, ChevronRight, ThumbsUp, ThumbsDown, Tag, Share2, ExternalLink, Copy, Check } from "lucide-react";
+import { Loader2, User, Bot, ChevronLeft, ChevronRight, ThumbsUp, ThumbsDown, Tag, Share2, ExternalLink, Copy, Check, Trash2, FileText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -17,13 +17,15 @@ interface ConversationDetailDialogProps {
   conversationId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onDeleted?: (conversationId: string) => void;
 }
 
 interface ConversationDetail {
   conversation: Pick<
     Conversation,
     "_id" | "title" | "owner_id" | "created_at" | "updated_at" | "tags" | "sharing" | "is_archived" | "deleted_at"
-  >;
+  > & { agent_id?: string | null };
+  file_count: number;
   messages: {
     items: Message[];
     total: number;
@@ -37,18 +39,45 @@ export function ConversationDetailDialog({
   conversationId,
   open,
   onOpenChange,
+  onDeleted,
 }: ConversationDetailDialogProps) {
   const [data, setData] = useState<ConversationDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const copyId = () => {
     if (!conversationId) return;
     navigator.clipboard.writeText(conversationId);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const handleDeleteAll = async () => {
+    if (!conversationId) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `/api/admin/audit-logs/${encodeURIComponent(conversationId)}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Failed to delete");
+      onOpenChange(false);
+      onDeleted?.(conversationId);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   };
 
   const fetchMessages = useCallback(async (id: string, p: number) => {
@@ -75,6 +104,7 @@ export function ConversationDetailDialog({
     } else {
       setData(null);
       setError(null);
+      setConfirmDelete(false);
     }
   }, [open, conversationId, fetchMessages]);
 
@@ -152,6 +182,37 @@ export function ConversationDetailDialog({
                 </span>
               </>
             )}
+            {data?.file_count > 0 && (
+              <>
+                <span className="text-border">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <FileText className="h-3 w-3" />
+                  {data.file_count} file(s)
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {conv && (
+          <div className="shrink-0 flex items-center justify-between border-b pb-3">
+            <div className="text-xs text-muted-foreground">
+              {msgs ? `${msgs.total} message(s)` : ""}
+              {data?.file_count ? ` · ${data.file_count} file(s) in storage` : ""}
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteAll}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              {confirmDelete ? "Confirm Delete All" : "Delete All"}
+            </Button>
           </div>
         )}
 

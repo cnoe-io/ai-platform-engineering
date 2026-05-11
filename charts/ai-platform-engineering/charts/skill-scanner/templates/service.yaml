@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "skill-scanner.fullname" . }}
+  labels:
+    {{- include "skill-scanner.labels" . | nindent 4 }}
+spec:
+  # ClusterIP only — the scanner API is unauthenticated by design and
+  # must never be reachable outside the cluster. Do not add an Ingress
+  # resource for this Service.
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "skill-scanner.selectorLabels" . | nindent 4 }}

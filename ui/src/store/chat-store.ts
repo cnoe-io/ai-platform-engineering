@@ -1041,9 +1041,25 @@ const storeImplementation = (set: any, get: any) => ({
         }
 
         let savedCount = 0;
-        for (let i = 0; i < conv.messages.length; i++) {
-          const msg = conv.messages[i];
 
+        // Only save the current turn (last user message + last assistant message).
+        // Messages are append-only: older messages were already persisted by prior
+        // saveMessagesToServer calls. Re-saving them all is wasteful and causes
+        // request spam (one POST per message × every turn).
+        const lastAssistantMsg = lastAssistantIdx >= 0 ? conv.messages[lastAssistantIdx] : null;
+        const lastUserIdx = (() => {
+          for (let i = conv.messages.length - 1; i >= 0; i--) {
+            if (conv.messages[i].role === 'user') return i;
+          }
+          return -1;
+        })();
+        const lastUserMsg = lastUserIdx >= 0 ? conv.messages[lastUserIdx] : null;
+
+        const messagesToSave: { msg: typeof conv.messages[0]; idx: number }[] = [];
+        if (lastUserMsg) messagesToSave.push({ msg: lastUserMsg, idx: lastUserIdx });
+        if (lastAssistantMsg) messagesToSave.push({ msg: lastAssistantMsg, idx: lastAssistantIdx });
+
+        for (const { msg, idx } of messagesToSave) {
           // PERIODIC SAVE GUARD: Skip non-final assistant messages during
           // periodic saves. These messages contain intermediate streaming
           // content that would overwrite (poison) MongoDB. The correct final
@@ -1055,24 +1071,20 @@ const storeImplementation = (set: any, get: any) => ({
           }
 
           try {
-            // Determine A2A events for this message:
-            // 1. If the message already has per-message events, use those
-            // 2. If this is the last assistant message and conversation has events, use conv events
-            // 3. Otherwise, don't send events (leave existing events in MongoDB unchanged)
+            // Determine events for this message:
+            // Attach conversation-level events to the last assistant message.
             let serializedA2AEvents: Record<string, unknown>[] | undefined;
             let serializedStreamEvents: Record<string, unknown>[] | undefined;
 
             if (isDynamic) {
-              // Dynamic Agent: serialize stream events
-              if (i === lastAssistantIdx && convStreamEvents.length > 0) {
+              if (idx === lastAssistantIdx && convStreamEvents.length > 0) {
                 serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
                 console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
               }
             } else {
-              // A2A/Platform Engineer: serialize A2A events
               if (msg.events?.length > 0) {
                 serializedA2AEvents = msg.events.map(serializeA2AEvent);
-              } else if (i === lastAssistantIdx && convA2AEvents.length > 0) {
+              } else if (idx === lastAssistantIdx && convA2AEvents.length > 0) {
                 serializedA2AEvents = convA2AEvents.map(serializeA2AEvent);
                 console.log(`[ChatStore] Attaching ${convA2AEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
               }
@@ -1109,7 +1121,7 @@ const storeImplementation = (set: any, get: any) => ({
           }
         }
 
-        console.log(`[ChatStore] Upserted ${savedCount}/${conv.messages.length} messages to MongoDB`);
+        console.log(`[ChatStore] Upserted ${savedCount} messages (current turn) to MongoDB`);
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -1320,7 +1332,8 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
-            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData');
+            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData')
+              || streamEvents.some((e: any) => e.type === 'input_required');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",

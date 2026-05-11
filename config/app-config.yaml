@@ -13,11 +13,44 @@
 # ConfigMap, so the mounted YAML contains literal values.
 
 # ── Models ────────────────────────────────────────────────────────
-models: []
+# At least one model must be present for AI Assist (Skill description /
+# SKILL.md generation, Dynamic Agents builder) to function. The `model_id`
+# value MUST match what the configured provider expects:
+#
+#   aws-bedrock  → raw Bedrock modelId, e.g. "global.anthropic.claude-sonnet-4-6"
+#                  (NO "bedrock/" prefix — cnoe-agent-utils passes it straight
+#                  to boto3 and Bedrock will reject a prefixed string).
+#   openai       → OpenAI model name, e.g. "gpt-4o"
+#   azure-openai → Azure deployment name (matches AZURE_OPENAI_DEPLOYMENT)
+#   anthropic-claude → Anthropic model id, e.g. "claude-sonnet-4-5"
+#
+# `provider` must be one of the cnoe-agent-utils bindings.
+models:
+  # AWS Bedrock — Claude family (inference-profile IDs, "global." prefix).
+  # Requires AWS_REGION + AWS credentials (env or AWS_PROFILE) on the
+  # dynamic-agents container. Mirrors platform-apps-deployment caipe/dev.
+  - model_id: "global.anthropic.claude-sonnet-4-6"
+    name: "Claude Sonnet 4.6 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude Sonnet 4.6 via AWS Bedrock (default)"
+  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude Haiku 4.5 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Fast, efficient Claude 4.5 Haiku via AWS Bedrock"
+  - model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    name: "Claude Sonnet 4.5 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude Sonnet 4.5 via AWS Bedrock"
+  # Azure OpenAI — uncomment when AZURE_OPENAI_* envs are set on
+  # dynamic-agents. `model_id` must match the Azure deployment name.
   # - model_id: "gpt-4o"
-  #   name: "GPT-4o"
-  #   provider: "openai"
-  #   description: "OpenAI GPT-4o"
+  #   name: "GPT-4o (Azure)"
+  #   provider: "azure-openai"
+  #   description: "GPT-4o via Azure OpenAI"
+  # - model_id: "gpt-4o-mini"
+  #   name: "GPT-4o Mini (Azure)"
+  #   provider: "azure-openai"
+  #   description: "Fast, cost-effective GPT-4o Mini via Azure OpenAI"
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"

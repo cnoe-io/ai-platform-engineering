@@ -74,10 +74,10 @@ jobs:
     if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     outputs:
       new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
-      should_prebuild: ${{ steps.prebuild-check.outputs.should_run }}
+      should_prebuild: ${{ steps.helm-labels.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
         with:
           egress-policy: audit
 
@@ -364,6 +364,40 @@ jobs:
         with:
           version: ${{ steps.release-check.outputs.version }}
 
+      # ── Check labels before version bumping ───────────────────────────
+      - name: 🏷️ Check helm labels
+        id: helm-labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          BUMP_CHARTS=false
+          SHOULD_PREBUILD=false
+
+          # prebuild/* branches always bump charts and publish
+          if [[ "$HEAD_REF" == prebuild/* ]]; then
+            BUMP_CHARTS=true
+            SHOULD_PREBUILD=true
+            echo "✅ prebuild/ branch — chart bump + prebuild publishing enabled"
+          fi
+
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
+
+          if [[ "$LABELS" == *"helm-chart-bump"* ]]; then
+            BUMP_CHARTS=true
+            echo "✅ helm-chart-bump label — chart versions will be bumped"
+          fi
+
+          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
+            SHOULD_PREBUILD=true
+            echo "✅ helm-prerelease label — prebuild chart publishing enabled"
+          fi
+
+          echo "bump_charts=$BUMP_CHARTS" >> $GITHUB_OUTPUT
+          echo "should_run=$SHOULD_PREBUILD" >> $GITHUB_OUTPUT
+
       # ── Normal path: determine-version + update-version-files ──────────
       - name: 🏷️ Determine version
         if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
@@ -379,6 +413,7 @@ jobs:
         with:
           version: ${{ steps.version.outputs.tag }}
           diff_target: ${{ steps.version.outputs.diff_target }}
+          bump_charts: ${{ steps.helm-labels.outputs.bump_charts }}
 
       # ── Commit changes to PR branch ────────────────────────────────────
       - name: 📤 Commit version bump
@@ -388,40 +423,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage version-related files (+ changelog for release merge PRs)
           git add pyproject.toml uv.lock CHANGELOG.md || true
-          find charts -name "Chart.yaml" -type f -exec git add {} +
+
+          if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
+            find charts -name "Chart.yaml" -type f -exec git add {} +
+          fi
 
           TAG="${{ steps.update.outputs.final_version || steps.release-check.outputs.version }}"
           git commit -m "chore: bump version to $TAG"
           git push
 
           echo "✅ Committed version bump to $TAG"
-
-      - name: 🔍 Check if prebuild should run
-        id: prebuild-check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          HEAD_REF="${{ github.head_ref }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
-          SHOULD_RUN=false
-
-          # Check for prebuild/ branch
-          if [[ "$HEAD_REF" == prebuild/* ]]; then
-            echo "✅ Matched: prebuild/ branch"
-            SHOULD_RUN=true
-          fi
-
-          # Check for helm-prerelease label
-          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
-          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
-            echo "✅ Matched: helm-prerelease label"
-            SHOULD_RUN=true
-          fi
-
-          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
 
       - name: ❌ Require branch update before merge
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'

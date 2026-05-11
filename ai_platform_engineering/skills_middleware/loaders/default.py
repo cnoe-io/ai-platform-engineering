@@ -91,8 +91,45 @@ def _build_skill_from_frontmatter(
     }
 
 
+def _load_builtin_scan_index() -> dict[str, str]:
+    """Return ``{template_id: scan_status}`` from ``builtin_skill_scans``.
+
+    The UI-side scanner ("Scan all skills" / per-template "Scan now")
+    persists its results into ``builtin_skill_scans`` keyed by the
+    loader's template id (frontmatter ``name`` || dirname). We need
+    the same map here so the supervisor honours those results when
+    deciding whether to serve a packaged skill.
+
+    Best-effort: returns an empty dict on any error so a Mongo outage
+    can't take down the supervisor catalog.
+    """
+    try:
+        from ai_platform_engineering.utils.mongodb_client import get_mongodb_client
+
+        client = get_mongodb_client()
+        if client is None:
+            return {}
+        db = client[os.getenv("MONGODB_DATABASE", "caipe")]
+        col = db["builtin_skill_scans"]
+        out: dict[str, str] = {}
+        for doc in col.find({}, {"_id": 0, "id": 1, "scan_status": 1}):
+            sid = doc.get("id")
+            status = doc.get("scan_status")
+            if sid and isinstance(status, str):
+                out[sid] = status
+        return out
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug("Could not load builtin_skill_scans: %s", e)
+        return {}
+
+
 def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
     """Load skills from the filesystem (SKILLS_DIR).
+
+    Each loaded skill is annotated with the cached ``scan_status`` (if
+    any) from ``builtin_skill_scans`` and then filtered through the
+    shared scan gate. Flagged built-ins are never returned; unscanned
+    built-ins are excluded under ``SKILL_SCANNER_GATE=strict``.
 
     Args:
         include_content: If True, include full SKILL.md body in each skill.
@@ -100,12 +137,16 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
     Returns:
         List of skill dicts matching the catalog Skill entity shape.
     """
+    from ai_platform_engineering.skills_middleware.scan_gate import is_skill_blocked
+
     skills_dir = _resolve_skills_dir()
     if not skills_dir or not os.path.isdir(skills_dir):
         logger.info("No skills directory found; default skills empty")
         return []
 
+    scan_index = _load_builtin_scan_index()
     skills: list[dict[str, Any]] = []
+    blocked = 0
     entries = sorted(os.listdir(skills_dir))
 
     # Folder-per-skill layout
@@ -128,6 +169,15 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
         frontmatter = _parse_frontmatter(content)
         skill = _build_skill_from_frontmatter(entry, content, frontmatter)
         if skill:
+            skill["scan_status"] = scan_index.get(skill["id"])
+            if is_skill_blocked(skill):
+                blocked += 1
+                logger.info(
+                    "Excluding built-in skill %r from supervisor catalog (scan_status=%r)",
+                    skill["id"],
+                    skill["scan_status"],
+                )
+                continue
             if not include_content:
                 skill["content"] = None
             skills.append(skill)
@@ -146,9 +196,22 @@ def load_default_skills(include_content: bool = True) -> list[dict[str, Any]]:
         frontmatter = _parse_frontmatter(content)
         skill = _build_skill_from_frontmatter(skill_id, content, frontmatter)
         if skill:
+            skill["scan_status"] = scan_index.get(skill["id"])
+            if is_skill_blocked(skill):
+                blocked += 1
+                logger.info(
+                    "Excluding built-in skill %r from supervisor catalog (scan_status=%r)",
+                    skill["id"],
+                    skill["scan_status"],
+                )
+                continue
             if not include_content:
                 skill["content"] = None
             skills.append(skill)
 
+    if blocked:
+        logger.warning(
+            "Scan gate excluded %d built-in skills from supervisor catalog", blocked
+        )
     logger.info("Loaded %d default skills from %s", len(skills), skills_dir)
     return skills

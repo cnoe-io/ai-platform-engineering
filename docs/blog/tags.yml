@@ -1,7 +1,7 @@
 release:
   label: release
   permalink: /releases
-  description: Release tag description
+  description: Release notes and changelog
 
 articles:
   label: articles
@@ -12,3 +12,18 @@ faqs:
   label: faqs
   permalink: /faqs
   description: Frequently Asked Questions
+
+platform-engineering:
+  label: platform-engineering
+  permalink: /platform-engineering
+  description: Platform engineering topics
+
+mcp:
+  label: mcp
+  permalink: /mcp
+  description: Model Context Protocol
+
+security:
+  label: security
+  permalink: /security
+  description: Security and compliance
