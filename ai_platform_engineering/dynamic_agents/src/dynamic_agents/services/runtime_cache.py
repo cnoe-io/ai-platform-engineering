@@ -13,6 +13,7 @@ import logging
 import os
 import resource
 import sys
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from pymongo import MongoClient
@@ -24,11 +25,10 @@ from dynamic_agents.models import (
     MCPServerConfig,
     UserContext,
 )
+from dynamic_agents.services.agent_runtime import AgentRuntime
 from dynamic_agents.services.llm_clients import close_all as close_llm_clients
-from dynamic_agents.services.llm_clients import get_shared_llm_client
 
 if TYPE_CHECKING:
-    from dynamic_agents.services.agent_runtime import AgentRuntime
     from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)
@@ -178,6 +178,7 @@ class AgentRuntimeCache:
                 del self._cache[key]
             else:
                 runtime.touch()
+                logger.debug("Runtime cache hit for agent %s session %s", agent_config.id, session_id)
                 return runtime
 
         # Someone else is already initializing this key — wait for their result
@@ -193,12 +194,55 @@ class AgentRuntimeCache:
             runtime = await self._create_runtime(key, agent_config, mcp_servers, session_id, user, client_context)
             self._cache[key] = runtime
             fut.set_result(runtime)
+            logger.info(
+                "Created new cached runtime for agent %s session %s (cache %d/%d)",
+                agent_config.id,
+                session_id,
+                len(self._cache),
+                self._max_size,
+            )
             return runtime
         except Exception as e:
             fut.set_exception(e)
             raise
         finally:
             self._pending.pop(key, None)
+
+    @asynccontextmanager
+    async def ephemeral(
+        self,
+        agent_config: "DynamicAgentConfig",
+        mcp_servers: list["MCPServerConfig"],
+        session_id: str,
+        *,
+        user: "UserContext | None" = None,
+        client_context: "ClientContext | None" = None,
+    ):
+        """Async context manager: create a throwaway runtime, cleaned up on exit. Not cached.
+
+        Uses in-memory checkpointer (no MongoDB writes).
+        """
+        runtime = AgentRuntime(
+            agent_config,
+            mcp_servers,
+            mongo_service=self._mongo_service,
+            user=user,
+            client_context=client_context,
+            session_id=session_id,
+            ephemeral=True,
+        )
+        try:
+            await runtime.initialize()
+        except Exception as e:
+            logger.exception("Ephemeral runtime initialization failed for agent '%s'", agent_config.id)
+            raise RuntimeInitError(agent_config.id, e) from e
+
+        logger.info("Created ephemeral runtime for agent %s (in-memory, not cached)", agent_config.id)
+        try:
+            yield runtime
+        finally:
+            await runtime.cleanup()
+            logger.debug("Ephemeral runtime cleaned up for agent %s", agent_config.id)
 
     async def _create_runtime(
         self,
@@ -210,7 +254,6 @@ class AgentRuntimeCache:
         client_context: ClientContext | None,
     ) -> "AgentRuntime":
         """Create and initialize a new runtime. Called under single-flight guard."""
-        from dynamic_agents.services.agent_runtime import AgentRuntime
 
         # Evict if at capacity
         if len(self._cache) >= self._max_size:
@@ -222,9 +265,6 @@ class AgentRuntimeCache:
             self._shared_mongo_client = MongoClient(settings.mongodb_uri, tz_aware=True)
             logger.info("Created shared MongoClient for runtime cache")
 
-        # Get shared LLM transport client for this provider (saves ~20MB/runtime)
-        llm_client = get_shared_llm_client(agent_config.model.provider)
-
         # Create new runtime
         runtime = AgentRuntime(
             agent_config,
@@ -234,7 +274,6 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             mongo_client=self._shared_mongo_client,
-            llm_client=llm_client,
         )
         try:
             await runtime.initialize()

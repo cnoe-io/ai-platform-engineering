@@ -2,7 +2,7 @@
 
 from dynamic_agents.models import ClientContext
 from dynamic_agents.routes.chat import ResumeStreamRequest
-from dynamic_agents.services.streaming import _build_turn_messages
+from dynamic_agents.services.agent_runtime import _build_turn_messages
 
 
 def test_turn_messages_include_client_context_as_hidden_metadata():
@@ -48,7 +48,7 @@ def test_resume_stream_request_accepts_client_context():
     request = ResumeStreamRequest(
         agent_id="agent-1",
         conversation_id="conv-1",
-        form_data='{"answer":"yes"}',
+        resume_data='{"type":"form_input","values":{"answer":"yes"}}',
         client_context={"source": "webui", "screen": "repo-detail"},
     )
 

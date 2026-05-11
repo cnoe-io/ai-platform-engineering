@@ -33,7 +33,7 @@ import type {
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
 import { isFileToolName, isTodoToolName } from "@/components/dynamic-agents/sse-types";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -86,6 +86,7 @@ function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
 export interface SubagentLookupInfo {
   name: string;
   gradientTheme?: string;
+  customThemeConfig?: import("@/types/dynamic-agent").CustomThemeConfig | null;
 }
 
 type SubagentLookupFn = (subagentName: string) => SubagentLookupInfo | undefined;
@@ -123,6 +124,9 @@ interface AgentTimelineProps {
   downloadingFilePath?: string;
   isDeletingFile?: boolean;
   deletingFilePath?: string;
+
+  /** When true, keep timeline expanded (e.g. waiting for HITL input) */
+  pendingHitl?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -142,6 +146,7 @@ export function AgentTimeline({
   downloadingFilePath,
   isDeletingFile,
   deletingFilePath,
+  pendingHitl = false,
 }: AgentTimelineProps) {
   const { segments, finalAnswer, isStreaming, hasTools } = data;
 
@@ -159,20 +164,32 @@ export function AgentTimeline({
   // For ref to timeline container (kept for potential future use)
   const timelineRef = useRef<HTMLDivElement>(null);
 
+  const prevPendingHitlRef = useRef(pendingHitl);
+
   useEffect(() => {
+    // Don't collapse while waiting for HITL input
+    if (pendingHitl) {
+      setMachineryExpanded(true);
+      prevPendingHitlRef.current = pendingHitl;
+      return;
+    }
+    // Collapse when HITL input is resolved (pendingHitl went true → false)
+    if (prevPendingHitlRef.current) {
+      setMachineryExpanded(false);
+    }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
       setMachineryExpanded(false);
       wasStreamingRef.current = true;
     }
     // Also collapse when final answer first appears AND streaming has stopped
-    // (Don't collapse while still streaming - keep answer visible as "thinking")
     if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming) {
       setMachineryExpanded(false);
     }
     prevStreamingRef.current = isStreaming;
     prevFinalAnswerRef.current = finalAnswer;
-  }, [isStreaming, finalAnswer]);
+    prevPendingHitlRef.current = pendingHitl;
+  }, [isStreaming, finalAnswer, pendingHitl]);
 
   // Group consecutive tools for compact rendering
   const groupedSegments = groupConsecutiveTools(segments);
@@ -469,7 +486,8 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
   const hasParams = tool.args && Object.keys(tool.args).length > 0;
-  const [paramsOpen, setParamsOpen] = useState(false);
+  const hasDetails = hasParams || (!isFailed && tool.result);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -481,10 +499,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      {/* Header row with tool name, thought, and status — clickable to toggle details */}
       <div
-        className={cn("flex items-center gap-1.5 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
-        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+        className={cn("flex items-center gap-1.5 rounded-sm transition-colors", hasDetails && "hover:bg-foreground/5 cursor-pointer")}
+        onClick={hasDetails ? () => setDetailsOpen(!detailsOpen) : undefined}
       >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -502,10 +520,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
             — {thought}
           </span>
         )}
-        {hasParams && (
+        {hasDetails && (
           <ChevronDown className={cn(
             "text-muted-foreground/50 transition-transform duration-150 shrink-0",
-            paramsOpen && "rotate-180",
+            detailsOpen && "rotate-180",
             isNested ? "h-2.5 w-2.5" : "h-3 w-3"
           )} />
         )}
@@ -530,14 +548,44 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
           {errorDisplay}
         </p>
       )}
-      {/* Expandable parameters */}
-      {hasParams && (
+      {/* Expandable details: params + output */}
+      {hasDetails && (
         <div className={cn(
           "grid transition-all duration-150 ease-out",
-          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
+          detailsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
           <div className="overflow-hidden">
-            <ToolParamsView args={tool.args!} isNested={isNested} />
+            <div>
+              <span className={cn(
+                "text-muted-foreground/50 font-medium",
+                isNested ? "text-[8px]" : "text-[10px]"
+              )}>params:</span>
+              {hasParams ? (
+                <ToolParamsView args={tool.args!} isNested={isNested} />
+              ) : (
+                <span className={cn(
+                  "text-muted-foreground/40 italic ml-1",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>none provided for this tool call</span>
+              )}
+            </div>
+            {!isFailed && tool.result && (
+              <hr className={cn("border-foreground/10 my-1.5")} />
+            )}
+            {!isFailed && tool.result && (
+              <div>
+                <span className={cn(
+                  "text-muted-foreground/50 font-medium",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>output:</span>
+                <p className={cn(
+                  "text-muted-foreground/70 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-6 mt-0.5",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>
+                  {tool.result}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -545,10 +593,10 @@ function ToolSegmentView({ segment, isNested = false }: { segment: ToolSegment; 
   );
 }
 
+
 // ═══════════════════════════════════════════════════════════════
 // Helper: Format tool error message for display
 // ═══════════════════════════════════════════════════════════════
-
 /**
  * Return the raw error string as-is for full transparency.
  */
@@ -575,7 +623,7 @@ function ToolParamsView({ args, isNested = false }: { args: Record<string, unkno
 
   return (
     <div className={cn(
-      "font-mono border-t border-border/30 pt-1.5 space-y-1",
+      "font-mono pt-0.5 space-y-1",
       isNested ? "text-[8px]" : "text-[10px]"
     )}>
       {entries.map(([key, value]) => (
@@ -657,7 +705,8 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
   const isFailed = tool.status === "failed";
   const errorDisplay = isFailed && tool.error ? formatToolError(tool.error) : null;
   const hasParams = tool.args && Object.keys(tool.args).length > 0;
-  const [paramsOpen, setParamsOpen] = useState(false);
+  const hasDetails = hasParams || (!isFailed && tool.result);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   return (
     <div
@@ -669,10 +718,10 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
         isFailed && "bg-red-500/10 border border-red-500/25"
       )}
     >
-      {/* Header row with tool name, thought, and status — clickable to toggle params */}
+      {/* Header row with tool name, thought, and status — clickable to toggle details */}
       <div
-        className={cn("flex items-center gap-2 rounded-sm transition-colors", hasParams && "hover:bg-foreground/5")}
-        onClick={hasParams ? () => setParamsOpen(!paramsOpen) : undefined}
+        className={cn("flex items-center gap-2 rounded-sm transition-colors", hasDetails && "hover:bg-foreground/5 cursor-pointer")}
+        onClick={hasDetails ? () => setDetailsOpen(!detailsOpen) : undefined}
       >
         {isRunning ? (
           <Loader2 className={cn("animate-spin text-amber-500 shrink-0", isNested ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -690,10 +739,10 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
             — {thought}
           </span>
         )}
-        {hasParams && (
+        {hasDetails && (
           <ChevronDown className={cn(
             "text-muted-foreground/50 transition-transform duration-150 shrink-0",
-            paramsOpen && "rotate-180",
+            detailsOpen && "rotate-180",
             isNested ? "h-2.5 w-2.5" : "h-3 w-3"
           )} />
         )}
@@ -718,14 +767,44 @@ function ToolItemView({ tool, isNested = false }: { tool: ToolInfo; isNested?: b
           {errorDisplay}
         </p>
       )}
-      {/* Expandable parameters */}
-      {hasParams && (
+      {/* Expandable details: params + output */}
+      {hasDetails && (
         <div className={cn(
           "grid transition-all duration-150 ease-out",
-          paramsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
+          detailsOpen ? "grid-rows-[1fr] mt-1.5" : "grid-rows-[0fr]"
         )}>
           <div className="overflow-hidden">
-            <ToolParamsView args={tool.args!} isNested={isNested} />
+            <div>
+              <span className={cn(
+                "text-muted-foreground/50 font-medium",
+                isNested ? "text-[8px]" : "text-[10px]"
+              )}>params:</span>
+              {hasParams ? (
+                <ToolParamsView args={tool.args!} isNested={isNested} />
+              ) : (
+                <span className={cn(
+                  "text-muted-foreground/40 italic ml-1",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>none provided for this tool call</span>
+              )}
+            </div>
+            {!isFailed && tool.result && (
+              <hr className={cn("border-foreground/10 my-1.5")} />
+            )}
+            {!isFailed && tool.result && (
+              <div>
+                <span className={cn(
+                  "text-muted-foreground/50 font-medium",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>output:</span>
+                <p className={cn(
+                  "text-muted-foreground/70 font-mono leading-snug whitespace-pre-wrap break-all line-clamp-6 mt-0.5",
+                  isNested ? "text-[8px]" : "text-[10px]"
+                )}>
+                  {tool.result}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -754,7 +833,7 @@ function SubagentSegmentView({
   const getSubagentInfo = useContext(SubagentLookupContext);
   const subagentLookup = getSubagentInfo?.(info.name);
   const gradientStyle = subagentLookup?.gradientTheme 
-    ? getGradientStyle(subagentLookup.gradientTheme) 
+    ? getGradientStyle(subagentLookup.gradientTheme, subagentLookup.customThemeConfig) 
     : null;
 
   // Custom icon with gradient avatar
@@ -766,23 +845,47 @@ function SubagentSegmentView({
       )}
       style={gradientStyle || undefined}
     >
-      <Bot className="h-3 w-3 text-white" />
+      <Bot className="h-3 w-3" style={{ color: getAccentColor(subagentLookup?.gradientTheme, subagentLookup?.customThemeConfig) || "white" }} />
     </div>
   );
   
   // Build a description string for collapsed mode
-  const purposePreview = info.purpose 
-    ? (info.purpose.length > 180 ? info.purpose.slice(0, 180) + "..." : info.purpose)
-    : null;
+  const purposeIsLong = info.purpose && info.purpose.length > 80;
+  const [purposeExpanded, setPurposeExpanded] = useState(false);
 
   return (
     <CollapsibleSection
       title={
-        <span className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="flex flex-col gap-0.5 flex-1 min-w-0">
           <span className="font-medium text-foreground/80">{subagentLookup?.name || info.name}</span>
-          {purposePreview && (
-            <span className="text-muted-foreground/50 truncate text-[11px]">
-              — {purposePreview}
+          {info.purpose && (
+            <span className="text-muted-foreground/60 text-[11px]">
+              {purposeIsLong && !purposeExpanded ? (
+                <span>
+                  {info.purpose.slice(0, 80)}...{" "}
+                  <span
+                    className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                    onClick={(e) => { e.stopPropagation(); setPurposeExpanded(true); }}
+                  >
+                    show more
+                  </span>
+                </span>
+              ) : (
+                <span className="whitespace-pre-wrap break-words">
+                  {info.purpose}
+                  {purposeIsLong && (
+                    <>
+                      {" "}
+                      <span
+                        className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setPurposeExpanded(false); }}
+                      >
+                        show less
+                      </span>
+                    </>
+                  )}
+                </span>
+              )}
             </span>
           )}
         </span>

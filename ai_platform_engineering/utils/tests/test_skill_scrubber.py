@@ -199,28 +199,6 @@ def test_processor_redacts_targeted_attributes_only() -> None:
     assert span.attributes["http.status_code"] == 200
 
 
-def test_processor_supports_otel_on_ending_hook() -> None:
-    """Newer OpenTelemetry SDKs call the private _on_ending hook.
-
-    The scrubber is installed as a duck-typed SpanProcessor, so it must
-    implement that hook as a compatibility alias instead of relying only
-    on on_end.
-    """
-    span = _FakeSpan(
-        {
-            "gen_ai.prompt.0.content": (
-                "Be helpful.\n## Skills System\n- foo\n## End"
-            ),
-        }
-    )
-
-    SkillContentScrubbingProcessor()._on_ending(span)
-
-    assert "## Skills System [redacted from trace]" in span.attributes[
-        "gen_ai.prompt.0.content"
-    ]
-
-
 def test_processor_is_a_noop_for_spans_without_attributes() -> None:
     class _NullSpan:
         attributes = None

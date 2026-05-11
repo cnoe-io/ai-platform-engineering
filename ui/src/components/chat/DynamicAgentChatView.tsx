@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "@/components/dynamic-agents/DynamicAgentContext";
-import type { SubAgentRef } from "@/types/dynamic-agent";
+import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
 
 interface ChatViewProps {
   /** The dynamic agent backend endpoint */
@@ -24,6 +24,8 @@ interface ChatViewProps {
   agentVisibility?: string;
   /** Agent gradient theme (e.g., "ocean", "sunset") */
   agentGradient?: string | null;
+  /** Custom theme config (when agentGradient === "custom") */
+  agentCustomTheme?: CustomThemeConfig | null;
   /** Map of server_id -> tool names */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents */
@@ -74,6 +76,7 @@ export function ChatView({
   agentModel,
   agentVisibility,
   agentGradient,
+  agentCustomTheme,
   allowedTools,
   subagents,
   agentSkills,
@@ -106,6 +109,7 @@ export function ChatView({
           readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
           agentId={selectedAgentId}
           agentGradient={agentGradient}
+          agentCustomTheme={agentCustomTheme}
           agentName={agentName}
           agentSkills={agentSkills}
           isLoadingMessages={isLoadingMessages}
@@ -129,6 +133,7 @@ export function ChatView({
           agentModel={agentModel}
           agentVisibility={agentVisibility}
           agentGradient={agentGradient}
+          agentCustomTheme={agentCustomTheme}
           allowedTools={allowedTools}
           subagents={subagents}
           agentSkills={agentSkills}

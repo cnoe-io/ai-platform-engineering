@@ -38,9 +38,8 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware import AgentMiddleware
 
-    from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
-
-from dynamic_agents.metrics import MetricsAgentMiddleware, TimedMiddlewareWrapper
+from dynamic_agents.metrics import MetricsAgentMiddleware
+from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 
 logger = logging.getLogger(__name__)
 
@@ -345,9 +344,8 @@ def build_middleware(
     in order.  Disabled entries are skipped.  Singleton middleware types
     that appear more than once log a warning and only the first is used.
 
-    Each middleware is wrapped with ``TimedMiddlewareWrapper`` for
-    per-middleware Prometheus timing, and a ``MetricsAgentMiddleware``
-    is appended at the end to record total LLM/tool call duration.
+    Each middleware has a ``MetricsAgentMiddleware``
+    appended at the end to record total LLM/tool call duration.
 
     Args:
         features: Agent features config, or None for all defaults.
@@ -362,12 +360,10 @@ def build_middleware(
     if features is None or not features.middleware:
         # No explicit config — apply all default-enabled middleware
         entries: list[MiddlewareEntry] = []
-        # Import here to avoid circular import at module level
-        from dynamic_agents.models import MiddlewareEntry as ME
 
         for key, spec in MIDDLEWARE_REGISTRY.items():
             if spec.enabled_by_default:
-                entries.append(ME(type=key, enabled=True, params=dict(spec.default_params)))
+                entries.append(MiddlewareEntry(type=key, enabled=True, params=dict(spec.default_params)))
     else:
         entries = features.middleware
 
@@ -408,9 +404,6 @@ def build_middleware(
 
         result.append(instance)
         logger.debug("conv=%s Middleware '%s' added with params: %s", conv, entry.type, params)
-
-    # Wrap each middleware with timing instrumentation
-    result = [TimedMiddlewareWrapper(mw, agent_name=agent_name) for mw in result]
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))

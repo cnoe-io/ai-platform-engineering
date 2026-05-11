@@ -189,12 +189,23 @@ def test_runtime_adds_submit_structured_response_when_agent_middleware_enabled()
 
 
 def test_chat_invoke_returns_captured_structured_output():
+    class EphemeralRuntimeContext:
+        def __init__(self, runtime):
+            self.runtime = runtime
+
+        async def __aenter__(self):
+            return self.runtime
+
+        async def __aexit__(self, *_exc_info):
+            return False
+
     async def stream(*_args, **_kwargs):
         if False:
             yield ""
 
     runtime = MagicMock()
     runtime.stream = stream
+    runtime.has_pending_interrupt = AsyncMock(return_value=None)
     runtime.get_structured_response.return_value = {
         "currency": "USD",
         "totalCost": 12.34,
@@ -202,7 +213,7 @@ def test_chat_invoke_returns_captured_structured_output():
     runtime.get_structured_response_schema_id.return_value = "finops.dashboard.v1"
 
     cache = MagicMock()
-    cache.get_or_create = AsyncMock(return_value=runtime)
+    cache.ephemeral.return_value = EphemeralRuntimeContext(runtime)
 
     agent = MagicMock()
     agent.id = "agent-aws-cost-explorer"

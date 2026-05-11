@@ -169,11 +169,22 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
 // =============================================================================
 
 /**
+ * Custom theme configuration for agents.
+ * Used when gradient_theme is "custom".
+ */
+export interface CustomThemeConfig {
+  gradient_from: string;   // CSS color for gradient start (hex, hsl, etc.)
+  gradient_to: string;     // CSS color for gradient end
+  accent_color: string;    // Tint color for the bot avatar SVG stroke
+}
+
+/**
  * UI configuration for dynamic agents.
  * Controls visual appearance like gradient themes.
  */
 export interface AgentUIConfig {
-  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset') or empty for global default
+  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset'), "custom", or empty for global default
+  custom_theme_config?: CustomThemeConfig;  // Only used when gradient_theme === "custom"
 }
 
 // =============================================================================
@@ -247,6 +258,56 @@ export interface SubAgentRef {
   description: string;  // Description for LLM routing decisions
 }
 
+/**
+ * Per-tool interrupt configuration for HITL approval workflows.
+ * Controls what decisions a reviewer can make when a tool call is intercepted.
+ */
+export type DecisionType = "approve" | "edit" | "reject";
+
+export interface InterruptToolConfig {
+  allowed_decisions: DecisionType[];
+}
+
+/**
+ * Interrupt configuration: namespace -> { tool_name: true | InterruptToolConfig }
+ * "builtin" is the reserved namespace for built-in tools (no server prefix).
+ * Tool name "*" means all tools in that namespace.
+ * `true` is shorthand for { allowed_decisions: ["approve", "edit", "reject"] }.
+ */
+export type InterruptOn = Record<string, Record<string, boolean | InterruptToolConfig>>;
+
+/**
+ * SSE interrupt payload — discriminated union by `type`.
+ */
+export interface FormInputInterrupt {
+  type: "form_input";
+  interrupt_id: string;
+  prompt: string;
+  fields: Array<{ field_name: string; field_type: string; description?: string; required?: boolean; options?: string[] }>;
+  agent: string;
+}
+
+export interface ToolApprovalInterrupt {
+  type: "tool_approval";
+  interrupt_id: string;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  allowed_decisions: DecisionType[];
+  agent: string;
+}
+
+export type InterruptPayload = FormInputInterrupt | ToolApprovalInterrupt;
+
+/**
+ * Resume data sent to POST /chat/stream/resume — discriminated union by `type`.
+ */
+export type ResumeData =
+  | { type: "form_input"; values: Record<string, unknown> }
+  | { type: "form_input"; dismissed: true }
+  | { type: "tool_approval"; decision: "approve" }
+  | { type: "tool_approval"; decision: "reject" }
+  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> };
+
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
@@ -261,6 +322,7 @@ export interface DynamicAgentConfig {
   skills: string[];  // Skill document IDs from agent_skills collection
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   features?: FeaturesConfig;  // Middleware and feature flags
+  interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
   is_system: boolean;
@@ -283,6 +345,7 @@ export interface DynamicAgentConfigCreate {
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
 }
 
@@ -299,6 +362,7 @@ export interface DynamicAgentConfigUpdate {
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
 }
 
@@ -311,6 +375,7 @@ export interface AvailableSubagent {
   description?: string;
   visibility: VisibilityType;
   gradient_theme?: string;
+  custom_theme_config?: CustomThemeConfig;
 }
 
 // =============================================================================
