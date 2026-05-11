@@ -17,8 +17,8 @@ import httpx
 import jwt
 from fastapi import FastAPI, Request, Response
 
-OPENFGA_HTTP = os.environ.get("OPENFGA_HTTP", "http://openfga-exp:8080").rstrip("/")
-OPENFGA_STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga-experiment").strip()
+OPENFGA_HTTP = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
+OPENFGA_STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
 # Optional explicit store id (skips discovery)
 STORE_ID: str = os.environ.get("OPENFGA_STORE_ID", "").strip()
 # Optional: if set, only these subs get 200 without calling OpenFGA (escape hatch)

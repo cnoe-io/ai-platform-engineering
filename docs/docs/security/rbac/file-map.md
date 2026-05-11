@@ -17,6 +17,10 @@ When you need to change something in the auth path, this table tells you which f
 | Dynamic agents agent-level authorization (CEL / visibility) | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py` |
 | AgentGateway static CEL policies (rendered) | `deploy/agentgateway/config.yaml` |
 | AgentGateway Jinja template (source of truth for rendering) | `deploy/agentgateway/config.yaml.j2` |
+| AgentGateway OpenFGA `extAuthz` listener gate | `deploy/agentgateway/config.yaml` and `deploy/agentgateway/config.yaml.j2` (`extAuthz` block) |
+| OpenFGA dev PDP stack in Docker Compose (`openfga`, bridge, init, Postgres) | `docker-compose.dev.yaml` (`rbac` profile, OpenFGA services) |
+| OpenFGA authorization model + seed tuple writer | `deploy/openfga-experiment/model.fga`, `deploy/openfga-experiment/init/authorization-model.json`, `deploy/openfga-experiment/init/seed.py` |
+| AgentGateway HTTP `ext_authz` adapter to OpenFGA Check | `deploy/openfga-experiment/bridge/main.py` |
 | `ag-config-bridge` (MongoDB → config.yaml sync + seed) | `deploy/agentgateway/config-bridge.py` |
 | Admin UI: edit AG CEL policies at runtime | `ui/src/app/api/rbac/ag-policies/route.ts` |
 | MongoDB collections: `ag_mcp_policies`, `ag_mcp_backends`, `ag_sync_state` | managed by `config-bridge.py` |

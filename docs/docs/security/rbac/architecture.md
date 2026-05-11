@@ -221,9 +221,9 @@ User JWT  →  Supervisor  →  (same JWT)  →  AgentGateway  →  MCP Server
 
 ## Component 4: AgentGateway — The Security Checkpoint
 
-> **Badge analogy:** The armed security checkpoint at the entrance to the server room. Everyone must badge in — no exceptions, no tailgating. The checkpoint has a physical rulebook (CEL policies) specifying exactly which badge types (roles) can enter which server rack (MCP tool). If your badge says `chat_user` and the rack requires `kb_admin`, you're turned away at the door, not inside the rack.
+> **Badge analogy:** The armed security checkpoint at the entrance to the server room. Everyone must badge in — no exceptions, no tailgating. The checkpoint first calls a central relationship desk (OpenFGA) to ask whether this person is allowed to approach the server room at all, then checks its physical rulebook (CEL policies) for exactly which rack (MCP tool) the badge can access. If either desk says no, you're turned away at the door.
 
-**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers and evaluates a CEL (Common Expression Language) policy against the JWT claims before allowing each request through. It is the only place in the architecture where tool-level authorization is enforced for the normal standalone-MCP path. MCP servers still mount a shared custom middleware package for **authentication defense-in-depth** (JWT/shared-key validation, token passthrough context, and an optional local-dev localhost bypass). For embedded/local MCP servers that do not sit behind AgentGateway, the same package can also perform an **optional Keycloak PDP scope check** (for example `mcp_jira#invoke`) so they still have a real authz gate.
+**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers, validates the Keycloak JWT, calls OpenFGA through `extAuthz` for the remote PDP decision, and then evaluates local CEL (Common Expression Language) rules against the JWT claims before allowing each request through. OpenFGA is the remote PDP for coarse relationship checks; CEL remains the in-gateway tool/team policy while we model the full ReBAC graph. MCP servers still mount a shared custom middleware package for **authentication defense-in-depth** (JWT/shared-key validation, token passthrough context, and an optional local-dev localhost bypass). For embedded/local MCP servers that do not sit behind AgentGateway, the same package can also perform an **optional Keycloak PDP scope check** (for example `mcp_jira#invoke`) so they still have a real authz gate.
 
 ### Request Flow
 
@@ -236,13 +236,14 @@ Supervisor POST /rag/v1/query
   ┌────────────────────────────────────────────┐
   │  1. Extract JWT from Authorization header  │
   │  2. Validate signature against JWKS        │
-  │  3. Evaluate CEL policy against claims:    │
+  │  3. ext_authz → OpenFGA Check              │
+  │  4. Evaluate CEL policy against claims:    │
   │                                            │
   │     jwt.claims.realm_access.roles          │
   │       .exists(r, r == "chat_user")         │
   │                                            │
-  │  4a. Policy DENY  →  403 Forbidden         │
-  │  4b. Policy ALLOW →  proxy to MCP server   │
+  │  5a. Any DENY    →  403 Forbidden          │
+  │  5b. All ALLOW   →  proxy to MCP server    │
   └────────────────────────────────────────────┘
          │ ALLOW
          ▼
@@ -274,6 +275,7 @@ jwt.claims.realm_access.roles.contains("chat_user")
 
 - **Decoupled policy from business logic:** MCP servers implement domain logic, not authz. Changing a policy means editing `config.yaml`, not redeploying an MCP server.
 - **Consistent enforcement:** Every tool — RAG, GitHub, ArgoCD, Slack — goes through the same gateway with the same JWT. No tool can be accidentally left unenforced.
+- **Externalized relationship decisions:** OpenFGA gives us a remote PDP for relationship checks without putting that logic inside each MCP server.
 - **Token passthrough:** AgentGateway forwards the JWT to the MCP backend unchanged. The backend can do its own secondary validation (e.g. tenant isolation).
 
 ### Local / Embedded MCP Exception Path
@@ -291,13 +293,14 @@ That package lives under `ai_platform_engineering/agents/common/mcp-auth/` and i
 
 > **Badge analogy:** **Duo SSO is the national ID office** — it issues the underlying identity. **Keycloak is HR** — it takes that national ID, prints a CAIPE-branded employee badge with your roles stamped on it, and publishes a **public fingerprint scanner** (JWKS) in the lobby so anyone can verify a badge is really HR-issued. **AgentGateway is the armed checkpoint** at the server room door. The checkpoint has a photocopy of the scanner taped to its desk so it can verify badges instantly without calling HR (or Duo). The checkpoint's rulebook (CEL) is kept up to date by a small courier (`ag-config-bridge`) that walks between the head office (MongoDB) and the checkpoint every few seconds with the latest rule updates.
 
-**Technically:** Three distinct services cooperate to put a verified, role-carrying JWT in front of AgentGateway on every request. AG itself is the **Policy Enforcement Point (PEP)** — it doesn't authenticate users, it doesn't store roles, and it never talks to Duo. It only verifies that the JWT in the request was signed by Keycloak (using a cached copy of Keycloak's JWKS) and that the claims inside satisfy the CEL policy for the target MCP tool.
+**Technically:** Keycloak, OpenFGA, and AgentGateway cooperate to put a verified, relationship-checked, role-carrying JWT in front of every MCP request. AG itself is the **Policy Enforcement Point (PEP)** — it doesn't authenticate users, it doesn't store roles, and it never talks to Duo. It verifies that the JWT in the request was signed by Keycloak (using a cached copy of Keycloak's JWKS), calls OpenFGA through `extAuthz` for the remote PDP decision, and then checks that the claims inside satisfy the CEL policy for the target MCP tool.
 
 | Layer | Role | What it owns | What it does NOT own |
 |-------|------|--------------|----------------------|
 | **Upstream IdP** (e.g. Duo SSO, Okta, Azure AD) | Identity provider | User authentication (password, MFA, device trust), email ownership | Application roles, per-tool access rules |
 | **Keycloak** | OIDC AS + IdP broker | Realm roles (`chat_user`, `admin`), JWT issuance, JWKS publication, OBO token exchange (RFC 8693) | Tool-level decisions, user password (delegated to Duo) |
-| **AgentGateway (PEP)** | Policy Enforcement Point | Per-route CEL rules, per-tool `mcpAuthorization` rules, local JWT verification against cached JWKS | Identity store, role store, token minting |
+| **OpenFGA** | Remote PDP | Relationship decisions such as `user:<sub> can_call document:mcp` | JWT validation, token minting, proxying traffic |
+| **AgentGateway (PEP)** | Policy Enforcement Point | `jwtAuth`, `extAuthz`, per-route CEL rules, per-tool `mcpAuthorization` rules, local JWT verification against cached JWKS | Identity store, role store, token minting |
 
 Keycloak **brokers** the upstream IdP — Duo SSO doesn't issue the JWT that AG sees. Duo authenticates the user, returns an OIDC authorization code to Keycloak, and Keycloak then mints the CAIPE JWT with the realm roles that CEL evaluates. From AG's perspective, **Keycloak is the only issuer it trusts** (`iss = http://localhost:7080/realms/caipe`); the existence of Duo is invisible to AG. This is the standard OIDC/OAuth 2.0 resource-server pattern applied to an MCP-aware proxy.
 
@@ -329,7 +332,8 @@ flowchart LR
     DA["Dynamic Agents<br/>(forwards user JWT)"]
   end
 
-  AG["AgentGateway :4000<br/><b>PEP</b><br/>jwtAuth + CEL"]
+  AG["AgentGateway :4000<br/><b>PEP</b><br/>jwtAuth + ext_authz + CEL"]
+  FGA["OpenFGA<br/>remote PDP<br/>Check(user, relation, object)"]
   MCP["Backend MCP servers<br/>rag_server, github-mcp, …"]
 
   DUO_OIDC -. "1. OIDC auth code" .-> KC_IDP
@@ -341,7 +345,9 @@ flowchart LR
   SB --> SUP
   SUP --> AG
   DA --> AG
-  AG -->|"4. proxied + JWT unchanged"| MCP
+  AG -->|"4. ext_authz Check"| FGA
+  FGA -->|"5. allow / deny"| AG
+  AG -->|"6. proxied + JWT unchanged"| MCP
 ```
 
 **Read this as the badge's lifecycle:**
@@ -349,11 +355,11 @@ flowchart LR
 1. **Duo SSO authenticates the human.** It doesn't know about CAIPE roles. It only proves "this really is `alice@cisco.com` with working MFA" and hands an OIDC authorization code to Keycloak. Duo's issuer (`IDP_ISSUER`) is configured in Keycloak as `IDP_ALIAS=duo-sso`; this is the only direct contact between CAIPE and Duo.
 2. **Keycloak brokers and rebrands the identity.** It validates the Duo code, runs its IdP mappers (e.g. `firstname` → `given_name` to handle Duo's non-standard claim), assigns realm roles (`chat_user` via the default role composite, plus `admin` if explicitly granted), and signs a **fresh JWT** with its own RS256 key. This is the only token CAIPE services ever see. Duo's identity token is discarded at the Keycloak boundary.
 3. **Every CAIPE caller holds the same JWT.** The Slack Bot additionally does an RFC 8693 token-exchange to produce an **OBO (On-Behalf-Of) JWT** that pins `sub=alice` and `act.sub=caipe-slack-bot` — but it's still a Keycloak-signed JWT with `iss = http://localhost:7080/realms/caipe`. From AG's perspective there's no difference between a UI JWT and an OBO JWT; both pass `jwtAuth` as long as they're signed by a key in AG's JWKS cache.
-4. **AG verifies locally, evaluates CEL locally, forwards unchanged.** The JWT reaches the MCP server with Alice's identity intact, so MCP-level defense-in-depth checks (e.g. the RAG server's per-tenant document ACLs) see the real user — not the supervisor's service account and not the Slack bot.
+4. **AG verifies locally, calls OpenFGA, evaluates CEL locally, forwards unchanged.** The JWT reaches the MCP server with Alice's identity intact, so MCP-level defense-in-depth checks (e.g. the RAG server's per-tenant document ACLs) see the real user — not the supervisor's service account and not the Slack bot.
 
 The practical consequence: **to switch CAIPE from Duo SSO to Okta or Azure AD you don't touch AgentGateway at all.** You change `IDP_ISSUER`, `IDP_CLIENT_ID`, `IDP_CLIENT_SECRET`, `IDP_ALIAS`, and maybe a mapper in Keycloak, and every component downstream — including the CEL rules on AG — keeps working without modification. This is the whole point of making Keycloak the IdP broker instead of having each service integrate directly with the upstream IdP.
 
-### How AG Is Wired to Keycloak (at boot and at steady state)
+### How AG Is Wired to Keycloak and OpenFGA (at boot and at steady state)
 
 ```mermaid
 flowchart LR
@@ -378,30 +384,42 @@ flowchart LR
     CFG["/etc/agentgateway/config.yaml<br/>(hot-reload on file change)"]
     JWKS_CACHE[("In-memory JWKS cache<br/>TTL from Cache-Control")]
     JWT_VAL["jwtAuth:<br/>• mode: strict<br/>• issuer, audiences<br/>• jwks.url"]
+    EXT["extAuthz:<br/>openfga-authz-bridge:9100/check"]
     CEL["CEL mcpAuthorization<br/>rules per route/backend"]
     PROXY["MCP proxy<br/>mcp.targets"]
     CFG --> JWT_VAL
+    CFG --> EXT
     CFG --> CEL
     CFG --> PROXY
     JWT_VAL --> JWKS_CACHE
   end
 
+  subgraph FGA["OpenFGA remote PDP"]
+    BRIDGE["openfga-authz-bridge<br/>HTTP ext_authz adapter"]
+    STORE[("OpenFGA store<br/>caipe-openfga")]
+    BRIDGE --> STORE
+  end
+
   KC_JWKS -.->|1. fetch at startup + TTL refresh| JWKS_CACHE
   REND -->|2. write rendered config atomically| CFG
   Client["Caller<br/>(Supervisor / Slack Bot / Dynamic Agent)"] -->|3. Bearer JWT| JWT_VAL
-  JWT_VAL --> CEL
+  JWT_VAL --> EXT
+  EXT -->|4. Check user:<sub> can_call document:mcp| BRIDGE
+  BRIDGE -->|allow / deny| EXT
+  EXT --> CEL
   CEL --> PROXY
   PROXY --> MCP["Backend MCP servers<br/>(rag_server, github-mcp, …)"]
   KC_TOK -.->|token issuance| Client
 ```
 
-**Three independent channels between Keycloak and AG — all pull-based, all public:**
+**Four independent channels feed the AG decision:**
 
 | # | Channel | Direction | Purpose | Cadence |
 |---|---------|-----------|---------|---------|
 | 1 | JWKS | AG → Keycloak | Fetch public keys to verify JWT signatures | On startup; on unknown `kid`; on Cache-Control TTL expiry |
 | 2 | CEL policy rendering | `ag-config-bridge` → AG (file) | Keep `config.yaml` in sync with admin-editable policies in MongoDB | Every 5s poll; hot-reload on file change |
 | 3 | Token issuance | Client → Keycloak → Client | Users/bots obtain JWTs to present to AG; AG **never** mints tokens | On login / OBO exchange |
+| 4 | Relationship decision | AG → `openfga-authz-bridge` → OpenFGA | Remote PDP check before CEL/tool proxying | Every MCP request |
 
 There is **no direct API call from AG to Keycloak per request**. JWKS fetching is a pure cache-refresh operation, not a live auth check.
 
@@ -416,9 +434,18 @@ binds:
       jwtAuth:
         mode: strict           # reject request if no valid JWT present
         issuer: http://localhost:7080/realms/caipe
-        audiences: [caipe-platform]
+        audiences: [caipe-platform, agentgateway]
         jwks:
           url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+      extAuthz:
+        host: openfga-authz-bridge:9100
+        failureMode:
+          denyWithStatus: 403
+        protocol:
+          http:
+            path: '"/check"'
+        includeRequestHeaders:
+          - authorization
 ```
 
 What `mode: strict` means in practice:
@@ -429,7 +456,7 @@ What `mode: strict` means in practice:
 - **Signature verified against JWKS** — `kid` in the JWT header must match a cached key.
 - **Unknown `kid` triggers one forced JWKS refresh** — handles Keycloak key rotation without manual intervention.
 
-Only after `jwtAuth` passes does AG evaluate the `authorization` and `mcpAuthorization` CEL rules. If `jwtAuth` fails, the request never reaches policy evaluation.
+Only after `jwtAuth` passes does AG call `extAuthz`, and only after that PDP check passes does it evaluate the `authorization` and `mcpAuthorization` CEL rules. If `jwtAuth` fails, the request never reaches policy evaluation; if OpenFGA/bridge is unavailable or denies, AG returns 403 because `failureMode.denyWithStatus=403`.
 
 ### Policy Storage: Two Surfaces, One Source of Truth
 

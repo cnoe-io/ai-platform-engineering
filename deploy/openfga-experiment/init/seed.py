@@ -11,9 +11,12 @@ from pathlib import Path
 
 import httpx
 
-OPENFGA = os.environ.get("OPENFGA_HTTP", "http://openfga-exp:8080").rstrip("/")
-STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga-experiment").strip()
-EXPERIMENT_SUB = os.environ.get("OPENFGA_EXPERIMENT_SUB", "").strip()
+OPENFGA = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
+STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
+SEED_SUB = (
+    os.environ.get("OPENFGA_SEED_SUB", "").strip()
+    or os.environ.get("OPENFGA_EXPERIMENT_SUB", "").strip()
+)
 
 
 def wait_ready() -> None:
@@ -55,12 +58,12 @@ def main() -> None:
         model_id = r.json()["authorization_model_id"]
         print(f"authorization_model_id={model_id}")
 
-        if EXPERIMENT_SUB:
+        if SEED_SUB:
             w = {
                 "writes": {
                     "tuple_keys": [
                         {
-                            "user": f"user:{EXPERIMENT_SUB}",
+                            "user": f"user:{SEED_SUB}",
                             "relation": "can_call",
                             "object": "document:mcp",
                         }
@@ -69,12 +72,12 @@ def main() -> None:
             }
             r = client.post(f"{OPENFGA}/v1/stores/{store_id}/write", json=w)
             r.raise_for_status()
-            print(f"tuple written for user:{EXPERIMENT_SUB} can_call document:mcp")
+            print(f"tuple written for user:{SEED_SUB} can_call document:mcp")
         else:
             print(
-                "OPENFGA_EXPERIMENT_SUB not set — no tuple written; "
+                "OPENFGA_SEED_SUB not set — no tuple written; "
                 "set it to your Keycloak `sub` and re-run: "
-                "docker compose ... run --rm openfga-exp-init",
+                "docker compose ... run --rm openfga-init",
                 file=sys.stderr,
             )
 

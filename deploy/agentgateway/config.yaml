@@ -23,6 +23,20 @@ binds:
         # Docker DNS resolves "keycloak" via compose service name.
         jwks:
           url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+      extAuthz:
+        # OpenFGA is the remote PDP for coarse ReBAC decisions. The bridge
+        # adapts AgentGateway's HTTP ext_authz contract to OpenFGA Check.
+        host: openfga-authz-bridge:9100
+        failureMode:
+          denyWithStatus: 403
+        policies:
+          http:
+            requestTimeout: "5s"
+        protocol:
+          http:
+            path: '"/check"'
+        includeRequestHeaders:
+          - authorization
     routes:
     - policies:
         authorization:

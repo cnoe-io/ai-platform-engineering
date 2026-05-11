@@ -2219,7 +2219,7 @@ services:
   ####################################################################################################
   #                                  Enterprise RBAC (098)                                       #
   ####################################################################################################
-  # Keycloak + Agent Gateway for 098 Enterprise RBAC.
+  # Keycloak + OpenFGA + AgentGateway for Enterprise RBAC.
   # Usage (Slack + RAG RBAC — copy deploy/rbac/.env.rbac.example into .env and set embeddings keys):
   #   COMPOSE_PROFILES=rbac,rag,slack-bot,caipe-supervisor,caipe-mongodb \
   #     docker compose -f docker-compose.dev.yaml up -d
@@ -2228,6 +2228,7 @@ services:
   # Slack bot: socket mode or http://localhost:8030 — set SLACK_* tokens in .env
   #
   # Admin console: http://localhost:7080/admin (admin / admin)
+  # OpenFGA API: http://localhost:8082  Playground: http://localhost:3002
   # Agent Gateway proxy: http://localhost:4000
   # Agent Gateway admin UI: http://localhost:15000/ui
   #
@@ -2406,6 +2407,120 @@ services:
     profiles:
       - rbac
 
+  # OpenFGA remote PDP for AgentGateway ext_authz.
+  #
+  # AgentGateway calls openfga-authz-bridge on every MCP request before the
+  # existing mcpAuthorization CEL rules run. OpenFGA currently owns the coarse
+  # ReBAC decision (`user:<sub> can_call document:mcp`); CEL still performs
+  # per-tool and team-scope checks until those relationships are fully modeled.
+  openfga-postgres:
+    image: postgres:17-alpine
+    container_name: openfga-postgres
+    restart: unless-stopped
+    profiles:
+      - rbac
+    environment:
+      POSTGRES_USER: ${OPENFGA_POSTGRES_USER:-openfga}
+      POSTGRES_PASSWORD: ${OPENFGA_POSTGRES_PASSWORD:-openfga}
+      POSTGRES_DB: ${OPENFGA_POSTGRES_DB:-openfga}
+    volumes:
+      - openfga_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  openfga-migrate:
+    image: openfga/openfga:latest
+    container_name: openfga-migrate
+    profiles:
+      - rbac
+    depends_on:
+      openfga-postgres:
+        condition: service_healthy
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+    command: migrate
+
+  openfga:
+    image: openfga/openfga:latest
+    container_name: openfga
+    restart: unless-stopped
+    profiles:
+      - rbac
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
+      OPENFGA_DATASTORE_MAX_OPEN_CONNS: "50"
+      OPENFGA_PLAYGROUND_ENABLED: "true"
+    command: run
+    ports:
+      - "127.0.0.1:${OPENFGA_HTTP_PORT:-8082}:8080"
+      - "127.0.0.1:${OPENFGA_GRPC_PORT:-8083}:8081"
+      - "127.0.0.1:${OPENFGA_PLAYGROUND_PORT:-3002}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/grpc_health_probe
+        - -addr=localhost:8081
+      interval: 5s
+      timeout: 30s
+      retries: 10
+
+  openfga-init:
+    build:
+      context: ./deploy/openfga-experiment/init
+    container_name: openfga-init
+    profiles:
+      - rbac
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
+      # starts deny-by-default and you can write tuples later.
+      OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
+      # Backward-compatible alias from the previous experiment overlay.
+      OPENFGA_EXPERIMENT_SUB: ${OPENFGA_EXPERIMENT_SUB:-}
+    depends_on:
+      openfga:
+        condition: service_healthy
+
+  openfga-authz-bridge:
+    build:
+      context: ./deploy/openfga-experiment/bridge
+    container_name: openfga-authz-bridge
+    restart: unless-stopped
+    profiles:
+      - rbac
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
+      OPENFGA_RELATION: can_call
+      OPENFGA_OBJECT: document:mcp
+      OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+    ports:
+      - "127.0.0.1:${OPENFGA_BRIDGE_PORT:-9100}:9100"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      openfga-init:
+        condition: service_completed_successfully
+      openfga:
+        condition: service_healthy
+
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
@@ -2433,6 +2548,8 @@ services:
       # token-exchange config is intentionally absent in dev.
       keycloak-init-token-exchange:
         condition: service_completed_successfully
+      openfga-authz-bridge:
+        condition: service_healthy
     ports:
       - "4000:4000"
       - "15000:15000" # Admin UI (config.config.adminAddr)
@@ -2465,7 +2582,7 @@ services:
       AG_TEMPLATE_PATH: /app/config.yaml.j2
       AG_POLL_INTERVAL: ${AG_POLL_INTERVAL:-5}
       AG_ISSUER: ${AG_ISSUER:-http://localhost:7080/realms/caipe}
-      AG_AUDIENCE: ${AG_AUDIENCE:-caipe-platform}
+      AG_AUDIENCE: ${AG_AUDIENCE:-caipe-platform, agentgateway}
       AG_JWKS_URL: ${AG_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
     volumes:
       - ag_config:/etc/agentgateway
@@ -2590,6 +2707,8 @@ volumes:
   langgraph_mongodb_data:
     driver: local
   ag_config:
+    driver: local
+  openfga_postgres_data:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

@@ -23,7 +23,7 @@ Think of CAIPE like a **secure corporate office building**:
 
 - **Keycloak** is HR + the front desk. It issues ID badges, manages who works here, and verifies contractors through a partner agency (your enterprise IdP — typically **Okta** or **Duo SSO**).
 - **Every service** is a room with its own badge reader. You prove who you are once at the front desk, get a badge, and that badge is checked at every door — no calling HR again each time.
-- **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint has a rulebook specifying exactly which roles are allowed in which room.
+- **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint calls **OpenFGA** for the remote PDP decision before applying its local per-tool CEL rulebook.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 
 Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT bearer tokens** for stateless authorization across all service boundaries. There is one token issuer (Keycloak), and every service verifies tokens against Keycloak's published JWKS public keys — no shared secrets, no per-hop re-authentication.
@@ -43,9 +43,14 @@ Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT b
 │                                                                              │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
 │  │                 AgentGateway  (Policy Enforcement Point)             │    │
-│  │                 port 4000  ·  CEL policy engine  ·  JWT passthrough  │    │
+│  │            port 4000 · ext_authz→OpenFGA · CEL · JWT passthrough     │    │
 │  └──────────────────────────────────────────────────────────────────────┘    │
-│                                       │                                      │
+│             │                         │                                      │
+│             ▼                         │                                      │
+│     ┌──────────────┐                  │                                      │
+│     │   OpenFGA    │                  │                                      │
+│     │ Remote PDP   │                  │                                      │
+│     └──────────────┘                  │                                      │
 │         ┌─────────────────────────────┼──────────────────┐                   │
 │         ▼                             ▼                  ▼                   │
 │   ┌───────────┐                ┌───────────┐       ┌───────────┐             │
@@ -65,7 +70,8 @@ Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT b
 | User identity preserved end-to-end | The same JWT travels Slack Bot → Supervisor → AgentGateway → MCP unchanged |
 | Delegation is auditable | OBO tokens carry `act.sub` (the delegating party) alongside `sub` (the real user) |
 | Policy enforcement is centralised | AgentGateway is the single PEP for all MCP tool calls; tools don't implement their own authz |
-| Least privilege at tool layer | CEL policies on AgentGateway allow per-tool, per-role access rules |
+| Remote PDP for relationships | AgentGateway `extAuthz` calls OpenFGA before proxying MCP traffic |
+| Least privilege at tool layer | OpenFGA handles coarse ReBAC; CEL policies on AgentGateway still enforce per-tool, per-role access rules |
 | Tenant isolation | `tenant` claim in JWT scopes data visible to the MCP server |
 
 ---
@@ -123,6 +129,7 @@ Key fields for security architects:
 | Bot impersonating arbitrary user via OBO | Keycloak's `token-exchange` permission must be explicitly granted to the bot client; not available by default |
 | Privilege escalation via claim manipulation | JWT is signed; any claim modification invalidates the RS256 signature |
 | Tenant data leakage | `tenant` claim in JWT used for query scoping at MCP layer; enforced by CEL policy per-route |
+| PDP outage fail-open | AgentGateway `extAuthz.failureMode.denyWithStatus=403` fails closed if OpenFGA/bridge is unavailable |
 | Unlinked Slack users bypassing RBAC | `rbac_global_middleware` blocks all unlinked users before the supervisor is called |
 | `AUTH_ENABLED=false` in production | Startup log emits a `WARNING` when auth is disabled; also documented in [Architecture › Dynamic Agents env vars](./architecture.md#key-environment-variables-2) |
 | Bootstrap admin left permanently enabled | No automatic enforcement — documented operational risk; must be removed post-setup |

@@ -34,7 +34,7 @@ The complete one-time login sequence (Browser → Keycloak → upstream IdP → 
 
 ## Per-Request Authorization (End to End)
 
-This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, supervisor middleware, AgentGateway CEL evaluation, and into the MCP server. Three independent timelines run alongside (policy sync, JWKS refresh, one-time login) and the diagram shows how they converge.
+This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, supervisor middleware, AgentGateway `extAuthz` / OpenFGA evaluation, local CEL evaluation, and into the MCP server. Three independent timelines run alongside (policy sync, JWKS refresh, one-time login) and the diagram shows how they converge.
 
 ```mermaid
 sequenceDiagram
@@ -46,6 +46,7 @@ sequenceDiagram
     participant KC as Keycloak<br/>(OIDC server + JWKS + IdP broker)
     participant SUP as Supervisor A2A
     participant AG as AgentGateway :4000
+    participant FGA as OpenFGA PDP<br/>(via ext_authz bridge)
     participant AGB as ag-config-bridge
     participant MDB as MongoDB<br/>(ag_mcp_policies)
     participant RAG as RAG MCP :9446
@@ -99,7 +100,11 @@ sequenceDiagram
       AG->>AG: "caipe-platform" in aud ✓
       AG->>AG: now < exp ✓
 
-      note over AG: CEL authorization: per-route + per-tool
+      note over AG,FGA: Remote PDP: AgentGateway extAuthz calls OpenFGA through the bridge
+      AG->>FGA: Check(user:alice, can_call, document:mcp)
+      FGA-->>AG: allowed=true
+
+      note over AG: Local CEL authorization: per-route + per-tool
       AG->>AG: route rule:<br/>true (listener jwtAuth already enforced)
       AG->>AG: mcpAuthorization rule for tool "rag_query":<br/>jwt.realm_access.roles.contains("chat_user") && tool.name.startsWith("rag_query") → ALLOW
 
@@ -116,7 +121,7 @@ sequenceDiagram
 
 **Read this diagram as four independent timelines that happen to converge:**
 
-1. **Policy timeline** — admins edit CEL rules in the UI (`/admin/rbac/ag-policies`), which writes to MongoDB. `ag-config-bridge` polls MongoDB and re-renders `config.yaml` on change. AG hot-reloads via its file watcher. **Mean time from admin save to enforcement: ≤10s.**
+1. **Policy timeline** — admins edit CEL rules in the UI (`/admin/rbac/ag-policies`), which writes to MongoDB. `ag-config-bridge` polls MongoDB and re-renders `config.yaml` on change. AG hot-reloads via its file watcher. OpenFGA relationships are the remote PDP input and are checked on every MCP request. **Mean time from admin save to CEL enforcement: ≤10s.**
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
 3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. **Duo is not on the request hot path** — it is only touched on login. This is why AG's CEL rules can assume a JWT exists without ever needing to understand what Duo is.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a misconfigured CEL rule doesn't leave the MCP open; a compromised AG doesn't let tokens past MCP without signature check.
