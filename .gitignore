@@ -261,6 +261,9 @@ data/
 !.claude/skills
 !.claude/skills/**
 
+# Superpowers local session artifacts
+.superpowers/
+
 # .agents/skills symlinks to .claude/skills for ~/.agents/skills compatibility
 !.agents/
 !.agents/skills

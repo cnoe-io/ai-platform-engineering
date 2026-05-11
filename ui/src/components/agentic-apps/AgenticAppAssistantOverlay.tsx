@@ -118,7 +118,7 @@ export function AgenticAppAssistantOverlay({
         >
           <button
             type="button"
-            aria-label={`Resize ${bubbleLabel} assistant`}
+            aria-label={`Resize ${headerTitle}`}
             onPointerDown={handleResizeStart}
             className="absolute left-3 top-3 z-10 flex h-10 w-10 cursor-nwse-resize touch-none items-center justify-center rounded-full border border-cyan-200/30 bg-slate-950/35 shadow-lg shadow-cyan-950/30 backdrop-blur-md transition hover:border-cyan-200/60 hover:bg-cyan-300/10"
           >

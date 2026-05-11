@@ -26,9 +26,9 @@ A user only sees the feature when **both** flags are on. This gives operators a 
 **Target Platform**: Modern evergreen browsers (existing CAIPE UI baseline). Server-side runs in the Next.js Node runtime that already serves the UI.
 **Project Type**: Web application — feature lives entirely under `ui/` (Next.js App Router pages, components, API routes), with MongoDB as the persistence layer.
 **Performance Goals**:
-- Webhook → DB persisted in <500 ms p95.
-- Webhook ingest → connected SSE client updates DOM in <10 s p95 (matches SC-002 in spec).
-- Per-Epic view initial render in <1.5 s p95 with up to 50 sub-tasks / PRs / deploys.
+- Webhook → DB persisted in &lt;500 ms p95.
+- Webhook ingest → connected SSE client updates DOM in &lt;10 s p95 (matches SC-002 in spec).
+- Per-Epic view initial render in &lt;1.5 s p95 with up to 50 sub-tasks / PRs / deploys.
 - Portfolio dashboard handles 100 onboarded repos and 1,000 in-flight Epics without virtualization issues.
 **Constraints**:
 - **Feature toggle gating**: every entry point (nav tab, route, API routes, SSE channel) must check both `Config.shipLoopEnabled` (server) and the per-user `shipLoop` flag (client) before rendering or returning data. Disabled-state must return 404 from API routes (not 403) to avoid disclosing the feature's existence to non-pilot users.

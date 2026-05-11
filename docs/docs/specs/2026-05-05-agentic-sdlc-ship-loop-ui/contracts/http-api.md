@@ -7,7 +7,7 @@ All routes live under `ui/src/app/api/agentic-sdlc/**` and follow the existing C
 3. **Per-user feature flag**: if the caller's `ship_loop_enabled` user preference is `false`, return **`404`**. (The flag is read server-side from the user record; we do not trust a client header.)
 4. **Authorization**: for repo-scoped routes, verify GitHub repo access via the user's GitHub OAuth token; cache 5 min. Failures return **`404`** (not 403) to avoid feature-existence disclosure.
 
-Request/response bodies are JSON unless noted. All times are ISO-8601 UTC. Errors follow the existing repo convention: `{ "error": "<code>", "message": "<safe text>" }`.
+Request/response bodies are JSON unless noted. All times are ISO-8601 UTC. Errors follow the existing repo convention: `{ "error": "error_code", "message": "safe text" }`.
 
 ---
 
@@ -179,7 +179,7 @@ Inbound GitHub webhook. **Public** (no session), but every request must:
 3. Originate from a GitHub-published source range when possible (best-effort; not strictly enforced because of corporate proxies).
 
 Returns:
-- **`202 Accepted`** is the **default** success response. The receiver verifies HMAC synchronously, enqueues the verified delivery to an in-process async worker, and returns. Synchronous response time is <100 ms p95 under pilot load. The actual DB write, projection into `ship_loop_artifacts`, and SSE fanout happen asynchronously inside the worker.
+- **`202 Accepted`** is the **default** success response. The receiver verifies HMAC synchronously, enqueues the verified delivery to an in-process async worker, and returns. Synchronous response time is &lt;100 ms p95 under pilot load. The actual DB write, projection into `ship_loop_artifacts`, and SSE fanout happen asynchronously inside the worker.
 - `204 No Content` is returned only for unsubscribed event types or for deliveries from a no-longer-onboarded repo (silently discarded).
 - `400 Bad Request` on malformed payload.
 - `401 Unauthorized` on signature mismatch (never enqueued, never persisted).

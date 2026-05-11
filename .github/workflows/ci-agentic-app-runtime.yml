@@ -96,7 +96,7 @@ jobs:
           docker run -d \
             --name "agentic-app-${APP}" \
             -p "127.0.0.1:${PORT}:${PORT}" \
-            -e NODE_ENV=production \
+            -e NODE_ENV=test \
             -e "${PORT_ENV}=${PORT}" \
             -e "${JWT_SKIP_ENV}=true" \
             "${LOCAL_IMAGE}" \

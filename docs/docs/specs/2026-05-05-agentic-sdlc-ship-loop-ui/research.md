@@ -58,7 +58,7 @@ Request lifecycle:
 2. Look up the onboarded repo by `repository.id`; if not onboarded (or offboarded), respond `204` and discard.
 3. Verify `X-Hub-Signature-256` HMAC against the per-repo secret using `@octokit/webhooks`.
 4. **Enqueue** the verified delivery to an in-process bounded async task queue (e.g., a simple `Promise`-based worker keyed by `repo_id` so per-repo events stay FIFO).
-5. Return **`202 Accepted`** with `<100 ms p95` synchronous response time under pilot load.
+5. Return **`202 Accepted`** with &lt;100 ms p95 synchronous response time under pilot load.
 6. The worker, asynchronously:
    1. `upsert` into `ship_loop_events` keyed by `(repo_id, github_delivery_id)` — duplicate redeliveries are no-ops.
    2. Project derived state into `ship_loop_artifacts` (resolve stage, link Epic→sub-task→PR→deploy via the rules in `data-model.md`).
@@ -146,7 +146,7 @@ The "Deploy" stage transition fires when:
 
 ## R8. Performance target validation
 
-**Decision**: For the pilot scale (5–10 repos, ~20 active Epics, ~200 events/day), in-process projection and SSE pub/sub easily meet the <500 ms persist and <10 s end-to-end SLOs. No load testing infra changes required for MVP. Add k6 / Artillery scenarios when approaching the 12-month target.
+**Decision**: For the pilot scale (5–10 repos, ~20 active Epics, ~200 events/day), in-process projection and SSE pub/sub easily meet the &lt;500 ms persist and &lt;10 s end-to-end SLOs. No load testing infra changes required for MVP. Add k6 / Artillery scenarios when approaching the 12-month target.
 
 ---
 
