@@ -132,7 +132,7 @@ jobs:
 
             ### Test in docker-compose
             \`\`\`bash
-            IMAGE_TAG=${process.env.PREBUILD_TAG} docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile agentic-apps up
+            AGENTIC_APP_RUNTIME_IMAGE=${process.env.IMAGE_REPO} IMAGE_TAG=${process.env.PREBUILD_TAG} docker compose -f docker-compose.dev.yaml --profile caipe-ui --profile agentic-apps up
             \`\`\`
 
             > This prebuild runtime image is cleaned up when the PR is closed or merged.`;

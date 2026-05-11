@@ -1419,7 +1419,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.agentic-app
-    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    image: ${AGENTIC_APP_RUNTIME_IMAGE:-ghcr.io/cnoe-io/caipe-agentic-app-runtime}:${IMAGE_TAG:-localtag}
     container_name: agentic-app-finops
     command: ["node", "apps/agentic-apps/finops/server.mjs"]
     env_file:
@@ -1446,7 +1446,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.agentic-app
-    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    image: ${AGENTIC_APP_RUNTIME_IMAGE:-ghcr.io/cnoe-io/caipe-agentic-app-runtime}:${IMAGE_TAG:-localtag}
     container_name: agentic-app-weather
     command: ["node", "apps/agentic-apps/weather/server.mjs"]
     env_file:
@@ -1473,7 +1473,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.agentic-app
-    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    image: ${AGENTIC_APP_RUNTIME_IMAGE:-ghcr.io/cnoe-io/caipe-agentic-app-runtime}:${IMAGE_TAG:-localtag}
     container_name: agentic-app-oss-repo-management
     command: ["node", "apps/agentic-apps/oss-repo-management/server.mjs"]
     env_file:
@@ -1500,7 +1500,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.agentic-app
-    image: ghcr.io/cnoe-io/caipe-agentic-app-runtime:${IMAGE_TAG:-localtag}
+    image: ${AGENTIC_APP_RUNTIME_IMAGE:-ghcr.io/cnoe-io/caipe-agentic-app-runtime}:${IMAGE_TAG:-localtag}
     container_name: agentic-app-jira-project-dashboard
     command: ["node", "apps/agentic-apps/jira-project-dashboard/server.mjs"]
     env_file:
