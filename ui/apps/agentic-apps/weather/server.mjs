@@ -279,6 +279,14 @@ function renderDashboard({ compact }) {
         background: currentColor;
         box-shadow: 0 0 0 6px rgba(56, 189, 248, 0.10);
       }
+      .run-history {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        max-width: 720px;
+      }
+      .run-history select { flex: 1; min-width: 220px; }
       .controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0; align-items: center; }
       .font-customizer {
         display: flex;
@@ -456,6 +464,22 @@ function renderDashboard({ compact }) {
       .copilot input, .copilot select { width: 100%; }
       .message { margin-top: 8px; color: #cbd5e1; line-height: 1.5; font-size: 0.78rem; padding: 10px 12px; }
       .message strong { color: #bae6fd; }
+      .markdown-report h1, .markdown-report h2, .markdown-report h3 { margin: 0.45rem 0 0.25rem; color: #e0f2fe; }
+      .markdown-report p { margin: 0.35rem 0; }
+      .markdown-report ul, .markdown-report ol { margin: 0.35rem 0 0.35rem 1.1rem; padding: 0; }
+      .markdown-report li { margin: 0.2rem 0; }
+      .markdown-report code {
+        border-radius: 4px;
+        padding: 1px 4px;
+        background: rgba(15, 23, 42, 0.72);
+        color: #bae6fd;
+      }
+      .markdown-report pre {
+        overflow: auto;
+        border-radius: 8px;
+        padding: 8px;
+        background: rgba(15, 23, 42, 0.72);
+      }
       .timeline {
         display: grid;
         gap: 6px;
@@ -530,6 +554,19 @@ function renderDashboard({ compact }) {
         overflow: auto;
         white-space: pre-wrap;
         background: rgba(8, 47, 73, 0.18);
+      }
+      .debug-events {
+        grid-column: 1 / -1;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        padding-top: 8px;
+      }
+      .debug-events summary {
+        cursor: pointer;
+        color: #94a3b8;
+        font-size: 0.76rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
       }
       .activity-footer {
         position: sticky;
@@ -615,7 +652,7 @@ function renderDashboard({ compact }) {
               <option value="fahrenheit" selected>Fahrenheit</option>
               <option value="celsius">Celsius</option>
             </select>
-            <button id="loadWeather">Load forecast</button>
+            <button id="loadWeather">Refresh with agent</button>
             <span class="hero-status">
               <span class="dashboard-status" id="dashboardStatus" title="No forecast loaded yet.">
                 <span class="status-dot" aria-hidden="true"></span>
@@ -623,6 +660,12 @@ function renderDashboard({ compact }) {
               </span>
             </span>
           </div>
+        </div>
+        <div class="run-history">
+          <select id="runHistory" aria-label="Previous Weather Agent runs">
+            <option value="">No previous runs loaded yet</option>
+          </select>
+          <button class="ghost" id="loadSelectedRun" type="button">Load run</button>
         </div>
       </section>
 
@@ -736,10 +779,14 @@ function renderDashboard({ compact }) {
             </section>
             <section>
               <h2>Streamed Weather Report</h2>
-              <div class="message stream-content" id="streamedContent">
+              <div class="message stream-content markdown-report" id="streamedContent">
                 Streamed agent content will appear here during a live run.
               </div>
             </section>
+            <details class="debug-events">
+              <summary>Debug events (<span id="debugEventCount">0</span>)</summary>
+              <ol class="timeline" id="debugProgress"></ol>
+            </details>
           </div>
         </details>
       </footer>
@@ -749,7 +796,10 @@ function renderDashboard({ compact }) {
       const basePath = ${JSON.stringify(basePath)};
       const state = {
         forecast: null,
+        lastAgentMessage: "",
+        runs: [],
         activityEventCount: 0,
+        debugEventCount: 0,
         unit: "fahrenheit",
       };
       const fontStorageKey = "agentic-app.fontPreferences";
@@ -771,9 +821,11 @@ function renderDashboard({ compact }) {
       const kpiStrip = document.getElementById("kpiStrip");
       const insightsStrip = document.getElementById("insightsStrip");
 
-      document.getElementById("loadWeather").addEventListener("click", () => loadWeather(cityInput.value));
+      document.getElementById("loadWeather").addEventListener("click", runWeatherAgent);
       document.getElementById("askCopilot").addEventListener("click", runWeatherAgent);
       document.getElementById("openAssistantChat").addEventListener("click", openAssistantChat);
+      document.getElementById("loadSelectedRun").addEventListener("click", loadSelectedRun);
+      document.getElementById("runHistory").addEventListener("change", loadSelectedRun);
       fontFamilySelect.addEventListener("change", () => writeFontPreferences());
       fontScaleSelect.addEventListener("change", () => writeFontPreferences());
       unitToggle.addEventListener("change", () => {
@@ -781,11 +833,13 @@ function renderDashboard({ compact }) {
         if (state.forecast) renderForecast(state.forecast);
       });
       cityInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") loadWeather(cityInput.value);
+        if (event.key === "Enter") runWeatherAgent();
       });
 
       applyFontPreferences();
-      loadWeather(cityInput.value);
+      loadCachedWeather().then((loaded) => {
+        if (!loaded) loadWeather(cityInput.value);
+      });
 
       async function loadWeather(city) {
         copilotMessage.textContent = "Waiting for Weather Agent structured output.";
@@ -808,6 +862,102 @@ function renderDashboard({ compact }) {
         copilotMessage.textContent = "Run the Weather Agent to fetch provider data and emit weather.dashboard.v1.";
       }
 
+      async function loadCachedWeather() {
+        try {
+          const response = await fetch("/api/agentic-apps/weather-cache", {
+            headers: { accept: "application/json" },
+          });
+          if (!response.ok) return false;
+          const result = await response.json();
+          const cached = result.data?.item;
+          state.runs = Array.isArray(result.data?.items) ? result.data.items : cached ? [cached] : [];
+          renderRunHistory();
+          if (!cached?.payload) return false;
+          applyRun(cached);
+          copilotMessage.textContent =
+            "Loaded latest successful Weather Agent run from " + new Date(cached.updatedAt).toLocaleString() + ".";
+          setDashboardStatus("done", "Updated " + new Date(cached.updatedAt).toLocaleTimeString(), dashboardStatusDetail(state.forecast));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      async function saveCachedWeather(agentId, city, intent, unit, forecast, content) {
+        try {
+          const response = await fetch("/api/agentic-apps/weather-cache", {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({
+              agentId,
+              city,
+              intent,
+              unit,
+              payload: forecast,
+              lastAgentMessage: content,
+            }),
+          });
+          if (response.ok) {
+            const result = await response.json();
+            state.runs = Array.isArray(result.data?.items)
+              ? result.data.items
+              : result.data?.item
+                ? [result.data.item]
+                : state.runs;
+            renderRunHistory();
+          }
+        } catch {
+          // Persistence failure should not block the live weather dashboard.
+        }
+      }
+
+      function applyRun(run) {
+        if (!run?.payload) return;
+        state.forecast = normalizeForecast(run.payload, run.city || cityInput.value);
+        state.lastAgentMessage = run.lastAgentMessage || JSON.stringify(run.payload, null, 2);
+        state.unit = run.unit === "celsius" ? "celsius" : "fahrenheit";
+        unitToggle.value = state.unit;
+        cityInput.value = state.forecast.city || run.city || cityInput.value;
+        renderForecast(state.forecast);
+        renderMarkdownReport(document.getElementById("streamedContent"), state.lastAgentMessage);
+        publishAssistantContext(state.forecast);
+        setDashboardStatus(
+          "done",
+          "Updated " + new Date(run.updatedAt || run.createdAt || Date.now()).toLocaleTimeString(),
+          dashboardStatusDetail(state.forecast),
+        );
+      }
+
+      function renderRunHistory() {
+        const selector = document.getElementById("runHistory");
+        if (!state.runs.length) {
+          selector.innerHTML = '<option value="">No previous runs loaded yet</option>';
+          return;
+        }
+        selector.innerHTML = state.runs.map((run, index) => {
+          const payload = run.payload || {};
+          const cityLabel = payload.city || run.city || "Weather";
+          const condition = payload.current?.condition || "forecast";
+          const label = [
+            index === 0 ? "Latest" : "Previous",
+            new Date(run.updatedAt || run.createdAt).toLocaleString(),
+            cityLabel,
+            run.intent || "forecast-summary",
+            condition,
+          ].join(" • ");
+          return '<option value="' + escapeAttribute(run.runId || String(index)) + '">' + escapeHtml(label) + '</option>';
+        }).join("");
+      }
+
+      function loadSelectedRun() {
+        const runId = document.getElementById("runHistory").value;
+        const run = state.runs.find((item) => String(item.runId) === String(runId)) || state.runs[0];
+        if (!run) return;
+        applyRun(run);
+        copilotMessage.textContent =
+          "Loaded saved Weather Agent run from " + new Date(run.updatedAt || run.createdAt).toLocaleString() + ".";
+      }
+
       async function runWeatherAgent() {
         const agentId = document.getElementById("agentId").value.trim() || ${JSON.stringify(defaultAgentId)};
         const userQuestion = questionInput.value.trim();
@@ -816,6 +966,8 @@ function renderDashboard({ compact }) {
         cityInput.value = city;
         const intent = inferIntent(userQuestion, document.getElementById("intent").value);
         initializeActivityFeed();
+        setRunButtonBusy(true);
+        setDashboardStatus("active", "Updating...", "Agent: " + agentId + "\\nCity: " + city + "\\nIntent: " + intent);
         copilotMessage.textContent = "Calling CAIPE dynamic agent " + agentId + "...";
         const prompt = [
           "Answer this weather question for " + city + ": " + (userQuestion || "Build a weather dashboard insight with intent " + intent) + ".",
@@ -853,11 +1005,11 @@ function renderDashboard({ compact }) {
             throw new Error(await response.text().catch(() => "Weather Agent stream failed."));
           }
           const streamState = await consumeAgentStream(response);
+          updateAgentProgress("shape", "Shaping weather dashboard output", streamState.structuredOutput ? "Structured weather output received from stream." : "No weather.dashboard.v1 structured output received.");
           result = {
             content: streamState.content,
             structured_output: streamState.structuredOutput,
           };
-          updateAgentProgress("done", "Run complete", "Weather Agent finished streaming its report.");
           if (!result.structured_output) {
             throw new Error("No Weather structured output received from the CAIPE Weather agent");
           }
@@ -872,10 +1024,13 @@ function renderDashboard({ compact }) {
           if (!local.ok) {
             copilotMessage.textContent = result.message || "Weather Agent failed.";
             updateAgentProgress("error", "Weather Agent failed", result.message || "Local fallback failed.");
+            setDashboardStatus("error", "Weather Agent failed", result.message || "Local fallback failed.");
+            setRunButtonBusy(false);
             return;
           }
           appendStreamContent(result.message || JSON.stringify(result, null, 2));
           updateAgentProgress("error", "Agent structured output required", result.forecast?.reason || "Weather data requires the CAIPE Weather agent.");
+          setDashboardStatus("error", "Agent output pending", result.forecast?.reason || "Weather data requires the CAIPE Weather agent.");
         }
 
         const content = result.structured_output
@@ -883,7 +1038,14 @@ function renderDashboard({ compact }) {
           : result.content || result.message || JSON.stringify(result, null, 2);
         const insight = result.structured_output || result.forecast || extractFirstJsonObject(content);
         state.forecast = normalizeForecast(insight, city);
+        state.lastAgentMessage = content;
         renderForecast(state.forecast);
+        if (result.structured_output) {
+          updateAgentProgress("save", "Saving run history", "Captured " + state.forecast.daily.length + " daily rows, " + state.forecast.hourly.length + " hourly points, and " + (state.forecast.nationalWeatherAlerts?.alerts?.length || 0) + " alerts.");
+          await saveCachedWeather(agentId, city, intent, state.unit, state.forecast, content);
+          updateAgentProgress("done", "Run complete", "Dashboard updated from live Weather Agent stream.");
+          setDashboardStatus("done", "Updated " + new Date().toLocaleTimeString(), dashboardStatusDetail(state.forecast));
+        }
         const message = insight?.summary || content;
         copilotMessage.innerHTML = "<strong>Weather Agent:</strong> " + escapeHtml(message);
         if (insight?.recommendations?.length) {
@@ -909,13 +1071,17 @@ function renderDashboard({ compact }) {
             ],
           },
         }, "*");
+        setRunButtonBusy(false);
       }
 
       function initializeActivityFeed() {
         document.getElementById("activityDrawer").open = true;
         document.getElementById("agentProgress").innerHTML = "";
-        document.getElementById("streamedContent").textContent = "";
+        document.getElementById("debugProgress").innerHTML = "";
+        document.getElementById("debugEventCount").textContent = "0";
+        renderMarkdownReport(document.getElementById("streamedContent"), "");
         state.activityEventCount = 0;
+        state.debugEventCount = 0;
         updateActivitySummary("Starting live Weather Agent run...");
         setRunStatus("active", "Starting");
       }
@@ -936,8 +1102,9 @@ function renderDashboard({ compact }) {
         appendActivityEvent(step, label || step, detail, status);
       }
 
-      function appendActivityEvent(step, label, detail = "", status = "active") {
-        const list = document.getElementById("agentProgress");
+      function appendActivityEvent(step, label, detail = "", status = "active", options = {}) {
+        const isDebug = options.debug === true;
+        const list = document.getElementById(isDebug ? "debugProgress" : "agentProgress");
         const item = document.createElement("li");
         item.dataset.step = step;
         item.className = status === "error" ? "error" : status === "done" ? "done" : "active";
@@ -967,7 +1134,12 @@ function renderDashboard({ compact }) {
         }
         item.append(icon, content);
         list.prepend(item);
-        state.activityEventCount += 1;
+        if (isDebug) {
+          state.debugEventCount += 1;
+          document.getElementById("debugEventCount").textContent = String(state.debugEventCount);
+        } else {
+          state.activityEventCount += 1;
+        }
         updateActivitySummary(buildActivitySummary(status));
       }
 
@@ -986,16 +1158,29 @@ function renderDashboard({ compact }) {
 
       function buildActivitySummary(status) {
         const visible = state.activityEventCount + " event" + (state.activityEventCount === 1 ? "" : "s");
-        if (status === "error") return "Needs attention - " + visible;
-        if (status === "done") return "Last Weather Agent run - " + visible;
-        return "Streaming Weather Agent activity - " + visible;
+        const debug = state.debugEventCount ? " • " + state.debugEventCount + " debug" : "";
+        if (status === "error") return "Needs attention • " + visible + debug;
+        if (status === "done") return "Last Weather Agent run • " + visible + debug;
+        return "Streaming Weather Agent activity • " + visible + debug;
+      }
+
+      function setRunButtonBusy(isBusy) {
+        const buttons = [document.getElementById("loadWeather"), document.getElementById("askCopilot")].filter(Boolean);
+        for (const button of buttons) {
+          if (!button.dataset.defaultLabel) {
+            button.dataset.defaultLabel = button.textContent || "Run Weather Agent";
+          }
+          button.disabled = isBusy;
+          button.textContent = isBusy ? "Running live weather analysis..." : button.dataset.defaultLabel;
+        }
       }
 
       function appendStreamContent(chunk) {
         if (!chunk) return;
         setRunStatus("active", "Streaming");
         const target = document.getElementById("streamedContent");
-        target.textContent = (target.textContent || "") + chunk;
+        const nextContent = (target.dataset.markdown || "") + chunk;
+        renderMarkdownReport(target, nextContent);
         target.scrollTop = target.scrollHeight;
       }
 
@@ -1010,6 +1195,7 @@ function renderDashboard({ compact }) {
           structuredOutput: null,
           structuredOutputSchemaId: "",
           toolNames: {},
+          debugTools: {},
         };
         let buffer = "";
 
@@ -1063,37 +1249,56 @@ function renderDashboard({ compact }) {
         if (frame.event === "tool_start") {
           const toolName = payload.tool_name || "weather tool";
           const toolCallId = payload.tool_call_id || "";
-          if (toolCallId) streamState.toolNames[toolCallId] = toolName;
-          appendActivityEvent("tool-start", "Calling " + toolName, summarizeToolArgs(payload.args), "active");
+          const debug = isDebugTool(toolName);
+          if (toolCallId) {
+            streamState.toolNames[toolCallId] = toolName;
+            streamState.debugTools[toolCallId] = debug;
+          }
+          if (!debug) {
+            setRunStatus("active", "Using tool");
+          }
+          appendActivityEvent("tool-start", "Calling " + toolName, summarizeToolArgs(payload.args), "active", { debug });
           return;
         }
         if (frame.event === "tool_end") {
-          const toolName = streamState.toolNames[payload.tool_call_id || ""] || "weather tool";
+          const toolCallId = payload.tool_call_id || "";
+          const debug = Boolean(streamState.debugTools[toolCallId]);
+          const toolName = streamState.toolNames[toolCallId] || "weather tool";
+          setRunStatus("active", "Streaming");
           appendActivityEvent(
             "tool-end",
             payload.error ? toolName + " failed" : toolName + " completed",
             payload.error || "CAIPE returned the tool result to the Weather Agent.",
             payload.error ? "error" : "done",
+            { debug },
           );
           return;
         }
         if (frame.event === "structured_output") {
           streamState.structuredOutput = payload.payload || null;
           streamState.structuredOutputSchemaId = payload.schema_id || "";
+          setRunStatus("active", "Rendering");
           appendActivityEvent("structured-output", "Received structured weather output", payload.schema_id || "Schema id not provided.", "done");
           return;
         }
         if (frame.event === "warning") {
+          setRunStatus("error", "Warning");
           appendActivityEvent("warning", "Agent warning", payload.message || "Non-fatal stream warning.", "error");
           return;
         }
         if (frame.event === "error") {
+          setRunStatus("error", "Failed");
           appendActivityEvent("error", "Agent stream failed", payload.error || "Unknown stream error.", "error");
           return;
         }
         if (frame.event === "done") {
+          setRunStatus("active", "Rendering");
           appendActivityEvent("stream-done", "Stream finished", "Rendering Weather Agent report.", "done");
         }
+      }
+
+      function isDebugTool(toolName) {
+        return new Set(["glob", "grep", "ls", "read", "read_file", "task"]).has(String(toolName || "").toLowerCase());
       }
 
       function summarizeToolArgs(args) {
@@ -1592,12 +1797,133 @@ function renderDashboard({ compact }) {
         }
       }
 
+      function renderMarkdownReport(target, markdown) {
+        const source = String(markdown || "");
+        target.dataset.markdown = source;
+        target.innerHTML = markdownToSafeHtml(source);
+      }
+
+      function markdownToSafeHtml(markdown) {
+        const codeFence = String.fromCharCode(96, 96, 96);
+        const lines = String(markdown).replaceAll("\\r\\n", "\\n").split("\\n");
+        const html = [];
+        let paragraph = [];
+        let listType = "";
+        let inCode = false;
+        let codeLines = [];
+
+        function flushParagraph() {
+          if (!paragraph.length) return;
+          html.push("<p>" + renderInlineMarkdown(paragraph.join(" ")) + "</p>");
+          paragraph = [];
+        }
+
+        function flushList() {
+          if (!listType) return;
+          html.push("</" + listType + ">");
+          listType = "";
+        }
+
+        for (const line of lines) {
+          if (line.startsWith(codeFence)) {
+            if (inCode) {
+              html.push("<pre><code>" + escapeHtml(codeLines.join("\\n")) + "</code></pre>");
+              codeLines = [];
+              inCode = false;
+            } else {
+              flushParagraph();
+              flushList();
+              inCode = true;
+            }
+            continue;
+          }
+
+          if (inCode) {
+            codeLines.push(line);
+            continue;
+          }
+
+          const trimmed = line.trim();
+          if (!trimmed) {
+            flushParagraph();
+            flushList();
+            continue;
+          }
+
+          if (trimmed.startsWith("### ")) {
+            flushParagraph();
+            flushList();
+            html.push("<h3>" + renderInlineMarkdown(trimmed.slice(4)) + "</h3>");
+            continue;
+          }
+
+          if (trimmed.startsWith("## ")) {
+            flushParagraph();
+            flushList();
+            html.push("<h2>" + renderInlineMarkdown(trimmed.slice(3)) + "</h2>");
+            continue;
+          }
+
+          if (trimmed.startsWith("# ")) {
+            flushParagraph();
+            flushList();
+            html.push("<h1>" + renderInlineMarkdown(trimmed.slice(2)) + "</h1>");
+            continue;
+          }
+
+          if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            flushParagraph();
+            if (listType !== "ul") {
+              flushList();
+              html.push("<ul>");
+              listType = "ul";
+            }
+            html.push("<li>" + renderInlineMarkdown(trimmed.slice(2)) + "</li>");
+            continue;
+          }
+
+          const orderedMatch = trimmed.match(/^\\d+\\.\\s+(.+)$/);
+          if (orderedMatch) {
+            flushParagraph();
+            if (listType !== "ol") {
+              flushList();
+              html.push("<ol>");
+              listType = "ol";
+            }
+            html.push("<li>" + renderInlineMarkdown(orderedMatch[1]) + "</li>");
+            continue;
+          }
+
+          paragraph.push(trimmed);
+        }
+
+        if (inCode) {
+          html.push("<pre><code>" + escapeHtml(codeLines.join("\\n")) + "</code></pre>");
+        }
+        flushParagraph();
+        flushList();
+        return html.join("") || '<p class="activity-detail">No report content yet.</p>';
+      }
+
+      function renderInlineMarkdown(value) {
+        const codeTick = String.fromCharCode(96);
+        const inlineCodePattern = new RegExp(codeTick + "([^" + codeTick + "]+)" + codeTick, "g");
+        return escapeHtml(value)
+          .replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+          .replace(/\\*\\*([^*]+)\\*\\*/g, "<strong>$1</strong>")
+          .replace(inlineCodePattern, "<code>$1</code>");
+      }
+
       function escapeHtml(value) {
         return String(value)
           .replaceAll("&", "&amp;")
           .replaceAll("<", "&lt;")
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;");
+      }
+
+      function escapeAttribute(value) {
+        return escapeHtml(value).replaceAll("'", "&#39;");
       }
     </script>
   </body>

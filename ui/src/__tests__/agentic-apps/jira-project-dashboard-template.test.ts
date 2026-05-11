@@ -38,6 +38,9 @@ describe("Jira project dashboard reference app template", () => {
     expect(serverSource).toContain("jira_project.dashboard.v1");
     expect(serverSource).toContain("submit_structured_response");
     expect(serverSource).toContain("response_format");
+    expect(serverSource).toContain("ensureStructuredResponseAgent");
+    expect(serverSource).toContain("hasStructuredResponseSchema");
+    expect(serverSource).toContain("Enable Structured Response middleware");
     expect(serverSource).toContain("sprint-health-card");
     expect(serverSource).toContain("blocker-analysis");
     expect(serverSource).toContain("action-grid");

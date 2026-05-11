@@ -138,4 +138,61 @@ describe("seed-config agentic apps", () => {
 
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("preserves structured-response middleware for config-driven agents", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "caipe-agent-config-"));
+    const configPath = join(dir, "app-config.yaml");
+
+    writeFileSync(
+      configPath,
+      [
+        "models: []",
+        "mcp_servers: []",
+        "agents:",
+        "  - id: agent-jira-agent",
+        "    name: Jira Agent",
+        "    system_prompt: Emit Jira dashboard data.",
+        "    model:",
+        "      id: test-model",
+        "      provider: test-provider",
+        "    features:",
+        "      middleware:",
+        "        - type: structured_response",
+        "          enabled: true",
+        "          params:",
+        "            allowed_schema_ids: jira_project.dashboard.v1",
+        "            require_tool_submission: true",
+        "agentic_apps:",
+        "  packages: []",
+        "  installations: []",
+      ].join("\n"),
+    );
+    process.env.APP_CONFIG_PATH = configPath;
+
+    const { applySeedConfig } = await import("@/lib/seed-config");
+    await applySeedConfig();
+
+    const agents = collections.get("dynamic_agents");
+    expect(agents?.replaceOne).toHaveBeenCalledWith(
+      { _id: "agent-jira-agent" },
+      expect.objectContaining({
+        _id: "agent-jira-agent",
+        features: {
+          middleware: [
+            {
+              type: "structured_response",
+              enabled: true,
+              params: {
+                allowed_schema_ids: "jira_project.dashboard.v1",
+                require_tool_submission: true,
+              },
+            },
+          ],
+        },
+      }),
+      { upsert: true },
+    );
+
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

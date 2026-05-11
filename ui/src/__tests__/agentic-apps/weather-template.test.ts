@@ -136,6 +136,17 @@ describe("weather reference app template", () => {
     expect(serverSource).toContain("activitySummary");
     expect(serverSource).toContain("agentProgress");
     expect(serverSource).toContain("streamedContent");
+    expect(serverSource).toContain("/api/agentic-apps/weather-cache");
+    expect(serverSource).toContain("loadCachedWeather");
+    expect(serverSource).toContain("saveCachedWeather");
+    expect(serverSource).toContain("runHistory");
+    expect(serverSource).toContain("renderRunHistory");
+    expect(serverSource).toContain("renderMarkdownReport");
+    expect(serverSource).toContain("markdown-report");
+    expect(serverSource).toContain("debugProgress");
+    expect(serverSource).toContain("debugEventCount");
+    expect(serverSource).toContain("setRunButtonBusy");
+    expect(serverSource).toContain("Structured weather output received from stream.");
     expect(serverSource).toContain("consumeAgentStream");
     expect(serverSource).toContain("handleStreamEvent");
     expect(serverSource).toContain("appendActivityEvent");

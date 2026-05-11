@@ -51,9 +51,14 @@ async function handle(
     );
   }
 
+  const url = new URL(req.url);
+  const resolvedArtifactLookbackHours = positiveIntegerParam(
+    url.searchParams.get("resolvedLookbackHours"),
+  );
+
   const [counts, operatingSummary] = await Promise.all([
     getRepoCounts(repoDoc.repo_id),
-    getRepoOperatingSummary(repoDoc.repo_id),
+    getRepoOperatingSummary(repoDoc.repo_id, { resolvedArtifactLookbackHours }),
   ]);
 
   return Response.json({
@@ -70,6 +75,11 @@ async function handle(
     counts,
     ...operatingSummary,
   });
+}
+
+function positiveIntegerParam(value: string | null): number | undefined {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export const GET = withAgenticSdlcGate(handle);

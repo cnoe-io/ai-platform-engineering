@@ -53,7 +53,8 @@ jest.mock("@/lib/agentic-sdlc/github-client", () => ({
 jest.mock("@/lib/config", () => ({
   __esModule: true,
   getServerConfig: () => ({ shipLoopEnabled: true }),
-  getConfig: () => true,
+  getConfig: (key: string) =>
+    key === "shipLoopResolvedArtifactLookbackHours" ? 24 : true,
 }));
 
 const MOCK_USER = {
@@ -739,6 +740,44 @@ describe("GET /api/agentic-sdlc/repos/{owner}/{repo}", () => {
         webhook_last_event_at: new Date("2026-05-05T21:00:00Z"),
       }),
     });
+    const artifactsFind = jest
+      .fn()
+      .mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            artifact_id: "PR_42",
+            kind: "pull_request",
+            title: "Review OAuth PR",
+            current_stage: "review_hitl",
+            github_url: "https://github.com/demoorg/agentic-demo/pull/42",
+            last_event_at: new Date("2026-05-05T20:00:00Z"),
+          },
+        ]),
+      })
+      .mockReturnValueOnce({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            artifact_id: "PR_42",
+            kind: "pull_request",
+            title: "Review OAuth PR",
+            state: "open",
+            current_stage: "review_hitl",
+            github_url: "https://github.com/demoorg/agentic-demo/pull/42",
+            last_event_at: new Date("2026-05-05T20:00:00Z"),
+          },
+          {
+            artifact_id: "I_DONE",
+            kind: "subtask",
+            title: "Closed by Coder",
+            state: "closed",
+            current_stage: "observe",
+            labels: ["agent:coder", "status:done"],
+            agent_labels: ["agent:coder"],
+            github_url: "https://github.com/demoorg/agentic-demo/issues/45",
+            last_event_at: new Date("2026-05-05T20:10:00Z"),
+          },
+        ]),
+      });
     mockGetArtifactsCollection.mockResolvedValue({
       aggregate: jest
         .fn()
@@ -763,18 +802,7 @@ describe("GET /api/agentic-sdlc/repos/{owner}/{repo}", () => {
             { _id: "review_hitl", n: 1 },
           ]),
         }),
-      find: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([
-          {
-            artifact_id: "PR_42",
-            kind: "pull_request",
-            title: "Review OAuth PR",
-            current_stage: "review_hitl",
-            github_url: "https://github.com/demoorg/agentic-demo/pull/42",
-            last_event_at: new Date("2026-05-05T20:00:00Z"),
-          },
-        ]),
-      }),
+      find: artifactsFind,
     });
     mockGetEventsCollection.mockResolvedValue({
       countDocuments: jest
@@ -830,8 +858,33 @@ describe("GET /api/agentic-sdlc/repos/{owner}/{repo}", () => {
               artifact_id: "PR_42",
               title: "Review OAuth PR",
               actor_kind: "human",
+              state: "open",
+              resolved: false,
             },
           ],
+        },
+        {
+          stage: "observe",
+          items: [
+            {
+              artifact_id: "I_DONE",
+              title: "Closed by Coder",
+              actor_kind: "agent",
+              agent_name: "Coder",
+              state: "closed",
+              resolved: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(artifactsFind.mock.calls[1][0]).toMatchObject({
+      repo_id: "987654321",
+      $or: [
+        { state: { $nin: ["closed", "merged", "cancelled"] } },
+        {
+          state: { $in: ["closed", "merged", "cancelled"] },
+          last_event_at: { $gte: expect.any(Date) },
         },
       ],
     });

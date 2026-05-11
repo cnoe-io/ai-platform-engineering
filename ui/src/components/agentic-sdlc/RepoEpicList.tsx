@@ -19,7 +19,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { StageBadge } from "@/components/agentic-sdlc/visualizations/StageBadge";
@@ -27,6 +27,11 @@ import {
   ORBIT_STAGES,
   STAGE_VISUALS,
 } from "@/components/agentic-sdlc/visualizations/stage-visuals";
+import {
+  REPO_UPDATE_HIGHLIGHT_CLASS,
+  repoUpdateHighlightStyle,
+} from "@/lib/agentic-sdlc/highlight-timing";
+import { useAgenticSdlcUiSettings } from "@/hooks/use-agentic-sdlc-ui-settings";
 import type { AgenticSdlcStage } from "@/types/agentic-sdlc";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -52,6 +57,12 @@ interface RepoEpicListProps {
   repo: string;
 }
 
+interface RepoRefreshDetail {
+  owner?: string;
+  repo?: string;
+  changedArtifactIds?: string[];
+}
+
 export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
   const [items, setItems] = useState<EpicRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,12 +70,35 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
   const [needsHuman, setNeedsHuman] = useState(false);
   const [stalled, setStalled] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [highlightedArtifactIds, setHighlightedArtifactIds] = useState<Set<string>>(new Set());
+  const hasLoadedRef = useRef(false);
+  const highlightTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const { settings } = useAgenticSdlcUiSettings();
+
+  const highlightChangedArtifacts = useCallback((ids: string[] | undefined) => {
+    const validIds = (ids ?? []).filter(Boolean);
+    if (validIds.length === 0) return;
+    setHighlightedArtifactIds((current) => {
+      const next = new Set(current);
+      validIds.forEach((id) => next.add(id));
+      return next;
+    });
+    const timer = setTimeout(() => {
+      setHighlightedArtifactIds((current) => {
+        const next = new Set(current);
+        validIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }, settings.haloDurationSeconds * 1000);
+    highlightTimersRef.current.push(timer);
+  }, [settings.haloDurationSeconds]);
 
   useEffect(() => {
     function refreshWhenRepoMatches(event: Event) {
-      const detail = (event as CustomEvent<{ owner?: string; repo?: string }>)
-        .detail;
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
       if (detail?.owner === owner && detail?.repo === repo) {
+        highlightChangedArtifacts(detail.changedArtifactIds);
         setRefreshKey((value) => value + 1);
       }
     }
@@ -80,11 +114,23 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
         refreshWhenRepoMatches,
       );
     };
-  }, [owner, repo]);
+  }, [highlightChangedArtifacts, owner, repo]);
+
+  useEffect(() => {
+    return () => {
+      highlightTimersRef.current.forEach((timer) => clearTimeout(timer));
+      highlightTimersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setItems(null);
+    const backgroundRefresh = hasLoadedRef.current;
+    if (backgroundRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setItems(null);
+    }
     setError(null);
     const params = new URLSearchParams();
     if (stage) params.set("stage", stage);
@@ -104,10 +150,17 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
           return;
         }
         const body = (await res.json()) as EpicListResponse;
-        if (!cancelled) setItems(body.items ?? []);
+        if (!cancelled) {
+          setItems(body.items ?? []);
+          hasLoadedRef.current = true;
+        }
       } catch (e) {
         if (!cancelled)
           setError(e instanceof Error ? e.message : "fetch_failed");
+      } finally {
+        if (!cancelled) {
+          setIsRefreshing(false);
+        }
       }
     })();
     return () => {
@@ -158,7 +211,14 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
           role="alert"
         >
           <AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden />
-          Could not load Epics ({error}).
+          {items === null ? "Could not load" : "Could not refresh"} Epics ({error}).
+        </div>
+      )}
+
+      {isRefreshing && items !== null && (
+        <div className="inline-flex w-fit items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] text-primary motion-safe:animate-in motion-safe:fade-in-0">
+          <Loader2 className="mr-1.5 h-3 w-3 animate-spin" aria-hidden />
+          Updating Epics without clearing the board…
         </div>
       )}
 
@@ -187,7 +247,14 @@ export function RepoEpicList({ owner, repo }: RepoEpicListProps) {
                 href={`/apps/agentic-sdlc/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/epics/${encodeURIComponent(e.artifact_id)}`}
                 className={cn(
                   "group flex items-center gap-3 rounded-md border border-border/40 bg-card/40 px-3 py-2.5 transition hover:bg-card/70",
+                  highlightedArtifactIds.has(e.artifact_id) &&
+                    REPO_UPDATE_HIGHLIGHT_CLASS,
                 )}
+                style={
+                  highlightedArtifactIds.has(e.artifact_id)
+                    ? repoUpdateHighlightStyle(settings.haloColor)
+                    : undefined
+                }
               >
                 <StageBadge stage={e.current_stage} compact />
                 <div className="min-w-0 flex-1">

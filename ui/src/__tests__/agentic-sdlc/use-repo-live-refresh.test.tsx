@@ -36,8 +36,14 @@ jest.mock("@/hooks/use-agentic-sdlc-stream", () => ({
 import { useRepoAgenticSdlcLiveRefresh } from "@/hooks/use-repo-agentic-sdlc-live-refresh";
 
 beforeEach(() => {
+  jest.useFakeTimers();
   captured.url = undefined;
   captured.onEvent = undefined;
+});
+
+afterEach(() => {
+  jest.runOnlyPendingTimers();
+  jest.useRealTimers();
 });
 
 describe("useRepoAgenticSdlcLiveRefresh", () => {
@@ -53,7 +59,7 @@ describe("useRepoAgenticSdlcLiveRefresh", () => {
     expect(captured.url).toBe("/api/agentic-sdlc/repos/demoorg/agentic-demo/events");
   });
 
-  it("dispatches the existing repo refresh event when artifacts change", () => {
+  it("batches bursty repo stream events into one changed-artifact refresh", () => {
     const listener = jest.fn();
     window.addEventListener("agentic-sdlc:repo-synced", listener);
     renderHook(() =>
@@ -69,12 +75,33 @@ describe("useRepoAgenticSdlcLiveRefresh", () => {
         event: "artifact_upserted",
         data: { artifact_id: "I_1" },
       });
+      captured.onEvent?.({
+        event: "event_appended",
+        data: { event_id: "E_1", artifact_id: "I_2" },
+      });
+      captured.onEvent?.({
+        event: "webhook_health",
+        data: { status: "healthy" },
+      });
     });
 
+    expect(listener).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(250);
+    });
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0][0]).toMatchObject({
-      detail: { owner: "demoorg", repo: "agentic-demo" },
+      detail: {
+        owner: "demoorg",
+        repo: "agentic-demo",
+        eventCount: 3,
+        changedArtifactIds: ["I_1", "I_2"],
+      },
     });
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener("agentic-sdlc:repo-synced", listener);
   });
 

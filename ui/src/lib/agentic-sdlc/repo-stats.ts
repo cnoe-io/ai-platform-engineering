@@ -11,7 +11,12 @@ import {
   getAgenticSdlcArtifactsCollection,
   getAgenticSdlcEventsCollection,
 } from "@/lib/agentic-sdlc/mongo-collections";
-import type { AgenticSdlcStage, ArtifactKindStored } from "@/types/agentic-sdlc";
+import { getConfig } from "@/lib/config";
+import type {
+  AgenticSdlcStage,
+  ArtifactKindStored,
+  ArtifactNativeState,
+} from "@/types/agentic-sdlc";
 
 export interface RepoCounts {
   open_epics: number;
@@ -45,6 +50,8 @@ export interface RepoSwimLaneItem {
   artifact_id: string;
   kind: ArtifactKindStored;
   title: string;
+  state: ArtifactNativeState;
+  resolved: boolean;
   current_stage: AgenticSdlcStage;
   actor_kind: "agent" | "human" | "system";
   agent_label: string | null;
@@ -69,6 +76,10 @@ export interface RepoOperatingSummary {
     items: RepoHumanQueueItem[];
   };
   swim_lanes: RepoSwimLane[];
+}
+
+export interface RepoOperatingSummaryOptions {
+  resolvedArtifactLookbackHours?: number;
 }
 
 /**
@@ -142,10 +153,17 @@ export async function getRepoCounts(repoId: string): Promise<RepoCounts> {
 
 export async function getRepoOperatingSummary(
   repoId: string,
+  options: RepoOperatingSummaryOptions = {},
 ): Promise<RepoOperatingSummary> {
   const artifacts = await getAgenticSdlcArtifactsCollection();
   const events = await getAgenticSdlcEventsCollection();
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const resolvedLookbackHours = resolvedArtifactLookbackHours(
+    options.resolvedArtifactLookbackHours,
+  );
+  const resolvedSince = new Date(
+    Date.now() - resolvedLookbackHours * 60 * 60 * 1000,
+  );
 
   const [stageRows, humanRows, swimLaneRows, activity24h] = await Promise.all([
     artifacts
@@ -188,7 +206,13 @@ export async function getRepoOperatingSummary(
       .find(
         {
           repo_id: repoId,
-          state: { $nin: ["closed", "merged", "cancelled"] },
+          $or: [
+            { state: { $nin: ["closed", "merged", "cancelled"] } },
+            {
+              state: { $in: ["closed", "merged", "cancelled"] },
+              last_event_at: { $gte: resolvedSince },
+            },
+          ],
         },
         {
           projection: {
@@ -196,6 +220,7 @@ export async function getRepoOperatingSummary(
             artifact_id: 1,
             kind: 1,
             title: 1,
+            state: 1,
             current_stage: 1,
             needs_human: 1,
             labels: 1,
@@ -243,6 +268,7 @@ function buildSwimLanes(
     artifact_id: string;
     kind: ArtifactKindStored;
     title: string;
+    state?: ArtifactNativeState;
     current_stage: AgenticSdlcStage;
     needs_human?: boolean;
     labels?: string[];
@@ -261,6 +287,8 @@ function buildSwimLanes(
       artifact_id: row.artifact_id,
       kind: row.kind,
       title: row.title,
+      state: row.state ?? "unknown",
+      resolved: isResolvedState(row.state),
       current_stage: row.current_stage,
       actor_kind:
         row.needs_human || row.current_stage === "review_hitl"
@@ -282,6 +310,21 @@ function buildSwimLanes(
     stage,
     items,
   }));
+}
+
+const RESOLVED_STATES = new Set<ArtifactNativeState>([
+  "closed",
+  "merged",
+  "cancelled",
+]);
+
+function isResolvedState(state: ArtifactNativeState | undefined): boolean {
+  return state ? RESOLVED_STATES.has(state) : false;
+}
+
+function resolvedArtifactLookbackHours(override?: number): number {
+  const configured = override ?? getConfig("shipLoopResolvedArtifactLookbackHours");
+  return Number.isFinite(configured) && configured > 0 ? configured : 24;
 }
 
 const AGENT_PERSONAS: Array<{ label: string; name: string }> = [

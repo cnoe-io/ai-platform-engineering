@@ -191,6 +191,12 @@ export interface Config {
    * (default false) to enable. Has no effect when `shipLoopEnabled` is false.
    */
   shipLoopAssistantEnabled: boolean;
+  /**
+   * Number of hours that recently resolved Agentic SDLC artifacts remain
+   * visible in the separated "done issues" UI bucket. Set
+   * SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS to override the 24h default.
+   */
+  shipLoopResolvedArtifactLookbackHours: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +214,7 @@ const DEFAULT_FONT_SIZE = 'medium';
 const DEFAULT_FONT_FAMILY = 'inter';
 const DEFAULT_THEME = 'dark';
 const DEFAULT_GRADIENT_THEME = 'default';
+const DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 24;
 
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
@@ -265,6 +272,7 @@ const DEFAULT_CONFIG: Config = {
   oidcRequiredGroup: 'backstage-access',
   shipLoopEnabled: false,
   shipLoopAssistantEnabled: false,
+  shipLoopResolvedArtifactLookbackHours: DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
 };
 
 // ---------------------------------------------------------------------------
@@ -300,6 +308,11 @@ export function getServerOnlyConfig(): ServerOnlyConfig {
 /** Return value if it's in the allowed list, otherwise return fallback. */
 function validated(value: string | undefined, allowed: string[], fallback: string): string {
   return value && allowed.includes(value) ? value : fallback;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
@@ -362,6 +375,10 @@ export function getServerConfig(): Config {
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
   const shipLoopEnabled = env('SHIP_LOOP_ENABLED') === 'true';
   const shipLoopAssistantEnabled = env('SHIP_LOOP_ASSISTANT_ENABLED') === 'true';
+  const shipLoopResolvedArtifactLookbackHours = positiveInteger(
+    env('SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS'),
+    DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
+  );
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -427,6 +444,7 @@ export function getServerConfig(): Config {
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
     shipLoopEnabled,
     shipLoopAssistantEnabled,
+    shipLoopResolvedArtifactLookbackHours,
   };
 }
 

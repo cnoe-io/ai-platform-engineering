@@ -74,6 +74,9 @@ describe('getServerConfig', () => {
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
+        'SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS',
+        'JIRA_TICKET_ENABLED', 'JIRA_TICKET_PROJECT', 'JIRA_TICKET_LABEL',
+        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -108,6 +111,7 @@ describe('getServerConfig', () => {
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.storageMode).toBe('localStorage');
+      expect(cfg.shipLoopResolvedArtifactLookbackHours).toBe(24);
     });
 
     it('should return default personalization values', () => {
@@ -153,6 +157,7 @@ describe('getServerConfig', () => {
         'ticketEnabled', 'ticketProvider',
         'oidcRequiredGroup',
         'shipLoopEnabled', 'shipLoopAssistantEnabled',
+        'shipLoopResolvedArtifactLookbackHours',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -161,6 +166,13 @@ describe('getServerConfig', () => {
   // ---------- Custom env vars (new names) ----------
 
   describe('custom env vars (clean names)', () => {
+    beforeEach(() => {
+      clearEnv(
+        'PREVIEW_MODE', 'ENV_BADGE',
+        'SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS',
+      );
+    });
+
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
@@ -195,6 +207,16 @@ describe('getServerConfig', () => {
     it('should read APP_NAME', () => {
       process.env.APP_NAME = 'Grid';
       expect(getServerConfig().appName).toBe('Grid');
+    });
+
+    it('should read SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS as a UI config number', () => {
+      process.env.SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = '12';
+      expect(getServerConfig().shipLoopResolvedArtifactLookbackHours).toBe(12);
+    });
+
+    it('should ignore invalid SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS values', () => {
+      process.env.SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS = 'invalid';
+      expect(getServerConfig().shipLoopResolvedArtifactLookbackHours).toBe(24);
     });
 
     it('should read LOGO_URL', () => {
@@ -929,6 +951,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ticketEnabled', 'ticketProvider',
       'oidcRequiredGroup',
       'shipLoopEnabled', 'shipLoopAssistantEnabled',
+      'shipLoopResolvedArtifactLookbackHours',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

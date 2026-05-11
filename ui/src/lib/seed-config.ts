@@ -225,6 +225,9 @@ async function seedAgents(
       builtin_tools:
         (agentData.builtin_tools as DynamicAgentConfig["builtin_tools"]) ??
         undefined,
+      ui: (agentData.ui as DynamicAgentConfig["ui"]) ?? undefined,
+      features: (agentData.features as DynamicAgentConfig["features"]) ?? undefined,
+      interrupt_on: (agentData.interrupt_on as DynamicAgentConfig["interrupt_on"]) ?? undefined,
       enabled: (agentData.enabled as boolean) ?? true,
       owner_id: "system",
       is_system: false,

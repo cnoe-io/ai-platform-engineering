@@ -8,11 +8,14 @@ function item(overrides: {
   agentName?: string | null;
   actorKind?: "agent" | "human" | "system";
   escalationLabels?: string[];
+  resolved?: boolean;
 }) {
   return {
     artifact_id: overrides.id,
     kind: "subtask" as ArtifactKindStored,
     title: overrides.title,
+    state: overrides.resolved ? "closed" : "open",
+    resolved: overrides.resolved ?? false,
     current_stage: overrides.stage,
     actor_kind: overrides.actorKind ?? "agent",
     agent_label: overrides.agentName
@@ -92,5 +95,62 @@ describe("RepoSwimLanes persona board grouping", () => {
     expect(
       columns.find((column) => column.id === "human")?.items.map((x) => x.title),
     ).toEqual(["Needs access"]);
+  });
+
+  it("separates resolved work from active persona and swim lane groups", () => {
+    const { activeLanes, resolvedLanes, resolvedCount } = _internal.splitResolvedLanes([
+      {
+        stage: "implement",
+        items: [
+          item({
+            id: "active-1",
+            title: "Still implementing",
+            stage: "implement",
+            agentName: "Coder",
+          }),
+          item({
+            id: "done-1",
+            title: "Finished task",
+            stage: "observe",
+            agentName: "Coder",
+            resolved: true,
+          }),
+        ],
+      },
+    ]);
+
+    expect(resolvedCount).toBe(1);
+    expect(activeLanes).toEqual([
+      expect.objectContaining({
+        stage: "implement",
+        items: [expect.objectContaining({ artifact_id: "active-1" })],
+      }),
+    ]);
+    expect(resolvedLanes).toEqual([
+      expect.objectContaining({
+        stage: "implement",
+        items: [expect.objectContaining({ artifact_id: "done-1" })],
+      }),
+    ]);
+  });
+
+  it("auto-shows done issues when there is no active work to show", () => {
+    expect(_internal.shouldShowResolvedIssues(false, [], 3)).toBe(true);
+    expect(
+      _internal.shouldShowResolvedIssues(false, [
+        {
+          stage: "implement",
+          items: [
+            item({
+              id: "active-1",
+              title: "Still implementing",
+              stage: "implement",
+              agentName: "Coder",
+            }),
+          ],
+        },
+      ], 3),
+    ).toBe(false);
+    expect(_internal.shouldShowResolvedIssues(true, [], 0)).toBe(true);
   });
 });

@@ -905,7 +905,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       // Set interrupted status on error — store auto-saves on streaming=null
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user, extraClientContext]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, extraClientContext]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1176,8 +1176,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, saveMessagesToServer,
-      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, getActiveConversation, extraClientContext]);
+      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, getActiveConversation, extraClientContext]);
 
   // Handle tool approval decisions (approve/reject/edit)
   const handleToolApprovalDecision = useCallback(async (

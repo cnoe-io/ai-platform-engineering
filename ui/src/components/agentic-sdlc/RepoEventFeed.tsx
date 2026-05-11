@@ -4,14 +4,20 @@ import {
   Bot,
   ChevronDown,
   GitPullRequest,
+  Loader2,
   Rocket,
   ShieldAlert,
   User,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CollapsiblePanel } from "@/components/agentic-sdlc/CollapsiblePanel";
+import {
+  REPO_UPDATE_HIGHLIGHT_CLASS,
+  repoUpdateHighlightStyle,
+} from "@/lib/agentic-sdlc/highlight-timing";
+import { useAgenticSdlcUiSettings } from "@/hooks/use-agentic-sdlc-ui-settings";
 import { cn } from "@/lib/utils";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -72,6 +78,12 @@ interface RepoEventFeedProps {
   repo: string;
 }
 
+interface RepoRefreshDetail {
+  owner?: string;
+  repo?: string;
+  changedArtifactIds?: string[];
+}
+
 const FILTERS: Array<{ id: FeedCategory; label: string }> = [
   { id: "all", label: "All" },
   { id: "attention", label: "Needs attention" },
@@ -101,22 +113,58 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState<RepoEventFeedPagination | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [highlightedArtifactIds, setHighlightedArtifactIds] = useState<Set<string>>(new Set());
+  const hasLoadedRef = useRef(false);
+  const highlightTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const { settings } = useAgenticSdlcUiSettings();
+
+  const highlightChangedArtifacts = useCallback((ids: string[] | undefined) => {
+    const validIds = (ids ?? []).filter(Boolean);
+    if (validIds.length === 0) return;
+    setHighlightedArtifactIds((current) => {
+      const next = new Set(current);
+      validIds.forEach((id) => next.add(id));
+      return next;
+    });
+    const timer = setTimeout(() => {
+      setHighlightedArtifactIds((current) => {
+        const next = new Set(current);
+        validIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }, settings.haloDurationSeconds * 1000);
+    highlightTimersRef.current.push(timer);
+  }, [settings.haloDurationSeconds]);
 
   useEffect(() => {
     function onRepoSynced(event: Event) {
-      const detail = (event as CustomEvent<{ owner?: string; repo?: string }>).detail;
+      const detail = (event as CustomEvent<RepoRefreshDetail>).detail;
       if (detail?.owner === owner && detail?.repo === repo) {
+        highlightChangedArtifacts(detail.changedArtifactIds);
         setRefreshKey((value) => value + 1);
       }
     }
     window.addEventListener("agentic-sdlc:repo-synced", onRepoSynced);
     return () => window.removeEventListener("agentic-sdlc:repo-synced", onRepoSynced);
-  }, [owner, repo]);
+  }, [highlightChangedArtifacts, owner, repo]);
+
+  useEffect(() => {
+    return () => {
+      highlightTimersRef.current.forEach((timer) => clearTimeout(timer));
+      highlightTimersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setStatus("loading");
+      const backgroundRefresh = hasLoadedRef.current;
+      if (backgroundRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setStatus("loading");
+      }
       try {
         const res = await fetch(
           `/api/agentic-sdlc/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/event-feed?limit=${pageSize}&page=${page}`,
@@ -127,10 +175,15 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
         if (!cancelled) {
           setItems(body.items ?? []);
           setPagination(body.pagination ?? null);
+          hasLoadedRef.current = true;
           setStatus("ready");
         }
       } catch {
-        if (!cancelled) setStatus("error");
+        if (!cancelled && !backgroundRefresh) setStatus("error");
+      } finally {
+        if (!cancelled) {
+          setIsRefreshing(false);
+        }
       }
     }
     void load();
@@ -192,6 +245,13 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
         </label>
       </div>
 
+      {isRefreshing && status === "ready" ? (
+        <div className="inline-flex w-fit items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] text-primary motion-safe:animate-in motion-safe:fade-in-0">
+          <Loader2 className="mr-1.5 h-3 w-3 animate-spin" aria-hidden />
+          Revealing new repo events without clearing the feed…
+        </div>
+      ) : null}
+
       {status === "loading" ? (
         <div className="rounded-lg border border-border/30 bg-background/30 px-3 py-5 text-xs text-muted-foreground">
           Loading curated repo events...
@@ -205,11 +265,14 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
           No curated events match this filter yet.
         </div>
       ) : (
-        <ol className="divide-y divide-border/25 overflow-hidden rounded-lg border border-border/30 bg-background/25" aria-label="Repo event feed">
-          {visibleItems.map((item) => (
+        <ol className="divide-y divide-border/25 overflow-visible rounded-lg border border-border/30 bg-background/25" aria-label="Repo event feed">
+          {visibleItems.map((item, index) => (
             <RepoEventRow
               key={item.id}
               item={item}
+              highlighted={highlightedArtifactIds.has(item.details.artifact_id)}
+              revealIndex={highlightedArtifactIds.has(item.details.artifact_id) ? index : 0}
+              haloColor={settings.haloColor}
               expanded={expandedId === item.id}
               onToggle={() =>
                 setExpandedId((current) => (current === item.id ? null : item.id))
@@ -256,10 +319,16 @@ export function RepoEventFeed({ owner, repo }: RepoEventFeedProps) {
 function RepoEventRow({
   item,
   expanded,
+  highlighted,
+  revealIndex,
+  haloColor,
   onToggle,
 }: {
   item: RepoEventFeedItem;
   expanded: boolean;
+  highlighted: boolean;
+  revealIndex: number;
+  haloColor: string;
   onToggle: () => void;
 }) {
   const Icon =
@@ -276,7 +345,13 @@ function RepoEventRow({
               : Workflow;
 
   return (
-    <li className="bg-background/20">
+    <li
+      className={cn(
+        "bg-background/20 transition",
+        highlighted && REPO_UPDATE_HIGHLIGHT_CLASS,
+      )}
+      style={highlighted ? repoUpdateHighlightStyle(haloColor, revealIndex) : undefined}
+    >
       <button
         type="button"
         aria-expanded={expanded}

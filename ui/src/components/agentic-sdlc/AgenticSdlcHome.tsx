@@ -59,6 +59,14 @@ import {
   toggleFavoriteRepo,
   writeFavoriteRepos,
 } from "@/lib/agentic-sdlc/repo-favorites";
+import { useAgenticSdlcUiSettings } from "@/hooks/use-agentic-sdlc-ui-settings";
+import {
+  HALO_COLOR_OPTIONS,
+} from "@/lib/agentic-sdlc/ui-settings";
+import {
+  REPO_UPDATE_HIGHLIGHT_CLASS,
+  repoUpdateHighlightStyle,
+} from "@/lib/agentic-sdlc/highlight-timing";
 
 type AgenticSdlcTab = "ship-loop" | "repos" | "metrics" | "settings";
 
@@ -813,6 +821,7 @@ function heatmapTone(idx: number, count: number): string {
 }
 
 function AgenticSdlcSettings() {
+  const { settings, updateSettings, resetSettings } = useAgenticSdlcUiSettings();
   return (
     <section className="space-y-4">
       <div>
@@ -828,6 +837,81 @@ function AgenticSdlcSettings() {
       <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
         <div className="glass-panel rounded-xl border border-border/40 p-4">
           <RepoOnboardingSettingsCard />
+        </div>
+        <div className="glass-panel rounded-xl border border-border/40 p-4">
+          <h3 className="text-sm font-semibold text-foreground">Repo update visuals</h3>
+          <p className="mt-1 text-xs text-muted-foreground/75">
+            Tune the done-issues window and Tron-style halo used when repo
+            events update cards, Epics, and feed rows.
+          </p>
+          <div className="mt-4 grid gap-3 text-xs">
+            <label className="grid gap-1.5">
+              <span className="font-medium text-foreground">Done issues lookback</span>
+              <input
+                type="number"
+                min={1}
+                value={settings.doneIssuesLookbackHours}
+                onChange={(event) =>
+                  updateSettings({
+                    doneIssuesLookbackHours: Number(event.target.value),
+                  })
+                }
+                className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5 text-foreground"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Hours to keep resolved artifacts in the collapsed done bucket.
+              </span>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="font-medium text-foreground">Halo duration</span>
+              <input
+                type="number"
+                min={1}
+                value={settings.haloDurationSeconds}
+                onChange={(event) =>
+                  updateSettings({
+                    haloDurationSeconds: Number(event.target.value),
+                  })
+                }
+                className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5 text-foreground"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                Seconds the outer pulse remains visible after repo events.
+              </span>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="font-medium text-foreground">Halo color</span>
+              <select
+                value={settings.haloColor}
+                onChange={(event) =>
+                  updateSettings({ haloColor: event.target.value })
+                }
+                className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5 text-foreground"
+              >
+                {HALO_COLOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div
+              className={[
+                "rounded-lg border bg-card/70 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-cyan-100",
+                REPO_UPDATE_HIGHLIGHT_CLASS,
+              ].join(" ")}
+              style={repoUpdateHighlightStyle(settings.haloColor)}
+            >
+              Tron update halo preview
+            </div>
+            <button
+              type="button"
+              onClick={resetSettings}
+              className="w-fit rounded-md border border-border/40 px-2.5 py-1.5 text-[11px] text-muted-foreground transition hover:bg-background/60 hover:text-foreground"
+            >
+              Reset UI settings
+            </button>
+          </div>
         </div>
         <div className="glass-panel rounded-xl border border-border/40 p-4">
           <h3 className="text-sm font-semibold text-foreground">RBAC setup</h3>

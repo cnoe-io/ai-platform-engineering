@@ -2,7 +2,7 @@
 
 import { AlertTriangle, BarChart3, GitPullRequest, Loader2 } from "lucide-react";
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CollapsiblePanel } from "@/components/agentic-sdlc/CollapsiblePanel";
 import { StageBadge } from "@/components/agentic-sdlc/visualizations/StageBadge";
@@ -43,6 +43,8 @@ export function RepoOperatingMetrics({
   const [summary, setSummary] = useState<RepoSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
     function onRepoSynced(event: Event) {
@@ -57,7 +59,12 @@ export function RepoOperatingMetrics({
 
   useEffect(() => {
     let cancelled = false;
-    setSummary(null);
+    const backgroundRefresh = hasLoadedRef.current;
+    if (backgroundRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setSummary(null);
+    }
     setError(null);
 
     const url = `/api/agentic-sdlc/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
@@ -72,10 +79,17 @@ export function RepoOperatingMetrics({
           return;
         }
         const body = (await res.json()) as RepoSummary;
-        if (!cancelled) setSummary(body);
+        if (!cancelled) {
+          setSummary(body);
+          hasLoadedRef.current = true;
+        }
       } catch (e) {
         if (!cancelled)
           setError(e instanceof Error ? e.message : "fetch_failed");
+      } finally {
+        if (!cancelled) {
+          setIsRefreshing(false);
+        }
       }
     })();
 
@@ -84,7 +98,7 @@ export function RepoOperatingMetrics({
     };
   }, [owner, repo, refreshKey]);
 
-  if (error) {
+  if (error && !summary) {
     return (
       <aside className="space-y-3">
         <MetricPanel title="Repo operating snapshot" icon={BarChart3}>
@@ -113,70 +127,95 @@ export function RepoOperatingMetrics({
   return (
     <aside className="space-y-3">
       <MetricPanel title="Repo operating snapshot" icon={BarChart3}>
-        <StageSummary stageCounts={summary.stage_counts} />
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <MetricPill label="Open Epics" value={summary.counts.open_epics} />
-          <MetricPill
-            label="Active Tasks"
-            value={summary.counts.in_flight_subtasks}
-          />
-          <MetricPill
-            label="Review PRs"
-            value={summary.counts.prs_awaiting_review}
-          />
-          <MetricPill
-            label="Deploys 24h"
-            value={summary.counts.deploys_24h}
-          />
+        <div>
+          {isRefreshing && (
+            <RefreshBadge label="Updating snapshot…" />
+          )}
+          {error && (
+            <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+              <AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden />
+              Could not refresh repo metrics ({error}). Showing the last snapshot.
+            </p>
+          )}
+          <StageSummary stageCounts={summary.stage_counts} />
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            <MetricPill label="Open Epics" value={summary.counts.open_epics} />
+            <MetricPill
+              label="Active Tasks"
+              value={summary.counts.in_flight_subtasks}
+            />
+            <MetricPill
+              label="Review PRs"
+              value={summary.counts.prs_awaiting_review}
+            />
+            <MetricPill
+              label="Deploys 24h"
+              value={summary.counts.deploys_24h}
+            />
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {summary.activity_24h} events in the last 24h from webhook projection.
+          </p>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          {summary.activity_24h} events in the last 24h from webhook projection.
-        </p>
       </MetricPanel>
 
       <MetricPanel title="Human queue" icon={GitPullRequest}>
-        <div className="flex items-baseline justify-between">
-          <p className="text-2xl font-semibold text-foreground">
-            {summary.human_queue.needs_human_count}
-          </p>
-          <p className="text-xs text-muted-foreground">items need attention</p>
-        </div>
-        {summary.human_queue.oldest_waiting_since && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Oldest waiting since{" "}
-            {formatShortDate(summary.human_queue.oldest_waiting_since)}
-          </p>
-        )}
-        <div className="mt-3 space-y-2">
-          {summary.human_queue.items.length === 0 ? (
-            <p className="rounded-lg border border-border/30 bg-background/30 px-3 py-3 text-xs text-muted-foreground">
-              No PRs or tasks are waiting on a human right now.
-            </p>
-          ) : (
-            summary.human_queue.items.map((item) => (
-              <a
-                key={item.artifact_id}
-                href={item.github_url}
-                target="_blank"
-                rel="noreferrer"
-                className="block rounded-lg border border-border/30 bg-background/30 px-3 py-2 transition hover:bg-background/50"
-              >
-                <div className="flex items-center gap-2">
-                  <StageBadge stage={item.current_stage} compact />
-                  <span className="truncate text-xs font-medium text-foreground">
-                    {item.title}
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {item.kind.replace("_", " ")} ·{" "}
-                  {formatShortDate(item.last_event_at)}
-                </p>
-              </a>
-            ))
+        <div>
+          {isRefreshing && (
+            <RefreshBadge label="Refreshing human queue…" />
           )}
+          <div className="flex items-baseline justify-between">
+            <p className="text-2xl font-semibold text-foreground">
+              {summary.human_queue.needs_human_count}
+            </p>
+            <p className="text-xs text-muted-foreground">items need attention</p>
+          </div>
+          {summary.human_queue.oldest_waiting_since && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Oldest waiting since{" "}
+              {formatShortDate(summary.human_queue.oldest_waiting_since)}
+            </p>
+          )}
+          <div className="mt-3 space-y-2">
+            {summary.human_queue.items.length === 0 ? (
+              <p className="rounded-lg border border-border/30 bg-background/30 px-3 py-3 text-xs text-muted-foreground">
+                No PRs or tasks are waiting on a human right now.
+              </p>
+            ) : (
+              summary.human_queue.items.map((item) => (
+                <a
+                  key={item.artifact_id}
+                  href={item.github_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-lg border border-border/30 bg-background/30 px-3 py-2 transition hover:bg-background/50"
+                >
+                  <div className="flex items-center gap-2">
+                    <StageBadge stage={item.current_stage} compact />
+                    <span className="truncate text-xs font-medium text-foreground">
+                      {item.title}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {item.kind.replace("_", " ")} ·{" "}
+                    {formatShortDate(item.last_event_at)}
+                  </p>
+                </a>
+              ))
+            )}
+          </div>
         </div>
       </MetricPanel>
     </aside>
+  );
+}
+
+function RefreshBadge({ label }: { label: string }) {
+  return (
+    <div className="mb-3 inline-flex items-center rounded-full border border-primary/25 bg-primary/10 px-2 py-1 text-[11px] text-primary motion-safe:animate-in motion-safe:fade-in-0">
+      <Loader2 className="mr-1.5 h-3 w-3 animate-spin" aria-hidden />
+      {label}
+    </div>
   );
 }
 
