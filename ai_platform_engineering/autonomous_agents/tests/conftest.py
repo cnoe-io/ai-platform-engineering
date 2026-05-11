@@ -43,9 +43,15 @@ for _var in _ENV_VARS_TO_STRIP:
 
 from autonomous_agents import config as _config  # noqa: E402
 
-_config.Settings.model_config = {
-    **_config.Settings.model_config,
-    "env_file": None,
-    "env_file_encoding": None,
-}
+# Force every ``Settings()`` construction to skip the dotenv source so a
+# stray ``.env`` in the developer's cwd cannot override init kwargs.
+_orig_settings_init = _config.Settings.__init__
+
+
+def _settings_init_no_dotenv(self, **kwargs):
+    kwargs.setdefault("_env_file", None)
+    _orig_settings_init(self, **kwargs)
+
+
+_config.Settings.__init__ = _settings_init_no_dotenv
 _config.get_settings.cache_clear()
