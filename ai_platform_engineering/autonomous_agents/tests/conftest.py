@@ -1,20 +1,7 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pytest configuration for autonomous_agents tests.
-
-Isolates ``Settings`` from the developer's shell so test outcomes only
-depend on values the test itself supplies. Two layers of defence:
-
-1. Strip every env var ``Settings`` can read from ``os.environ`` so a
-   shell that has e.g. ``WEBEX_BOT_TOKEN`` exported does not leak in.
-2. Disable the dotenv source on ``Settings.model_config`` so a stray
-   ``.env`` in the developer's shell cwd does not leak in either.
-
-Both run BEFORE pytest collects tests so module-level ``Settings()``
-calls (including any ``@lru_cache``d ``get_settings()``) see a clean
-configuration.
-"""
+"""Pytest configuration: isolate ``Settings`` from the developer's shell."""
 
 import os
 

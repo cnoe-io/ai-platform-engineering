@@ -166,19 +166,21 @@ class Settings(BaseSettings):
     )
     _cors_origins: list[str] = PrivateAttr(default_factory=list)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _legacy_cors_constructor_kwarg(cls, data: Any) -> Any:
-        # Unit tests and callers use ``Settings(cors_origins=[...])`` /
-        # ``Settings(cors_origins="http://a,http://b")`` — translate to raw.
-        if not isinstance(data, dict) or "cors_origins" not in data:
-            return data
-        co = data.pop("cors_origins")
-        if isinstance(co, list):
-            data["cors_origins_raw"] = ",".join(str(x) for x in co if str(x)) if co else ""
-        elif isinstance(co, str):
-            data["cors_origins_raw"] = co
-        return data
+    def __init__(self, **kwargs: Any) -> None:
+        # Rewrite legacy ``cors_origins=`` kwarg to ``cors_origins_raw=``
+        # before pydantic-settings drops it (extra="ignore" + cors_origins
+        # is a @property, not a field).
+        if "cors_origins" in kwargs and "cors_origins_raw" not in kwargs:
+            co = kwargs.pop("cors_origins")
+            if isinstance(co, list):
+                kwargs["cors_origins_raw"] = (
+                    ",".join(str(x) for x in co if str(x)) if co else ""
+                )
+            elif isinstance(co, str):
+                kwargs["cors_origins_raw"] = co
+            else:
+                kwargs["cors_origins_raw"] = ""
+        super().__init__(**kwargs)
 
     @model_validator(mode="after")
     def _materialize_cors_origins(self) -> Self:
