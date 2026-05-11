@@ -302,3 +302,5 @@ PR_BODY.md
 PR_BODY.txt
 .pr-body.md
 COMMIT_BODY.md
+
+*.drawio

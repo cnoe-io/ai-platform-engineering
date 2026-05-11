@@ -66,6 +66,10 @@ class StreamEncoder(ABC):
         """Non-fatal warning (e.g., MCP server unavailable)."""
 
     @abstractmethod
+    def on_keepalive(self) -> list[str]:
+        """Emit a no-op frame to keep long-running streams alive."""
+
+    @abstractmethod
     def on_input_required(
         self,
         interrupt_id: str,

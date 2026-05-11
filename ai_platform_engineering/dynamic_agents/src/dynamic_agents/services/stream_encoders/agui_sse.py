@@ -175,6 +175,19 @@ class AGUIStreamEncoder(StreamEncoder):
             )
         ]
 
+    def on_keepalive(self) -> list[str]:
+        return [
+            _sse_frame(
+                "CUSTOM",
+                {
+                    "type": "CUSTOM",
+                    "name": "HEARTBEAT",
+                    "value": {},
+                    "timestamp": _ts(),
+                },
+            )
+        ]
+
     def on_input_required(
         self,
         interrupt_id: str,

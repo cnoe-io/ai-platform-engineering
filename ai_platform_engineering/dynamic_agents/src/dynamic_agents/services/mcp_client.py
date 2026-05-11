@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import json
 import logging
 import os
 from typing import Any
@@ -304,11 +305,16 @@ async def get_tools_with_resilience(
     return all_tools, failed_servers, failed_errors
 
 
-async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
+async def probe_server_tools(
+    server: MCPServerConfig,
+    *,
+    user_email: str | None = None,
+) -> list[dict[str, Any]]:
     """Probe an MCP server for its available tools.
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email, required for user_oauth servers
 
     Returns:
         List of tool metadata dicts
@@ -316,7 +322,7 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
     Raises:
         Exception with user-friendly message if probing fails
     """
-    connection = build_mcp_connection_config(server)
+    connection = build_mcp_connection_config(server, user_email=user_email)
     connections = {server.id: connection}
 
     # As of langchain-mcp-adapters 0.1.0, MultiServerMCPClient cannot be used
@@ -363,13 +369,13 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
 
 
 def _maybe_inline_text_file_blocks(result: Any) -> Any:
-    """Turn small MCP embedded text files into visible tool text.
+    """Turn MCP embedded text files into Webex-like visible tool text.
 
     Some MCP servers return text attachments as ``EmbeddedResource`` blob
     blocks. The LangChain MCP adapter converts those into multimodal ``file``
-    blocks, which are useful for model file upload paths but poor for tool
-    chaining: the agent cannot reliably pass the hidden base64/text into a
-    follow-up parser tool. For small text files, expose decoded text directly.
+    blocks, which the model cannot reliably chain into follow-up parser tools.
+    Webex transcript downloads already work because they return plain JSON with
+    a ``body`` string. For text attachments, mirror that shape as a hotfix.
     """
     if not isinstance(result, tuple) or len(result) != 2:
         return result
@@ -378,43 +384,64 @@ def _maybe_inline_text_file_blocks(result: Any) -> Any:
     if not isinstance(content, list):
         return result
 
-    inlined: list[str] = []
+    text_files: list[dict[str, Any]] = []
+    passthrough: list[Any] = []
     changed = False
     for block in content:
         if not isinstance(block, dict) or block.get("type") != "file":
-            inlined.append(str(block))
+            passthrough.append(block)
             continue
 
         mime_type = (block.get("mime_type") or "").lower()
         is_text = mime_type.startswith("text/") or mime_type in _TEXT_FILE_MIME_TYPES
         encoded = block.get("base64")
         if not is_text or not isinstance(encoded, str):
-            inlined.append(str(block))
+            passthrough.append(block)
             continue
 
         try:
             raw = base64.b64decode(encoded, validate=True)
         except Exception:  # noqa: BLE001
-            inlined.append(str(block))
+            passthrough.append(block)
             continue
 
         if len(raw) > _INLINE_TEXT_FILE_MAX_BYTES:
-            inlined.append(
-                f"Downloaded {mime_type or 'text'} file is {len(raw)} bytes; too large to inline."
+            text_files.append(
+                {
+                    "body": None,
+                    "bodyError": (
+                        f"Downloaded {mime_type or 'text'} file is {len(raw)} bytes; "
+                        "too large to inline"
+                    ),
+                    "bodyFormat": mime_type or "text",
+                    "mimeType": mime_type or None,
+                    "sizeBytes": len(raw),
+                    "name": block.get("name"),
+                }
             )
+            changed = True
             continue
 
         text = raw.decode("utf-8-sig", errors="replace")
-        inlined.append(
-            "Downloaded text attachment content follows. "
-            "Pass it to the appropriate parser as text if needed.\n\n"
-            f"{text}"
+        text_files.append(
+            {
+                "body": text,
+                "bodyFormat": "vtt" if mime_type == "text/vtt" else "text",
+                "mimeType": mime_type or None,
+                "sizeBytes": len(raw),
+                "name": block.get("name"),
+            }
         )
         changed = True
 
     if not changed:
         return result
-    return ("\n\n".join(inlined), artifact)
+
+    if len(text_files) == 1 and not passthrough:
+        visible: Any = text_files[0]
+    else:
+        visible = {"items": text_files, "otherContent": passthrough}
+    return (json.dumps(visible, ensure_ascii=False), artifact)
 
 
 def wrap_tools_with_error_handling(

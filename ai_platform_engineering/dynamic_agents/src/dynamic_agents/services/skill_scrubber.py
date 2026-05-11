@@ -341,6 +341,9 @@ class SkillContentScrubbingProcessor:
     def on_start(self, span, parent_context=None) -> None:  # noqa: D401, ARG002
         return None
 
+    def _on_ending(self, span) -> None:  # noqa: D401
+        self.on_end(span)
+
     def on_end(self, span) -> None:  # noqa: D401
         try:
             attrs = getattr(span, "attributes", None)

@@ -48,7 +48,7 @@ async def probe_server(
 
     # Probe the server
     try:
-        tools = await probe_server_tools(server)
+        tools = await probe_server_tools(server, user_email=user.email)
         result = MCPServerProbeResult(
             server_id=server_id,
             success=True,

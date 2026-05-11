@@ -9,6 +9,7 @@ on initialisation and tool/subagent wiring.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from dynamic_agents.services.stream_encoders import StreamEncoder
 
 logger = logging.getLogger(__name__)
+
+STREAM_KEEPALIVE_SECONDS = 15.0
 
 
 class StreamingMixin:
@@ -144,24 +147,44 @@ class StreamingMixin:
         # Inject skills files for SkillsMiddleware / StateBackend
         if getattr(self, "_skills_files", None):
             state_input["files"] = dict(self._skills_files)
-        async for chunk in self._graph.astream(
+        graph_stream = self._graph.astream(
             state_input,
             config=config,
             stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
-        ):
-            if self._cancelled:
-                logger.info(
-                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
-                    f"conv={session_id}, user={user_id}"
-                )
-                turn_status = "cancelled"
-                self._record_turn(turn_start, "stream", turn_status)
-                self._is_streaming = False
-                return
+        )
+        stream_iter = graph_stream.__aiter__()
+        next_chunk = asyncio.create_task(stream_iter.__anext__())
+        try:
+            while True:
+                done, _ = await asyncio.wait({next_chunk}, timeout=STREAM_KEEPALIVE_SECONDS)
+                if not done:
+                    for frame in encoder.on_keepalive():
+                        yield frame
+                    continue
 
-            for frame in encoder.on_chunk(chunk):
-                yield frame
+                try:
+                    chunk = next_chunk.result()
+                except StopAsyncIteration:
+                    break
+
+                next_chunk = asyncio.create_task(stream_iter.__anext__())
+
+                if self._cancelled:
+                    logger.info(
+                        f"[stream] Stream cancelled by user for agent '{self.config.name}': "
+                        f"conv={session_id}, user={user_id}"
+                    )
+                    turn_status = "cancelled"
+                    self._record_turn(turn_start, "stream", turn_status)
+                    self._is_streaming = False
+                    return
+
+                for frame in encoder.on_chunk(chunk):
+                    yield frame
+        finally:
+            if not next_chunk.done():
+                next_chunk.cancel()
 
         # ── Core lifecycle: stream end (flush) ──
         for frame in encoder.on_stream_end():
@@ -326,23 +349,43 @@ class StreamingMixin:
         logger.debug(f"[resume] Resume payload: {resume_payload}")
 
         # ── Core lifecycle: chunks ──
-        async for chunk in self._graph.astream(
+        graph_stream = self._graph.astream(
             Command(resume=resume_payload),
             config=config,
             stream_mode=["messages", "updates", "tasks"],
             subgraphs=True,
-        ):
-            if self._cancelled:
-                logger.info(
-                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
-                )
-                turn_status = "cancelled"
-                self._record_turn(turn_start, "resume", turn_status)
-                self._is_streaming = False
-                return
+        )
+        stream_iter = graph_stream.__aiter__()
+        next_chunk = asyncio.create_task(stream_iter.__anext__())
+        try:
+            while True:
+                done, _ = await asyncio.wait({next_chunk}, timeout=STREAM_KEEPALIVE_SECONDS)
+                if not done:
+                    for frame in encoder.on_keepalive():
+                        yield frame
+                    continue
 
-            for frame in encoder.on_chunk(chunk):
-                yield frame
+                try:
+                    chunk = next_chunk.result()
+                except StopAsyncIteration:
+                    break
+
+                next_chunk = asyncio.create_task(stream_iter.__anext__())
+
+                if self._cancelled:
+                    logger.info(
+                        f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
+                    )
+                    turn_status = "cancelled"
+                    self._record_turn(turn_start, "resume", turn_status)
+                    self._is_streaming = False
+                    return
+
+                for frame in encoder.on_chunk(chunk):
+                    yield frame
+        finally:
+            if not next_chunk.done():
+                next_chunk.cancel()
 
         # ── Core lifecycle: stream end (flush) ──
         for frame in encoder.on_stream_end():
