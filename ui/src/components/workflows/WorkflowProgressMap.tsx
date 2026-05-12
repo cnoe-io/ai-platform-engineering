@@ -71,7 +71,7 @@ function Edge({ status }: { status: "done" | "active" | "pending" }) {
       className={cn(
         "h-0.5 w-6 sm:w-8 shrink-0 rounded-full transition-colors duration-300",
         status === "done" && "bg-green-500",
-        status === "active" && "bg-blue-500 animate-pulse",
+        status === "active" && "bg-blue-500 animate-pulse-slow",
         status === "pending" && "bg-muted-foreground/20"
       )}
     />

@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Check, X, Pencil } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 
 interface ToolApprovalCardProps {
@@ -33,6 +35,8 @@ export function ToolApprovalCard({
   const [isEditing, setIsEditing] = useState(false);
   const [editedJson, setEditedJson] = useState(() => JSON.stringify(toolArgs, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   const canApprove = allowedDecisions.includes("approve");
   const canReject = allowedDecisions.includes("reject");
@@ -63,6 +67,7 @@ export function ToolApprovalCard({
         <CodeMirror
           value={isEditing ? editedJson : JSON.stringify(toolArgs, null, 2)}
           extensions={[json()]}
+          theme={isDark ? oneDark : "light"}
           editable={isEditing}
           readOnly={!isEditing}
           onChange={(value) => {
