@@ -1,0 +1,168 @@
+name: "[Prebuild] SQS Webhook Proxy Receiver Docker Build and Push"
+description: "Build and push SQS webhook proxy receiver image for prebuild branches"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "integrations/sqs-webhook-proxy-receiver/**"
+      - "docker-compose.dev.yaml"
+      - ".github/workflows/ci-sqs-webhook-proxy-receiver.yml"
+      - ".github/workflows/prebuild-sqs-webhook-proxy-receiver.yml"
+
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/sqs-webhook-proxy-receiver
+  IMAGE_CONTEXT: integrations/sqs-webhook-proxy-receiver
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute prebuild tag
+        id: compute_tag
+        shell: bash
+        run: |
+          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
+          BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          echo "prebuild_tag=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        with:
+          images: ghcr.io/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.compute_tag.outputs.prebuild_tag }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+
+      - name: Build and push receiver image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.IMAGE_CONTEXT }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
+          IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
+          PREBUILD_TAG: ${{ steps.compute_tag.outputs.prebuild_tag }}
+        with:
+          script: |
+            const body = `## SQS Webhook Proxy Receiver Prebuild Image Published
+
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            ### Test in docker-compose
+            \`\`\`bash
+            IMAGE_TAG=${process.env.PREBUILD_TAG} docker compose -f docker-compose.dev.yaml --profile agentic-sdlc up sqs-webhook-proxy-receiver
+            \`\`\`
+
+            > This prebuild image is cleaned up when the PR is closed or merged.`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    permissions:
+      contents: read
+      packages: write
+    env:
+      OWNER: ${{ github.repository_owner }}
+      PACKAGE_NAME: prebuild/sqs-webhook-proxy-receiver
+    steps:
+      - name: Delete prebuild images for branch
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        with:
+          script: |
+            const owner = process.env.OWNER;
+            const rawBranch = process.env.HEAD_REF || '';
+            const branchNoPrefix = rawBranch.startsWith('prebuild/') ? rawBranch.substring('prebuild/'.length) : rawBranch;
+            const sanitized = branchNoPrefix.replace(/\//g, '-');
+            const prefix = `${sanitized}-`;
+            const packageName = process.env.PACKAGE_NAME;
+            const packageType = 'container';
+
+            try {
+              const versions = await github.paginate(github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg, {
+                org: owner,
+                package_type: packageType,
+                package_name: packageName,
+                per_page: 100,
+              });
+              const toDelete = versions.filter((version) =>
+                (version.metadata?.container?.tags || []).some((tag) => tag.startsWith(prefix))
+              );
+
+              for (const version of toDelete) {
+                await github.rest.packages.deletePackageVersionForOrg({
+                  org: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: version.id,
+                });
+              }
+            } catch (error) {
+              core.warning(`Prebuild cleanup skipped: ${error.message}`);
+            }

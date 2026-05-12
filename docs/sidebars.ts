@@ -287,6 +287,11 @@ const sidebars: SidebarsConfig = {
           label: 'Agentic Apps',
         },
         {
+          type: 'doc',
+          id: 'features/sqs-webhook-receiver/index',
+          label: 'SQS Webhook Proxy Receiver',
+        },
+        {
           type: 'category',
           label: 'Rich Web UI',
           items: [

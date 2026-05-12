@@ -1,0 +1,131 @@
+name: "[CI] SQS Webhook Proxy Receiver Build and Push"
+description: "Build, smoke-test, and publish the SQS webhook proxy receiver image"
+
+on:
+  push:
+    tags:
+      - "**"
+  pull_request:
+    paths:
+      - "integrations/sqs-webhook-proxy-receiver/**"
+      - "docker-compose.dev.yaml"
+      - ".github/workflows/ci-sqs-webhook-proxy-receiver.yml"
+      - ".github/workflows/prebuild-sqs-webhook-proxy-receiver.yml"
+  workflow_dispatch:
+    inputs:
+      tag_version:
+        description: "Version tag to apply (e.g., 0.6.0-dev.1)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/sqs-webhook-proxy-receiver
+  IMAGE_CONTEXT: integrations/sqs-webhook-proxy-receiver
+  LOCAL_IMAGE: sqs-webhook-proxy-receiver:ci
+
+jobs:
+  smoke-test:
+    name: Unit and container smoke tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "${IMAGE_CONTEXT}/app/requirements.txt"
+
+      - name: Run receiver unit tests
+        run: python -m unittest discover -s "${IMAGE_CONTEXT}/app/tests"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build local receiver image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.IMAGE_CONTEXT }}/Dockerfile
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+          provenance: false
+          sbom: false
+
+      - name: Smoke-test container defaults
+        run: |
+          docker run --rm --entrypoint python "${LOCAL_IMAGE}" -c "import sys; sys.path.insert(0, '/app/src'); import caipe_forwarder; assert caipe_forwarder.SQS_QUEUE_NAME == 'webhook-deliveries'; assert caipe_forwarder.AWS_ASSUME_ROLE_SESSION_NAME == 'sqs-webhook-proxy-receiver'; assert caipe_forwarder.log.name == 'sqs-webhook-proxy-receiver'; assert caipe_forwarder._resolve_region() == 'us-east-1'"
+
+  publish:
+    name: Publish receiver image
+    runs-on: ubuntu-latest
+    needs: smoke-test
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=${{ inputs.tag_version }},enable=${{ inputs.tag_version != '' }}
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+
+      - name: Build and push receiver image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: ${{ env.IMAGE_CONTEXT }}
+          file: ${{ env.IMAGE_CONTEXT }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false

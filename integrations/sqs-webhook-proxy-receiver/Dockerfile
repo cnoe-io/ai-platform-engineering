@@ -1,9 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# GitHub Webhook Receiver — CAIPE integration
+# SQS Webhook Proxy Receiver — CAIPE integration
 #
-# Polls the AWS SQS queue that holds GitHub webhook deliveries and forwards
-# them to caipe-ui's /api/agentic-sdlc/webhooks/github endpoint with the
-# original raw body + provider headers preserved.
+# Polls an AWS SQS queue that holds webhook deliveries and forwards them to
+# caipe-ui with the original raw body and provider headers preserved.
 #
 # Runs as non-root (UID/GID 1001) per CAIPE container security baseline.
 
@@ -35,8 +34,8 @@ USER 1001:1001
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    AWS_REGION=us-east-2 \
-    SQS_QUEUE_NAME=github-webhook-sqs \
+    AWS_REGION=us-east-1 \
+    SQS_QUEUE_NAME=webhook-deliveries \
     CAIPE_WEBHOOK_URL=http://caipe-ui:3000/api/agentic-sdlc/webhooks/github \
     RECEIVER_BATCH_SIZE=10 \
     RECEIVER_WAIT_SECONDS=20 \

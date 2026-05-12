@@ -22,7 +22,7 @@ JENKINS_WEBHOOK_URL = os.getenv(
     "JENKINS_WEBHOOK_URL",
     "https://jenkins.example.com/github-webhook/",
 )
-SQS_QUEUE_NAME = os.getenv("SQS_QUEUE_NAME", "github-webhook-sqs")
+SQS_QUEUE_NAME = os.getenv("SQS_QUEUE_NAME", "webhook-deliveries")
 
 def receive_messages(queue, max_number, wait_time):
     """

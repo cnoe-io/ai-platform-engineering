@@ -1,25 +1,24 @@
 """
-CAIPE-facing SQS-to-Webhook forwarder for the Agentic SDLC.
+SQS-to-webhook proxy receiver for CAIPE.
 
-Polls the `github-webhook-sqs` queue and forwards each parked GitHub webhook
-delivery (raw body + provider signature headers) to the CAIPE Next.js route
-that owns HMAC verification, idempotency, persistence, and projection:
+Polls a configured SQS queue and forwards each parked webhook delivery
+(raw body + provider signature headers) to the CAIPE route that owns
+HMAC verification, idempotency, persistence, and projection:
 
     POST {CAIPE_WEBHOOK_URL}      (default http://caipe-ui:3000/api/agentic-sdlc/webhooks/github)
 
-The receiver intentionally preserves the *exact* raw payload bytes GitHub
-signed; CAIPE re-verifies the HMAC against `GITHUB_WEBHOOK_SECRET`.
+The receiver intentionally preserves the *exact* raw payload bytes the
+provider signed; CAIPE re-verifies the HMAC before accepting the event.
 
 Behaviour:
   - Long-poll SQS (default 20s) in batches of up to 10.
   - On a 2xx response from CAIPE → delete the SQS message.
   - On a 4xx/5xx response, network error, or bad message body → leave the
     SQS message in flight; SQS visibility timeout will redeliver it.
-    This is intentional (durable retry) and matches how the previous
-    Jenkins-side forwarder behaved in practice.
+    This is intentional and preserves durable retry semantics.
   - Single bad message never crashes the loop.
 
-# assisted-by Cursor composer-2-fast
+# assisted-by Codex Codex-sonnet-4-6
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ from botocore.session import get_session as get_botocore_session
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_PAYLOAD = os.getenv("LOG_PAYLOAD", "0") == "1"
-SQS_QUEUE_NAME = os.getenv("SQS_QUEUE_NAME", "github-webhook-sqs")
+SQS_QUEUE_NAME = os.getenv("SQS_QUEUE_NAME", "webhook-deliveries")
 CAIPE_WEBHOOK_URL = os.getenv(
     "CAIPE_WEBHOOK_URL",
     "http://caipe-ui:3000/api/agentic-sdlc/webhooks/github",
@@ -55,13 +54,12 @@ REQUEST_TIMEOUT = float(os.getenv("RECEIVER_REQUEST_TIMEOUT", "15"))
 EMPTY_BACKOFF_SECONDS = float(os.getenv("RECEIVER_EMPTY_BACKOFF_SECONDS", "0.5"))
 # STS assume-role hop. When `AWS_ASSUME_ROLE_ARN` is set, the receiver uses
 # the env-var creds (or AWS_PROFILE) as a *base identity* and assumes the
-# specified role before talking to SQS. This bridges the cross-account
-# credential gap when the CAIPE base credentials live in a different account
-# from the SQS queue.
+# specified role before talking to SQS. This bridges deployments where the
+# base identity differs from the queue reader identity.
 AWS_ASSUME_ROLE_ARN = os.getenv("AWS_ASSUME_ROLE_ARN") or ""
 AWS_ASSUME_ROLE_EXTERNAL_ID = os.getenv("AWS_ASSUME_ROLE_EXTERNAL_ID") or ""
 AWS_ASSUME_ROLE_SESSION_NAME = (
-    os.getenv("AWS_ASSUME_ROLE_SESSION_NAME") or "caipe-github-webhook-receiver"
+    os.getenv("AWS_ASSUME_ROLE_SESSION_NAME") or "sqs-webhook-proxy-receiver"
 )
 AWS_ASSUME_ROLE_DURATION_SECONDS = int(
     os.getenv("AWS_ASSUME_ROLE_DURATION_SECONDS", "3600")
@@ -73,7 +71,7 @@ logging.basicConfig(
     stream=sys.stdout,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
-log = logging.getLogger("github-webhook-receiver")
+log = logging.getLogger("sqs-webhook-proxy-receiver")
 
 
 _running = True
@@ -145,6 +143,11 @@ def _make_assumed_role_session(base: boto3.session.Session, region: str) -> boto
     return boto3.session.Session(botocore_session=bot_sess, region_name=region)
 
 
+def _resolve_region() -> str:
+    """Resolve the AWS region without requiring network access."""
+    return os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+
+
 def _make_sqs_resource() -> Any:
     """Construct an SQS resource.
 
@@ -153,11 +156,10 @@ def _make_sqs_resource() -> Any:
          env vars become the *base identity*.
       2. If `AWS_ASSUME_ROLE_ARN` is set, that base identity is used to
          call `sts:AssumeRole` and the resulting (refreshable) creds drive
-         the SQS client. This is the standard CAIPE setup because the
-         queue lives in a different account from CAIPE's shared IAM user.
+         the SQS client.
       3. Otherwise the base identity is used directly.
     """
-    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-2"
+    region = _resolve_region()
     config = BotoConfig(
         region_name=region,
         retries={"max_attempts": 3, "mode": "standard"},
@@ -199,7 +201,7 @@ def _forward_to_caipe(event_name: str, raw_payload: str, delivery_id: str, signa
         "X-Hub-Signature-256": signature,
         # Convenience header so the upstream can attribute who fed the event
         # without parsing the SQS body.
-        "X-CAIPE-Forwarder": "github-webhook-receiver",
+        "X-CAIPE-Forwarder": "sqs-webhook-proxy-receiver",
     }
     return requests.post(
         url=CAIPE_WEBHOOK_URL,

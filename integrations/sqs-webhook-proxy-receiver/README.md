@@ -1,8 +1,7 @@
-# GitHub Webhook Receiver (CAIPE integration)
+# SQS Webhook Proxy Receiver
 
-A long-running SQS poller that forwards GitHub webhooks parked in the
-`github-webhook-sqs` queue to CAIPE's Agentic SDLC webhook endpoint
-(`/api/agentic-sdlc/webhooks/github` on the `caipe-ui` service).
+A long-running SQS poller that forwards webhook deliveries parked in an
+operator-managed queue to a CAIPE webhook endpoint.
 
 This service is packaged so that it lives inside CAIPE's
 `docker-compose.dev.yaml` and starts/stops with the rest of the stack.
@@ -10,18 +9,19 @@ This service is packaged so that it lives inside CAIPE's
 ## Where it sits
 
 ```
-GitHub repo (cnoe-io/ai-platform-engineering, ...)
+Webhook provider
         │
-        ▼  push webhook
-   AWS SQS (us-east-2:github-webhook-sqs)
+        ▼  HTTPS webhook
+   Public webhook gateway / verifier
+        │
+        ▼  verified raw delivery
+   AWS SQS (webhook-deliveries)
         │
         ▼  long-poll (this service)
-   github-webhook-receiver  ──── HTTPS POST ────▶  caipe-ui
-                                                  /api/agentic-sdlc/webhooks/github
-                                                  → ship_loop_events (Mongo)
-                                                  → projector worker
-                                                  → ship_loop_artifacts
-                                                  → SSE bus → kanban
+   sqs-webhook-proxy-receiver  ──── HTTP POST ────▶  caipe-ui webhook route
+                                                       → event persistence
+                                                       → projection worker
+                                                       → UI updates
 ```
 
 Two entrypoints are shipped:
@@ -36,11 +36,11 @@ The Docker image uses `caipe_forwarder.py` by default.
 
 | Variable | Default | Description |
 |---|---|---|
-| `AWS_ACCESS_KEY_ID` | _from `.env`_ | Account that owns the SQS queue. CAIPE's `.env` already exposes this for Bedrock; reused here. |
+| `AWS_ACCESS_KEY_ID` | _from environment_ | Base identity used to read the SQS queue or assume a queue-reader role. |
 | `AWS_SECRET_ACCESS_KEY` | _from `.env`_ | – |
 | `AWS_SESSION_TOKEN` | _optional_ | Only required when running with assumed-role credentials. |
-| `AWS_REGION` | `us-east-2` | SQS queue region. |
-| `SQS_QUEUE_NAME` | `github-webhook-sqs` | Queue name (not URL). |
+| `AWS_REGION` | `us-east-1` | SQS queue region. |
+| `SQS_QUEUE_NAME` | `webhook-deliveries` | Queue name (not URL). |
 | `CAIPE_WEBHOOK_URL` | `http://caipe-ui:3000/api/agentic-sdlc/webhooks/github` | Where the receiver POSTs forwarded payloads. |
 | `RECEIVER_BATCH_SIZE` | `10` | SQS messages to pull per long poll (max 10). |
 | `RECEIVER_WAIT_SECONDS` | `20` | SQS long-poll wait. |
@@ -50,10 +50,11 @@ The Docker image uses `caipe_forwarder.py` by default.
 ## Locally (outside docker)
 
 ```bash
-cd integrations/github-webhook-receiver
+cd integrations/sqs-webhook-proxy-receiver
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r app/requirements.txt
-AWS_PROFILE=eticloud AWS_REGION=us-east-2 \
+AWS_REGION=us-east-1 \
+SQS_QUEUE_NAME=webhook-deliveries \
   CAIPE_WEBHOOK_URL=http://localhost:3000/api/agentic-sdlc/webhooks/github \
   python3 app/src/caipe_forwarder.py
 ```
@@ -61,16 +62,16 @@ AWS_PROFILE=eticloud AWS_REGION=us-east-2 \
 ## In docker-compose
 
 ```bash
-docker compose -f docker-compose.dev.yaml --profile agentic-sdlc up github-webhook-receiver
+docker compose -f docker-compose.dev.yaml --profile agentic-sdlc up sqs-webhook-proxy-receiver
 ```
 
 The service is gated behind the `agentic-sdlc` profile so it only spins up
-when you actually want live GitHub events flowing.
+when you actually want live webhook events flowing.
 
 ## Verifying it works
 
-1. Send a test event from the GitHub repo (or push a label to an issue).
-2. `docker logs -f github-webhook-receiver` should show a `[forward]` line.
+1. Send a test event from the provider.
+2. `docker logs -f sqs-webhook-proxy-receiver` should show a `[forward]` line.
 3. `docker exec caipe-mongodb-dev mongosh -u admin -p changeme --authenticationDatabase admin caipe --eval 'db.ship_loop_events.find({}, {github_event_type:1, github_action:1, occurred_at:1}).sort({occurred_at:-1}).limit(3).toArray()'`
 
 ## Provenance

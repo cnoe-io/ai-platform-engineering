@@ -3,7 +3,7 @@
 #
 # Watches all four hops simultaneously:
 #   ① SQS queue depth (direct credentials or optional assumed reader role)
-#   ② github-webhook-receiver container logs (SQS poll + forward)
+#   ② sqs-webhook-proxy-receiver container logs (SQS poll + forward)
 #   ③ caipe-ui webhook route activity
 #   ④ MongoDB ship_loop_events + ship_loop_artifacts (new docs and recent stage transitions)
 #
@@ -41,11 +41,11 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-QUEUE_URL="${GITHUB_WEBHOOK_SQS_QUEUE_URL:-}"
-QUEUE_NAME="${GITHUB_WEBHOOK_SQS_QUEUE:-}"
-AWS_REGION_FOR_QUEUE="${GITHUB_WEBHOOK_AWS_REGION:-${AWS_REGION:-us-east-1}}"
-ROLE_ARN="${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}"
-EXTERNAL_ID="${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}"
+QUEUE_URL="${SQS_WEBHOOK_QUEUE_URL:-}"
+QUEUE_NAME="${SQS_WEBHOOK_QUEUE:-}"
+AWS_REGION_FOR_QUEUE="${SQS_WEBHOOK_AWS_REGION:-${AWS_REGION:-us-east-1}}"
+ROLE_ARN="${SQS_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}"
+EXTERNAL_ID="${SQS_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}"
 
 # --- ANSI helpers -----------------------------------------------------------
 if [[ -t 1 ]]; then
@@ -130,13 +130,13 @@ except Exception:
 
 # --- Hop 2: receiver container ----------------------------------------------
 receiver_state() {
-  docker inspect github-webhook-receiver --format \
+  docker inspect sqs-webhook-proxy-receiver --format \
     '{{.State.Status}} ({{.State.Health.Status}}) restarts={{.RestartCount}}' \
     2>/dev/null || echo "not running"
 }
 
 receiver_tail() {
-  docker logs --tail "$N_RECEIVER_LOG_LINES" github-webhook-receiver 2>&1 \
+  docker logs --tail "$N_RECEIVER_LOG_LINES" sqs-webhook-proxy-receiver 2>&1 \
     | sed -E "s/\[forward\] ok/${GREEN}[forward] ok${RESET}/g; \
               s/\[forward\] non-2xx/${RED}[forward] non-2xx${RESET}/g; \
               s/forward failed/${RED}forward failed${RESET}/g"
@@ -231,11 +231,11 @@ while true; do
   echo "${BOLD}${CYAN}═══ Agentic SDLC pipeline monitor  (tick #${TICK}  ${NOW})${RESET}"
   echo
 
-  echo "${BOLD}① SQS  ${DIM}arn:...:github-webhook-sqs${RESET}"
+  echo "${BOLD}① SQS  ${DIM}${QUEUE_NAME:-webhook-deliveries}${RESET}"
   echo -n "    queue: "; queue_depth
   echo
 
-  echo "${BOLD}② Receiver  ${DIM}github-webhook-receiver${RESET}"
+  echo "${BOLD}② Receiver  ${DIM}sqs-webhook-proxy-receiver${RESET}"
   echo "    status: $(receiver_state)"
   receiver_tail | sed 's/^/    /'
   echo

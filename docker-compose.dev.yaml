@@ -1523,47 +1523,46 @@ services:
       - agentic-apps
 
   ####################################################################################################
-  #                              GitHub Webhook Receiver (Agentic SDLC)                              #
+  #                             SQS Webhook Proxy Receiver (Agentic SDLC)                            #
   ####################################################################################################
-  # Long-running SQS poller that forwards GitHub webhook deliveries parked in
-  # the AWS SQS `github-webhook-sqs` queue to caipe-ui's Agentic SDLC HMAC-
-  # verified webhook endpoint. Sources live in `integrations/github-webhook-receiver/`.
+  # Long-running SQS poller that forwards webhook deliveries parked in an
+  # operator-managed AWS SQS queue to caipe-ui's Agentic SDLC HMAC-verified
+  # webhook endpoint. Sources live in `integrations/sqs-webhook-proxy-receiver/`.
   #
-  # The container reads AWS credentials from CAIPE's shared `.env` (the same
-  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY pair already used by Bedrock).
-  # No assume-role hop is required when those credentials already live
-  # in the SQS-owning account.
+  # The container reads AWS credentials from `.env`. No assume-role hop is
+  # required when those credentials can read the queue directly.
   #
   # Profile-gated so it only runs when the operator explicitly wants live
-  # GitHub events flowing into the local stack.
-  github-webhook-receiver:
+  # webhook events flowing into the local stack.
+  sqs-webhook-proxy-receiver:
     build:
-      context: ./integrations/github-webhook-receiver
+      context: ./integrations/sqs-webhook-proxy-receiver
       dockerfile: Dockerfile
-    image: caipe/github-webhook-receiver:${IMAGE_TAG:-localtag}
-    container_name: github-webhook-receiver
+    image: ghcr.io/cnoe-io/sqs-webhook-proxy-receiver:${IMAGE_TAG:-localtag}
+    container_name: sqs-webhook-proxy-receiver
     env_file:
       - .env
     environment:
       # Region and queue are operator-provided so this example stays portable.
-      - AWS_REGION=${GITHUB_WEBHOOK_AWS_REGION:-us-east-1}
-      - SQS_QUEUE_NAME=${GITHUB_WEBHOOK_SQS_QUEUE:-}
-      - CAIPE_WEBHOOK_URL=${GITHUB_WEBHOOK_FORWARD_URL:-http://caipe-ui:3000/api/agentic-sdlc/webhooks/github}
-      - RECEIVER_BATCH_SIZE=${GITHUB_WEBHOOK_BATCH_SIZE:-10}
-      - RECEIVER_WAIT_SECONDS=${GITHUB_WEBHOOK_WAIT_SECONDS:-20}
-      - RECEIVER_REQUEST_TIMEOUT=${GITHUB_WEBHOOK_REQUEST_TIMEOUT:-15}
-      - LOG_LEVEL=${GITHUB_WEBHOOK_LOG_LEVEL:-INFO}
-      - LOG_PAYLOAD=${GITHUB_WEBHOOK_LOG_PAYLOAD:-0}
+      - AWS_REGION=${SQS_WEBHOOK_AWS_REGION:-us-east-1}
+      - AWS_DEFAULT_REGION=${SQS_WEBHOOK_AWS_DEFAULT_REGION:-${SQS_WEBHOOK_AWS_REGION:-us-east-1}}
+      - SQS_QUEUE_NAME=${SQS_WEBHOOK_QUEUE:-webhook-deliveries}
+      - CAIPE_WEBHOOK_URL=${SQS_WEBHOOK_FORWARD_URL:-http://caipe-ui:3000/api/agentic-sdlc/webhooks/github}
+      - RECEIVER_BATCH_SIZE=${SQS_WEBHOOK_BATCH_SIZE:-10}
+      - RECEIVER_WAIT_SECONDS=${SQS_WEBHOOK_WAIT_SECONDS:-20}
+      - RECEIVER_REQUEST_TIMEOUT=${SQS_WEBHOOK_REQUEST_TIMEOUT:-15}
+      - LOG_LEVEL=${SQS_WEBHOOK_LOG_LEVEL:-INFO}
+      - LOG_PAYLOAD=${SQS_WEBHOOK_LOG_PAYLOAD:-0}
       # Base credentials: use dedicated overrides when the shared credentials
       # should not talk to the queue directly.
-      - AWS_ACCESS_KEY_ID=${GITHUB_WEBHOOK_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
-      - AWS_SECRET_ACCESS_KEY=${GITHUB_WEBHOOK_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
-      - AWS_SESSION_TOKEN=${GITHUB_WEBHOOK_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}
+      - AWS_ACCESS_KEY_ID=${SQS_WEBHOOK_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
+      - AWS_SECRET_ACCESS_KEY=${SQS_WEBHOOK_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
+      - AWS_SESSION_TOKEN=${SQS_WEBHOOK_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}
       # Optional assume-role hop for queues that require a separate reader role.
-      - AWS_ASSUME_ROLE_ARN=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}
-      - AWS_ASSUME_ROLE_EXTERNAL_ID=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}
-      - AWS_ASSUME_ROLE_SESSION_NAME=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_SESSION_NAME:-caipe-github-webhook-receiver}
-      - AWS_ASSUME_ROLE_DURATION_SECONDS=${GITHUB_WEBHOOK_AWS_ASSUME_ROLE_DURATION_SECONDS:-3600}
+      - AWS_ASSUME_ROLE_ARN=${SQS_WEBHOOK_AWS_ASSUME_ROLE_ARN:-}
+      - AWS_ASSUME_ROLE_EXTERNAL_ID=${SQS_WEBHOOK_AWS_ASSUME_ROLE_EXTERNAL_ID:-}
+      - AWS_ASSUME_ROLE_SESSION_NAME=${SQS_WEBHOOK_AWS_ASSUME_ROLE_SESSION_NAME:-sqs-webhook-proxy-receiver}
+      - AWS_ASSUME_ROLE_DURATION_SECONDS=${SQS_WEBHOOK_AWS_ASSUME_ROLE_DURATION_SECONDS:-3600}
     # No hard `depends_on: caipe-ui` so this service is usable across compose
     # profiles where caipe-ui isn't part of the activated set. If caipe-ui
     # isn't reachable the receiver leaves the SQS message in flight; SQS
@@ -1571,7 +1570,7 @@ services:
     restart: unless-stopped
     profiles:
       - agentic-sdlc
-      - github-webhook
+      - sqs-webhook
       - caipe-ui
 
   ####################################################################################################
