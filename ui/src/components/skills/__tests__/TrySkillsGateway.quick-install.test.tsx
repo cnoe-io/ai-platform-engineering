@@ -301,6 +301,16 @@ function getDialog() {
 // ----------------------------------------------------------------------------
 
 describe("TrySkillsGateway → Quick install modal", () => {
+  it("centers the gateway content and uses a wider desktop layout", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const { container } = render(<TrySkillsGateway />);
+
+    const root = container.firstElementChild;
+    expect(root).toHaveClass("mx-auto");
+    expect(root).toHaveClass("w-full");
+    expect(root).toHaveClass("max-w-[1600px]");
+  });
+
   it("renders a quick-install-first page with advanced details collapsed", async () => {
     const { TrySkillsGateway } = await import("../TrySkillsGateway");
     render(<TrySkillsGateway />);

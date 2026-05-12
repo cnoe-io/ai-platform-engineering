@@ -415,7 +415,7 @@ export function TrySkillsGateway() {
   })();
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Skills API Gateway
