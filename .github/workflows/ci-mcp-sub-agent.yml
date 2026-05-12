@@ -31,6 +31,7 @@ jobs:
     if: always()
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
+      mcp_build_args: ${{ steps.read-config.outputs.mcp_build_args }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -42,7 +43,9 @@ jobs:
         id: read-config
         run: |
           ALL_AGENTS=$(jq -c '.mcp_agents' .github/agents.json)
+          MCP_BUILD_ARGS=$(jq -c '.mcp_build_args // {}' .github/agents.json)
           echo "all_agents=$ALL_AGENTS" >> $GITHUB_OUTPUT
+          echo "mcp_build_args=$MCP_BUILD_ARGS" >> $GITHUB_OUTPUT
 
   determine-agents:
     runs-on: ubuntu-latest
@@ -58,6 +61,7 @@ jobs:
       should_retag: ${{ steps.set-matrix.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
       image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
+      mcp_build_args: ${{ needs.load-config.outputs.mcp_build_args }}
     env:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
@@ -220,6 +224,22 @@ jobs:
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi
 
+      # assisted-by Codex Codex-sonnet-4-6
+      - name: Resolve per-agent MCP build args
+        id: mcp_build_args
+        env:
+          MCP_BUILD_ARGS: ${{ needs.determine-agents.outputs.mcp_build_args }}
+          AGENT: ${{ matrix.agent }}
+        run: |
+          # Render per-agent opt-in CLI flags from agents.json into the
+          # KEY=VALUE lines docker/build-push-action expects.
+          EXTRA=$(jq -r --arg a "$AGENT" '.[$a] // {} | to_entries | map("\(.key)=\(.value)") | .[]' <<< "$MCP_BUILD_ARGS")
+          {
+            echo 'extra<<EOF'
+            echo "$EXTRA"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and Push MCP Docker image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
@@ -230,6 +250,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
+            ${{ steps.mcp_build_args.outputs.extra }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -238,7 +259,7 @@ jobs:
   # If source image doesn't exist (still building), falls back to full build
   retag-unchanged:
     runs-on: ubuntu-latest
-    needs: determine-agents
+    needs: [determine-agents, load-config]
     if: needs.determine-agents.outputs.should_retag == 'true'
     permissions:
       contents: read
@@ -343,6 +364,20 @@ jobs:
             echo "path=build/agents/Dockerfile.mcp" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve per-agent MCP build args
+        if: steps.retag-or-build.outputs.needs_build == 'true'
+        id: mcp_build_args
+        env:
+          MCP_BUILD_ARGS: ${{ needs.load-config.outputs.mcp_build_args }}
+          AGENT: ${{ matrix.agent }}
+        run: |
+          EXTRA=$(jq -r --arg a "$AGENT" '.[$a] // {} | to_entries | map("\(.key)=\(.value)") | .[]' <<< "$MCP_BUILD_ARGS")
+          {
+            echo 'extra<<EOF'
+            echo "$EXTRA"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
@@ -354,6 +389,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.determine-agents.outputs.tag_version }}
           build-args: |
             AGENT_NAME=${{ matrix.agent }}
+            ${{ steps.mcp_build_args.outputs.extra }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
