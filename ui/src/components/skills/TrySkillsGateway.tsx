@@ -1860,16 +1860,10 @@ export function TrySkillsGateway() {
                         })()}
                       </div>
                     ) : (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          <span>
-                            <span className="font-medium">
-                              No API key.
-                            </span>{" "}
-                            Generate one in Step 1 first.
-                          </span>
-                        </div>
+                      <div
+                        className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 flex flex-wrap items-center gap-3"
+                        data-testid="quick-install-api-key-gate"
+                      >
                         <Button
                           type="button"
                           variant="default"
@@ -1883,6 +1877,12 @@ export function TrySkillsGateway() {
                           ) : null}
                           Generate API key
                         </Button>
+                        <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                          <span className="font-medium">
+                            Generate an API key first to install skills.
+                          </span>
+                        </div>
                       </div>
                     )}
 

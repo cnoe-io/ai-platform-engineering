@@ -473,14 +473,24 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(within(dialog).getByText(/skills from catalog/i)).toBeInTheDocument();
   });
 
-  it("shows the amber API-key gate with a Generate button when no key is present", async () => {
+  it("shows the API-key gate with the Generate button first when no key is present", async () => {
     await renderAndOpenModal();
     const dialog = getDialog();
 
-    expect(within(dialog).getByText(/No API key/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/No API key/i)).toBeNull();
+    expect(within(dialog).queryByText(/Generate one in Step 1 first/i)).toBeNull();
+
+    const apiKeyGate = within(dialog).getByTestId("quick-install-api-key-gate");
+    const generateButton = within(apiKeyGate).getByRole("button", {
+      name: /generate api key/i,
+    });
+    expect(generateButton).toBeEnabled();
     expect(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
-    ).toBeEnabled();
+      within(apiKeyGate).getByText(/Generate an API key first to install skills/i),
+    ).toBeInTheDocument();
+    expect(apiKeyGate.textContent?.indexOf("Generate API key")).toBeLessThan(
+      apiKeyGate.textContent?.indexOf("Generate an API key first") ?? 0,
+    );
 
     // Per PR #1268 review feedback (Jeff Napper #6): the snippet no longer
     // embeds the API key in any state — it's always a clean
