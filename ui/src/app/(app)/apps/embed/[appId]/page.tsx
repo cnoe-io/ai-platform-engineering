@@ -1,6 +1,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { AgenticAppEmbed } from "./AgenticAppEmbed";
+import { AuthGuard } from "@/components/auth-guard";
 
 interface EmbedPageProps {
   params: Promise<{ appId: string }>;
@@ -21,5 +22,9 @@ interface EmbedPageProps {
  */
 export default async function AgenticAppEmbedPage({ params }: EmbedPageProps) {
   const { appId } = await params;
-  return <AgenticAppEmbed appId={appId} />;
+  return (
+    <AuthGuard>
+      <AgenticAppEmbed appId={appId} />
+    </AuthGuard>
+  );
 }

@@ -1,6 +1,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { AgenticAppsHub } from "@/components/agentic-apps/AgenticAppsHub";
+import { AuthGuard } from "@/components/auth-guard";
 import {
   buildEffectiveAppsUserContext,
   evaluateAppAccess,
@@ -38,7 +39,11 @@ export default async function AppsPage() {
 
   const apps = await getHubApps();
 
-  return <AgenticAppsHub apps={apps} />;
+  return (
+    <AuthGuard>
+      <AgenticAppsHub apps={apps} />
+    </AuthGuard>
+  );
 }
 
 async function getHubApps(): Promise<HubApp[]> {

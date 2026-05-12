@@ -4,7 +4,7 @@
  * assisted-by Codex Codex-sonnet-4-6
  */
 
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 import { AgenticAppEmbed } from "@/app/(app)/apps/embed/[appId]/AgenticAppEmbed";
 
@@ -88,5 +88,19 @@ describe("agentic app embed shell", () => {
     expect(await screen.findByText("FinOps Command Center")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open ask finops/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^ask caipe$/i })).not.toBeInTheDocument();
+  });
+
+  it("redirects to login with the current embed path when the app list requires auth", async () => {
+    const onUnauthorized = jest.fn();
+    window.history.pushState({}, "", "/apps/embed/demo-external?tab=projects#top");
+    mockGetAgenticApps.mockRejectedValue(new Error("HTTP 401"));
+
+    render(<AgenticAppEmbed appId="demo-external" onUnauthorized={onUnauthorized} />);
+
+    await waitFor(() => {
+      expect(onUnauthorized).toHaveBeenCalledWith(
+        "/login?callbackUrl=%2Fapps%2Fembed%2Fdemo-external%3Ftab%3Dprojects%23top",
+      );
+    });
   });
 });

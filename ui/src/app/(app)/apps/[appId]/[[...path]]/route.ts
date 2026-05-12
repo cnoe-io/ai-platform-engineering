@@ -121,6 +121,9 @@ async function proxyAgenticAppRequest(
     session = auth.session;
   } catch (e) {
     if (e instanceof ApiError) {
+      if (e.statusCode === 401 && isDocumentNavigation(request)) {
+        return redirectToLogin(request);
+      }
       return Response.json({ error: e.message }, { status: e.statusCode });
     }
     throw e;
@@ -356,6 +359,25 @@ function shouldRedirectTopLevelIframeChromeRequest(
   }
   const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
   return fetchDest === "document";
+}
+
+function isDocumentNavigation(request: Request): boolean {
+  if (request.method.toUpperCase() !== "GET") {
+    return false;
+  }
+  const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
+  if (fetchDest === "document") {
+    return true;
+  }
+  const accept = request.headers.get("accept")?.toLowerCase() ?? "";
+  return accept.includes("text/html");
+}
+
+function redirectToLogin(request: Request): Response {
+  const requestUrl = new URL(request.url);
+  const loginUrl = new URL("/login", requestUrl);
+  loginUrl.searchParams.set("callbackUrl", `${requestUrl.pathname}${requestUrl.search}`);
+  return Response.redirect(loginUrl, 307);
 }
 
 function buildForwardHeaders(input: {

@@ -344,6 +344,29 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("redirects unauthenticated browser document requests to login with callbackUrl", async () => {
+    sessionMock().mockResolvedValue(null);
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(
+      new Request("http://localhost/apps/finops?range=30d", {
+        headers: {
+          accept: "text/html",
+          "sec-fetch-dest": "document",
+        },
+      }),
+      { params: Promise.resolve({ appId: "finops", path: [] }) },
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(
+      "http://localhost/login?callbackUrl=%2Fapps%2Ffinops%3Frange%3D30d",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("returns 503 gateway_store_unavailable when store load throws", async () => {
     const store = storeMocks();
     store.listAppInstallations.mockRejectedValue(new Error("mongo down"));

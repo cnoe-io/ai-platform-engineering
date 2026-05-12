@@ -31,6 +31,7 @@ interface State {
 
 interface AgenticAppEmbedProps {
   appId: string;
+  onUnauthorized?: (loginUrl: string) => void;
 }
 
 /**
@@ -46,7 +47,7 @@ interface AgenticAppEmbedProps {
  * effective access. Unauthorized users see a clear message instead of an
  * unstyled error inside the iframe.
  */
-export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
+export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [assistantContext, setAssistantContext] = useState<AgenticAppAssistantContextRecord | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -102,6 +103,10 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
         });
       } catch (err) {
         if (cancelled) return;
+        if (isUnauthorizedError(err)) {
+          redirectToLogin(onUnauthorized);
+          return;
+        }
         setState({
           status: "error",
           message: err instanceof Error ? err.message : "Failed to load app",
@@ -223,6 +228,23 @@ export function AgenticAppEmbed({ appId }: AgenticAppEmbedProps) {
   }
 
   return null;
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof Error && /\bHTTP 401\b|Unauthorized/i.test(error.message);
+}
+
+function redirectToLogin(onUnauthorized?: (loginUrl: string) => void): void {
+  const path =
+    window.location.pathname +
+    window.location.search +
+    window.location.hash;
+  const loginUrl = `/login?callbackUrl=${encodeURIComponent(path || "/")}`;
+  if (onUnauthorized) {
+    onUnauthorized(loginUrl);
+    return;
+  }
+  window.location.assign(loginUrl);
 }
 
 function resolveAssistantAgentId(appId: string): string {
