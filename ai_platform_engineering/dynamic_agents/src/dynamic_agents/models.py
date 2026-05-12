@@ -124,6 +124,34 @@ class AgentBackendConfig(BaseModel):
         ge=0,
         description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
     )
+    fs_namespace: list[str] | None = Field(
+        None,
+        min_length=3,
+        max_length=3,
+        description=(
+            "Override filesystem namespace as [scope, id, 'filesystem']. "
+            "Defaults to [agent_id, session_id, 'filesystem']. "
+            "Used by workflow service to scope files to a workflow run."
+        ),
+    )
+    checkpoint_collection: str | None = Field(
+        None,
+        description=(
+            "Override checkpoint collection name for MongoDBSaver. "
+            "Use 'workflow_checkpoints' for workflow steps to isolate from regular chat history. "
+            "None = use server default collection."
+        ),
+    )
+    checkpoint_ttl: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "TTL in seconds for checkpoint documents (MongoDBSaver ttl param). "
+            "Creates a MongoDB TTL index that auto-expires documents. "
+            "Only effective with a custom checkpoint_collection to avoid expiring regular chats. "
+            "None = no TTL (checkpoints persist indefinitely)."
+        ),
+    )
 
 
 class AgentBackend(BaseModel):
@@ -500,6 +528,15 @@ class ChatRequest(BaseModel):
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
+    config_override: dict | None = Field(
+        None,
+        description=(
+            "Override agent config fields for this request. "
+            "Supported: system_prompt, allowed_tools, model, builtin_tools, "
+            "interrupt_on, subagents, skills, features, backend. "
+            "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
+        ),
+    )
 
 
 # =============================================================================

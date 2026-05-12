@@ -1,7 +1,7 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
 import logging
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -15,6 +15,59 @@ from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runt
 from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
+
+# Fields that CANNOT be overridden via config_override
+_REJECTED_OVERRIDE_FIELDS: set[str] = {
+    "ui",
+    "name",
+    "description",
+    "owner_id",
+    "visibility",
+    "shared_with_teams",
+    "enabled",
+    "is_system",
+    "config_driven",
+    "id",
+    "created_at",
+    "updated_at",
+}
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge override into base dict. Override values win for scalars/lists.
+
+    For nested dicts, recurse so partial overrides don't clobber sibling keys.
+    """
+    merged = base.copy()
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, Any]) -> DynamicAgentConfig:
+    """Apply config_override to a DynamicAgentConfig, returning a new instance.
+
+    Validates that only allowed fields are overridden and uses deep merge
+    to avoid clobbering nested structures (e.g., backend.config).
+
+    Raises:
+        HTTPException(400): If rejected fields are present in the override.
+    """
+    rejected = _REJECTED_OVERRIDE_FIELDS & set(config_override.keys())
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"config_override contains disallowed fields: {sorted(rejected)}",
+        )
+
+    # Convert agent to dict, deep merge, reconstruct
+    agent_dict = agent.model_dump(by_alias=True)
+    merged = _deep_merge(agent_dict, config_override)
+    return DynamicAgentConfig.model_validate(merged)
+
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -119,6 +172,10 @@ async def chat_start_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (deep merge, validated)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
@@ -128,6 +185,7 @@ async def chat_start_stream(
         f"provider={agent.model.provider}, model={agent.model.id}, "
         f"mcp_servers={len(mcp_servers)}, "
         f"protocol={request.protocol}, "
+        f"config_override={request.config_override}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
 

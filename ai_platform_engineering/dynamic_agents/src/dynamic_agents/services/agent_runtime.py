@@ -179,12 +179,23 @@ class AgentRuntime:
             # Use shared MongoClient if provided; otherwise create our own
             self._owns_mongo_client = mongo_client is None
             self._mongo_client = mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
+            # Resolve checkpoint collection — allows override via backend.config.checkpoint_collection
+            checkpoint_coll = self.settings.checkpoint_collection
+            writes_coll = self.settings.checkpoint_writes_collection
+            checkpoint_ttl = None
+            if config.backend and config.backend.config:
+                if config.backend.config.checkpoint_collection:
+                    checkpoint_coll = config.backend.config.checkpoint_collection
+                    writes_coll = f"{config.backend.config.checkpoint_collection}_writes"
+                if config.backend.config.checkpoint_ttl is not None:
+                    checkpoint_ttl = config.backend.config.checkpoint_ttl
             # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
             self._checkpointer = MongoDBSaver(
                 self._mongo_client,
                 db_name=self.settings.mongodb_database,
-                checkpoint_collection_name=self.settings.checkpoint_collection,
-                writes_collection_name=self.settings.checkpoint_writes_collection,
+                checkpoint_collection_name=checkpoint_coll,
+                writes_collection_name=writes_coll,
+                ttl=checkpoint_ttl,
             )
             # GridFS-backed store for large file content (avoids 16MB checkpoint limit)
             fs_ttl = self._resolve_fs_ttl()
@@ -237,6 +248,18 @@ class AgentRuntime:
         if self.config.backend and self.config.backend.type:
             return self.config.backend.type
         return self.settings.default_runtime_backend
+
+    def _resolve_fs_namespace(self) -> tuple[str, str, str]:
+        """Resolve filesystem namespace from config override or default.
+
+        Returns a 3-tuple used as the GridFS store namespace key.
+        Default: (agent_id, session_id, "filesystem")
+        Override: from backend.config.fs_namespace (list of 3 strings)
+        """
+        if self.config.backend and self.config.backend.config and self.config.backend.config.fs_namespace:
+            ns = self.config.backend.config.fs_namespace
+            return (ns[0], ns[1], ns[2])
+        return (self.config.id, self._session_id, "filesystem")
 
     def _resolve_fs_ttl(self) -> int:
         """Resolve filesystem TTL from agent config or server default.
@@ -373,19 +396,18 @@ class AgentRuntime:
                         # enabled so skills are read from the same store as read_file;
                         # otherwise fall back to StateBackend (reads from state["files"]).
                         if self._resolve_backend_type() == BACKEND_STORE:
-                            agent_id = self.config.id
-                            session_id = self._session_id
+                            fs_ns = self._resolve_fs_namespace()
 
                             def skills_backend(rt):
                                 return StoreBackend(
                                     rt,
-                                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                                    namespace=lambda ctx: fs_ns,
                                 )
 
                             # Seed skill files into GridFS so SkillsMiddleware and
                             # read_file can find them via StoreBackend.
                             if self._store:
-                                namespace = (agent_id, session_id, "filesystem")
+                                namespace = fs_ns
                                 self._store.delete_by_key_prefix(namespace, "/skills/")
                                 for path, file_data in self._skills_files.items():
                                     self._store.put(namespace, path, file_data)
@@ -426,8 +448,7 @@ class AgentRuntime:
         safe_name = _sanitize_agent_name(self.config.name)
 
         # Namespace factory for StoreBackend — scopes files to this agent+conversation
-        agent_id = self.config.id
-        session_id = self._session_id
+        fs_ns = self._resolve_fs_namespace()
 
         # Backend selection: GridFS-backed StoreBackend or in-checkpoint StateBackend
         backend_type = self._resolve_backend_type()
@@ -437,7 +458,7 @@ class AgentRuntime:
             def backend(rt):
                 return StoreBackend(
                     rt,
-                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                    namespace=lambda ctx: fs_ns,
                 )
         else:
             backend = None  # defaults to StateBackend
@@ -541,12 +562,11 @@ class AgentRuntime:
 
         # format_file tool — always available when using GridFS backend
         if self._resolve_backend_type() == BACKEND_STORE and self._store:
-            agent_id = config.id
-            session_id = self._session_id
+            fs_ns = self._resolve_fs_namespace()
             tools.append(
                 create_format_file_tool(
                     store=self._store,
-                    namespace_factory=lambda: (agent_id, session_id, "filesystem"),
+                    namespace_factory=lambda: fs_ns,
                 )
             )
             config_summary["format_file"] = {}

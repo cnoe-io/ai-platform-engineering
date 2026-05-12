@@ -39,9 +39,10 @@ The workflow service extracts the *concept* (visual multi-step workflow definiti
 │    For each step (or parallel group in v2):          │
 │      1. Render prompt with Jinja2                    │
 │      2. Invoke DA via AG-UI (/chat/stream/start)     │
-│         - skip_checkpoints: true (no checkpoint DB)  │
-│         - backend.namespace: shared filesystem       │
 │         - config_override: per-step overrides        │
+│         - backend.config.checkpoint_collection       │
+│         - backend.config.checkpoint_ttl              │
+│         - backend.config.fs_namespace: shared fs     │
 │      3. Collect response (or pause for user input)   │
 │      4. Handle on_error per step (abort/skip/retry)  │
 │      5. Store step result in workflow_run            │
@@ -56,8 +57,9 @@ The workflow service extracts the *concept* (visual multi-step workflow definiti
 │  Dynamic Agent Server                                │
 │  /chat/stream/start                                  │
 │    - config_override support (new)                   │
-│    - skip_checkpoints flag (new)                     │
-│    - backend.namespace override (via config_override)│
+│    - backend.config.fs_namespace override (new)      │
+│    - backend.config.checkpoint_collection (new)      │
+│    - backend.config.checkpoint_ttl (new)             │
 │  /chat/stream/resume                                 │
 │  (runtime cached by DA server, not ephemeral)        │
 └─────────────────────────────────────────────────────┘
@@ -69,9 +71,9 @@ The workflow service extracts the *concept* (visual multi-step workflow definiti
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| DA invocation | `/chat/stream/start` + `skip_checkpoints: true` | Keeps door open for streaming step progress to UI later; `/chat/invoke` is simpler but loses streaming |
-| Checkpointing | Disabled via `skip_checkpoints` flag — no checkpoint persistence | Workflow steps are single-turn (one prompt → one response, possibly with tool loops); no back-and-forth conversation history needed |
-| Filesystem | Shared namespace per workflow run: `(workflow_config_id, run_id, "filesystem")` | All steps in a run need to read/write shared files; matches existing `(agent_id, session_id, "filesystem")` tuple pattern |
+| DA invocation | `/chat/stream/start` + `config_override` with `backend.config.checkpoint_collection` | Keeps door open for streaming step progress to UI later; `/chat/invoke` is simpler but loses streaming |
+| Checkpointing | Separate TTL-indexed collection (`workflow_checkpoints`) via `config_override.backend.config.checkpoint_collection` + `checkpoint_ttl` | Checkpoints persist to MongoDB (survive pod restarts for interrupt/resume) but auto-expire via MongoDB TTL index. `MongoDBSaver` creates the TTL index automatically. |
+| Filesystem | Shared namespace per workflow run via `config_override.backend.config.fs_namespace`: `["workflow_config_id", "run_id", "filesystem"]` | All steps in a run need to read/write shared files; matches existing `(agent_id, session_id, "filesystem")` tuple pattern |
 | `/execute` | Async — returns `wfrun-` ID immediately, engine runs in background | UI polls for state; same pattern as DA chats today |
 | Config override (DA server) | Liberal — accept any runtime-relevant field | Server should be flexible; consumers decide what to expose |
 | Config override (workflow UI) | Conservative v1 — `system_prompt`, `allowed_tools`, `model` | Start small, expand later; dict passthrough means no schema change needed |
@@ -301,13 +303,15 @@ Workflow steps use separate conversations (`{run_id}-step-{i}`), so each step ge
 
 ### Solution
 
-The workflow service passes a shared filesystem namespace via `config_override.backend.namespace`:
+The workflow service passes a shared filesystem namespace via `config_override.backend.config.fs_namespace`:
 
 ```python
 config_override = {
     "backend": {
-        "namespace": (workflow_config_id, run_id, "filesystem")
-        # e.g. ("wf-abc123", "wfrun-def456", "filesystem")
+        "config": {
+            "fs_namespace": [workflow_config_id, run_id, "filesystem"]
+            # e.g. ["wf-abc123", "wfrun-def456", "filesystem"]
+        }
     }
 }
 ```
@@ -382,27 +386,42 @@ Add optional `config_override: dict | None` to `ChatRequest`. The DA server merg
 | `features` | Middleware configuration |
 | `backend` | Storage/filesystem config (namespace, sandbox in future) |
 
-**Not overridable** (ignored if present): `ui`, `name`, `description`, `owner_id`, `visibility`, `enabled`, `is_system`, `config_driven`.
+**Not overridable** (rejected with 400 if present): `ui`, `name`, `description`, `owner_id`, `visibility`, `shared_with_teams`, `enabled`, `is_system`, `config_driven`, `id`, `created_at`, `updated_at`.
 
-### 2. `skip_checkpoints` flag on ChatRequest
+### 2. Checkpoint Isolation via `backend.config`
 
-Add `skip_checkpoints: bool = False` to `ChatRequest`. When `true`, the streaming endpoint skips `MongoDBSaver` checkpoint persistence — the runtime still uses the normal cached runtime and `MongoDBGridFSStore` for files, but does not save or load LangGraph checkpoints. This is appropriate for single-turn workflow steps where the agent does its reasoning loops and returns a result, with no need for conversation history.
-
-Unlike the existing `ephemeral` mode (which uses `MemorySaver` + `InMemoryStore` and is not cached), `skip_checkpoints` keeps the runtime cached and file store persistent — only checkpoint writes are suppressed.
-
-### 3. Filesystem Namespace via `config_override.backend`
-
-Instead of a separate top-level field, the filesystem namespace is passed via `config_override.backend.namespace`:
+Instead of a `skip_checkpoints` flag, workflow steps use `config_override.backend.config` to route checkpoints to a separate TTL-indexed collection:
 
 ```python
 config_override = {
     "backend": {
-        "namespace": ("wf-abc123", "wfrun-def456", "filesystem")
+        "config": {
+            "checkpoint_collection": "workflow_checkpoints",
+            "checkpoint_ttl": 86400  # 24h, auto-expires via MongoDB TTL index
+        }
     }
 }
 ```
 
-When `backend.namespace` is set in the override, the DA server uses it as the GridFS store namespace instead of the default `(agent_id, session_id, "filesystem")`.
+- `checkpoint_collection`: Routes `MongoDBSaver` writes to a separate MongoDB collection (+ `_writes` suffix for writes collection). Isolates workflow checkpoints from regular chat history.
+- `checkpoint_ttl`: Passed directly to `MongoDBSaver(ttl=...)`, which auto-creates a MongoDB TTL index on the collection. Documents expire automatically — no manual cleanup needed.
+- Checkpoints persist to MongoDB, so interrupt/resume survives pod restarts. If the runtime is evicted from cache, the checkpointer can restore state from MongoDB.
+
+### 3. Filesystem Namespace via `backend.config.fs_namespace`
+
+The filesystem namespace is passed via `config_override.backend.config.fs_namespace`:
+
+```python
+config_override = {
+    "backend": {
+        "config": {
+            "fs_namespace": ["wf-abc123", "wfrun-def456", "filesystem"]
+        }
+    }
+}
+```
+
+When `backend.config.fs_namespace` is set, the DA server uses it as the GridFS store namespace instead of the default `(agent_id, session_id, "filesystem")`.
 
 ---
 
@@ -434,10 +453,18 @@ async _execute_steps(config, run, user_context, start_from=0):
         run.steps[index].status = "running"
         run.steps[index].started_at = now()
 
-        # Build config override with deep merge for backend.namespace
+        # Build config override with deep merge for backend
         step_override = deep_merge(
             step.config_override or {},
-            {"backend": {"namespace": (config.id, run.id, "filesystem")}}
+            {
+                "backend": {
+                    "config": {
+                        "fs_namespace": [config.id, run.id, "filesystem"],
+                        "checkpoint_collection": "workflow_checkpoints",
+                        "checkpoint_ttl": 86400,
+                    }
+                }
+            }
         )
 
         # Retry loop
@@ -471,7 +498,6 @@ async _execute_steps(config, run, user_context, start_from=0):
                     agent=step.agent,
                     message=prompt,
                     conversation_id=f"{run.id}-step-{index}",
-                    skip_checkpoints=True,
                     config_override=step_override
                 )
 
@@ -531,7 +557,6 @@ resume_workflow(run_id, step_index, resume_data) -> None:
         agent=run.steps[step_index].agent,
         conversation_id=f"{run.id}-step-{step_index}",
         resume_data=resume_data,
-        skip_checkpoints=True,
         config_override=...  # same override as original invocation
     )
 
@@ -548,7 +573,7 @@ resume_workflow(run_id, step_index, resume_data) -> None:
     spawn _execute_steps(config, run, user_context=None, start_from=step_index + 1)
 ```
 
-**Note on resume + skip_checkpoints**: Since `skip_checkpoints=True` skips checkpoint persistence but the runtime is still cached (keyed by `agent_id:conversation_id`), the interrupt state survives in the cached runtime's memory. The workflow service calls `/chat/stream/resume` which hits the same cached runtime. If the runtime was evicted (TTL or LRU), the resume will fail — the workflow service should handle this by re-invoking the step from scratch with the user's input injected into the prompt.
+**Note on resume**: Workflow steps use a separate checkpoint collection (`workflow_checkpoints`) with a TTL index. Checkpoints persist to MongoDB, so interrupt/resume survives pod restarts and runtime eviction. If the runtime is evicted from cache (TTL or LRU), the checkpointer restores state from MongoDB on the next `get_or_create()`. The TTL ensures old workflow checkpoints are automatically cleaned up.
 
 ### AG-UI Client (agui_client.py)
 
@@ -557,8 +582,7 @@ resume_workflow(run_id, step_index, resume_data) -> None:
   - `message`: rendered prompt
   - `conversation_id`: `{run.id}-step-{step_index}`
   - `protocol`: `"agui"`
-  - `skip_checkpoints`: `true`
-  - `config_override`: step.config_override deep-merged with `{"backend": {"namespace": (config.id, run.id, "filesystem")}}`
+  - `config_override`: step.config_override deep-merged with `{"backend": {"config": {"fs_namespace": [config.id, run.id, "filesystem"], "checkpoint_collection": "workflow_checkpoints", "checkpoint_ttl": 86400}}}`
 - Parse SSE stream via httpx:
   - Collect `TEXT_MESSAGE_CONTENT` deltas into full response text
   - Detect `RUN_FINISHED` with `outcome: "interrupt"` → return interrupt payload
@@ -568,9 +592,9 @@ resume_workflow(run_id, step_index, resume_data) -> None:
 
 ### Conversation Isolation
 
-Each step gets its own `conversation_id` (`{run.id}-step-{i}`). The DA has no memory of prior steps — all context is injected via Jinja2 prompt templating. These conversations have `skip_checkpoints=true` (no checkpoint persistence) but the runtime is still cached by the DA server for the duration of the step (important for interrupt/resume).
+Each step gets its own `conversation_id` (`{run.id}-step-{i}`). The DA has no memory of prior steps — all context is injected via Jinja2 prompt templating. Checkpoints are written to a separate TTL-indexed collection (`workflow_checkpoints`) so they don't pollute regular chat history and auto-expire.
 
-The shared filesystem namespace (`(config.id, run.id, "filesystem")`) is the only state shared across steps.
+The shared filesystem namespace (`config_override.backend.config.fs_namespace`) is the only state shared across steps.
 
 ---
 
@@ -670,51 +694,58 @@ ai_platform_engineering/workflows/
 
 ## Implementation Phases
 
-### Phase 1: DA Server Changes
-- [ ] Add `config_override: dict | None = None` to `ChatRequest` model
-- [ ] Implement config merge logic — deep merge override into loaded `DynamicAgentConfig` before runtime creation
-- [ ] Validate overridable fields (reject `ui`, `name`, `description`, `owner_id`, `visibility`, `enabled`, `is_system`, `config_driven`)
-- [ ] Add `skip_checkpoints: bool = False` to `ChatRequest` model
-- [ ] When `skip_checkpoints=true` on `/chat/stream/start`, use normal cached runtime but suppress `MongoDBSaver` checkpoint writes
-- [ ] Support `backend.namespace` in config_override — use as GridFS store namespace instead of default `(agent_id, session_id, "filesystem")`
-- [ ] Tests for config override, skip_checkpoints mode, filesystem namespace
+### Phase 1: DA Server Changes ✅
+- [x] Add `config_override: dict | None = None` to `ChatRequest` model
+- [x] Implement config merge logic — deep merge override into loaded `DynamicAgentConfig` before runtime creation (`apply_config_override()` in `chat.py`)
+- [x] Validate overridable fields (reject `ui`, `name`, `description`, `owner_id`, `visibility`, `shared_with_teams`, `enabled`, `is_system`, `config_driven`, `id`, `created_at`, `updated_at`)
+- [x] Add `backend.config.checkpoint_collection` to `AgentBackendConfig` — routes `MongoDBSaver` to a separate collection
+- [x] Add `backend.config.checkpoint_ttl` to `AgentBackendConfig` — passes `ttl` to `MongoDBSaver` for auto-expiry via MongoDB TTL index
+- [x] Wire checkpoint collection/TTL through `AgentRuntime.__init__` (non-ephemeral path)
+- [x] Add `backend.config.fs_namespace` to `AgentBackendConfig` — overrides GridFS store namespace
+- [x] Add `_resolve_fs_namespace()` to `AgentRuntime` — returns override or default `(agent_id, session_id, "filesystem")`
+- [x] Refactor all hardcoded namespace tuples in `agent_runtime.py` to use `_resolve_fs_namespace()`
+- [ ] Tests for config override, checkpoint collection/TTL, filesystem namespace
 
-### Phase 2: Workflow Service Scaffold
-- [ ] Create `ai_platform_engineering/workflows/` directory structure
-- [ ] `pyproject.toml` with dependencies (fastapi, uvicorn, pymongo, jinja2, httpx, pydantic)
-- [ ] `Dockerfile`
-- [ ] `config.py` — Pydantic Settings (MONGODB_URI, MONGODB_DATABASE, DA_SERVER_BASE_URL, etc.)
-- [ ] `main.py` — FastAPI app with lifespan (MongoDB connect/disconnect)
-- [ ] Add to `docker-compose/`
+### Phase 2: Workflow Service Scaffold ✅
+- [x] Create `ai_platform_engineering/workflows/` directory structure
+- [x] `pyproject.toml` with dependencies (fastapi, uvicorn, pymongo, jinja2, httpx, httpx-sse, pydantic, pydantic-settings)
+- [x] `build/Dockerfile` (two-stage uv build, matches DA server pattern)
+- [x] `config.py` — Pydantic Settings (MONGODB_URI, MONGODB_DATABASE, DA_SERVER_BASE_URL, checkpoint settings, etc.)
+- [x] `main.py` — FastAPI app with lifespan (MongoDB connect/disconnect, index creation)
+- [x] `storage/mongo.py` — MongoDB service singleton with indexes on workflow_configs and workflow_runs
+- [x] `errors.py` — Custom exceptions (WorkflowNotFoundError, WorkflowRunNotFoundError, etc.)
+- [x] Add `workflow-service` to `docker-compose.yaml` (profile: `workflows`, port 8102:8002)
 
-### Phase 3: Storage Layer
-- [ ] `storage/models.py` — Pydantic models (WorkflowConfig, WorkflowStep, ParallelGroup, StepEntry, WorkflowRun, StepRun, ParallelGroupRun, StepRunEntry)
-- [ ] `storage/mongo.py` — CRUD operations + indexes on `workflow_configs` (name unique, category, owner_id) and `workflow_runs` (workflow_config_id, status, started_at desc)
-- [ ] `api/models.py` — Request/response models (ExecuteRequest, ResumeRequest, ExecuteResponse)
-- [ ] v1 validation: reject any `ParallelGroup` entries in `steps` with clear error message
+### Phase 3: Storage Layer ✅
+- [x] `storage/models.py` — Pydantic models (WorkflowConfig, WorkflowStep, ParallelGroup, StepEntry, RetryConfig, WorkflowRun, StepRun, ParallelGroupRun, StepRunEntry, StreamEvent, flatten_step_entries, build_initial_step_runs)
+- [x] `storage/mongo.py` — CRUD operations (get/list/create/update/delete configs, get/create/update/list runs, append_events, get_run_incremental) + indexes on `workflow_configs` (name unique, category, owner_id) and `workflow_runs` (workflow_config_id, status, started_at desc)
+- [x] `api/models.py` — Request/response models (ExecuteRequest, ExecuteResponse, ResumeRequest, ResumeResponse)
+- [x] v1 validation: model_validator on WorkflowConfig rejects any ParallelGroup entries with clear error message
 
-### Phase 4: Engine
-- [ ] `engine/templating.py` — Jinja2 prompt rendering with steps context (`steps`, `previous_output`, `user_context`)
-- [ ] `engine/agui_client.py` — httpx SSE client (invoke with skip_checkpoints + config_override, resume, parse AG-UI stream events)
-- [ ] `engine/executor.py` — Async orchestration loop: background task, per-step retry loop, on_error handling, interrupt/resume flow with `pending_interrupts`
-- [ ] `api/routes.py` — POST /execute (async, returns run_id), POST /runs/{id}/resume (spawns new background task), POST /runs/{id}/cancel, GET /runs/{id} (full + incremental via `?since_event_id=`)
+### Phase 4: Engine ✅
+- [x] `engine/templating.py` — Jinja2 prompt rendering with sandboxed environment, `build_template_context()` and `render_prompt()` (steps, previous_output, user_context)
+- [x] `engine/agui_client.py` — httpx SSE client (`invoke_agent`, `resume_agent`). Parses AG-UI events, maps to `StreamEvent`, periodic flush via callback, handles TEXT_MESSAGE_CONTENT/RUN_FINISHED/RUN_ERROR/interrupt
+- [x] `engine/executor.py` — Async orchestration loop (`start_execution`, `_execute_steps`, `resume_execution`, `_resume_and_continue`). Background tasks, per-step retry loop, on_error handling (abort/skip/retry), interrupt/resume flow, deep-merge config_override with workflow backend config
+- [x] `api/routes.py` — POST /execute (async, returns run_id), POST /runs/{id}/resume, POST /runs/{id}/cancel, GET /runs/{id} (full + incremental via `?since_event_id=`)
+- [x] Routes wired into `main.py` at `/api/v1`
 
-### Phase 5: UI — Workflow Configs CRUD
-- [ ] `ui/src/types/workflow-config.ts` — TypeScript types mirroring Pydantic models
-- [ ] `ui/src/app/api/workflow-configs/route.ts` — Next.js API route (CRUD → MongoDB `workflow_configs`)
-- [ ] `ui/src/store/workflow-config-store.ts` — Zustand store (loadConfigs, create, update, delete)
-- [ ] `ui/src/app/(app)/workflows/page.tsx` — List + editor views
-- [ ] Adapt task-builder components for workflow editor (on_error dropdown, retry config, config_override JSON editor per step)
-- [ ] `AppHeader.tsx` — Add "Workflows" tab, extend GuardedLink to cover `/workflows`
+### Phase 5: UI — Workflow Configs CRUD ✅
+- [x] `ui/src/types/workflow-config.ts` — TypeScript types mirroring Pydantic models
+- [x] `ui/src/app/api/workflow-configs/route.ts` — Next.js API route (CRUD → MongoDB `workflow_configs`)
+- [x] `ui/src/store/workflow-config-store.ts` — Zustand store (loadConfigs, create, update, delete)
+- [x] `ui/src/app/(app)/workflows/page.tsx` — List + editor views
+- [x] `ui/src/components/workflows/WorkflowEditor.tsx` — Form-based step editor (agent selector, Jinja2 prompt, on_error dropdown, retry config, config_override JSON editor per step)
+- [x] `AppHeader.tsx` — Add "Workflows" tab, extend GuardedLink to cover `/workflows`, added to EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG and EDITOR_ROUTES_WITH_HEADER_DIALOG
 
-### Phase 6: UI — Workflow Execution View
-- [ ] Add `agent_id?: string` and `step_index?: number` optional fields to the existing UI `StreamEvent` interface (with comment: "Used by workflow runs; ignored by TimelineManager for DA chats")
-- [ ] `ui/src/app/(app)/workflows/run/[id]/page.tsx` — Execution page
-- [ ] `ui/src/components/workflows/WorkflowRunTimeline.tsx` — Timeline renderer (chat-like)
-- [ ] `ui/src/components/workflows/WorkflowStepCard.tsx` — Step card (status, agent badge, prompt, response)
-- [ ] `ui/src/store/workflow-run-store.ts` — Zustand store (trigger run, poll status, submit resume)
-- [ ] Integrate interrupt form (reuse `MetadataInputForm` from DA chat)
-- [ ] Poll `GET /runs/{id}` every 2s while running/waiting
+### Phase 6: UI — Workflow Execution View ✅
+- [x] Add `agent_id?: string` and `step_index?: number` optional fields to the existing UI `StreamEvent` interface (with comment: "Used by workflow runs; ignored by TimelineManager for DA chats")
+- [x] `ui/src/app/api/workflow-service/route.ts` — Next.js API proxy to workflow service (execute, poll, resume, cancel)
+- [x] `ui/src/store/workflow-exec-store.ts` — Zustand store (executeWorkflow, loadRun, startPolling/stopPolling, resumeStep, cancelRun) with incremental polling via since_event_id
+- [x] `ui/src/components/workflows/WorkflowStepCard.tsx` — Step card (status badge, agent badge, prompt, response, error, timing)
+- [x] `ui/src/components/workflows/WorkflowRunTimeline.tsx` — Timeline renderer with inline interrupt form (tool approval + human input), cancel button, progress bar
+- [x] `ui/src/app/(app)/workflows/run/[id]/page.tsx` — Execution page (auto-polls on mount, cleanup on unmount)
+- [x] Run button added to workflow config cards → executes via store → navigates to /workflows/run/{id}
+- [x] Poll `GET /runs/{id}` every 2s while running/waiting, auto-stops on completed/failed
 
 ### Phase 7: Docker & Integration
 - [ ] Add workflow-service to `docker-compose/docker-compose.yml`
@@ -737,9 +768,9 @@ ai_platform_engineering/workflows/
 |---|---|
 | Sync vs async `/execute` | **Async** — returns `wfrun-` ID immediately, engine runs in background, UI polls |
 | Agent config override scope | **DA server**: liberal (all runtime fields). **Workflow UI**: conservative v1 (`system_prompt`, `allowed_tools`, `model`) |
-| Conversation isolation | **Yes** — each step gets own `conversation_id`, no checkpointing. Context via Jinja2. Shared filesystem via `config_override.backend.namespace`. |
-| Checkpointing | **Disabled** via `skip_checkpoints: true` on `ChatRequest`. Runtime is still cached (not ephemeral), so interrupt/resume works via cached runtime. Interrupt state also stored in `WorkflowRun.pending_interrupts` as fallback. |
-| Shared filesystem | **Via `config_override.backend.namespace`**: tuple `(workflow_config_id, run_id, "filesystem")` — matches existing pattern, no extra ChatRequest field |
+| Conversation isolation | **Yes** — each step gets own `conversation_id`. Checkpoints go to separate TTL-indexed collection (`workflow_checkpoints`). Context via Jinja2. Shared filesystem via `config_override.backend.config.fs_namespace`. |
+| Checkpointing | **Separate TTL collection** via `config_override.backend.config.checkpoint_collection` + `checkpoint_ttl`. `MongoDBSaver` auto-creates TTL index. Checkpoints persist to MongoDB (survive pod restarts), auto-expire after configured TTL. |
+| Shared filesystem | **Via `config_override.backend.config.fs_namespace`**: list `[workflow_config_id, run_id, "filesystem"]` — matches existing pattern, no extra ChatRequest field |
 | Parallel steps | **v2** — schema supports it now (discriminated union with `type` field), v1 validates and rejects |
 | Parallel error handling (v2) | `on_error: abort` on group = cancel other running steps + abort workflow |
 | Parallel interrupt (v2) | Pause entire group until resumed; can't interrupt already-running agents |

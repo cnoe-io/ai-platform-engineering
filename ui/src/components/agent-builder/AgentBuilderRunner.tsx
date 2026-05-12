@@ -1016,7 +1016,6 @@ export function AgentBuilderRunner({
       runId = await createRun({
         workflow_id: config.id,
         workflow_name: config.name,
-        workflow_category: config.category,
         input_prompt: config.is_quick_start && config.tasks.length > 0 
           ? config.tasks[0].llm_prompt 
           : config.description || config.name,

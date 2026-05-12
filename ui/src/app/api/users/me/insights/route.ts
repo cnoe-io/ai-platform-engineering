@@ -83,7 +83,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { $match: { owner_id: user.email } },
           {
             $group: {
-              _id: { $ifNull: ['$workflow_category', 'Custom'] },
+              _id: { $ifNull: ['$workflow_name', 'Custom'] },
               total_runs: { $sum: 1 },
               completed: {
                 $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] },
