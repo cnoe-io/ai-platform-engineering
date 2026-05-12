@@ -493,6 +493,7 @@ def create_request_user_input_tool():
 
 
 def create_self_identity_tool(
+    agent_id: str,
     name: str,
     description: str | None,
     model_id: str,
@@ -502,9 +503,10 @@ def create_self_identity_tool(
     """Create a self_identity tool with the agent's own metadata.
 
     Exposes non-sensitive agent configuration so the agent can identify itself.
-    Deliberately excludes the system prompt and internal IDs.
+    Deliberately excludes the system prompt and owner/runtime IDs.
 
     Args:
+        agent_id: Unique agent ID.
         name: Agent display name.
         description: Agent description.
         model_id: LLM model identifier.
@@ -526,6 +528,7 @@ def create_self_identity_tool(
 
         Returns:
             Dictionary with agent identity:
+            - id: Unique agent ID
             - name: Agent display name
             - description: Agent description (may be null)
             - model_id: LLM model identifier
@@ -533,6 +536,7 @@ def create_self_identity_tool(
             - gradient_theme: UI theme (may be null)
         """
         return {
+            "id": agent_id,
             "name": name,
             "description": description,
             "model_id": model_id,
