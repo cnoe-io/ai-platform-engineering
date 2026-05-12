@@ -1686,6 +1686,15 @@ PY
       continue
     fi
 
+    case "\$path" in
+      */.claude/settings.json|.claude/settings.json)
+        echo "  · keep Claude settings file: \$path (\$kind)"
+        skipped_count=\$((skipped_count + 1))
+        removed_paths+=("\$path")  # drop CAIPE ownership from manifest only
+        continue
+        ;;
+    esac
+
     if [ "\$kind" = "config" ] && [ \$PURGE -eq 0 ]; then
       echo "  · keep (no --purge): \$path (\$kind)"
       skipped_count=\$((skipped_count + 1))
@@ -1834,9 +1843,11 @@ PY
   # manifest has zero entries, delete the file. Always re-emit in the
   # new (paths[]) shape so legacy entries are migrated.
   if [ \$DRY_RUN -eq 0 ]; then
-    python3 - "\$MANIFEST_PATH" <<'PY'
+    REMOVED_PATHS_JOINED="\$(printf '%s\\n' "\${removed_paths[@]}")"
+    REMOVED_PATHS_JOINED="\$REMOVED_PATHS_JOINED" python3 - "\$MANIFEST_PATH" <<'PY'
 import json, os, sys, tempfile
 mp = sys.argv[1]
+removed_paths = set(filter(None, os.environ.get("REMOVED_PATHS_JOINED", "").splitlines()))
 try: data = json.load(open(mp))
 except Exception: sys.exit(0)
 if not isinstance(data, dict): sys.exit(0)
@@ -1849,7 +1860,10 @@ for e in entries:
     if not isinstance(paths, list):
         if isinstance(e.get("path"), str): paths = [e["path"]]
         else: continue
-    surviving = [p for p in paths if isinstance(p, str) and os.path.exists(p)]
+    surviving = [
+        p for p in paths
+        if isinstance(p, str) and p not in removed_paths and os.path.exists(p)
+    ]
     if not surviving: continue
     new_e = dict(e); new_e["paths"] = surviving; new_e.pop("path", None)
     remaining.append(new_e)

@@ -354,10 +354,12 @@ describe("GET /api/skills/install.sh — mode=uninstall manifest finalization", 
     const res = await callRaw(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=uninstall",
     );
-    // Per-path existence check: only paths still on disk survive.
-    expect(res.body).toContain(
-      'surviving = [p for p in paths if isinstance(p, str) and os.path.exists(p)]',
-    );
+    // Per-path existence check: only paths still on disk and not explicitly
+    // removed from CAIPE ownership survive. The removed_paths filter lets us
+    // drop ~/.claude/settings.json from the manifest without deleting it.
+    expect(res.body).toContain("removed_paths = set(");
+    expect(res.body).toContain("p not in removed_paths");
+    expect(res.body).toContain("os.path.exists(p)");
     // The re-write is in the new `paths[]` shape (legacy `path` is dropped).
     expect(res.body).toContain('new_e["paths"] = surviving');
     expect(res.body).toContain('new_e.pop("path", None)');
@@ -379,7 +381,7 @@ describe("GET /api/skills/install.sh — mode=uninstall manifest finalization", 
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user&mode=uninstall",
     );
     expect(res.body).toMatch(
-      /if \[ \$DRY_RUN -eq 0 \]; then\s*\n\s*python3 - "\$MANIFEST_PATH"/,
+      /if \[ \$DRY_RUN -eq 0 \]; then\s*\n\s*REMOVED_PATHS_JOINED=/,
     );
   });
 });
