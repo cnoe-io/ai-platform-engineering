@@ -157,26 +157,24 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
     expect(res.body).toContain("SCOPE='user'");
   });
 
-  it("emits only the vendor-neutral SKILL_PATH_TEMPLATES and SKILL_ROOT_DIRS arrays", async () => {
+  it("emits Claude-native and vendor-neutral SKILL_PATH_TEMPLATES for Claude", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    // Skills install only once into the vendor-neutral tree. Claude
-    // integration is handled separately through ~/.claude/hooks.
     expect(res.body).toContain("SKILL_PATH_TEMPLATES=(");
+    expect(res.body).toContain("'~/.claude/skills/{name}/SKILL.md'");
     expect(res.body).toContain("'~/.agents/skills/{name}/SKILL.md'");
-    expect(res.body).not.toContain("'~/.claude/skills/{name}/SKILL.md'");
     expect(res.body).toContain("SKILL_ROOT_DIRS=(");
+    expect(res.body).toContain("'~/.claude/skills'");
     expect(res.body).toContain("'~/.agents/skills'");
-    expect(res.body).not.toContain("'~/.claude/skills'");
   });
 
   it("project-scope paths use ./ prefix", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project",
     );
+    expect(res.body).toContain("'./.claude/skills/{name}/SKILL.md'");
     expect(res.body).toContain("'./.agents/skills/{name}/SKILL.md'");
-    expect(res.body).not.toContain("'./.claude/skills/{name}/SKILL.md'");
   });
 
   it("never inlines the catalog API key", async () => {
@@ -199,8 +197,8 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
   });
 
   it.each([
-    ["claude", "user", "~/.agents/skills/{name}/SKILL.md"],
-    ["claude", "project", "./.agents/skills/{name}/SKILL.md"],
+    ["claude", "user", "~/.claude/skills/{name}/SKILL.md"],
+    ["claude", "project", "./.claude/skills/{name}/SKILL.md"],
     ["cursor", "user", "~/.agents/skills/{name}/SKILL.md"],
     ["codex", "user", "~/.agents/skills/{name}/SKILL.md"],
     ["gemini", "user", "~/.agents/skills/{name}/SKILL.md"],
@@ -239,10 +237,10 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
     expect(res.body).toMatch(
       /UPDATE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/update-skills\?[^']*command_name=update-my-skills/,
     );
-    // Universal-path templates carry {name} (the bash side substitutes
-    // {COMMAND_NAME} at install time).
+    // Claude-native + vendor-neutral path templates carry {name} (the
+    // bash side substitutes {COMMAND_NAME} at install time).
+    expect(res.body).toContain("'./.claude/skills/{name}/SKILL.md'");
     expect(res.body).toContain("'./.agents/skills/{name}/SKILL.md'");
-    expect(res.body).not.toContain("'./.claude/skills/{name}/SKILL.md'");
   });
 
   it("sanitizes hostile command_name and falls back to 'caipe-skills'", async () => {

@@ -22,11 +22,16 @@
  *       https://opencode.ai/docs/skills/ (only name/description/license/compatibility/metadata recognized)
  *   - Which `launchGuide` text is shown after install.
  *
- * Every install writes one universal location per scope so a single
- * on-disk skill copy satisfies every supported agent:
+ * Most agents read the shared agentskills.io location. Claude Code's
+ * `/skills` discovery currently reads only `.claude/skills`, so Claude
+ * installs write a native Claude copy plus the shared copy:
  *
- *   user scope    → `~/.agents/skills/<name>/SKILL.md`
- *   project scope → `.agents/skills/<name>/SKILL.md`
+ *   Claude user scope    → `~/.claude/skills/<name>/SKILL.md`
+ *                         + `~/.agents/skills/<name>/SKILL.md`
+ *   Claude project scope → `./.claude/skills/<name>/SKILL.md`
+ *                         + `./.agents/skills/<name>/SKILL.md`
+ *   Other agents         → `~/.agents/skills/<name>/SKILL.md`
+ *                         or `./.agents/skills/<name>/SKILL.md`
  *
  * Adding a new agent = one entry in AGENTS.
  *
@@ -60,15 +65,13 @@ export function deriveUpdateCommandName(commandName: string): string {
 }
 
 /**
- * Universal install paths — every agent gets the same path per
- * scope. `{name}` is replaced with the slash command name. Tilde paths
+ * Shared install paths. `{name}` is replaced with the slash command name. Tilde paths
  * (`~/...`) are expanded at install time by the shell or the generated
  * install.sh. Project paths intentionally use a leading `./` so they're
  * unambiguous in shell snippets.
  *
- * The `~/.agents/skills/` tree is the vendor-neutral discovery path.
- * Claude-specific integration is handled separately by the optional
- * SessionStart hook under `~/.claude/hooks`.
+ * The `~/.agents/skills/` tree is the vendor-neutral discovery path, but
+ * Claude Code's native `/skills` command looks in `.claude/skills`.
  *
  * assisted-by Codex Codex-sonnet-4-6
  */
@@ -78,6 +81,16 @@ const UNIVERSAL_USER_PATHS: readonly string[] = [
 
 const UNIVERSAL_PROJECT_PATHS: readonly string[] = [
   "./.agents/skills/{name}/SKILL.md",
+];
+
+const CLAUDE_USER_PATHS: readonly string[] = [
+  "~/.claude/skills/{name}/SKILL.md",
+  ...UNIVERSAL_USER_PATHS,
+];
+
+const CLAUDE_PROJECT_PATHS: readonly string[] = [
+  "./.claude/skills/{name}/SKILL.md",
+  ...UNIVERSAL_PROJECT_PATHS,
 ];
 
 export interface AgentSpec {
@@ -120,8 +133,8 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "claude",
     label: "Claude Code",
     installPaths: {
-      user: UNIVERSAL_USER_PATHS,
-      project: UNIVERSAL_PROJECT_PATHS,
+      user: CLAUDE_USER_PATHS,
+      project: CLAUDE_PROJECT_PATHS,
     },
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.claude.com/en/docs/claude-code/skills",
@@ -141,7 +154,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{updateName}`: install or refresh on-disk skill copies",
       "- `/create-ci-pipeline`: run the locally installed skill directly",
       "",
-      "Skills are installed under the vendor-neutral `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo) tree. The installer also registers a Claude SessionStart hook so Claude can see the live catalog.",
+      "Skills are installed under Claude's native `~/.claude/skills/` (user-global) or `./.claude/skills/` (per-repo) tree, with an additional shared copy under `.agents/skills`. The installer also registers a Claude SessionStart hook so Claude can see the live catalog.",
     ].join("\n"),
   },
 

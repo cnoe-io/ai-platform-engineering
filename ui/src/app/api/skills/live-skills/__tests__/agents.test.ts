@@ -142,11 +142,20 @@ describe('AGENTS registry', () => {
     }
   });
 
-  it('every agent installs only to the vendor-neutral skills tree', () => {
-    // Universal paths invariant: every install writes one SKILL.md copy
-    // under ~/.agents/skills (or ./.agents/skills for project scope).
-    // Claude-specific integration is limited to its SessionStart hook.
-    for (const agent of Object.values(AGENTS)) {
+  it('installs Claude skills to the native Claude discovery path too', () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    expect(AGENTS.claude.installPaths.user).toEqual([
+      '~/.claude/skills/{name}/SKILL.md',
+      '~/.agents/skills/{name}/SKILL.md',
+    ]);
+    expect(AGENTS.claude.installPaths.project).toEqual([
+      './.claude/skills/{name}/SKILL.md',
+      './.agents/skills/{name}/SKILL.md',
+    ]);
+  });
+
+  it('non-Claude agents install only to the vendor-neutral skills tree', () => {
+    for (const agent of Object.values(AGENTS).filter((a) => a.id !== 'claude')) {
       const userPaths = agent.installPaths.user!;
       const projectPaths = agent.installPaths.project!;
       expect(userPaths).toEqual(['~/.agents/skills/{name}/SKILL.md']);
@@ -316,11 +325,23 @@ describe('renderForAgent — universal SKILL.md output', () => {
       expect(out.install_path!.endsWith('/caipe-skills/SKILL.md')).toBe(true);
       expect(out.install_path).not.toContain('{name}');
 
-      // install_paths has a single vendor-neutral target per scope.
-      expect(out.install_paths.user).toEqual(['~/.agents/skills/caipe-skills/SKILL.md']);
-      expect(out.install_paths.project).toEqual([
-        './.agents/skills/caipe-skills/SKILL.md',
-      ]);
+      if (id === 'claude') {
+        expect(out.install_paths.user).toEqual([
+          '~/.claude/skills/caipe-skills/SKILL.md',
+          '~/.agents/skills/caipe-skills/SKILL.md',
+        ]);
+        expect(out.install_paths.project).toEqual([
+          './.claude/skills/caipe-skills/SKILL.md',
+          './.agents/skills/caipe-skills/SKILL.md',
+        ]);
+      } else {
+        expect(out.install_paths.user).toEqual([
+          '~/.agents/skills/caipe-skills/SKILL.md',
+        ]);
+        expect(out.install_paths.project).toEqual([
+          './.agents/skills/caipe-skills/SKILL.md',
+        ]);
+      }
       for (const p of out.install_paths.user!) {
         expect(p.endsWith('/caipe-skills/SKILL.md')).toBe(true);
       }
@@ -345,11 +366,13 @@ describe('renderForAgent — universal SKILL.md output', () => {
       AGENTS.claude,
       baseInputs({ commandName: 'my-skills', scope: 'project' }),
     );
-    expect(out.install_path).toBe('./.agents/skills/my-skills/SKILL.md');
+    expect(out.install_path).toBe('./.claude/skills/my-skills/SKILL.md');
     expect(out.install_paths.project).toEqual([
+      './.claude/skills/my-skills/SKILL.md',
       './.agents/skills/my-skills/SKILL.md',
     ]);
     expect(out.install_paths.user).toEqual([
+      '~/.claude/skills/my-skills/SKILL.md',
       '~/.agents/skills/my-skills/SKILL.md',
     ]);
     expect(out.template).toContain('/my-skills');

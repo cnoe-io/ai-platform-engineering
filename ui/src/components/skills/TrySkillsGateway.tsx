@@ -87,10 +87,9 @@ export function TrySkillsGateway() {
   );
   // After the skills-only overhaul, every supported agent (Claude Code,
   // Cursor, Codex CLI, Gemini CLI, opencode) reads the same
-  // `agentskills.io` SKILL.md format, and the install writes skills to
-  // the vendor-neutral ~/.agents/skills/<name>/SKILL.md tree. Claude
-  // gets only a SessionStart hook under ~/.claude/hooks for the live
-  // catalog. We've also verified against the upstream agent docs that
+  // `agentskills.io` SKILL.md format. Claude also needs a native
+  // ~/.claude/skills/<name>/SKILL.md copy because its /skills command
+  // does not read ~/.agents/skills. We've verified against the upstream agent docs that
   // only Claude does template substitution in the body (`$ARGUMENTS`,
   // `$N`); the other four read SKILL.md verbatim. So the agent picker
   // had no functional effect on what gets installed -- it only changed
@@ -137,7 +136,7 @@ export function TrySkillsGateway() {
      * Per-scope install paths. Each scope maps to an array of universal
      * SKILL.md paths the install script writes to. The display path
      * (first entry) is what the UI shows; the rest are mirrors for
-     * vendor-neutral agent discovery (`~/.agents/skills/...`).
+     * additional agent discovery paths.
      */
     install_paths: Partial<Record<InstallScope, string[] | readonly string[]>>;
     /** Scopes this agent actually supports. */
@@ -385,10 +384,8 @@ export function TrySkillsGateway() {
   const installerSnippets = (() => {
     if (!selectedScope) return null;
     // Note: ?agent= is intentionally omitted. The install.sh route
-    // defaults to Claude and the install is universal (writes skills to
-    // ~/.agents/skills/), so the only thing ?agent= used to control was
-    // the success-card label. We keep
-    // the URL short and copy-pasteable instead.
+    // defaults to Claude so the generated script includes Claude's
+    // native .claude/skills discovery path plus the shared .agents copy.
     const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
       selectedScope,
     )}&command_name=${encodeURIComponent(safeCommandName)}`;
@@ -467,8 +464,9 @@ export function TrySkillsGateway() {
             Quick install skills
           </CardTitle>
           <CardDescription>
-            Install skills into your local coding agent. Works with popular
-            coding agents that use the ~/.agents/skills convention.
+            Install skills into your local coding agent. Claude gets its
+            native ~/.claude/skills copy, with shared ~/.agents/skills copies
+            for agents that use that convention.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
@@ -805,14 +803,12 @@ export function TrySkillsGateway() {
                   </div>
                 </details>
                 <p className="text-[11px] text-muted-foreground">
-                  Writes one{" "}
-                  <code className="font-mono">SKILL.md</code> per skill into
-                  the vendor-neutral{" "}
-                  <code className="font-mono">~/.agents/skills/</code> tree
-                  (or the project-local equivalent). Claude uses{" "}
-                  <code className="font-mono">~/.claude/hooks/</code> only for
-                  the optional live catalog hook. Existing files are skipped
-                  unless you re-run with{" "}
+                  Writes Claude-discoverable copies under{" "}
+                  <code className="font-mono">~/.claude/skills/</code> and
+                  shared copies under{" "}
+                  <code className="font-mono">~/.agents/skills/</code> (or the
+                  project-local equivalents). Existing files are skipped unless
+                  you re-run with{" "}
                   <code className="font-mono">--upgrade</code> or{" "}
                   <code className="font-mono">--force</code>.
                 </p>
@@ -886,10 +882,10 @@ export function TrySkillsGateway() {
               </div>
             </div>
 
-            {/* Coding-agent picker dropped: the install is universal.
-                The same SKILL.md is written to the vendor-neutral
-                ~/.agents/skills tree, and Claude gets a hook for the
-                live catalog under ~/.claude/hooks. We
+            {/* Coding-agent picker dropped: the install defaults to Claude,
+                writing .claude/skills for native discovery plus a shared
+                .agents/skills copy. Claude also gets a live-catalog hook
+                under ~/.claude/hooks. We
                 surface the supported-agents list inline so users
                 know which CLIs will pick up the install without
                 having to read a docs link. */}
@@ -903,11 +899,10 @@ export function TrySkillsGateway() {
               <p className="text-xs text-foreground leading-relaxed">
                 <strong>Claude Code</strong>, <strong>Cursor</strong>,{" "}
                 <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and{" "}
-                <strong>opencode</strong>: the install writes a
-                single <code className="font-mono text-[11px]">SKILL.md</code>{" "}
-                per skill to the universal{" "}
-                <code className="font-mono text-[11px]">~/.agents/skills/</code>{" "}
-                location every supported agent discovers.
+                <strong>opencode</strong>: Claude reads{" "}
+                <code className="font-mono text-[11px]">~/.claude/skills/</code>
+                , and the shared copy remains under{" "}
+                <code className="font-mono text-[11px]">~/.agents/skills/</code>.
               </p>
             </div>
 
@@ -944,9 +939,8 @@ export function TrySkillsGateway() {
               <div className="flex flex-col gap-2">
                 {(() => {
                   // User scope — the default. Render at the top, prominently.
-                  // Paths are still shown as a list because the API shape is
-                  // an array, even though the current installer has a single
-                  // vendor-neutral target.
+                  // Paths are shown as a list because Claude has a native
+                  // target plus the shared .agents target.
                   const userPathsRaw = liveSkills?.install_paths?.user;
                   const userPaths: string[] = Array.isArray(userPathsRaw)
                     ? (userPathsRaw as string[])
@@ -1538,12 +1532,11 @@ export function TrySkillsGateway() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="text-foreground">
-            Installed one{" "}
-            <code className="font-mono text-[12px]">SKILL.md</code> per skill
-            in <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
-            or the project-local equivalent. Claude uses{" "}
-            <code className="font-mono text-[12px]">~/.claude/hooks/</code>{" "}
-            for the optional live catalog hook.
+            Installed Claude-native skills in{" "}
+            <code className="font-mono text-[12px]">~/.claude/skills/</code>{" "}
+            plus shared copies in{" "}
+            <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
+            or the project-local equivalents.
           </p>
           <p className="text-foreground">
             Open your coding agent (Claude, Cursor, Codex, Gemini, Opencode).
@@ -1560,7 +1553,7 @@ export function TrySkillsGateway() {
               to refresh.
             </li>
             <li>
-              Invoke a locally cached skill{" "}
+              Invoke a locally cached skill like for example {" "}
               <code className="font-mono text-[12px]">/create-ci-pipeline</code>.
             </li>
           </ul>
@@ -1602,8 +1595,8 @@ export function TrySkillsGateway() {
             </DialogTitle>
             <DialogDescription>
               We&rsquo;ll generate a one-line installer that fetches skills
-              from your catalog and writes a single SKILL.md per skill that
-              works in <strong>Claude Code</strong>, <strong>Cursor</strong>,
+              from your catalog and writes Claude-native plus shared SKILL.md
+              copies that work in <strong>Claude Code</strong>, <strong>Cursor</strong>,
               {" "}
               <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and
               {" "}
@@ -1613,8 +1606,8 @@ export function TrySkillsGateway() {
           </DialogHeader>
 
           <div className="space-y-4 text-sm">
-            {/* Agent picker dropped: the install writes skills to the
-                vendor-neutral ~/.agents/skills tree, with Claude hook
+            {/* Agent picker dropped: the install writes Claude-native skills
+                plus the shared ~/.agents/skills tree, with Claude hook
                 integration kept under ~/.claude/hooks. The picker only used to
                 affect the launch-guide footer + success-card label;
                 see the new "compatibility" section after install for
@@ -1706,9 +1699,8 @@ export function TrySkillsGateway() {
                     </p>
                   );
                 }
-                // ?agent= omitted -- the install is universal across
-                // Claude / Cursor / Codex / Gemini / opencode (writes
-                // skills to ~/.agents/skills/).
+                // ?agent= omitted -- the route defaults to Claude, which
+                // writes ~/.claude/skills plus shared ~/.agents/skills copies.
                 // The install URL is composed from (in order):
                 //   * scope (user/project) — drives ~/.agents vs ./.agents
                 //   * command_name= — the branded/custom helper command

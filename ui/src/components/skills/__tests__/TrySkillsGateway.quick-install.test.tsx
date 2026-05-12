@@ -87,10 +87,16 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template: "# Live-skills\nDo a thing.",
-  install_path: "~/.agents/skills/caipe-skills/SKILL.md",
+  install_path: "~/.claude/skills/caipe-skills/SKILL.md",
   install_paths: {
-    user: ["~/.agents/skills/caipe-skills/SKILL.md"],
-    project: ["./.agents/skills/caipe-skills/SKILL.md"],
+    user: [
+      "~/.claude/skills/caipe-skills/SKILL.md",
+      "~/.agents/skills/caipe-skills/SKILL.md",
+    ],
+    project: [
+      "./.claude/skills/caipe-skills/SKILL.md",
+      "./.agents/skills/caipe-skills/SKILL.md",
+    ],
   },
   scope: "user",
   scope_requested: "user",
@@ -108,8 +114,14 @@ const LIVE_SKILLS_BODY = {
       ext: "md",
       format: "markdown-frontmatter",
       install_paths: {
-        user: ["~/.agents/skills/caipe-skills/SKILL.md"],
-        project: ["./.agents/skills/caipe-skills/SKILL.md"],
+        user: [
+          "~/.claude/skills/caipe-skills/SKILL.md",
+          "~/.agents/skills/caipe-skills/SKILL.md",
+        ],
+        project: [
+          "./.claude/skills/caipe-skills/SKILL.md",
+          "./.agents/skills/caipe-skills/SKILL.md",
+        ],
       },
       scopes_available: ["user", "project"],
       is_fragment: false,
@@ -326,7 +338,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     ).toBeEnabled();
     expect(
       screen.getByText(
-        /Install skills into your local coding agent\. Works with popular coding agents that use the ~\/\.agents\/skills convention/i,
+        /Install skills into your local coding agent\. Claude gets its native ~\/\.claude\/skills copy/i,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/One guided flow generates/i)).toBeNull();
@@ -366,7 +378,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     render(<TrySkillsGateway />);
 
     expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
-    expect(screen.getByText(/Installed one/i)).toBeInTheDocument();
+    expect(screen.getByText(/Installed Claude-native skills/i)).toBeInTheDocument();
     expect(screen.getByText(/Restart or reopen your coding agent/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Open your coding agent \(Claude, Cursor, Codex, Gemini, Opencode\)/i),

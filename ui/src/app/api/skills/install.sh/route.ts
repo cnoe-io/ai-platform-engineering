@@ -10,12 +10,16 @@
  * ------------------
  * Every supported coding agent (Claude Code, Cursor, Codex CLI, Gemini
  * CLI, opencode) consumes the open `agentskills.io` standard
- * `SKILL.md` format. A single install writes each skill to TWO universal
- * paths per scope so one run satisfies every supported agent
- * simultaneously:
+ * `SKILL.md` format. Most agents discover skills from the shared
+ * `.agents/skills` tree; Claude Code's `/skills` command discovers from
+ * `.claude/skills`, so Claude installs write both native and shared copies:
  *
- *   user scope    → `~/.agents/skills/<name>/SKILL.md`
- *   project scope → `./.agents/skills/<name>/SKILL.md`
+ *   Claude user scope    → `~/.claude/skills/<name>/SKILL.md`
+ *                         + `~/.agents/skills/<name>/SKILL.md`
+ *   Claude project scope → `./.claude/skills/<name>/SKILL.md`
+ *                         + `./.agents/skills/<name>/SKILL.md`
+ *   Other agents         → `~/.agents/skills/<name>/SKILL.md`
+ *                         or `./.agents/skills/<name>/SKILL.md`
  *
  * The agent picker only affects:
  *   - which launch-guide footer the success card prints (every agent
@@ -272,10 +276,9 @@ function buildInstallScript(inputs: ScriptInputs): string {
     catalogUrl,
   } = inputs;
 
-  // Resolve the install paths for the requested scope. Each agent in
-  // AGENTS uses the same vendor-neutral UNIVERSAL_USER_PATHS /
-  // UNIVERSAL_PROJECT_PATHS, but we compute them per-call so a future
-  // per-agent override would Just Work.
+  // Resolve the install paths for the requested scope. Claude has an
+  // extra native `.claude/skills` target because its `/skills` command
+  // does not read the shared `.agents/skills` tree.
   const scopePaths = agent.installPaths[scope] ?? [];
   if (scopePaths.length === 0) {
     // The handler should have caught this already, but be defensive.
@@ -383,9 +386,9 @@ function buildInstallScript(inputs: ScriptInputs): string {
 # Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
 # Mode  : ${modeBanner}
 #
-# This installer writes SKILL.md files to the vendor-neutral skills path
-# so a single on-disk copy satisfies Claude Code, Cursor, Codex CLI,
-# Gemini CLI, and opencode:
+# This installer writes SKILL.md files to the configured skills paths for
+# ${agent.label}. Claude Code gets a native .claude/skills copy because
+# its /skills command does not read .agents/skills:
 #
 ${scopePaths.map((p) => `#   - ${p}`).join("\n")}
 #
@@ -849,106 +852,6 @@ do_legacy_cleanup() {
         rm -rf "\$dual" && echo "==> removed legacy \$dual" && removed=\$((removed+1))
       fi
     fi
-  fi
-
-  # Remove manifest-owned legacy copies from ~/.claude/skills. New
-  # installs keep Claude-specific files limited to ~/.claude/hooks, while
-  # skills themselves live under ~/.agents/skills.
-  # assisted-by Codex Codex-sonnet-4-6
-  if [ -f "\$MANIFEST_PATH" ]; then
-    python3 - "\$MANIFEST_PATH" <<'PY' || true
-import json, os, sys, tempfile
-
-manifest_path = sys.argv[1]
-try:
-    data = json.load(open(manifest_path))
-except Exception:
-    sys.exit(0)
-if not isinstance(data, dict):
-    sys.exit(0)
-entries = data.get("installed")
-if not isinstance(entries, list):
-    sys.exit(0)
-
-marker = f"{os.sep}.claude{os.sep}skills{os.sep}"
-
-
-def is_legacy_claude_skill_path(path):
-    if not isinstance(path, str):
-        return False
-    normalized = os.path.normcase(os.path.abspath(os.path.expanduser(path)))
-    return marker in normalized
-
-
-removed = 0
-changed = False
-new_entries = []
-parents_to_check = set()
-
-for entry in entries:
-    if not isinstance(entry, dict):
-        new_entries.append(entry)
-        continue
-    had_paths = isinstance(entry.get("paths"), list)
-    raw_paths = entry.get("paths") if had_paths else (
-        [entry.get("path")] if isinstance(entry.get("path"), str) else []
-    )
-    kept_paths = []
-    for path in raw_paths:
-        if is_legacy_claude_skill_path(path):
-            changed = True
-            if os.path.isfile(path):
-                try:
-                    os.remove(path)
-                    removed += 1
-                    parents_to_check.add(os.path.dirname(path))
-                    print(f"==> removed legacy {path}")
-                except OSError:
-                    kept_paths.append(path)
-            continue
-        kept_paths.append(path)
-
-    if had_paths:
-        if kept_paths:
-            entry = dict(entry)
-            entry["paths"] = kept_paths
-            new_entries.append(entry)
-        else:
-            changed = True
-    elif raw_paths:
-        if kept_paths:
-            new_entries.append(entry)
-        else:
-            changed = True
-    else:
-        new_entries.append(entry)
-
-for parent in sorted(parents_to_check, reverse=True):
-    try:
-        os.rmdir(parent)
-    except OSError:
-        pass
-
-if changed:
-    data["installed"] = new_entries
-    parent = os.path.dirname(manifest_path) or "."
-    fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=parent)
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-            f.write("\\n")
-        os.replace(tmp, manifest_path)
-        os.chmod(manifest_path, 0o600)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-if removed:
-    print(f"==> legacy cleanup: removed {removed} manifest-owned Claude skill file(s)")
-PY
   fi
 
   # Strip the two legacy allowlist entries from ~/.claude/settings.json
@@ -1433,9 +1336,13 @@ for p in "\${RESOLVED_SKILL_PATHS[@]}"; do
 done
 echo
 echo "  Works in: Claude Code, Cursor, Codex CLI, Gemini CLI, opencode"
-echo "  (a single SKILL.md per skill is written to the vendor-neutral"
-echo "  ~/.agents/skills tree; Claude uses ~/.claude/hooks only for the"
-echo "  optional live catalog SessionStart hook)"
+if [ "\$IS_CLAUDE" = "1" ]; then
+  echo "  (Claude skills are written to ~/.claude/skills for /skills discovery,"
+  echo "  with a shared copy under ~/.agents/skills; ~/.claude/hooks is only"
+  echo "  used for the optional live catalog SessionStart hook)"
+else
+  echo "  (skills are written to the shared ~/.agents/skills tree)"
+fi
 echo
 if [ "\$DO_HELPERS" -eq 1 ] && [ "\$NO_HELPERS" -eq 0 ]; then
   echo "  next steps:"
@@ -1949,11 +1856,10 @@ export async function GET(request: Request) {
   const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
   const isUninstall = modeRaw === "uninstall";
 
-  // Agent: optional in every mode now that installs write to the
-  // vendor-neutral ~/.agents/skills tree. Defaults to Claude — the agent picker
-  // only affected the launch-guide footer + the success-card label,
-  // and the unified install one-liner the UI emits is now agent-
-  // agnostic. An explicit ?agent= still works for back-compat.
+  // Agent: optional in every mode. Defaults to Claude because Claude
+  // needs its native `.claude/skills` discovery target in addition to
+  // the shared `.agents/skills` copy. An explicit ?agent= still works
+  // for back-compat.
   const agentIdRaw = (url.searchParams.get("agent") ?? "").trim().toLowerCase();
   const agentId = agentIdRaw || DEFAULT_AGENT_ID;
   const agent = AGENTS[agentId];

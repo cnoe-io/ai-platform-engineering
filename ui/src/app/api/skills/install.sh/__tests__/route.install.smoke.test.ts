@@ -70,6 +70,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  *"/api/skills/live-skills"*) printf '%s' '{"template":"---\\nname: caipe-skills\\ndescription: Browse\\n---\\n\\n# Browse\\n"}' > "$out" ;;
+  *"/api/skills/update-skills"*) printf '%s' '{"template":"---\\nname: update-caipe-skills\\ndescription: Refresh\\n---\\n\\n# Refresh\\n"}' > "$out" ;;
   *"/api/skills/helpers/caipe-skills.py"*) printf '# helper\\n' > "$out" ;;
   *"/api/skills/hooks/caipe-catalog.sh"*) printf '#!/usr/bin/env bash\\n' > "$out" ;;
   *) printf '{}' > "$out" ;;
@@ -82,6 +84,44 @@ printf '200'
 }
 
 describe("GET /api/skills/install.sh — install runtime smoke", () => {
+  it("installs helper skills into Claude native and vendor-neutral skill trees", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+
+    const dir = mkdtempSync(join(tmpdir(), "caipe-install-"));
+    try {
+      const home = join(dir, "home");
+      const bin = join(dir, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFakeCurl(bin);
+
+      const scriptPath = join(dir, "install.sh");
+      writeFileSync(scriptPath, res.body, { mode: 0o755 });
+      execFileSync("bash", [scriptPath, "--no-bulk", "--no-hook"], {
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          CAIPE_CATALOG_KEY: "fake-test-key",
+        },
+        stdio: "pipe",
+      });
+
+      for (const root of [".claude/skills", ".agents/skills"]) {
+        expect(
+          existsSync(join(home, root, "caipe-skills", "SKILL.md")),
+        ).toBe(true);
+        expect(
+          existsSync(join(home, root, "update-caipe-skills", "SKILL.md")),
+        ).toBe(true);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("preserves existing Claude settings while registering the CAIPE hook", async () => {
     const res = await callRaw(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
@@ -227,7 +267,7 @@ describe("GET /api/skills/install.sh — install runtime smoke", () => {
     }
   });
 
-  it("upgrade removes manifest-owned legacy Claude skill copies", async () => {
+  it("upgrade preserves manifest-owned Claude skill copies", async () => {
     const res = await callRaw(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
@@ -281,10 +321,10 @@ describe("GET /api/skills/install.sh — install runtime smoke", () => {
         stdio: "pipe",
       });
 
-      expect(existsSync(oldSkillPath)).toBe(false);
+      expect(existsSync(oldSkillPath)).toBe(true);
       expect(existsSync(keptSkillPath)).toBe(true);
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-      expect(manifest.installed[0].paths).toEqual([keptSkillPath]);
+      expect(manifest.installed[0].paths).toEqual([oldSkillPath, keptSkillPath]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

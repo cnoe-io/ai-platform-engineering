@@ -80,17 +80,23 @@ function jsonResponse({ ok, status = 200, body = {} }: FetchEntry) {
 }
 
 // Post-overhaul shape: install_paths is keyed by scope and each value
-// is an ARRAY of vendor-neutral target paths.
+// is an ARRAY of target paths.
 // All deprecated layout/format/fragment fields are gone.
 const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template:
     "---\nname: caipe-skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
-  install_path: "~/.agents/skills/caipe-skills/SKILL.md",
+  install_path: "~/.claude/skills/caipe-skills/SKILL.md",
   install_paths: {
-    user: ["~/.agents/skills/caipe-skills/SKILL.md"],
-    project: ["./.agents/skills/caipe-skills/SKILL.md"],
+    user: [
+      "~/.claude/skills/caipe-skills/SKILL.md",
+      "~/.agents/skills/caipe-skills/SKILL.md",
+    ],
+    project: [
+      "./.claude/skills/caipe-skills/SKILL.md",
+      "./.agents/skills/caipe-skills/SKILL.md",
+    ],
   },
   scope: "user",
   scope_requested: "user",
@@ -103,8 +109,14 @@ const LIVE_SKILLS_BODY = {
       id: "claude",
       label: "Claude Code",
       install_paths: {
-        user: ["~/.agents/skills/caipe-skills/SKILL.md"],
-        project: ["./.agents/skills/caipe-skills/SKILL.md"],
+        user: [
+          "~/.claude/skills/caipe-skills/SKILL.md",
+          "~/.agents/skills/caipe-skills/SKILL.md",
+        ],
+        project: [
+          "./.claude/skills/caipe-skills/SKILL.md",
+          "./.agents/skills/caipe-skills/SKILL.md",
+        ],
       },
       scopes_available: ["user", "project"],
     },
