@@ -199,6 +199,7 @@ export class CustomStreamAdapter implements StreamAdapter {
               parsed.tool_args,
               parsed.allowed_decisions,
               parsed.agent,
+              parsed.tool_approvals,
             );
           } else {
             callbacks.onInputRequired?.(

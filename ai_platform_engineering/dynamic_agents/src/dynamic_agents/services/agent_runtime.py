@@ -943,6 +943,7 @@ class AgentRuntime:
             tool_name=interrupt_data.get("tool_name"),
             tool_args=interrupt_data.get("tool_args"),
             allowed_decisions=interrupt_data.get("allowed_decisions"),
+            tool_approvals=interrupt_data.get("tool_approvals"),
             agent=self.config.name,
         )
 
@@ -980,12 +981,13 @@ class AgentRuntime:
                     continue
 
                 action_requests = interrupt_value.get("action_requests", [])
+
+                # Check for form_input first (request_user_input is always solo)
                 for action in action_requests:
                     tool_name = action.get("name", "")
-                    tool_call_id = action.get("id", str(id(interrupt)))
-                    args = action.get("args", {})
-
                     if tool_name == "request_user_input":
+                        tool_call_id = action.get("id", str(id(interrupt)))
+                        args = action.get("args", {})
                         logger.info(
                             f"[has_pending_interrupt] Found request_user_input interrupt: tool_call_id={tool_call_id}"
                         )
@@ -997,19 +999,37 @@ class AgentRuntime:
                             "tool_call_id": tool_call_id,
                         }
 
-                    # Any other tool in interrupt_on → tool approval
-                    logger.info(
-                        f"[has_pending_interrupt] Found tool approval interrupt: "
-                        f"tool={tool_name}, tool_call_id={tool_call_id}"
-                    )
+                # Collect ALL tool approval action_requests
+                tool_approvals: list[dict[str, Any]] = []
+                for action in action_requests:
+                    tool_name = action.get("name", "")
+                    tool_call_id = action.get("id", str(id(interrupt)))
+                    args = action.get("args", {})
                     allowed_decisions = self._get_allowed_decisions_for_tool(tool_name)
+                    tool_approvals.append(
+                        {
+                            "tool_name": tool_name,
+                            "tool_args": args,
+                            "tool_call_id": tool_call_id,
+                            "allowed_decisions": allowed_decisions,
+                        }
+                    )
+
+                if tool_approvals:
+                    # Use first tool_call_id as the interrupt_id for backwards compat
+                    logger.info(
+                        f"[has_pending_interrupt] Found {len(tool_approvals)} tool approval interrupt(s): "
+                        f"tools={[t['tool_name'] for t in tool_approvals]}"
+                    )
                     return {
                         "type": "tool_approval",
-                        "interrupt_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "tool_args": args,
-                        "tool_call_id": tool_call_id,
-                        "allowed_decisions": allowed_decisions,
+                        "interrupt_id": tool_approvals[0]["tool_call_id"],
+                        # Single-tool backwards compat fields
+                        "tool_name": tool_approvals[0]["tool_name"],
+                        "tool_args": tool_approvals[0]["tool_args"],
+                        "allowed_decisions": tool_approvals[0]["allowed_decisions"],
+                        # New: full list for multi-tool support
+                        "tool_approvals": tool_approvals,
                     }
 
             logger.debug("[has_pending_interrupt] No actionable interrupt found")
@@ -1052,11 +1072,41 @@ class AgentRuntime:
         interrupt_type = data.get("type", "form_input")
 
         if interrupt_type == "tool_approval":
+            # Support batched decisions for multi-tool interrupts
+            raw_decisions = data.get("decisions")
+            if raw_decisions and isinstance(raw_decisions, list):
+                # New format: UI sends pre-built list of decisions
+                built: list[dict[str, Any]] = []
+                for d in raw_decisions:
+                    dec = d.get("decision", "approve")
+                    if dec == "approve":
+                        built.append({"type": "approve"})
+                    elif dec == "reject":
+                        built.append({"type": "reject"})
+                    elif dec == "edit":
+                        edited_args = d.get("edited_args", {})
+                        tool_name = d.get("tool_name", "unknown")
+                        built.append(
+                            {
+                                "type": "edit",
+                                "edited_action": {"name": tool_name, "args": edited_args},
+                            }
+                        )
+                    else:
+                        built.append({"type": "approve"})
+                return {"decisions": built}
+
+            # Legacy single-decision format
             decision = data.get("decision", "approve")
             if decision == "approve":
-                return {"decisions": [{"type": "approve"}]}
+                # If there are multiple pending tools, approve all of them
+                interrupt_data = await self.has_pending_interrupt(session_id)
+                tool_count = len(interrupt_data.get("tool_approvals", [])) if interrupt_data else 1
+                return {"decisions": [{"type": "approve"}] * tool_count}
             elif decision == "reject":
-                return {"decisions": [{"type": "reject"}]}
+                interrupt_data = await self.has_pending_interrupt(session_id)
+                tool_count = len(interrupt_data.get("tool_approvals", [])) if interrupt_data else 1
+                return {"decisions": [{"type": "reject"}] * tool_count}
             elif decision == "edit":
                 edited_args = data.get("edited_args", {})
                 interrupt_data = await self.has_pending_interrupt(session_id)

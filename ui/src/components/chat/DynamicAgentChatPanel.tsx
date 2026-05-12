@@ -83,10 +83,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     messageId: string;
     interruptId: string;
-    toolName: string;
-    toolArgs: Record<string, unknown>;
-    allowedDecisions: string[];
     agentId: string;
+    /** All tool calls needing approval in this interrupt batch */
+    tools: Array<{
+      toolName: string;
+      toolArgs: Record<string, unknown>;
+      allowedDecisions: string[];
+    }>;
+    /** Index of the tool currently being shown to the user */
+    currentIndex: number;
+    /** Accumulated decisions (one per tool, filled as user decides) */
+    decisions: Array<{ decision: string; toolName: string; editedArgs?: Record<string, unknown> }>;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -339,13 +346,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             
             if (lastMsg && lastMsg.role === "assistant") {
               if (idata.type === "tool_approval") {
+                // Build tools list from tool_approvals if available, else single tool
+                const tools = idata.tool_approvals && idata.tool_approvals.length > 1
+                  ? idata.tool_approvals.map((t: { tool_name: string; tool_args: Record<string, unknown>; allowed_decisions?: string[] }) => ({
+                      toolName: t.tool_name,
+                      toolArgs: t.tool_args || {},
+                      allowedDecisions: t.allowed_decisions || ["approve", "edit", "reject"],
+                    }))
+                  : [{
+                      toolName: idata.tool_name,
+                      toolArgs: idata.tool_args || {},
+                      allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
+                    }];
                 setPendingToolApproval({
                   messageId: lastMsg.id,
                   interruptId: idata.interrupt_id,
-                  toolName: idata.tool_name,
-                  toolArgs: idata.tool_args || {},
-                  allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
                   agentId,
+                  tools,
+                  currentIndex: 0,
+                  decisions: [],
                 });
               } else {
                 const { prompt, fields } = idata;
@@ -736,7 +755,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent) {
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent, toolApprovals) {
       loopState.hitlFormRequested = true;
 
       const streamEvent = createStreamEvent("input_required", {
@@ -750,17 +769,29 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       addStreamEvent(streamEvent, convId);
 
+      // Build the list of tools needing approval
+      const tools = toolApprovals && toolApprovals.length > 1
+        ? toolApprovals.map(t => ({
+            toolName: t.tool_name,
+            toolArgs: t.tool_args,
+            allowedDecisions: t.allowed_decisions,
+          }))
+        : [{ toolName, toolArgs, allowedDecisions }];
+
       setPendingToolApproval({
         messageId: assistantMsgId,
         interruptId,
-        toolName,
-        toolArgs,
-        allowedDecisions,
         agentId,
+        tools,
+        currentIndex: 0,
+        decisions: [],
       });
 
+      const toolCount = tools.length;
       updateMessage(convId, assistantMsgId, {
-        content: `Requesting approval to run \`${toolName}\`...`,
+        content: toolCount > 1
+          ? `Requesting approval for ${toolCount} tool calls...`
+          : `Requesting approval to run \`${toolName}\`...`,
       });
     },
 
@@ -1182,17 +1213,41 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle tool approval decisions (approve/reject/edit)
+  // Shows cards sequentially; only resumes after all tools are decided.
   const handleToolApprovalDecision = useCallback(async (
     decision: "approve" | "reject" | "edit",
     editedArgs?: Record<string, unknown>,
   ) => {
     if (!pendingToolApproval || !activeConversationId) return;
 
+    const { tools, currentIndex, decisions } = pendingToolApproval;
+    const currentTool = tools[currentIndex];
+
+    // Accumulate this decision
+    const newDecisions = [
+      ...decisions,
+      { decision, toolName: currentTool.toolName, editedArgs },
+    ];
+
+    // If there are more tools to decide, advance to the next card
+    if (currentIndex + 1 < tools.length) {
+      setPendingToolApproval({
+        ...pendingToolApproval,
+        currentIndex: currentIndex + 1,
+        decisions: newDecisions,
+      });
+      return;
+    }
+
+    // All tools decided — send the resume with all decisions
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const decisionLabel = decision === "approve" ? "Approved" : decision === "reject" ? "Rejected" : "Edited & approved";
+    const summaryParts = newDecisions.map(d => {
+      const label = d.decision === "approve" ? "Approved" : d.decision === "reject" ? "Rejected" : "Edited & approved";
+      return `${label} \`${d.toolName}\``;
+    });
     addMessage(activeConversationId, {
       role: "user",
-      content: `${decisionLabel} \`${pendingToolApproval.toolName}\``,
+      content: summaryParts.join("\n"),
     }, turnId);
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
@@ -1208,11 +1263,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const clientContext: Record<string, unknown> = { source: "webui" };
 
+    // Build resume payload — use batched decisions format
     let resumePayload: Record<string, unknown>;
-    if (decision === "edit" && editedArgs) {
-      resumePayload = { type: "tool_approval", decision: "edit", edited_args: editedArgs };
+    if (newDecisions.length === 1) {
+      // Single tool — use legacy format for backwards compat
+      const d = newDecisions[0];
+      if (d.decision === "edit" && d.editedArgs) {
+        resumePayload = { type: "tool_approval", decision: "edit", edited_args: d.editedArgs };
+      } else {
+        resumePayload = { type: "tool_approval", decision: d.decision };
+      }
     } else {
-      resumePayload = { type: "tool_approval", decision };
+      // Multi-tool — use batched format
+      resumePayload = {
+        type: "tool_approval",
+        decisions: newDecisions.map(d => {
+          if (d.decision === "edit" && d.editedArgs) {
+            return { decision: "edit", tool_name: d.toolName, edited_args: d.editedArgs };
+          }
+          return { decision: d.decision };
+        }),
+      };
     }
     const resumeData = JSON.stringify(resumePayload);
 
@@ -1588,17 +1659,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             )}
 
             {/* Tool Approval Card */}
-            {pendingToolApproval && (
-              <ToolApprovalCard
-                toolName={pendingToolApproval.toolName}
-                toolArgs={pendingToolApproval.toolArgs}
-                allowedDecisions={pendingToolApproval.allowedDecisions}
-                onApprove={() => handleToolApprovalDecision("approve")}
-                onReject={() => handleToolApprovalDecision("reject")}
-                onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
-                disabled={isThisConversationStreaming}
-              />
-            )}
+            {pendingToolApproval && (() => {
+              const currentTool = pendingToolApproval.tools[pendingToolApproval.currentIndex];
+              const total = pendingToolApproval.tools.length;
+              const current = pendingToolApproval.currentIndex + 1;
+              return (
+                <ToolApprovalCard
+                  toolName={total > 1 ? `${currentTool.toolName} (${current}/${total})` : currentTool.toolName}
+                  toolArgs={currentTool.toolArgs}
+                  allowedDecisions={currentTool.allowedDecisions}
+                  onApprove={() => handleToolApprovalDecision("approve")}
+                  onReject={() => handleToolApprovalDecision("reject")}
+                  onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
+                  disabled={isThisConversationStreaming}
+                  totalCount={total}
+                />
+              );
+            })()}
 
             {/* Loading indicator while checking for pending HITL interrupt */}
             {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (

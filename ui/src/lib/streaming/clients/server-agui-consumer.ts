@@ -53,6 +53,12 @@ export interface ConsumeResult {
     agent?: string;
     toolName?: string;
     toolArgs?: Record<string, unknown>;
+    toolApprovals?: Array<{
+      tool_name: string;
+      tool_args: Record<string, unknown>;
+      tool_call_id: string;
+      allowed_decisions: string[];
+    }>;
   };
   /** Error message if stream errored */
   error?: string;
@@ -137,9 +143,9 @@ export async function consumeAgentStream(options: ConsumeOptions): Promise<Consu
         }),
       );
     },
-    onToolApprovalRequired(interruptId, toolName, toolArgs, _allowedDecisions, agent) {
+    onToolApprovalRequired(interruptId, toolName, toolArgs, _allowedDecisions, agent, toolApprovals) {
       interrupted = true;
-      interrupt = { type: "tool_approval", interruptId, toolName, toolArgs, agent };
+      interrupt = { type: "tool_approval", interruptId, toolName, toolArgs, agent, toolApprovals };
       // Store as input_required event type (UI treats both as interrupts)
       pendingEvents.push(
         createStreamEvent("input_required", {

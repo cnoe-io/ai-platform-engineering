@@ -96,6 +96,13 @@ export interface StreamCallbacks {
     toolArgs: Record<string, unknown>,
     allowedDecisions: string[],
     agent: string,
+    /** When the LLM batches multiple gated tool calls in one AI message */
+    toolApprovals?: Array<{
+      tool_name: string;
+      tool_args: Record<string, unknown>;
+      tool_call_id: string;
+      allowed_decisions: string[];
+    }>,
   ): void;
 
   /** Non-fatal warning from the agent */

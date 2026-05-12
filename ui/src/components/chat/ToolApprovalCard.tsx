@@ -16,6 +16,8 @@ interface ToolApprovalCardProps {
   onReject: () => void;
   onEdit: (editedArgs: Record<string, unknown>) => void;
   disabled?: boolean;
+  /** Total number of approvals in this batch (omitted or 1 = no count shown) */
+  totalCount?: number;
 }
 
 export function ToolApprovalCard({
@@ -26,6 +28,7 @@ export function ToolApprovalCard({
   onReject,
   onEdit,
   disabled = false,
+  totalCount,
 }: ToolApprovalCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedJson, setEditedJson] = useState(() => JSON.stringify(toolArgs, null, 2));
@@ -49,7 +52,7 @@ export function ToolApprovalCard({
     <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground font-medium">Approval required</span>
+        <span className="text-xs text-muted-foreground font-medium">{totalCount && totalCount > 1 ? `${totalCount} Approvals required` : "Approval required"}</span>
         <Badge variant="outline" className="text-xs font-mono">
           {toolName}
         </Badge>

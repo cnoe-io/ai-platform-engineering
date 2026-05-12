@@ -286,6 +286,13 @@ export interface ToolApprovalInterrupt {
   tool_args: Record<string, unknown>;
   allowed_decisions: DecisionType[];
   agent: string;
+  /** Multiple tool calls needing approval (when LLM batches gated tools) */
+  tool_approvals?: Array<{
+    tool_name: string;
+    tool_args: Record<string, unknown>;
+    tool_call_id: string;
+    allowed_decisions: string[];
+  }>;
 }
 
 export type InterruptPayload = FormInputInterrupt | ToolApprovalInterrupt;
@@ -298,7 +305,8 @@ export type ResumeData =
   | { type: "form_input"; dismissed: true }
   | { type: "tool_approval"; decision: "approve" }
   | { type: "tool_approval"; decision: "reject" }
-  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> };
+  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> }
+  | { type: "tool_approval"; decisions: Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }> };
 
 export interface DynamicAgentConfig {
   _id: string;

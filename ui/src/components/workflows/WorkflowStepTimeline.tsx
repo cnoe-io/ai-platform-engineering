@@ -209,6 +209,11 @@ function WorkflowInterrupt({
   stepIndex: number;
 }) {
   const [isResuming, setIsResuming] = useState(false);
+  // For multi-tool sequential approval
+  const [currentToolIndex, setCurrentToolIndex] = useState(0);
+  const [accumulatedDecisions, setAccumulatedDecisions] = useState<
+    Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }>
+  >([]);
 
   const handleFormSubmit = useCallback(
     (formData: Record<string, string>) => {
@@ -218,35 +223,73 @@ function WorkflowInterrupt({
     [onResume]
   );
 
-  const handleApprove = useCallback(() => {
-    setIsResuming(true);
-    onResume(JSON.stringify({ type: "tool_approval", decision: "approve" }));
-  }, [onResume]);
+  // Build the tools list for tool_approval interrupts
+  const tools = useMemo(() => {
+    if (interrupt.type !== "tool_approval") return [];
+    if (interrupt.toolApprovals && interrupt.toolApprovals.length > 1) {
+      return interrupt.toolApprovals.map(t => ({
+        toolName: t.tool_name,
+        toolArgs: t.tool_args,
+        allowedDecisions: t.allowed_decisions,
+      }));
+    }
+    return [{
+      toolName: interrupt.toolName || "",
+      toolArgs: (interrupt.toolArgs as Record<string, unknown>) || {},
+      allowedDecisions: ["approve", "reject", "edit"],
+    }];
+  }, [interrupt]);
 
-  const handleReject = useCallback(() => {
-    setIsResuming(true);
-    onResume(JSON.stringify({ type: "tool_approval", decision: "reject" }));
-  }, [onResume]);
+  const handleToolDecision = useCallback(
+    (decision: "approve" | "reject" | "edit", editedArgs?: Record<string, unknown>) => {
+      const currentTool = tools[currentToolIndex];
+      const newDecision = {
+        decision,
+        tool_name: currentTool.toolName,
+        ...(editedArgs ? { edited_args: editedArgs } : {}),
+      };
+      const newDecisions = [...accumulatedDecisions, newDecision];
 
-  const handleEdit = useCallback(
-    (editedArgs: Record<string, unknown>) => {
+      if (currentToolIndex + 1 < tools.length) {
+        // More tools to decide — advance
+        setAccumulatedDecisions(newDecisions);
+        setCurrentToolIndex(currentToolIndex + 1);
+        return;
+      }
+
+      // All decided — send resume
       setIsResuming(true);
-      onResume(JSON.stringify({ type: "tool_approval", decision: "edit", edited_args: editedArgs }));
+      if (newDecisions.length === 1) {
+        // Single tool — legacy format
+        const d = newDecisions[0];
+        if (d.decision === "edit" && d.edited_args) {
+          onResume(JSON.stringify({ type: "tool_approval", decision: "edit", edited_args: d.edited_args }));
+        } else {
+          onResume(JSON.stringify({ type: "tool_approval", decision: d.decision }));
+        }
+      } else {
+        // Multi-tool — batched format
+        onResume(JSON.stringify({ type: "tool_approval", decisions: newDecisions }));
+      }
     },
-    [onResume]
+    [tools, currentToolIndex, accumulatedDecisions, onResume]
   );
 
-  if (interrupt.type === "tool_approval" && interrupt.toolName) {
+  if (interrupt.type === "tool_approval" && tools.length > 0) {
+    const currentTool = tools[currentToolIndex];
+    const total = tools.length;
+    const current = currentToolIndex + 1;
     return (
       <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700">
         <ToolApprovalCard
-          toolName={interrupt.toolName}
-          toolArgs={(interrupt.toolArgs as Record<string, unknown>) || {}}
-          allowedDecisions={["approve", "reject", "edit"]}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onEdit={handleEdit}
+          toolName={total > 1 ? `${currentTool.toolName} (${current}/${total})` : currentTool.toolName}
+          toolArgs={currentTool.toolArgs}
+          allowedDecisions={currentTool.allowedDecisions}
+          onApprove={() => handleToolDecision("approve")}
+          onReject={() => handleToolDecision("reject")}
+          onEdit={(editedArgs) => handleToolDecision("edit", editedArgs)}
           disabled={isResuming}
+          totalCount={total}
         />
       </div>
     );

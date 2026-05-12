@@ -185,6 +185,7 @@ class AGUIStreamEncoder(StreamEncoder):
         tool_name: str | None = None,
         tool_args: dict[str, Any] | None = None,
         allowed_decisions: list[str] | None = None,
+        tool_approvals: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         """Emit RUN_FINISHED with outcome ``"interrupt"`` per the AG-UI spec.
 
@@ -199,6 +200,8 @@ class AGUIStreamEncoder(StreamEncoder):
                 "allowed_decisions": allowed_decisions or ["approve", "edit", "reject"],
                 "agent": agent,
             }
+            if tool_approvals and len(tool_approvals) > 1:
+                payload["tool_approvals"] = tool_approvals
             reason = "tool_approval"
         else:
             payload = {

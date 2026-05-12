@@ -40,10 +40,12 @@ class InterruptData(BaseModel):
     # form_input fields
     prompt: str = ""
     fields: list[dict] = []
-    # tool_approval fields
+    # tool_approval fields (first tool for backwards compat)
     tool_name: str | None = None
     tool_args: dict | None = None
     allowed_decisions: list[str] | None = None
+    # multi-tool approval (list of all tools needing approval)
+    tool_approvals: list[dict] | None = None
 
 
 class InterruptStateResponse(BaseModel):

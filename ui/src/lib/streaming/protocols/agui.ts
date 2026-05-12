@@ -212,12 +212,19 @@ function handleRunFinished(
       const payload = interrupt.payload as Record<string, unknown> | undefined;
 
       if (reason === "tool_approval") {
+        const toolApprovals = payload?.tool_approvals as Array<{
+          tool_name: string;
+          tool_args: Record<string, unknown>;
+          tool_call_id: string;
+          allowed_decisions: string[];
+        }> | undefined;
         callbacks.onToolApprovalRequired?.(
           interrupt.id as string,
           (payload?.tool_name as string) || "",
           (payload?.tool_args as Record<string, unknown>) || {},
           (payload?.allowed_decisions as string[]) || ["approve", "edit", "reject"],
           (payload?.agent as string) || "",
+          toolApprovals,
         );
       } else {
         callbacks.onInputRequired?.(
