@@ -1,0 +1,17 @@
+{{- if .Values.litellmMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ai-platform-engineering.litellmMcp.fullname" . }}
+  labels:
+    {{- include "ai-platform-engineering.litellmMcp.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.litellmMcp.service.type }}
+  ports:
+    - port: {{ .Values.litellmMcp.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ai-platform-engineering.litellmMcp.selectorLabels" . | nindent 4 }}
+{{- end }}

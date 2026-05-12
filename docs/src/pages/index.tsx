@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.4.10 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.4.11 -f your-values.yaml';
 const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
@@ -257,7 +257,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.4.10 -f your-values.yaml'}
+                  {'    --version 0.4.11 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -422,7 +422,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.4.10 -f your-values.yaml'}
+              {'    --version 0.4.11 -f your-values.yaml'}
             </code>
           </pre>
         </div>
