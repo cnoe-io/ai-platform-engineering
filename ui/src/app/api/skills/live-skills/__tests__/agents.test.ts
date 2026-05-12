@@ -158,6 +158,30 @@ describe('AGENTS registry', () => {
       expect(projectPaths).toContain('./.agents/skills/{name}/SKILL.md');
     }
   });
+
+  it('explains Claude catalog, refresh, and local skill invocation without HTML entities', () => {
+    const guide = AGENTS.claude.launchGuide.replace(/\{name\}/g, 'skills');
+
+    expect(guide).not.toContain('&mdash;');
+    expect(guide).toContain('`/skills`: browse the catalog');
+    expect(guide).toContain('`/skills kubernetes`: search');
+    expect(guide).toContain(
+      '`/skills run create-ci-pipeline`: fetch and execute inline',
+    );
+    expect(guide).toContain(
+      '`/update-skills`: install or refresh on-disk skill copies',
+    );
+    expect(guide).toContain(
+      '`/create-ci-pipeline`: run the locally installed skill directly',
+    );
+    expect(guide).not.toContain('`/skills install create-ci-pipeline`');
+  });
+
+  it('keeps launch guides free of literal HTML dash entities', () => {
+    for (const agent of Object.values(AGENTS)) {
+      expect(agent.launchGuide).not.toContain('&mdash;');
+    }
+  });
 });
 
 describe('parseFrontmatter', () => {

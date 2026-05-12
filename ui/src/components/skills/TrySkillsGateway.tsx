@@ -874,7 +874,7 @@ export function TrySkillsGateway() {
               <p className="text-xs text-foreground leading-relaxed">
                 <strong>Claude Code</strong>, <strong>Cursor</strong>,{" "}
                 <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and{" "}
-                <strong>opencode</strong> &mdash; the install writes a
+                <strong>opencode</strong>: the install writes a
                 single <code className="font-mono text-[11px]">SKILL.md</code>{" "}
                 per skill to the universal{" "}
                 <code className="font-mono text-[11px]">~/.agents/skills/</code>{" "}
@@ -1520,33 +1520,33 @@ export function TrySkillsGateway() {
           </p>
           <ul className="text-foreground space-y-2 list-disc pl-5">
             <li>
-              <strong>Claude Code</strong> &mdash; run{" "}
+              <strong>Claude Code</strong>: run{" "}
               <code className="font-mono text-[12px]">claude</code> then type{" "}
               <code className="font-mono text-[12px]">/{safeCommandName}</code>{" "}
               to browse the catalog. Skills are also auto-invoked by
               description when you describe a matching task.
             </li>
             <li>
-              <strong>Cursor</strong> &mdash; open Cursor and type{" "}
+              <strong>Cursor</strong>: open Cursor and type{" "}
               <code className="font-mono text-[12px]">/</code> in the Agent
               chat to search by name, or describe the task and let the model
               pick the right skill.
             </li>
             <li>
-              <strong>Codex CLI</strong> &mdash; run{" "}
+              <strong>Codex CLI</strong>: run{" "}
               <code className="font-mono text-[12px]">codex</code> then type{" "}
               <code className="font-mono text-[12px]">/skills</code> to list,
               or use <code className="font-mono text-[12px]">$skill-name</code>{" "}
               to invoke explicitly.
             </li>
             <li>
-              <strong>Gemini CLI</strong> &mdash; run{" "}
+              <strong>Gemini CLI</strong>: run{" "}
               <code className="font-mono text-[12px]">gemini</code> and use{" "}
               <code className="font-mono text-[12px]">/skills list</code> to
               confirm discovery; Gemini auto-activates skills by description.
             </li>
             <li>
-              <strong>opencode</strong> &mdash; run{" "}
+              <strong>opencode</strong>: run{" "}
               <code className="font-mono text-[12px]">opencode</code>; the
               agent sees skills via the built-in{" "}
               <code className="font-mono text-[12px]">skill</code> tool and
@@ -1604,7 +1604,7 @@ export function TrySkillsGateway() {
               {" "}
               <strong>Codex CLI</strong>, <strong>Gemini CLI</strong>, and
               {" "}
-              <strong>opencode</strong> &mdash; no per-agent setup
+              <strong>opencode</strong>: no per-agent setup
               required.
             </DialogDescription>
           </DialogHeader>
