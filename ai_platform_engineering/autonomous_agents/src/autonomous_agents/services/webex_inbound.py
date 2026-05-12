@@ -1,33 +1,12 @@
 """Webex inbound dispatcher + lightweight Webex API client.
 
-Ported from the standalone ``webex_bot`` service (previously a separate
-FastAPI app on port 8003). The dispatcher is the only piece of business
-logic; everything else (HTTP routing, signature checks, Mongo lookups)
-is owned by other modules in autonomous-agents.
+The dispatcher is the only piece of business logic; HTTP routing,
+signature checks, and Mongo lookups live in other modules.
 
-What changed in the port
-------------------------
-
-* ``ThreadLookup`` now returns ``WebexThreadEntry | None`` (a dataclass
-  from :mod:`services.webex_threads`) rather than the loose ``dict``
-  the bot used. The autonomous-agents service already had this typed
-  shape; reusing it removes the dict-vs-attribute mismatch.
-* ``dispatch_message_event`` reads ``mapping.task_id`` / ``mapping.run_id``
-  as attributes. The "malformed row" branch is unchanged in semantics
-  -- a row that fails dataclass construction never gets returned from
-  the adapter, so this branch is now defence-in-depth against a future
-  adapter that hand-builds entries.
-* ``forward_followup`` / ``httpx_json_compact`` / ``verify_webex_signature``
-  are NOT ported. They existed only to bridge the cross-process HTTP
-  hop. In-process the route calls :func:`scheduler.fire_webhook_task`
-  directly, and HMAC verification is performed by the ``webex`` adapter
-  in :mod:`services.webhook_adapters` via the standard route flow.
-
-The :class:`WebexClient` here is a deliberately minimal HTTP shim
-matching the bot's contract -- ``get_me`` + ``get_message`` for the
-inbound route, plus ``list_webhooks`` / ``create_webhook`` /
-``delete_webhook`` for startup-time registration in
-:func:`ensure_webhook_registered`.
+The :class:`WebexClient` is a deliberately minimal HTTP shim:
+``get_me`` + ``get_message`` for the inbound route, plus
+``list_webhooks`` / ``create_webhook`` / ``delete_webhook`` for
+startup-time registration in :func:`ensure_webhook_registered`.
 """
 
 from __future__ import annotations
@@ -323,9 +302,7 @@ async def ensure_webhook_registered(
 ) -> dict[str, Any]:
     """Make sure exactly one ``messages.created`` webhook points at us.
 
-    Ported from ``integrations/webex_bot/webhook_setup.py`` with the
-    default name changed to :data:`WEBHOOK_REGISTRATION_NAME`. The
-    idempotency strategy is unchanged:
+    Idempotent strategy:
 
     * If a webhook with our ``name`` exists pointing at the same
       ``target_url`` AND its signed/unsigned state matches our current

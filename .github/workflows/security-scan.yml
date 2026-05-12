@@ -95,7 +95,6 @@ jobs:
           - caipe-dynamic-agents
           # Bots
           - caipe-slack-bot
-          - caipe-webex-bot
           # RAG components
           - caipe-rag-agent-ontology
           - caipe-rag-server

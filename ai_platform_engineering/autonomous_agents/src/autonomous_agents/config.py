@@ -302,7 +302,7 @@ class Settings(BaseSettings):
     chat_history_messages_collection: str = "messages"
 
     # ------------------------------------------------------------------
-    # Webex inbound (replaces the standalone webex_bot service on 8003).
+    # Webex inbound
     # ------------------------------------------------------------------
     # When ``webex_bot_token`` is set, the lifespan registers an
     # idempotent ``messages.created`` webhook against Webex pointing at
