@@ -446,6 +446,16 @@ async function resumeAndContinue(
       agent_id: step.agent_id,
       resume_data: resumeData,
       protocol: "agui",
+      config_override: {
+        backend: {
+          config: {
+            fs_namespace: [workflowConfigId, runId, "filesystem"],
+            checkpoint_collection: CHECKPOINT_COLLECTION,
+            checkpoint_ttl: CHECKPOINT_TTL,
+          },
+        },
+        ...(step.config_override || {}),
+      },
     },
     headers: {
       "Content-Type": "application/json",

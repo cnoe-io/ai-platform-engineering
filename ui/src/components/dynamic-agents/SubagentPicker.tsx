@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "./AgentAvatar";
 import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";
 
 interface SubagentPickerProps {
@@ -223,12 +223,12 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 mt-1">
-                      <div
-                        className="h-7 w-7 rounded-md flex items-center justify-center"
-                        style={getGradientStyle(agentInfo.gradient_theme, agentInfo.custom_theme_config)}
-                      >
-                        <Bot className="h-4 w-4" style={{ color: getAccentColor(agentInfo.gradient_theme, agentInfo.custom_theme_config) || "white" }} />
-                      </div>
+                      <AgentAvatar
+                        agent={agentInfo}
+                        rounded="rounded-md"
+                        size="h-7 w-7"
+                        iconSize="h-4 w-4"
+                      />
                     </div>
                     <div className="flex-grow space-y-3">
                       <div className="flex items-center justify-between">
@@ -345,12 +345,12 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                             : "opacity-50 cursor-not-allowed"
                         )}
                       >
-                        <div
-                          className="h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0"
-                          style={getGradientStyle(agent.gradient_theme, agent.custom_theme_config)}
-                        >
-                          <Bot className="h-3.5 w-3.5" style={{ color: getAccentColor(agent.gradient_theme, agent.custom_theme_config) || "white" }} />
-                        </div>
+                        <AgentAvatar
+                          agent={agent}
+                          rounded="rounded-md"
+                          size="h-6 w-6"
+                          iconSize="h-3.5 w-3.5"
+                        />
                         <div className="flex-grow min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-medium text-sm truncate">{agent.name}</span>

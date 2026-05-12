@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,7 +37,8 @@ import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
-import { gradientThemes, getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { gradientThemes } from "@/lib/gradient-themes";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -915,12 +916,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
-          <div
-            className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
-            style={getGradientStyle(gradientTheme, gradientTheme === "custom" ? customThemeConfig : null)}
-          >
-            <Bot className="h-5 w-5" style={{ color: getAccentColor(gradientTheme, customThemeConfig) || "white" }} />
-          </div>
+          <AgentAvatar
+            gradientTheme={gradientTheme}
+            customThemeConfig={gradientTheme === "custom" ? customThemeConfig : undefined}
+            rounded="rounded-lg"
+            size="ml-auto h-9 w-9"
+            iconSize="h-5 w-5"
+            className="transition-all"
+          />
         </div>
       </CardHeader>
       <CardContent>
@@ -1176,12 +1179,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
                         {/* Preview */}
                         <div className="flex items-center gap-3">
-                          <div
-                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-all"
-                            style={getGradientStyle("custom", customThemeConfig)}
-                          >
-                            <Bot className="h-6 w-6" style={{ color: customThemeConfig.accent_color }} />
-                          </div>
+                          <AgentAvatar
+                            gradientTheme="custom"
+                            customThemeConfig={customThemeConfig}
+                            rounded="rounded-xl"
+                            size="h-12 w-12"
+                            iconSize="h-6 w-6"
+                            className="transition-all"
+                          />
                           <div className="text-xs text-muted-foreground">
                             Live preview
                           </div>

@@ -16,10 +16,10 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
-import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
 
@@ -27,24 +27,10 @@ interface DynamicAgentContextProps {
   /** Conversation ID from route params - used for API calls */
   conversationId?: string;
   agentId?: string;
-  agentName?: string;
-  agentDescription?: string;
-  agentModel?: string;
-  agentVisibility?: string;
-  /** Agent gradient theme (e.g., "ocean", "sunset") */
-  agentGradient?: string | null;
-  /** Custom theme config (when agentGradient === "custom") */
-  agentCustomTheme?: CustomThemeConfig | null;
-  /** Map of server_id -> tool names (empty array = all tools from server) */
-  allowedTools?: Record<string, string[]>;
-  /** Configured subagents for delegation */
-  subagents?: SubAgentRef[];
-  /** Configured skill IDs */
-  agentSkills?: string[];
+  /** Full agent config (null while loading) */
+  agent?: DynamicAgentConfig | null;
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
-  /** Whether the agent is disabled */
-  agentDisabled?: boolean;
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
@@ -56,17 +42,8 @@ interface DynamicAgentContextProps {
 export function DynamicAgentContext({
   conversationId,
   agentId,
-  agentName,
-  agentDescription,
-  agentModel,
-  agentVisibility,
-  agentGradient,
-  agentCustomTheme,
-  allowedTools,
-  subagents,
-  agentSkills,
+  agent,
   agentNotFound,
-  agentDisabled,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
@@ -88,7 +65,7 @@ export function DynamicAgentContext({
   // Fetch subagent configs to display their MCP servers
   const [subagentTools, setSubagentTools] = useState<Record<string, Record<string, string[]>>>({});
   useEffect(() => {
-    if (!subagents?.length || !session?.accessToken) {
+    if (!agent?.subagents?.length || !session?.accessToken) {
       setSubagentTools({});
       return;
     }
@@ -97,7 +74,7 @@ export function DynamicAgentContext({
     const fetchSubagentConfigs = async () => {
       const results: Record<string, Record<string, string[]>> = {};
       await Promise.all(
-        subagents.map(async (sub) => {
+        agent.subagents!.map(async (sub) => {
           try {
             const res = await fetch(`/api/dynamic-agents/agents/${sub.agent_id}`, {
               headers: session.accessToken
@@ -121,7 +98,7 @@ export function DynamicAgentContext({
 
     fetchSubagentConfigs();
     return () => { cancelled = true; };
-  }, [subagents, session?.accessToken]);
+  }, [agent?.subagents, session?.accessToken]);
 
   // File browser state
   const [showFiles, setShowFiles] = useState(false);
@@ -184,9 +161,9 @@ export function DynamicAgentContext({
       title: conversation.title,
       agent: {
         id: agentId,
-        name: agentName,
-        model: agentModel,
-        visibility: agentVisibility,
+        name: agent?.name,
+        model: agent?.model?.id,
+        visibility: agent?.visibility,
       },
       messages: conversation.messages?.map((m) => ({
         id: m.id,
@@ -214,7 +191,7 @@ export function DynamicAgentContext({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [conversation, conversationId, agentId, agentName, agentModel, agentVisibility]);
+  }, [conversation, conversationId, agentId, agent]);
 
   const handleRestartRuntime = useCallback(async () => {
     if (!agentId || !conversationId || isRestarting) return;
@@ -328,22 +305,13 @@ export function DynamicAgentContext({
             )}
 
             <AgentInfoContent
-              agentName={agentName}
-              agentDescription={agentDescription}
-              agentModel={agentModel}
-              agentVisibility={agentVisibility}
-              agentGradient={agentGradient}
-              agentCustomTheme={agentCustomTheme}
-              allowedTools={allowedTools}
-              subagents={subagents}
-              agentSkills={agentSkills}
+              agent={agent}
               subagentTools={subagentTools}
               agentId={agentId}
               sessionId={conversationId}
               onRestartRuntime={handleRestartRuntime}
               isRestarting={isRestarting}
               agentNotFound={agentNotFound}
-              agentDisabled={agentDisabled}
               onDownloadChat={handleDownloadChat}
               hasMessages={!!conversation?.messages?.length}
               showFiles={showFiles}
@@ -363,20 +331,12 @@ export function DynamicAgentContext({
           className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
         >
           {/* Small agent avatar */}
-          {(() => {
-            const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
-            return (
-              <div 
-                className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                  !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
-                )}
-                style={gradientStyle || undefined}
-              >
-                <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
-              </div>
-            );
-          })()}
+          <AgentAvatar
+            agent={agent}
+            rounded="rounded-full"
+            size="w-8 h-8"
+            iconSize="h-4 w-4"
+          />
           <ChevronLeft className="h-4 w-4" />
         </button>
       )}
@@ -389,15 +349,7 @@ export function DynamicAgentContext({
 // ═══════════════════════════════════════════════════════════════
 
 interface AgentInfoContentProps {
-  agentName?: string;
-  agentDescription?: string;
-  agentModel?: string;
-  agentVisibility?: string;
-  agentGradient?: string | null;
-  agentCustomTheme?: CustomThemeConfig | null;
-  allowedTools?: Record<string, string[]>;
-  subagents?: SubAgentRef[];
-  agentSkills?: string[];
+  agent?: DynamicAgentConfig | null;
   /** Map of subagent agent_id -> their allowed_tools config */
   subagentTools?: Record<string, Record<string, string[]>>;
   /** Agent ID for restart runtime */
@@ -410,8 +362,6 @@ interface AgentInfoContentProps {
   isRestarting?: boolean;
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
-  /** Whether the agent is disabled */
-  agentDisabled?: boolean;
   /** Callback to download chat as JSON */
   onDownloadChat?: () => void;
   /** Whether there are messages to download */
@@ -425,22 +375,13 @@ interface AgentInfoContentProps {
 }
 
 function AgentInfoContent({
-  agentName,
-  agentDescription,
-  agentModel,
-  agentVisibility,
-  agentGradient,
-  agentCustomTheme,
-  allowedTools,
-  subagents,
-  agentSkills,
+  agent,
   subagentTools,
   agentId,
   sessionId,
   onRestartRuntime,
   isRestarting,
   agentNotFound,
-  agentDisabled,
   onDownloadChat,
   hasMessages,
   showFiles,
@@ -450,52 +391,43 @@ function AgentInfoContent({
   onFileDownload,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
-  const toolCount = allowedTools
-    ? Object.entries(allowedTools).reduce((sum, [, tools]) => {
-        // Empty array means "all tools" from that server
+  const toolCount = agent?.allowed_tools
+    ? Object.entries(agent.allowed_tools).reduce((sum, [, tools]) => {
         return sum + (tools.length > 0 ? tools.length : 1);
       }, 0)
     : 0;
 
-  const serverCount = allowedTools ? Object.keys(allowedTools).length : 0;
+  const serverCount = agent?.allowed_tools ? Object.keys(agent.allowed_tools).length : 0;
 
   // Format visibility for display
-  const visibilityDisplay = agentVisibility
-    ? agentVisibility.charAt(0).toUpperCase() + agentVisibility.slice(1)
+  const visibilityDisplay = agent?.visibility
+    ? agent.visibility.charAt(0).toUpperCase() + agent.visibility.slice(1)
     : "Private";
 
   return (
     <div className="space-y-4">
       {/* Agent header */}
       <div className="flex items-center gap-3">
-        {(() => {
-          const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
-          return (
-            <div 
-              className={cn(
-                "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
-                !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
-              )}
-              style={gradientStyle || undefined}
-            >
-              <Bot className="h-5 w-5" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
-            </div>
-          );
-        })()}
+        <AgentAvatar
+          agent={agent}
+          rounded="rounded-full"
+          size="w-10 h-10"
+          iconSize="h-5 w-5"
+        />
         <div className="min-w-0">
-          <h3 className="font-semibold truncate">{agentName || "Custom Agent"}</h3>
+          <h3 className="font-semibold truncate">{agent?.name || "Custom Agent"}</h3>
           <p className="text-xs text-muted-foreground">Custom Agent</p>
         </div>
       </div>
 
       {/* Description */}
-      {agentDescription && (
+      {agent?.description && (
         <div className="space-y-1.5">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Description
           </h4>
           <p className="text-sm text-foreground/80 leading-relaxed">
-            {agentDescription}
+            {agent.description}
           </p>
         </div>
       )}
@@ -510,8 +442,8 @@ function AgentInfoContent({
           {/* Model */}
           <div className="space-y-0.5">
             <span className="text-xs text-muted-foreground">Model</span>
-            <p className="font-medium truncate" title={agentModel || "Default"}>
-              {agentModel || "Default"}
+            <p className="font-medium truncate" title={agent?.model?.id || "Default"}>
+              {agent?.model?.id || "Default"}
             </p>
           </div>
 
@@ -542,7 +474,7 @@ function AgentInfoContent({
           {/* Skills */}
           <div className="space-y-0.5">
             <span className="text-xs text-muted-foreground">Skills</span>
-            <p className="font-medium">{agentSkills?.length || 0}</p>
+            <p className="font-medium">{agent?.skills?.length || 0}</p>
           </div>
 
           {/* Conversation ID */}
@@ -565,7 +497,7 @@ function AgentInfoContent({
             MCP Servers
           </h4>
           <div className="space-y-1">
-            {Object.keys(allowedTools || {}).map((serverId) => (
+            {Object.keys(agent?.allowed_tools || {}).map((serverId) => (
               <div
                 key={serverId}
                 className="flex items-center gap-2 text-xs px-2 py-1.5 rounded font-mono bg-muted/30 border border-border/50"
@@ -578,13 +510,13 @@ function AgentInfoContent({
       )}
 
       {/* Configured Subagents */}
-      {subagents && subagents.length > 0 && (
+      {agent?.subagents && agent.subagents.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Configured Subagents
           </h4>
           <div className="space-y-1.5">
-            {subagents.map((subagent) => {
+            {agent.subagents.map((subagent) => {
               const subTools = subagentTools?.[subagent.agent_id];
               const subServerIds = subTools ? Object.keys(subTools) : [];
               return (
@@ -640,7 +572,7 @@ function AgentInfoContent({
               variant="outline"
               size="sm"
               onClick={onRestartRuntime}
-              disabled={isRestarting || agentNotFound || agentDisabled}
+              disabled={isRestarting || agentNotFound || agent?.enabled === false}
               className="w-full justify-center gap-2 text-xs"
             >
               {isRestarting ? (

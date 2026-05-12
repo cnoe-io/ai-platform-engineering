@@ -7,12 +7,14 @@
  * Feeds StreamEvent[] into useAgentTimeline() → TimelineData → <AgentTimeline />.
  */
 
-import { useMemo } from "react";
+import { useMemo, useCallback, useState } from "react";
 import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { AgentTimeline } from "@/components/chat/DynamicAgentTimeline";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { MetadataInputForm, type InputField } from "@/components/chat/MetadataInputForm";
+import { ToolApprovalCard } from "@/components/chat/ToolApprovalCard";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -131,24 +133,17 @@ export function WorkflowStepTimeline({
         {/* Agent avatar */}
         <Tooltip>
           <TooltipTrigger asChild>
-            {(() => {
-              const gradientStyle = agentInfo?.gradient_theme
-                ? getGradientStyle(agentInfo.gradient_theme, agentInfo.custom_theme_config)
-                : null;
-              const iconColor = getAccentColor(agentInfo?.gradient_theme, agentInfo?.custom_theme_config) || "white";
-              return (
-                <div
-                  className={cn(
-                    "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm cursor-default",
-                    !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600",
-                    isStreaming && "animate-pulse"
-                  )}
-                  style={gradientStyle || undefined}
-                >
-                  <Bot className="h-4 w-4" style={{ color: iconColor }} />
-                </div>
-              );
-            })()}
+            <div>
+              <AgentAvatar
+                agent={agentInfo}
+                isLoading={!agentInfo}
+                isStreaming={isStreaming}
+                rounded="rounded-xl"
+                size="w-9 h-9"
+                iconSize="h-4 w-4"
+                className="cursor-default"
+              />
+            </div>
           </TooltipTrigger>
           <TooltipContent side="left" sideOffset={4}>
             {step.agent_id}
@@ -189,14 +184,9 @@ export function WorkflowStepTimeline({
             </div>
           )}
 
-          {/* Interrupt form */}
-          {step.status === "waiting_for_input" && onResume && (
-            <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700">
-              <InterruptForm
-                interrupt={step.interrupt}
-                onSubmit={onResume}
-              />
-            </div>
+          {/* Interrupt: input form or tool approval */}
+          {step.status === "waiting_for_input" && onResume && step.interrupt && (
+            <WorkflowInterrupt interrupt={step.interrupt} onResume={onResume} stepIndex={step.index} />
           )}
         </div>
       </div>
@@ -206,46 +196,100 @@ export function WorkflowStepTimeline({
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Interrupt Form (minimal — can be enhanced later)
+// Interrupt handler — renders MetadataInputForm or ToolApprovalCard
 // ═══════════════════════════════════════════════════════════════
 
-function InterruptForm({
+function WorkflowInterrupt({
   interrupt,
-  onSubmit,
+  onResume,
+  stepIndex,
 }: {
-  interrupt: WfStepRun["interrupt"];
-  onSubmit: (data: string) => void;
+  interrupt: NonNullable<WfStepRun["interrupt"]>;
+  onResume: (resumeData: string) => void;
+  stepIndex: number;
 }) {
-  const prompt = interrupt?.prompt || "This step requires input to continue.";
+  const [isResuming, setIsResuming] = useState(false);
 
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        const form = e.target as HTMLFormElement;
-        const input = form.elements.namedItem("resumeInput") as HTMLInputElement;
-        if (input.value.trim()) {
-          onSubmit(input.value.trim());
-          input.value = "";
-        }
-      }}
-      className="flex flex-col gap-2"
-    >
-      <p className="text-sm text-amber-700 dark:text-amber-300">{prompt}</p>
-      <div className="flex gap-2">
-        <input
-          name="resumeInput"
-          type="text"
-          className="flex-1 px-3 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
-          placeholder="Type your response..."
+  const handleFormSubmit = useCallback(
+    (formData: Record<string, string>) => {
+      setIsResuming(true);
+      onResume(JSON.stringify({ type: "form_input", values: formData }));
+    },
+    [onResume]
+  );
+
+  const handleApprove = useCallback(() => {
+    setIsResuming(true);
+    onResume(JSON.stringify({ type: "tool_approval", decision: "approve" }));
+  }, [onResume]);
+
+  const handleReject = useCallback(() => {
+    setIsResuming(true);
+    onResume(JSON.stringify({ type: "tool_approval", decision: "reject" }));
+  }, [onResume]);
+
+  const handleEdit = useCallback(
+    (editedArgs: Record<string, unknown>) => {
+      setIsResuming(true);
+      onResume(JSON.stringify({ type: "tool_approval", decision: "edit", edited_args: editedArgs }));
+    },
+    [onResume]
+  );
+
+  if (interrupt.type === "tool_approval" && interrupt.toolName) {
+    return (
+      <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700">
+        <ToolApprovalCard
+          toolName={interrupt.toolName}
+          toolArgs={(interrupt.toolArgs as Record<string, unknown>) || {}}
+          allowedDecisions={["approve", "reject", "edit"]}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onEdit={handleEdit}
+          disabled={isResuming}
         />
-        <button
-          type="submit"
-          className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-        >
-          Resume
-        </button>
       </div>
-    </form>
+    );
+  }
+
+  // input_required — use MetadataInputForm if fields are available, else fallback to simple prompt
+  const fields = (interrupt.fields || []) as InputField[];
+
+  if (fields.length > 0) {
+    return (
+      <div className="mt-3">
+        <MetadataInputForm
+          messageId={`workflow-step-${stepIndex}`}
+          title={interrupt.prompt || "Input Required"}
+          description={interrupt.agent ? `Requested by ${interrupt.agent}` : undefined}
+          inputFields={fields}
+          onSubmit={handleFormSubmit}
+          disabled={isResuming}
+        />
+      </div>
+    );
+  }
+
+  // Fallback: simple text input for unstructured prompts
+  return (
+    <div className="mt-3">
+      <MetadataInputForm
+        messageId={`workflow-step-${stepIndex}`}
+        title={interrupt.prompt || "This step requires input to continue."}
+        inputFields={[
+          {
+            field_name: "response",
+            field_label: "Your response",
+            field_type: "text",
+            required: true,
+          },
+        ]}
+        onSubmit={(data) => {
+          setIsResuming(true);
+          onResume(JSON.stringify({ type: "form_input", values: data }));
+        }}
+        disabled={isResuming}
+      />
+    </div>
   );
 }

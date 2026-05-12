@@ -5,7 +5,7 @@ import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
@@ -238,22 +238,18 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
             {/* Dynamic agents list */}
             {!loading && !error && filteredAgents.map((agent) => {
-              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme, agent.ui.custom_theme_config) : null;
               return (
                 <button
                   key={agent._id}
                   onClick={() => handleSelectAgent(agent._id)}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
                 >
-                  <div
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                      !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
-                    )}
-                    style={gradientStyle || undefined}
-                  >
-                    <Bot className="h-4 w-4" style={{ color: getAccentColor(agent.ui?.gradient_theme, agent.ui?.custom_theme_config) || "white" }} />
-                  </div>
+                  <AgentAvatar
+                    agent={agent}
+                    rounded="rounded-full"
+                    size="w-8 h-8"
+                    iconSize="h-4 w-4"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{agent.name}</div>
                     {agent.description && (

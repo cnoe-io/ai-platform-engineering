@@ -176,8 +176,13 @@ export function WorkflowProgressMap({
 
   return (
     <TooltipProvider delayDuration={150}>
-      <div className="flex items-center gap-4 w-full">
-        {/* Left-aligned node tree */}
+      <div className="flex items-center gap-3 w-full">
+        {/* Label */}
+        <span className="text-[11px] text-muted-foreground font-medium shrink-0 select-none -ml-1">
+          Steps
+        </span>
+
+        {/* Node tree */}
         <div className="flex items-center overflow-x-auto scrollbar-none py-2 px-1">
           {truncated && (
             <>

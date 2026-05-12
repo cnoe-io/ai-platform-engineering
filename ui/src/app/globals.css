@@ -794,3 +794,12 @@ pre code.hljs {
   display: block !important;
   min-width: 0 !important;
 }
+
+/* ========================================
+   RESIZABLE PANEL ANIMATION
+   Smooth expand/collapse for programmatic
+   panel toggle (not during manual drag)
+   ======================================== */
+[data-animating] > [data-panel] {
+  transition: flex-grow 300ms ease-in-out;
+}

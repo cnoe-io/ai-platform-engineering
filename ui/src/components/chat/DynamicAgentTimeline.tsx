@@ -7,7 +7,6 @@ import {
   Wrench,
   AlertTriangle,
   XCircle,
-  Bot,
   CheckCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,7 +32,7 @@ import type {
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
 import { isFileToolName, isTodoToolName } from "@/lib/streaming/types";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -832,21 +831,14 @@ function SubagentSegmentView({
   // Look up subagent info for gradient
   const getSubagentInfo = useContext(SubagentLookupContext);
   const subagentLookup = getSubagentInfo?.(info.name);
-  const gradientStyle = subagentLookup?.gradientTheme 
-    ? getGradientStyle(subagentLookup.gradientTheme, subagentLookup.customThemeConfig) 
-    : null;
-
   // Custom icon with gradient avatar
   const subagentIcon = (
-    <div 
-      className={cn(
-        "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
-        !gradientStyle && "bg-sky-500/20"
-      )}
-      style={gradientStyle || undefined}
-    >
-      <Bot className="h-3 w-3" style={{ color: getAccentColor(subagentLookup?.gradientTheme, subagentLookup?.customThemeConfig) || "white" }} />
-    </div>
+    <AgentAvatar
+      agent={subagentLookup ? { gradient_theme: subagentLookup.gradientTheme, custom_theme_config: subagentLookup.customThemeConfig } : undefined}
+      rounded="rounded-full"
+      size="w-5 h-5"
+      iconSize="h-3 w-3"
+    />
   );
   
   // Build a description string for collapsed mode

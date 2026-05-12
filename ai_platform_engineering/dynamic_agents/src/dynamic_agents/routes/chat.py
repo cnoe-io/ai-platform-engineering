@@ -87,6 +87,18 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    config_override: dict | None = Field(
+        None,
+        description=(
+            "Same config_override used in the original /stream/start call. "
+            "Required to reconstruct the runtime with the correct checkpoint "
+            "collection if it was evicted from cache. "
+            "WARNING: This must exactly match the config_override from /stream/start. "
+            "Passing a different override (e.g. different checkpoint_collection or "
+            "backend config) will cause the agent to lose conversation context, "
+            "since the runtime will be reconstructed against a different checkpoint store."
+        ),
+    )
 
 
 async def _generate_sse_events(
@@ -286,12 +298,18 @@ async def chat_resume_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (same as /stream/start)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
-        f"protocol={request.protocol}, trace_id={request.trace_id or 'auto'}"
+        f"protocol={request.protocol}, "
+        f"config_override={request.config_override}, "
+        f"trace_id={request.trace_id or 'auto'}"
     )
 
     encoder = get_encoder(request.protocol)
