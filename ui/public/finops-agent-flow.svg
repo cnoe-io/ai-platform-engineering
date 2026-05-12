@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">FinOps agent workflow</title>
+  <desc id="desc">Grid chat sends a FinOps question to the FinOps agent, which queries LiteLLM MCP, reads LiteLLM usage data, and returns a visual report.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="360" rx="0" fill="#f8fafc"/>
+  <text x="48" y="54" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#0f172a">FinOps Agent for LiteLLM reporting</text>
+  <text x="48" y="86" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" fill="#64748b">Ask in Grid chat, get usage, spend, token, model, and user reports with downloadable visual charts.</text>
+
+  <g transform="translate(48 128)">
+    <rect x="0" y="0" width="190" height="124" rx="12" fill="#ffffff" stroke="#dbeafe" filter="url(#shadow)"/>
+    <rect x="0" y="0" width="10" height="124" rx="5" fill="#14b8a6"/>
+    <circle cx="58" cy="48" r="24" fill="#ccfbf1"/>
+    <path d="M47 47h22M47 55h14M47 39h22" stroke="#0f766e" stroke-width="4" stroke-linecap="round"/>
+    <text x="94" y="44" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Grid chat</text>
+    <text x="94" y="72" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">Ask a FinOps</text>
+    <text x="94" y="91" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">question</text>
+  </g>
+
+  <line x1="260" y1="190" x2="350" y2="190" stroke="#94a3b8" stroke-width="6" marker-end="url(#arrow)"/>
+
+  <g transform="translate(374 128)">
+    <rect x="0" y="0" width="210" height="124" rx="12" fill="#ffffff" stroke="#dbeafe" filter="url(#shadow)"/>
+    <rect x="0" y="0" width="10" height="124" rx="5" fill="#3b82f6"/>
+    <circle cx="58" cy="48" r="24" fill="#dbeafe"/>
+    <path d="M50 52v-9c0-5 4-9 9-9s9 4 9 9v9M45 52h28v17H45zM54 60h1M64 60h1" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <text x="94" y="42" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">FinOps agent</text>
+    <text x="94" y="70" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">Selects the right</text>
+    <text x="94" y="89" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">report tool</text>
+  </g>
+
+  <line x1="606" y1="190" x2="696" y2="190" stroke="#94a3b8" stroke-width="6" marker-end="url(#arrow)"/>
+
+  <g transform="translate(720 128)">
+    <rect x="0" y="0" width="190" height="124" rx="12" fill="#ffffff" stroke="#fde68a" filter="url(#shadow)"/>
+    <rect x="0" y="0" width="10" height="124" rx="5" fill="#eab308"/>
+    <circle cx="58" cy="48" r="24" fill="#fef3c7"/>
+    <path d="M58 30v21M47 38v13c0 9 22 9 22 0V38M58 60v13" stroke="#b45309" stroke-width="4" stroke-linecap="round" fill="none"/>
+    <text x="94" y="42" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">LiteLLM MCP</text>
+    <text x="94" y="70" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">Read-only access</text>
+    <text x="94" y="89" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" fill="#64748b">to usage data</text>
+  </g>
+
+  <line x1="932" y1="190" x2="1022" y2="190" stroke="#94a3b8" stroke-width="6" marker-end="url(#arrow)"/>
+
+  <g transform="translate(1046 128)">
+    <rect x="0" y="0" width="106" height="124" rx="12" fill="#ffffff" stroke="#bbf7d0" filter="url(#shadow)"/>
+    <circle cx="53" cy="42" r="24" fill="#dcfce7"/>
+    <path d="M42 51h22M42 42h22M42 33h22M42 33v27h22V33" stroke="#15803d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <text x="21" y="85" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#0f172a">Report</text>
+    <text x="20" y="106" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="12" fill="#64748b">HTML charts</text>
+  </g>
+
+  <g transform="translate(48 292)">
+    <rect x="0" y="0" width="1104" height="34" rx="17" fill="#e0f2fe"/>
+    <text x="28" y="23" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" fill="#075985">Example requests:</text>
+    <text x="164" y="23" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" fill="#0f172a">"Show token usage for FY26Q3"  |  "Spend per LLM last quarter"  |  "Usage and spend per user for April"</text>
+  </g>
+</svg>

@@ -1,9 +1,12 @@
 """Curated reporting tools for LiteLLM usage analytics."""
 
+import csv
 import logging
+import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from html import escape
+from io import StringIO
 from typing import Any
 
 from mcp_litellm.api.client import make_api_request
@@ -12,12 +15,14 @@ logger = logging.getLogger("mcp_tools")
 
 MAX_CUSTOM_RANGE_MONTHS = 2
 BUSINESS_QUARTER_MONTHS = 3
+FISCAL_YEAR_START_MONTH = 8
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
 CHART_LIMIT = 10
 TABLE_LIMIT = 25
 TEXT_BAR_WIDTH = 28
 TEXT_BAR_CHAR = "█"
+REPORT_FORMATS = {"markdown", "html", "csv", "both", "all"}
 METRIC_KEYS = (
   "requests",
   "successful_requests",
@@ -39,6 +44,13 @@ BUSINESS_QUARTERS = {
   "august_october": (8, "Aug-Oct"),
   "nov_jan": (11, "Nov-Jan"),
   "november_january": (11, "Nov-Jan"),
+}
+
+FISCAL_QUARTERS = {
+  1: (8, -1, "Aug-Oct"),
+  2: (11, -1, "Nov-Jan"),
+  3: (2, 0, "Feb-Apr"),
+  4: (5, 0, "May-Jul"),
 }
 
 
@@ -143,6 +155,30 @@ def _report_slug(report: dict[str, Any]) -> str:
   return f"litellm-{report_type}-{start}_to_{end}"
 
 
+def _safe_report_format(report_format: str | None) -> str:
+  """Normalize downloadable report format selection."""
+  value = str(report_format or "all").strip().lower()
+  aliases = {
+    "all": "all",
+    "default": "all",
+    "md": "markdown",
+    "markdown": "markdown",
+    "html": "html",
+    "csv": "csv",
+    "both": "all",
+  }
+  normalized = aliases.get(value, value)
+  return normalized if normalized in REPORT_FORMATS else "all"
+
+
+def _preferred_report_file(downloadable_reports: list[dict[str, str]]) -> dict[str, str] | None:
+  """Prefer the HTML graph report for Grid Files downloads."""
+  for report in downloadable_reports:
+    if report.get("mime_type") == "text/html":
+      return report
+  return downloadable_reports[0] if downloadable_reports else None
+
+
 def _chart_data(
   title: str,
   rows: list[dict[str, Any]],
@@ -221,6 +257,65 @@ def _markdown_table(
   return "\n".join(lines)
 
 
+def _csv_value(value: Any, key: str) -> str | int:
+  """Return a spreadsheet-friendly CSV value."""
+  if key == "spend":
+    formatted = f"{_to_float(value):.6f}".rstrip("0").rstrip(".")
+    return formatted or "0"
+  if key in METRIC_KEYS:
+    return _to_int(value)
+  return str(value or "").replace("\n", " ").strip()
+
+
+def _build_csv_report(
+  title: str,
+  report: dict[str, Any],
+  tables: list[dict[str, Any]],
+) -> str:
+  """Build a downloadable CSV report from the tabular report data."""
+  totals = report.get("totals") or {}
+  output = StringIO()
+  writer = csv.writer(output, lineterminator="\n")
+
+  writer.writerow(["LiteLLM report", title])
+  writer.writerow(["period", _report_period(report)])
+  writer.writerow(["source", report.get("source") or "LiteLLM"])
+  writer.writerow(["complete", "yes" if report.get("is_complete") else "no"])
+  writer.writerow([])
+
+  writer.writerow(["Totals"])
+  writer.writerow(["metric", "value"])
+  for key, label in (
+    ("spend", "Spend"),
+    ("total_tokens", "Total Tokens"),
+    ("prompt_tokens", "Prompt Tokens"),
+    ("completion_tokens", "Completion Tokens"),
+    ("requests", "Requests"),
+  ):
+    writer.writerow([label, _csv_value(totals.get(key), key)])
+
+  for table in tables:
+    rows = table.get("rows") or []
+    columns = table.get("columns") or []
+    writer.writerow([])
+    writer.writerow([table.get("title") or "Table"])
+    writer.writerow([header for _, header in columns])
+    if not rows:
+      writer.writerow(["No data"])
+      continue
+    for row in rows:
+      writer.writerow([_csv_value(row.get(key), key) for key, _ in columns])
+
+  warnings = report.get("warnings") or []
+  if warnings:
+    writer.writerow([])
+    writer.writerow(["Warnings"])
+    for warning in warnings:
+      writer.writerow([warning])
+
+  return output.getvalue()
+
+
 def _html_table(
   title: str,
   rows: list[dict[str, Any]],
@@ -229,7 +324,12 @@ def _html_table(
 ) -> str:
   """Build an HTML table fragment."""
   if not rows:
-    return f"<section><h2>{escape(title)}</h2><p>No data.</p></section>"
+    return (
+      '<section class="section">'
+      f'<h2 class="section-title">{escape(title)}</h2>'
+      '<div class="table-container empty-state"><p>No data.</p></div>'
+      "</section>"
+    )
 
   head = "".join(f"<th>{escape(header)}</th>" for _, header in columns)
   body_rows = []
@@ -243,7 +343,48 @@ def _html_table(
         value = _truncate_text(value, 80)
       cells.append(f"<td>{escape(str(value))}</td>")
     body_rows.append("<tr>" + "".join(cells) + "</tr>")
-  return f"<section><h2>{escape(title)}</h2><table><thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody></table></section>"
+  return (
+    '<section class="section">'
+    f'<h2 class="section-title">{escape(title)}</h2>'
+    '<div class="table-container">'
+    f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>"
+    "</div>"
+    "</section>"
+  )
+
+
+def _html_charts(charts: list[dict[str, Any]]) -> str:
+  """Build the visual chart section for downloadable HTML reports."""
+  if not charts:
+    return ""
+
+  chart_cards = "".join(
+    f'<div class="chart-container">{_svg_bar_chart(chart)}</div>' for chart in charts
+  )
+  return (
+    '<section class="section">'
+    '<h2 class="section-title">Visualizations</h2>'
+    f'<div class="chart-row">{chart_cards}</div>'
+    "</section>"
+  )
+
+
+def _html_report_notes(report: dict[str, Any]) -> str:
+  """Build a short report notes panel."""
+  notes = [
+    f"Report period: {_report_period(report)}.",
+    f"Data source: {report.get('source') or 'LiteLLM'}.",
+    "Charts and tables are generated from LiteLLM usage, token, and spend data.",
+  ]
+  warnings = report.get("warnings") or []
+  notes.extend(f"Warning: {warning}" for warning in warnings)
+  note_items = "".join(f"<li>{escape(str(note))}</li>" for note in notes)
+  return (
+    '<section class="insights">'
+    "<h2>Report notes</h2>"
+    f"<ul>{note_items}</ul>"
+    "</section>"
+  )
 
 
 def _svg_bar_chart(chart: dict[str, Any]) -> str:
@@ -345,47 +486,265 @@ def _build_html_report(
 ) -> str:
   """Build a downloadable HTML report with inline SVG charts."""
   totals = report.get("totals") or {}
-  chart_html = "".join(f"<section>{_svg_bar_chart(chart)}</section>" for chart in charts)
+  chart_html = _html_charts(charts)
   table_html = "".join(_html_table(table["title"], table["rows"], table["columns"]) for table in tables)
-  warning_items = "".join(f"<li>{escape(str(warning))}</li>" for warning in report.get("warnings") or [])
-  warnings_html = f"<section><h2>Warnings</h2><ul>{warning_items}</ul></section>" if warning_items else ""
+  notes_html = _html_report_notes(report)
   return f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{escape(title)}</title>
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 32px; color: #111827; background: #ffffff; }}
-    h1 {{ margin-bottom: 4px; }}
-    h2 {{ margin-top: 32px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; }}
-    .meta {{ color: #4b5563; margin-top: 0; }}
-    .totals {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 24px 0; }}
-    .metric {{ border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; background: #f9fafb; }}
-    .metric strong {{ display: block; font-size: 20px; margin-top: 4px; }}
-    svg {{ width: 100%; max-width: 920px; height: auto; margin: 10px 0 22px; }}
-    .chart-title {{ font-size: 18px; font-weight: 700; fill: #111827; }}
-    .label {{ font-size: 12px; fill: #374151; }}
-    .value {{ font-size: 12px; fill: #111827; font-weight: 600; }}
-    .bar-bg {{ fill: #e5e7eb; }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      color: #111827;
+      background:
+        radial-gradient(circle at top left, rgba(20, 184, 166, 0.20), transparent 30%),
+        linear-gradient(135deg, #eff6ff 0%, #f8fafc 48%, #ecfdf5 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    .container {{
+      max-width: 1400px;
+      margin: 0 auto;
+      overflow: hidden;
+      background: #ffffff;
+      border: 1px solid #dbeafe;
+      border-radius: 16px;
+      box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+    }}
+    .header {{
+      padding: 40px 48px;
+      color: #ffffff;
+      background: linear-gradient(135deg, #0f766e 0%, #2563eb 100%);
+    }}
+    .eyebrow {{
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.88;
+    }}
+    h1 {{
+      max-width: 920px;
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.16;
+    }}
+    .subtitle {{
+      max-width: 920px;
+      margin: 12px 0 0;
+      color: rgba(255, 255, 255, 0.88);
+      font-size: 16px;
+      line-height: 1.5;
+    }}
+    .meta-pills {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }}
+    .meta-pills span {{
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.14);
+      color: rgba(255, 255, 255, 0.94);
+      font-size: 13px;
+      font-weight: 600;
+    }}
+    .content {{ padding: 40px; }}
+    .summary-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 20px;
+      margin-bottom: 42px;
+    }}
+    .metric-card {{
+      position: relative;
+      min-height: 132px;
+      padding: 24px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      border: 1px solid #e5e7eb;
+      border-left: 6px solid #2563eb;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }}
+    .metric-card.accent1 {{ border-left-color: #0f766e; }}
+    .metric-card.accent2 {{ border-left-color: #2563eb; }}
+    .metric-card.accent3 {{ border-left-color: #d97706; }}
+    .metric-card.accent4 {{ border-left-color: #7c3aed; }}
+    .metric-card.accent5 {{ border-left-color: #dc2626; }}
+    .metric-label {{
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }}
+    .metric-value {{
+      margin-top: 10px;
+      color: #0f172a;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.15;
+      word-break: break-word;
+    }}
+    .metric-hint {{
+      margin-top: 10px;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.4;
+    }}
+    .section {{ margin-bottom: 46px; }}
+    .section-title {{
+      margin: 0 0 22px;
+      padding-bottom: 14px;
+      color: #0f172a;
+      border-bottom: 3px solid #0f766e;
+      font-size: 22px;
+      font-weight: 800;
+    }}
+    .chart-row {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 24px;
+    }}
+    .chart-container {{
+      min-width: 0;
+      padding: 22px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }}
+    svg {{
+      display: block;
+      width: 100%;
+      height: auto;
+    }}
+    .chart-title {{ font-size: 18px; font-weight: 800; fill: #0f172a; }}
+    .label {{ font-size: 12px; fill: #334155; }}
+    .value {{ font-size: 12px; fill: #0f172a; font-weight: 700; }}
+    .bar-bg {{ fill: #e2e8f0; }}
     .bar {{ fill: #2563eb; }}
-    table {{ border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 13px; }}
-    th, td {{ border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; }}
-    th {{ background: #f3f4f6; }}
+    .table-container {{
+      overflow-x: auto;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 18px;
+    }}
+    .empty-state {{ color: #64748b; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: #ffffff;
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 13px;
+    }}
+    th {{
+      padding: 14px 15px;
+      background: #0f766e;
+      color: #ffffff;
+      text-align: left;
+      font-weight: 800;
+      white-space: nowrap;
+    }}
+    td {{
+      padding: 12px 15px;
+      border-bottom: 1px solid #e5e7eb;
+      color: #1f2937;
+    }}
+    tbody tr:hover {{ background: #f1f5f9; }}
+    .insights {{
+      margin-top: 8px;
+      padding: 22px 24px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-left: 5px solid #2563eb;
+      border-radius: 14px;
+    }}
+    .insights h2 {{
+      margin: 0 0 12px;
+      color: #1e40af;
+      font-size: 18px;
+    }}
+    .insights ul {{
+      margin: 0;
+      padding-left: 20px;
+      color: #1e3a8a;
+      line-height: 1.6;
+    }}
+    .footer {{
+      padding: 18px 40px;
+      color: #64748b;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      font-size: 12px;
+      text-align: center;
+    }}
+    @media (max-width: 720px) {{
+      body {{ padding: 12px; }}
+      .header, .content {{ padding: 28px 22px; }}
+      h1 {{ font-size: 28px; }}
+      .chart-row {{ grid-template-columns: 1fr; }}
+      .metric-value {{ font-size: 23px; }}
+    }}
   </style>
 </head>
 <body>
-  <h1>{escape(title)}</h1>
-  <p class="meta">Period: {escape(_report_period(report))}<br />Source: {escape(str(report.get("source")))}<br />Complete: {"yes" if report.get("is_complete") else "no"}</p>
-  <section class="totals">
-    <div class="metric">Spend<strong>{escape(_format_metric(totals.get("spend"), "spend"))}</strong></div>
-    <div class="metric">Total tokens<strong>{escape(_format_metric(totals.get("total_tokens"), "total_tokens"))}</strong></div>
-    <div class="metric">Prompt tokens<strong>{escape(_format_metric(totals.get("prompt_tokens"), "prompt_tokens"))}</strong></div>
-    <div class="metric">Completion tokens<strong>{escape(_format_metric(totals.get("completion_tokens"), "completion_tokens"))}</strong></div>
-    <div class="metric">Requests<strong>{escape(_format_metric(totals.get("requests"), "requests"))}</strong></div>
-  </section>
-  {chart_html}
-  {table_html}
-  {warnings_html}
+  <main class="container">
+    <header class="header">
+      <div class="eyebrow">LiteLLM FinOps Report</div>
+      <h1>{escape(title)}</h1>
+      <p class="subtitle">Usage, spend, and token analytics generated by the Grid FinOps agent.</p>
+      <div class="meta-pills">
+        <span>Period: {escape(_report_period(report))}</span>
+        <span>Source: {escape(str(report.get("source") or "LiteLLM"))}</span>
+        <span>Complete: {"yes" if report.get("is_complete") else "no"}</span>
+      </div>
+    </header>
+    <div class="content">
+      <section class="summary-grid" aria-label="Summary metrics">
+        <article class="metric-card accent1">
+          <div class="metric-label">Total spend</div>
+          <div class="metric-value">{escape(_format_metric(totals.get("spend"), "spend"))}</div>
+          <div class="metric-hint">LiteLLM reported cost for this period</div>
+        </article>
+        <article class="metric-card accent2">
+          <div class="metric-label">Total tokens</div>
+          <div class="metric-value">{escape(_format_metric(totals.get("total_tokens"), "total_tokens"))}</div>
+          <div class="metric-hint">Prompt and completion tokens combined</div>
+        </article>
+        <article class="metric-card accent3">
+          <div class="metric-label">Prompt tokens</div>
+          <div class="metric-value">{escape(_format_metric(totals.get("prompt_tokens"), "prompt_tokens"))}</div>
+          <div class="metric-hint">Input tokens sent to models</div>
+        </article>
+        <article class="metric-card accent4">
+          <div class="metric-label">Completion tokens</div>
+          <div class="metric-value">{escape(_format_metric(totals.get("completion_tokens"), "completion_tokens"))}</div>
+          <div class="metric-hint">Output tokens generated by models</div>
+        </article>
+        <article class="metric-card accent5">
+          <div class="metric-label">Requests</div>
+          <div class="metric-value">{escape(_format_metric(totals.get("requests"), "requests"))}</div>
+          <div class="metric-hint">Total LiteLLM calls included in the report</div>
+        </article>
+      </section>
+      {chart_html}
+      {table_html}
+      {notes_html}
+    </div>
+    <footer class="footer">Generated by Grid FinOps agent using the LiteLLM MCP server.</footer>
+  </main>
 </body>
 </html>
 """
@@ -396,13 +755,88 @@ def _attach_visualizations(
   title: str,
   charts: list[dict[str, Any]],
   tables: list[dict[str, Any]],
+  report_format: str | None = None,
 ) -> dict[str, Any]:
   """Attach chart-ready data and downloadable report templates to a report."""
   markdown_report = _build_markdown_report(title, report, charts, tables)
   html_report = _build_html_report(title, report, charts, tables)
+  csv_report = _build_csv_report(title, report, tables)
   slug = _report_slug(report)
+  safe_report_format = _safe_report_format(report_format)
+  downloadable_reports = []
+  if safe_report_format in {"markdown", "all"}:
+    downloadable_reports.append(
+      {
+        "path": f"/reports/{slug}.md",
+        "mime_type": "text/markdown",
+        "content": markdown_report,
+      }
+    )
+  if safe_report_format in {"html", "all"}:
+    downloadable_reports.append(
+      {
+        "path": f"/reports/{slug}.html",
+        "mime_type": "text/html",
+        "content": html_report,
+      }
+    )
+  if safe_report_format in {"csv", "all"}:
+    downloadable_reports.append(
+      {
+        "path": f"/reports/{slug}.csv",
+        "mime_type": "text/csv",
+        "content": csv_report,
+      }
+    )
+  report_paths = [item["path"] for item in downloadable_reports]
+  preferred_report = _preferred_report_file(downloadable_reports)
+  csv_report_file = next(
+    (report for report in downloadable_reports if report.get("mime_type") == "text/csv"),
+    None,
+  )
+  recommended_report_files = []
+  for report_file in (preferred_report, csv_report_file):
+    if report_file and report_file not in recommended_report_files:
+      recommended_report_files.append(report_file)
+  files_to_write = recommended_report_files or downloadable_reports
+  file_write_paths = [item["path"] for item in files_to_write]
   return {
     **report,
+    "recommended_report_file": (
+      {
+        "path": preferred_report["path"],
+        "mime_type": preferred_report["mime_type"],
+        "content": preferred_report["content"],
+        "reason": "Default visual report with inline SVG graphs for the Grid Files section.",
+      }
+      if preferred_report
+      else None
+    ),
+    "csv_report_file": (
+      {
+        "path": csv_report_file["path"],
+        "mime_type": csv_report_file["mime_type"],
+        "content": csv_report_file["content"],
+        "reason": "Default CSV export for spreadsheet analysis.",
+      }
+      if csv_report_file
+      else None
+    ),
+    "recommended_report_files": recommended_report_files,
+    "file_write_status": {
+      "status": "not_written_to_grid_files",
+      "tool": "write_file",
+      "paths": file_write_paths,
+      "available_paths": report_paths,
+      "instruction": (
+        "These report files are generated templates only. They are not visible in the Grid "
+        "Files section until the agent calls write_file. For any LiteLLM FinOps report request, "
+        "write every file in files_to_write by default so the user gets both the visual HTML report with "
+        "graphs and the CSV export, even if they did not explicitly ask for CSV or graphs. "
+        "Only say the reports are in Files after every write_file call succeeds."
+      ),
+    },
+    "files_to_write": files_to_write,
     "visualizations": {
       "chart_data": charts,
       "text_charts": [
@@ -412,18 +846,7 @@ def _attach_visualizations(
         }
         for chart in charts
       ],
-      "downloadable_reports": [
-        {
-          "path": f"/reports/{slug}.md",
-          "mime_type": "text/markdown",
-          "content": markdown_report,
-        },
-        {
-          "path": f"/reports/{slug}.html",
-          "mime_type": "text/html",
-          "content": html_report,
-        },
-      ],
+      "downloadable_reports": downloadable_reports,
     },
   }
 
@@ -492,6 +915,24 @@ def _business_quarter_end(start: date) -> date:
   return _month_end(_add_months(start, BUSINESS_QUARTER_MONTHS - 1))
 
 
+def _fiscal_quarter_start_from_name(period: str) -> tuple[date, str, int, int] | None:
+  """Resolve fiscal quarter names such as FY26Q1 or FY2026 Q3."""
+  compact = re.sub(r"[\s_-]+", "", period.strip().lower())
+  match = re.fullmatch(r"fy(\d{2}|\d{4})q([1-4])", compact)
+  if not match:
+    return None
+
+  fiscal_year = int(match.group(1))
+  if fiscal_year < 100:
+    fiscal_year += 2000
+
+  fiscal_quarter = int(match.group(2))
+  start_month, year_offset, quarter_label = FISCAL_QUARTERS[fiscal_quarter]
+  start = date(fiscal_year + year_offset, start_month, 1)
+  label = f"FY{str(fiscal_year)[-2:]}Q{fiscal_quarter} ({quarter_label})"
+  return start, label, fiscal_year, fiscal_quarter
+
+
 def _quarter_start_from_name(period: str, reference: date) -> tuple[date, str] | None:
   """Resolve named custom quarter windows such as feb-apr or november-january."""
   period_key = period.strip().lower().replace(" ", "_").replace("-", "_")
@@ -517,6 +958,7 @@ def _resolve_report_window(
 
   if period:
     period_key = period.strip().lower().replace(" ", "_").replace("-", "_")
+    fiscal_quarter: tuple[date, str, int, int] | None = None
     if period_key in {"last_quarter", "previous_quarter"}:
       current_start = _business_quarter_start_for(reference)
       start = _add_months(current_start, -BUSINESS_QUARTER_MONTHS)
@@ -525,15 +967,24 @@ def _resolve_report_window(
       start = _business_quarter_start_for(reference)
       label = "current_quarter"
     else:
-      named_quarter = _quarter_start_from_name(period, reference)
+      fiscal_quarter = _fiscal_quarter_start_from_name(period)
+      named_quarter = (
+        (fiscal_quarter[0], fiscal_quarter[1])
+        if fiscal_quarter
+        else _quarter_start_from_name(period, reference)
+      )
       if not named_quarter:
         return (
           {
             "success": False,
-            "error": "Unsupported period. Use last_quarter, current_quarter, or one of: Aug-Oct, Nov-Jan, Feb-Apr, May-Jul.",
+            "error": "Unsupported period. Use last_quarter, current_quarter, a fiscal quarter like FY26Q1, or one of: Aug-Oct, Nov-Jan, Feb-Apr, May-Jul.",
             "supported_periods": [
               "last_quarter",
               "current_quarter",
+              "FY26Q1",
+              "FY26Q2",
+              "FY26Q3",
+              "FY26Q4",
               "Aug-Oct",
               "Nov-Jan",
               "Feb-Apr",
@@ -546,23 +997,31 @@ def _resolve_report_window(
       start, label = named_quarter
 
     end = _business_quarter_end(start)
-    return (
-      {
-        "success": True,
-        "range_type": "business_quarter",
-        "period": label,
-        "start_date": _format_date(start),
-        "end_date": _format_date(end),
-      },
-      start,
-      end,
-    )
+    window = {
+      "success": True,
+      "range_type": "fiscal_quarter" if fiscal_quarter else "business_quarter",
+      "period": label,
+      "start_date": _format_date(start),
+      "end_date": _format_date(end),
+    }
+    if fiscal_quarter:
+      window.update(
+        {
+          "fiscal_year": fiscal_quarter[2],
+          "fiscal_quarter": f"Q{fiscal_quarter[3]}",
+          "fiscal_year_definition": (
+            "Fiscal year runs from August 1 through July 31 and is named by "
+            "the calendar year in which it ends."
+          ),
+        }
+      )
+    return (window, start, end)
 
   if not start_date or not end_date:
     return (
       {
         "success": False,
-        "error": "Provide either start_date and end_date, or period=last_quarter/current_quarter.",
+        "error": "Provide either start_date and end_date, or period=last_quarter/current_quarter/FY26Q1.",
       },
       None,
       None,
@@ -582,7 +1041,7 @@ def _resolve_report_window(
     return (
       {
         "success": False,
-        "error": "Custom date ranges are limited to two calendar months. Ask for a month, a two-month range, or use period=last_quarter.",
+        "error": "Custom date ranges are limited to two calendar months. Ask for a month, a two-month range, or use period=last_quarter/FY26Q1.",
         "max_custom_range_months": MAX_CUSTOM_RANGE_MONTHS,
         "requested_months": months,
         "start_date": _format_date(start),
@@ -857,6 +1316,7 @@ async def get_llm_token_usage_report(
   period: str | None = None,
   limit: int = DEFAULT_LIMIT,
   reference_date: str | None = None,
+  report_format: str = "all",
 ) -> dict[str, Any]:
   """
   Get a LiteLLM token usage report for a month, two-month range, or business quarter.
@@ -864,22 +1324,26 @@ async def get_llm_token_usage_report(
   Use this curated tool for requests like:
   - token usage between 03/01/2026 and 04/30/2026
   - token usage last quarter
+  - token usage for FY26Q3
   - total LLM tokens by model
 
   Custom date ranges are limited to two calendar months. Quarter requests use
-  the CAIPE business quarters: Aug-Oct, Nov-Jan, Feb-Apr, and May-Jul.
+  the CAIPE fiscal quarters: Q1 Aug-Oct, Q2 Nov-Jan, Q3 Feb-Apr, Q4 May-Jul.
+  Fiscal years run from August 1 through July 31 and are named by the calendar
+  year in which they end, so FY26Q1 is 2025-08-01 through 2025-10-31.
 
   Args:
     start_date: Optional report start date in YYYY-MM-DD or MM/DD/YYYY format.
     end_date: Optional report end date in YYYY-MM-DD or MM/DD/YYYY format.
     period: Optional period. Use last_quarter, current_quarter, Aug-Oct,
-      Nov-Jan, Feb-Apr, or May-Jul.
+      Nov-Jan, Feb-Apr, May-Jul, or a fiscal quarter like FY26Q1.
     limit: Maximum number of top models/users to return.
     reference_date: Optional YYYY-MM-DD date for resolving relative quarters.
+    report_format: Downloadable report format: html, markdown, csv, or all.
 
   Returns:
     Token usage totals with top models, top users, chart data, text charts,
-    and Markdown/HTML report templates under ``visualizations``.
+    and Markdown/HTML/CSV report templates under ``visualizations``.
   """
   safe_limit = _safe_limit(limit)
   report = await _build_aggregate_report(
@@ -935,6 +1399,7 @@ async def get_llm_token_usage_report(
         ],
       },
     ],
+    report_format=report_format,
   )
 
 
@@ -945,29 +1410,34 @@ async def get_llm_spend_by_model_report(
   limit: int = DEFAULT_LIMIT,
   rank_by: str = "spend",
   reference_date: str | None = None,
+  report_format: str = "all",
 ) -> dict[str, Any]:
   """
   Get LiteLLM spend per model for a month, two-month range, or business quarter.
 
   Use this curated tool for requests like:
   - spend per LLM during the last quarter
+  - spend per model for FY26Q2
   - top models by spend
   - model usage cost for March
 
   Custom date ranges are limited to two calendar months. Quarter requests use
-  the CAIPE business quarters: Aug-Oct, Nov-Jan, Feb-Apr, and May-Jul.
+  the CAIPE fiscal quarters: Q1 Aug-Oct, Q2 Nov-Jan, Q3 Feb-Apr, Q4 May-Jul.
+  Fiscal years run from August 1 through July 31 and are named by the calendar
+  year in which they end, so FY26Q1 is 2025-08-01 through 2025-10-31.
 
   Args:
     start_date: Optional report start date in YYYY-MM-DD or MM/DD/YYYY format.
     end_date: Optional report end date in YYYY-MM-DD or MM/DD/YYYY format.
     period: Optional period. Use last_quarter, current_quarter, Aug-Oct,
-      Nov-Jan, Feb-Apr, or May-Jul.
+      Nov-Jan, Feb-Apr, May-Jul, or a fiscal quarter like FY26Q1.
     limit: Maximum number of models to return.
     rank_by: Metric to sort models by: spend, total_tokens, or requests.
     reference_date: Optional YYYY-MM-DD date for resolving relative quarters.
+    report_format: Downloadable report format: html, markdown, csv, or all.
 
   Returns:
-    Spend and token usage by model, chart data, text charts, and Markdown/HTML
+    Spend and token usage by model, chart data, text charts, and Markdown/HTML/CSV
     report templates under ``visualizations``.
   """
   safe_limit = _safe_limit(limit)
@@ -1012,6 +1482,7 @@ async def get_llm_spend_by_model_report(
         ],
       }
     ],
+    report_format=report_format,
   )
 
 
@@ -1024,32 +1495,37 @@ async def get_llm_usage_and_spend_by_user_report(
   model: str | None = None,
   user_id: str | None = None,
   reference_date: str | None = None,
+  report_format: str = "all",
 ) -> dict[str, Any]:
   """
   Get LiteLLM token usage and spend per user.
 
   Use this curated tool for requests like:
   - token usage and spend per user during the last quarter
+  - token usage and spend per user for FY26Q4
   - user usage between 03/01/2026 and 04/30/2026
   - highest spend users for Feb-Apr
 
   Custom date ranges are limited to two calendar months. Quarter requests use
-  the CAIPE business quarters: Aug-Oct, Nov-Jan, Feb-Apr, and May-Jul.
+  the CAIPE fiscal quarters: Q1 Aug-Oct, Q2 Nov-Jan, Q3 Feb-Apr, Q4 May-Jul.
+  Fiscal years run from August 1 through July 31 and are named by the calendar
+  year in which they end, so FY26Q1 is 2025-08-01 through 2025-10-31.
 
   Args:
     start_date: Optional report start date in YYYY-MM-DD or MM/DD/YYYY format.
     end_date: Optional report end date in YYYY-MM-DD or MM/DD/YYYY format.
     period: Optional period. Use last_quarter, current_quarter, Aug-Oct,
-      Nov-Jan, Feb-Apr, or May-Jul.
+      Nov-Jan, Feb-Apr, May-Jul, or a fiscal quarter like FY26Q1.
     limit: Maximum number of users to return.
     rank_by: Metric to sort users by: total_tokens, spend, or requests.
     model: Optional model filter.
     user_id: Optional LiteLLM user_id filter.
     reference_date: Optional YYYY-MM-DD date for resolving relative quarters.
+    report_format: Downloadable report format: html, markdown, csv, or all.
 
   Returns:
     Token usage and spend by user, each user's top models, chart data, text
-    charts, and Markdown/HTML report templates under ``visualizations``.
+    charts, and Markdown/HTML/CSV report templates under ``visualizations``.
   """
   safe_limit = _safe_limit(limit, default=50)
   safe_rank_by = rank_by if rank_by in {"total_tokens", "spend", "requests"} else "total_tokens"
@@ -1108,6 +1584,7 @@ async def get_llm_usage_and_spend_by_user_report(
         ],
       },
     ],
+    report_format=report_format,
   )
 
 
@@ -1118,6 +1595,7 @@ async def get_llm_top_models_report(
   limit: int = DEFAULT_LIMIT,
   rank_by: str = "total_tokens",
   reference_date: str | None = None,
+  report_format: str = "all",
 ) -> dict[str, Any]:
   """
   Get top LiteLLM models by tokens, spend, or request count.
@@ -1133,6 +1611,7 @@ async def get_llm_top_models_report(
     limit=limit,
     rank_by=rank_by,
     reference_date=reference_date,
+    report_format=report_format,
   )
 
 
@@ -1145,6 +1624,7 @@ async def get_llm_usage_by_user_report(
   user_id: str | None = None,
   model: str | None = None,
   reference_date: str | None = None,
+  report_format: str = "all",
 ) -> dict[str, Any]:
   """
   Get LiteLLM token usage aggregated by user.
@@ -1160,4 +1640,5 @@ async def get_llm_usage_by_user_report(
     model=model,
     user_id=user_id,
     reference_date=reference_date,
+    report_format=report_format,
   )
