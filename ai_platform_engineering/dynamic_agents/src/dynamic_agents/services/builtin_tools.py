@@ -503,7 +503,7 @@ def create_self_identity_tool(
     """Create a self_identity tool with the agent's own metadata.
 
     Exposes non-sensitive agent configuration so the agent can identify itself.
-    Deliberately excludes the system prompt and owner/runtime IDs.
+    Deliberately excludes the system prompt, owner ID, and execution/session IDs.
 
     Args:
         agent_id: Unique agent ID.
