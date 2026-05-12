@@ -22,13 +22,11 @@
  *       https://opencode.ai/docs/skills/ (only name/description/license/compatibility/metadata recognized)
  *   - Which `launchGuide` text is shown after install.
  *
- * Every install writes to TWO universal locations per scope so a single
- * install satisfies every supported agent simultaneously:
+ * Every install writes one universal location per scope so a single
+ * on-disk skill copy satisfies every supported agent:
  *
- *   user scope    → `~/.claude/skills/<name>/SKILL.md`
- *                   `~/.agents/skills/<name>/SKILL.md`
- *   project scope → `.claude/skills/<name>/SKILL.md`
- *                   `.agents/skills/<name>/SKILL.md`
+ *   user scope    → `~/.agents/skills/<name>/SKILL.md`
+ *   project scope → `.agents/skills/<name>/SKILL.md`
  *
  * Adding a new agent = one entry in AGENTS.
  *
@@ -50,23 +48,23 @@
 export type AgentScope = "user" | "project";
 
 /**
- * Universal install paths — every agent gets the same two paths per
+ * Universal install paths — every agent gets the same path per
  * scope. `{name}` is replaced with the slash command name. Tilde paths
  * (`~/...`) are expanded at install time by the shell or the generated
  * install.sh. Project paths intentionally use a leading `./` so they're
  * unambiguous in shell snippets.
  *
- * The `~/.agents/skills/` mirror is the vendor-neutral discovery path
- * read by Codex CLI, Gemini CLI, and opencode (and harmlessly ignored
- * by agents that don't look there).
+ * The `~/.agents/skills/` tree is the vendor-neutral discovery path.
+ * Claude-specific integration is handled separately by the optional
+ * SessionStart hook under `~/.claude/hooks`.
+ *
+ * assisted-by Codex Codex-sonnet-4-6
  */
 const UNIVERSAL_USER_PATHS: readonly string[] = [
-  "~/.claude/skills/{name}/SKILL.md",
   "~/.agents/skills/{name}/SKILL.md",
 ];
 
 const UNIVERSAL_PROJECT_PATHS: readonly string[] = [
-  "./.claude/skills/{name}/SKILL.md",
   "./.agents/skills/{name}/SKILL.md",
 ];
 
@@ -77,8 +75,7 @@ export interface AgentSpec {
   label: string;
   /**
    * Install paths per scope. Each scope maps to an array of universal
-   * paths (typically two — the agent-specific tree + the vendor-neutral
-   * `~/.agents/skills/` mirror). Every entry MUST end in
+   * paths. Every entry MUST end in
    * `/{name}/SKILL.md` so callers can derive the parent skill directory
    * by stripping the trailing two segments.
    */
@@ -93,7 +90,7 @@ export interface AgentSpec {
    * verbatim, so the token surfaces as plain instructional text the
    * model interprets. We standardize on `$ARGUMENTS` (Claude's
    * canonical token) across every agent to keep the rendered file
-   * byte-identical and discoverable on either tree.
+   * byte-identical in the shared skills tree.
    */
   argRef: "$ARGUMENTS";
   /**
@@ -132,7 +129,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/update-skills`: install or refresh on-disk skill copies",
       "- `/create-ci-pipeline`: run the locally installed skill directly",
       "",
-      "Claude Code auto-discovers skills in `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo).",
+      "Skills are installed under the vendor-neutral `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo) tree. The installer also registers a Claude SessionStart hook so Claude can see the live catalog.",
     ].join("\n"),
   },
 
@@ -155,7 +152,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name} pipeline`: search",
       "- `/{name} run <skill>`: fetch and execute inline",
       "",
-      "Cursor reads skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility. Reload the window if a new skill does not appear in the picker.",
+      "Skills are installed under `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo). Reload the window if a new skill does not appear in the picker.",
     ].join("\n"),
   },
 
@@ -249,7 +246,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name}`: browse the catalog",
       "- `/{name} run <skill>`: fetch and execute inline",
       "",
-      "opencode auto-discovers skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility.",
+      "opencode auto-discovers skills from `~/.agents/skills/` (user-global) and `./.agents/skills/` (per-repo).",
     ].join("\n"),
   },
 };

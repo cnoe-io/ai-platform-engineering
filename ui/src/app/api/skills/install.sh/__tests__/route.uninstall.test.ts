@@ -229,7 +229,6 @@ describe("GET /api/skills/install.sh — mode=uninstall script content", () => {
 
   it("rmdir's the per-skill parent dir after removing the SKILL.md", async () => {
     // The universal-paths layout creates per-skill subdirs:
-    //   ~/.claude/skills/<name>/SKILL.md
     //   ~/.agents/skills/<name>/SKILL.md
     // After removing each SKILL.md we should clean up the now-empty
     // <name> directory; rmdir's no-op-on-non-empty semantics handle

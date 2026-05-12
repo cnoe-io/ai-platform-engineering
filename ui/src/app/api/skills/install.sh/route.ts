@@ -3,7 +3,7 @@
  *
  * Returns a portable bash installer that fetches and writes CAIPE skill
  * artifacts to a user's machine. The script is intended for `curl … | bash`
- * or "download & inspect first" workflows surfaced from the Skills API
+ * or "download & inspect first" workflows surfaced from the Skills
  * Gateway UI.
  *
  * Skills-only layout
@@ -14,10 +14,8 @@
  * paths per scope so one run satisfies every supported agent
  * simultaneously:
  *
- *   user scope    → `~/.claude/skills/<name>/SKILL.md`
- *                   `~/.agents/skills/<name>/SKILL.md`
- *   project scope → `./.claude/skills/<name>/SKILL.md`
- *                   `./.agents/skills/<name>/SKILL.md`
+ *   user scope    → `~/.agents/skills/<name>/SKILL.md`
+ *   project scope → `./.agents/skills/<name>/SKILL.md`
  *
  * The agent picker only affects:
  *   - which launch-guide footer the success card prints (every agent
@@ -33,10 +31,13 @@
  *    helper skills (`/skills` live-fetch + `/update-skills` user-driven
  *    refresh), install the Python catalog helper at
  *    ~/.config/caipe/caipe-skills.py, and (Claude only) register the
- *    SessionStart hook that injects the live catalog index into Claude's
- *    `additionalContext`. Auto-seeds ~/.config/caipe/config.json with
- *    the gateway base_url (never the api_key — user supplies that).
- *    Cleans up legacy install artifacts when `--upgrade` is passed.
+ *    SessionStart hook at ~/.claude/hooks/caipe-catalog.sh that injects
+ *    the live catalog index into Claude's `additionalContext`. The hook
+ *    path is registered in ~/.claude/settings.json after taking a
+ *    timestamped backup of the existing settings file. Auto-seeds
+ *    ~/.config/caipe/config.json with the gateway base_url (never the
+ *    api_key — user supplies that). Cleans up legacy install artifacts
+ *    when `--upgrade` is passed.
  *
  * 2. `live-only` (`?mode=live-only`): the legacy default, demoted to an
  *    Advanced toggle in the UI. Installs ONLY the single `/skills`
@@ -269,8 +270,8 @@ function buildInstallScript(inputs: ScriptInputs): string {
     catalogUrl,
   } = inputs;
 
-  // Resolve the multi-target install paths for the requested scope.
-  // Each agent in AGENTS uses the same UNIVERSAL_USER_PATHS /
+  // Resolve the install paths for the requested scope. Each agent in
+  // AGENTS uses the same vendor-neutral UNIVERSAL_USER_PATHS /
   // UNIVERSAL_PROJECT_PATHS, but we compute them per-call so a future
   // per-agent override would Just Work.
   const scopePaths = agent.installPaths[scope] ?? [];
@@ -281,7 +282,7 @@ function buildInstallScript(inputs: ScriptInputs): string {
     );
   }
 
-  // Where the multi-target SKILL.md files for any given <name> land.
+  // Where the SKILL.md files for any given <name> land.
   // We pre-compute the parent skill-root directory for each target so
   // the bash side can `mkdir -p` them once.
   const skillRootDirs = scopePaths.map(skillsRootDirFor);
@@ -312,7 +313,7 @@ function buildInstallScript(inputs: ScriptInputs): string {
     `${baseUrl}/api/skills?page=1&page_size=200&include_content=true`;
 
   // For the live-only mode we render the single /skills slash command
-  // for THIS agent and write it into the multi-target skill-root dirs
+  // for THIS agent and write it into the skill-root dirs
   // as <root>/<commandName>/SKILL.md (same place the helpers go).
   const singleSkillUrl = `${baseUrl}/api/skills/live-skills?${new URLSearchParams(
     {
@@ -372,9 +373,9 @@ function buildInstallScript(inputs: ScriptInputs): string {
 # Scope : ${scope} (${scope === "user" ? "user-global" : "project-local"})
 # Mode  : ${modeBanner}
 #
-# This installer writes SKILL.md files to BOTH of these per-skill paths
-# so a single install satisfies Claude Code, Cursor, Codex CLI, Gemini
-# CLI, and opencode simultaneously:
+# This installer writes SKILL.md files to the vendor-neutral skills path
+# so a single on-disk copy satisfies Claude Code, Cursor, Codex CLI,
+# Gemini CLI, and opencode:
 #
 ${scopePaths.map((p) => `#   - ${p}`).join("\n")}
 #
@@ -410,7 +411,7 @@ DO_HELPERS=${DO_HELPERS}
 DO_HOOK=${DO_HOOK}
 DO_LIVE_ONLY=${DO_LIVE_ONLY}
 
-# Multi-target install paths (templates with {name} placeholders).
+# Install paths (templates with {name} placeholders).
 # These are the per-skill SKILL.md files; the helpers and live-only
 # install use the same {name} substitution.
 SKILL_PATH_TEMPLATES=(
@@ -727,7 +728,7 @@ PY
   return 0
 }
 
-# Write a single SKILL.md to ALL multi-target paths under <root>/<name>/.
+# Write a single SKILL.md to all configured paths under <root>/<name>/.
 # Used by the live-only flow + by the helpers (which need the SAME
 # rendered body in every target). Returns 0 if at least one target was
 # written; 1 if every target was skipped.
@@ -830,11 +831,111 @@ do_legacy_cleanup() {
     fi
   fi
 
+  # Remove manifest-owned legacy copies from ~/.claude/skills. New
+  # installs keep Claude-specific files limited to ~/.claude/hooks, while
+  # skills themselves live under ~/.agents/skills.
+  # assisted-by Codex Codex-sonnet-4-6
+  if [ -f "\$MANIFEST_PATH" ]; then
+    python3 - "\$MANIFEST_PATH" <<'PY' || true
+import json, os, sys, tempfile
+
+manifest_path = sys.argv[1]
+try:
+    data = json.load(open(manifest_path))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+entries = data.get("installed")
+if not isinstance(entries, list):
+    sys.exit(0)
+
+marker = f"{os.sep}.claude{os.sep}skills{os.sep}"
+
+
+def is_legacy_claude_skill_path(path):
+    if not isinstance(path, str):
+        return False
+    normalized = os.path.normcase(os.path.abspath(os.path.expanduser(path)))
+    return marker in normalized
+
+
+removed = 0
+changed = False
+new_entries = []
+parents_to_check = set()
+
+for entry in entries:
+    if not isinstance(entry, dict):
+        new_entries.append(entry)
+        continue
+    had_paths = isinstance(entry.get("paths"), list)
+    raw_paths = entry.get("paths") if had_paths else (
+        [entry.get("path")] if isinstance(entry.get("path"), str) else []
+    )
+    kept_paths = []
+    for path in raw_paths:
+        if is_legacy_claude_skill_path(path):
+            changed = True
+            if os.path.isfile(path):
+                try:
+                    os.remove(path)
+                    removed += 1
+                    parents_to_check.add(os.path.dirname(path))
+                    print(f"==> removed legacy {path}")
+                except OSError:
+                    kept_paths.append(path)
+            continue
+        kept_paths.append(path)
+
+    if had_paths:
+        if kept_paths:
+            entry = dict(entry)
+            entry["paths"] = kept_paths
+            new_entries.append(entry)
+        else:
+            changed = True
+    elif raw_paths:
+        if kept_paths:
+            new_entries.append(entry)
+        else:
+            changed = True
+    else:
+        new_entries.append(entry)
+
+for parent in sorted(parents_to_check, reverse=True):
+    try:
+        os.rmdir(parent)
+    except OSError:
+        pass
+
+if changed:
+    data["installed"] = new_entries
+    parent = os.path.dirname(manifest_path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".caipe-manifest-", dir=parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\\n")
+        os.replace(tmp, manifest_path)
+        os.chmod(manifest_path, 0o600)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+if removed:
+    print(f"==> legacy cleanup: removed {removed} manifest-owned Claude skill file(s)")
+PY
+  fi
+
   # Strip the two legacy allowlist entries from ~/.claude/settings.json
   # (the SessionStart hook entry is preserved untouched).
   if [ "\$IS_CLAUDE" = "1" ] && [ -f "\$CLAUDE_SETTINGS_FILE" ]; then
     python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY' || true
-import json, os, sys, tempfile
+import datetime, json, os, shutil, sys, tempfile
 settings_path = sys.argv[1]
 WANTED = {
     "Bash(uv run ~/.config/caipe/caipe-skills.py*)",
@@ -862,6 +963,14 @@ else:
 if not permissions:
     data.pop("permissions", None)
 parent = os.path.dirname(settings_path) or "."
+ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+backup_path = f"{settings_path}.caipe-backup-{ts}"
+counter = 1
+while os.path.exists(backup_path):
+    backup_path = f"{settings_path}.caipe-backup-{ts}-{counter}"
+    counter += 1
+shutil.copy2(settings_path, backup_path)
+os.chmod(backup_path, 0o600)
 fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
 try:
     with os.fdopen(fd, "w") as f:
@@ -1097,9 +1206,9 @@ for s in skills:
             wrote += 1
     # Per-skill outcome line. Three cases:
     #   * Wrote >=1 file        → "installed" (counts all written files
-    #                              across both ~/.claude and ~/.agents
-    #                              roots, which is what the user cares
-    #                              about: "did this skill land?").
+    #                              across configured roots, which is what
+    #                              the user cares about: "did this skill
+    #                              land?").
     #   * Wrote 0, refused some → "up-to-date (pass --upgrade or
     #                              --force to overwrite)" so the user
     #                              knows why nothing changed.
@@ -1196,7 +1305,7 @@ do_install_hook() {
   fi
 
   python3 - "\$CLAUDE_SETTINGS_FILE" "\$CLAUDE_HOOK_FILE" <<'PY'
-import json, os, sys, tempfile
+import datetime, json, os, shutil, sys, tempfile
 
 settings_path, hook_path = sys.argv[1:]
 parent = os.path.dirname(settings_path) or "."
@@ -1251,6 +1360,17 @@ if not already_registered:
 else:
     print(f"==> SessionStart hook already registered in {settings_path}")
 
+if os.path.isfile(settings_path):
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = f"{settings_path}.caipe-backup-{ts}"
+    counter = 1
+    while os.path.exists(backup_path):
+        backup_path = f"{settings_path}.caipe-backup-{ts}-{counter}"
+        counter += 1
+    shutil.copy2(settings_path, backup_path)
+    os.chmod(backup_path, 0o600)
+    print(f"==> backed up existing Claude settings to {backup_path}")
+
 fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
@@ -1293,9 +1413,9 @@ for p in "\${RESOLVED_SKILL_PATHS[@]}"; do
 done
 echo
 echo "  Works in: Claude Code, Cursor, Codex CLI, Gemini CLI, opencode"
-echo "  (a single SKILL.md per skill is written to both the Claude tree"
-echo "  and the vendor-neutral ~/.agents/skills/ mirror that the other"
-echo "  four agents auto-discover)"
+echo "  (a single SKILL.md per skill is written to the vendor-neutral"
+echo "  ~/.agents/skills tree; Claude uses ~/.claude/hooks only for the"
+echo "  optional live catalog SessionStart hook)"
 echo
 if [ "\$DO_HELPERS" -eq 1 ] && [ "\$NO_HELPERS" -eq 0 ]; then
   echo "  next steps:"
@@ -1634,7 +1754,7 @@ EOF
     else
       HOOK_PATHS_JOINED="\$(printf '%s\\n' "\${hook_paths_to_unregister[@]}")"
       HOOK_PATHS_JOINED="\$HOOK_PATHS_JOINED" ALLOWLIST_RULES=${JSON.stringify(JSON.stringify(allowlistRules))} python3 - "\$CLAUDE_SETTINGS_FILE" <<'PY'
-import json, os, sys, tempfile
+import datetime, json, os, shutil, sys, tempfile
 settings_path = sys.argv[1]
 hook_paths = set(filter(None, os.environ.get("HOOK_PATHS_JOINED", "").splitlines()))
 try:
@@ -1685,6 +1805,14 @@ if isinstance(permissions, dict):
 if not mutated:
     print(f"==> no matching hooks/allowlist entries in {settings_path}"); sys.exit(0)
 parent = os.path.dirname(settings_path) or "."
+ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+backup_path = f"{settings_path}.caipe-backup-{ts}"
+counter = 1
+while os.path.exists(backup_path):
+    backup_path = f"{settings_path}.caipe-backup-{ts}-{counter}"
+    counter += 1
+shutil.copy2(settings_path, backup_path)
+os.chmod(backup_path, 0o600)
 fd, tmp = tempfile.mkstemp(prefix=".caipe-settings-", dir=parent, suffix=".json")
 try:
     with os.fdopen(fd, "w") as f:
@@ -1787,9 +1915,8 @@ export async function GET(request: Request) {
   const modeRaw = (url.searchParams.get("mode") ?? "").trim().toLowerCase();
   const isUninstall = modeRaw === "uninstall";
 
-  // Agent: optional in every mode now that installs write to BOTH the
-  // agent-specific tree (~/.claude/skills/) AND the vendor-neutral
-  // mirror (~/.agents/skills/). Defaults to Claude — the agent picker
+  // Agent: optional in every mode now that installs write to the
+  // vendor-neutral ~/.agents/skills tree. Defaults to Claude — the agent picker
   // only affected the launch-guide footer + the success-card label,
   // and the unified install one-liner the UI emits is now agent-
   // agnostic. An explicit ?agent= still works for back-compat.

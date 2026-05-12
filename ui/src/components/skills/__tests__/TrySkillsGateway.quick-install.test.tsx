@@ -87,16 +87,10 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template: "# Live-skills\nDo a thing.",
-  install_path: "~/.claude/skills/skills/SKILL.md",
+  install_path: "~/.agents/skills/skills/SKILL.md",
   install_paths: {
-    user: [
-      "~/.claude/skills/skills/SKILL.md",
-      "~/.agents/skills/skills/SKILL.md",
-    ],
-    project: [
-      "./.claude/skills/skills/SKILL.md",
-      "./.agents/skills/skills/SKILL.md",
-    ],
+    user: ["~/.agents/skills/skills/SKILL.md"],
+    project: ["./.agents/skills/skills/SKILL.md"],
   },
   scope: "user",
   scope_requested: "user",
@@ -114,14 +108,8 @@ const LIVE_SKILLS_BODY = {
       ext: "md",
       format: "markdown-frontmatter",
       install_paths: {
-        user: [
-          "~/.claude/skills/skills/SKILL.md",
-          "~/.agents/skills/skills/SKILL.md",
-        ],
-        project: [
-          "./.claude/skills/skills/SKILL.md",
-          "./.agents/skills/skills/SKILL.md",
-        ],
+        user: ["~/.agents/skills/skills/SKILL.md"],
+        project: ["./.agents/skills/skills/SKILL.md"],
       },
       scopes_available: ["user", "project"],
       is_fragment: false,
@@ -467,14 +455,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
       within(dialog).queryByText((_, node) =>
         Boolean(
           node?.textContent?.includes(
-            "paths ./.claude/skills/skills/SKILL.md and ./.agents/skills/skills/SKILL.md",
+            "paths ./.agents/skills/skills/SKILL.md",
           ),
         ),
       ),
     ).toBeNull();
     expect(
       within(dialog).queryByText(
-        "./.claude/skills/skills/SKILL.md./.agents/skills/skills/SKILL.md",
+        "./.agents/skills/skills/SKILL.md./.agents/skills/skills/SKILL.md",
       ),
     ).toBeNull();
   });

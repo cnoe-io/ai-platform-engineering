@@ -198,14 +198,11 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       ]),
     });
 
-    // install_paths[scope] is an ARRAY of universal-target paths.
+    // install_paths[scope] is an ARRAY with the vendor-neutral target path.
     expect(Array.isArray(data.install_paths.user)).toBe(true);
-    expect(data.install_paths.user).toContain(
-      '~/.claude/skills/update-skills/SKILL.md',
-    );
-    expect(data.install_paths.user).toContain(
+    expect(data.install_paths.user).toEqual([
       '~/.agents/skills/update-skills/SKILL.md',
-    );
+    ]);
 
     // Dropped legacy fields must not reappear.
     expect(data.format).toBeUndefined();

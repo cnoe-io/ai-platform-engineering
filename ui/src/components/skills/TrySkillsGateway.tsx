@@ -84,10 +84,10 @@ export function TrySkillsGateway() {
   );
   // After the skills-only overhaul, every supported agent (Claude Code,
   // Cursor, Codex CLI, Gemini CLI, opencode) reads the same
-  // `agentskills.io` SKILL.md format, and the install writes to BOTH
-  // ~/.claude/skills/<name>/SKILL.md AND ~/.agents/skills/<name>/SKILL.md
-  // (the vendor-neutral mirror that Cursor/Codex/Gemini/opencode all
-  // discover). We've also verified against the upstream agent docs that
+  // `agentskills.io` SKILL.md format, and the install writes skills to
+  // the vendor-neutral ~/.agents/skills/<name>/SKILL.md tree. Claude
+  // gets only a SessionStart hook under ~/.claude/hooks for the live
+  // catalog. We've also verified against the upstream agent docs that
   // only Claude does template substitution in the body (`$ARGUMENTS`,
   // `$N`); the other four read SKILL.md verbatim. So the agent picker
   // had no functional effect on what gets installed -- it only changed
@@ -379,9 +379,9 @@ export function TrySkillsGateway() {
   const installerSnippets = (() => {
     if (!selectedScope) return null;
     // Note: ?agent= is intentionally omitted. The install.sh route
-    // defaults to Claude and the install is universal (writes to both
-    // ~/.claude/skills/ and ~/.agents/skills/), so the only thing
-    // ?agent= used to control was the success-card label. We keep
+    // defaults to Claude and the install is universal (writes skills to
+    // ~/.agents/skills/), so the only thing ?agent= used to control was
+    // the success-card label. We keep
     // the URL short and copy-pasteable instead.
     const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
       selectedScope,
@@ -799,11 +799,12 @@ export function TrySkillsGateway() {
                 <p className="text-[11px] text-muted-foreground">
                   Writes one{" "}
                   <code className="font-mono">SKILL.md</code> per skill into
-                  both <code className="font-mono">~/.claude/skills/</code> and
                   the vendor-neutral{" "}
-                  <code className="font-mono">~/.agents/skills/</code> mirror
-                  (or the project-local equivalents). Existing files are
-                  skipped unless you re-run with{" "}
+                  <code className="font-mono">~/.agents/skills/</code> tree
+                  (or the project-local equivalent). Claude uses{" "}
+                  <code className="font-mono">~/.claude/hooks/</code> only for
+                  the optional live catalog hook. Existing files are skipped
+                  unless you re-run with{" "}
                   <code className="font-mono">--upgrade</code> or{" "}
                   <code className="font-mono">--force</code>.
                 </p>
@@ -878,10 +879,9 @@ export function TrySkillsGateway() {
             </div>
 
             {/* Coding-agent picker dropped: the install is universal.
-                The same SKILL.md is written to the agent-specific tree
-                (~/.claude/skills/) AND the vendor-neutral mirror
-                (~/.agents/skills/), and Cursor / Codex CLI / Gemini
-                CLI / opencode all auto-discover the latter. We
+                The same SKILL.md is written to the vendor-neutral
+                ~/.agents/skills tree, and Claude gets a hook for the
+                live catalog under ~/.claude/hooks. We
                 surface the supported-agents list inline so users
                 know which CLIs will pick up the install without
                 having to read a docs link. */}
@@ -936,10 +936,9 @@ export function TrySkillsGateway() {
               <div className="flex flex-col gap-2">
                 {(() => {
                   // User scope — the default. Render at the top, prominently.
-                  // Multi-target paths are shown as a stacked list of <code>
-                  // blocks since every install writes to BOTH the
-                  // ~/.claude/skills/ tree AND the vendor-neutral
-                  // ~/.agents/skills/ mirror.
+                  // Paths are still shown as a list because the API shape is
+                  // an array, even though the current installer has a single
+                  // vendor-neutral target.
                   const userPathsRaw = liveSkills?.install_paths?.user;
                   const userPaths: string[] = Array.isArray(userPathsRaw)
                     ? (userPathsRaw as string[])
@@ -1533,10 +1532,10 @@ export function TrySkillsGateway() {
           <p className="text-foreground">
             Installed one{" "}
             <code className="font-mono text-[12px]">SKILL.md</code> per skill
-            in both <code className="font-mono text-[12px]">~/.claude/skills/</code>{" "}
-            and{" "}
-            <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
-            or the project-local equivalents.
+            in <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
+            or the project-local equivalent. Claude uses{" "}
+            <code className="font-mono text-[12px]">~/.claude/hooks/</code>{" "}
+            for the optional live catalog hook.
           </p>
           <p className="text-foreground">
             Open your coding agent (Claude, Cursor, Codex, Gemini, Opencode).
@@ -1604,10 +1603,9 @@ export function TrySkillsGateway() {
           </DialogHeader>
 
           <div className="space-y-4 text-sm">
-            {/* Agent picker dropped: the install writes to BOTH the
-                Claude tree (~/.claude/skills/) AND the vendor-neutral
-                mirror (~/.agents/skills/) which Cursor, Codex, Gemini,
-                and opencode all discover. The picker only used to
+            {/* Agent picker dropped: the install writes skills to the
+                vendor-neutral ~/.agents/skills tree, with Claude hook
+                integration kept under ~/.claude/hooks. The picker only used to
                 affect the launch-guide footer + success-card label;
                 see the new "compatibility" section after install for
                 the unified launch instructions. */}
@@ -1700,9 +1698,9 @@ export function TrySkillsGateway() {
                 }
                 // ?agent= omitted -- the install is universal across
                 // Claude / Cursor / Codex / Gemini / opencode (writes
-                // to both ~/.claude/skills/ and ~/.agents/skills/).
+                // skills to ~/.agents/skills/).
                 // The install URL is composed from (in order):
-                //   * scope (user/project) — drives ~/.claude vs ./.claude
+                //   * scope (user/project) — drives ~/.agents vs ./.agents
                 //   * catalog_url= — the user-chosen catalog page from
                 //                    the "Pick your skills" preview
                 //   * mode=bulk-with-helpers — only when the helpers

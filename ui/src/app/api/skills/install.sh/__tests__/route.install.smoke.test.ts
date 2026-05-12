@@ -11,9 +11,11 @@
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -161,6 +163,128 @@ describe("GET /api/skills/install.sh — install runtime smoke", () => {
           timeout: 5,
         },
       ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("backs up existing Claude settings before adding the CAIPE hook", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+
+    const dir = mkdtempSync(join(tmpdir(), "caipe-install-"));
+    try {
+      const home = join(dir, "home");
+      const bin = join(dir, "bin");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(bin, { recursive: true });
+      writeFakeCurl(bin);
+
+      const settingsPath = join(home, ".claude", "settings.json");
+      const originalSettings = JSON.stringify(
+        {
+          env: {
+            ANTHROPIC_BASE_URL: "https://llm-proxy.example.invalid",
+            ANTHROPIC_API_KEY: "REDACTED",
+          },
+          theme: "dark",
+        },
+        null,
+        2,
+      ) + "\n";
+      writeFileSync(settingsPath, originalSettings);
+
+      const scriptPath = join(dir, "install.sh");
+      writeFileSync(scriptPath, res.body, { mode: 0o755 });
+      execFileSync("bash", [scriptPath, "--no-bulk", "--no-helpers"], {
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          CAIPE_CATALOG_KEY: "fake-test-key",
+        },
+        stdio: "pipe",
+      });
+
+      const backupNames = readdirSync(join(home, ".claude")).filter((name) =>
+        /^settings\.json\.caipe-backup-\d{8}T\d{6}Z$/.test(name),
+      );
+      expect(backupNames).toHaveLength(1);
+      expect(readFileSync(join(home, ".claude", backupNames[0]), "utf8")).toBe(
+        originalSettings,
+      );
+
+      const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe(
+        "https://llm-proxy.example.invalid",
+      );
+      expect(settings.theme).toBe("dark");
+      expect(settings.hooks.SessionStart).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrade removes manifest-owned legacy Claude skill copies", async () => {
+    const res = await callRaw(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.status).toBe(200);
+
+    const dir = mkdtempSync(join(tmpdir(), "caipe-install-"));
+    try {
+      const home = join(dir, "home");
+      const bin = join(dir, "bin");
+      const oldSkillPath = join(home, ".claude", "skills", "demo", "SKILL.md");
+      const keptSkillPath = join(home, ".agents", "skills", "demo", "SKILL.md");
+      const manifestPath = join(home, ".config", "caipe", "installed.json");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(join(home, ".claude", "skills", "demo"), { recursive: true });
+      mkdirSync(join(home, ".agents", "skills", "demo"), { recursive: true });
+      mkdirSync(join(home, ".config", "caipe"), { recursive: true });
+      mkdirSync(bin, { recursive: true });
+      writeFakeCurl(bin);
+      writeFileSync(oldSkillPath, "# old claude copy\n");
+      writeFileSync(keptSkillPath, "# agents copy\n");
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(
+          {
+            version: 2,
+            installed: [
+              {
+                agent: "claude",
+                scope: "user",
+                name: "demo",
+                kind: "skill",
+                paths: [oldSkillPath, keptSkillPath],
+                installed_at: "2026-05-01T00:00:00+00:00",
+              },
+            ],
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+
+      const scriptPath = join(dir, "install.sh");
+      writeFileSync(scriptPath, res.body, { mode: 0o755 });
+      execFileSync("bash", [scriptPath, "--upgrade", "--no-bulk", "--no-helpers"], {
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          CAIPE_CATALOG_KEY: "fake-test-key",
+        },
+        stdio: "pipe",
+      });
+
+      expect(existsSync(oldSkillPath)).toBe(false);
+      expect(existsSync(keptSkillPath)).toBe(true);
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      expect(manifest.installed[0].paths).toEqual([keptSkillPath]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

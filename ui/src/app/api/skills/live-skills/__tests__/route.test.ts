@@ -15,8 +15,8 @@
  *     SKILLS_LIVE_SKILLS_FILE env > chart-relative file > built-in fallback.
  *   - The response carries the catalog of all 5 supported agents and the
  *     canonical template for the UI.
- *   - `install_paths` per scope is an ARRAY of universal target paths
- *     (Claude tree + agents tree).
+ *   - `install_paths` per scope is an ARRAY with the single
+ *     vendor-neutral target path.
  *   - `?layout=...` is silently accepted and ignored (back-compat).
  *   - Cache-Control: no-store is set.
  */
@@ -78,14 +78,10 @@ describe('GET /api/skills/live-skills — defaults', () => {
     expect(data.scope_requested).toBeNull();
     expect(data.scope_fallback).toBe(false);
     expect(data.scopes_available).toEqual(['user', 'project']);
-    // install_paths is keyed by scope; each value is an array of
-    // universal-target paths (Claude tree + agents tree).
-    expect(data.install_paths.user).toEqual([
-      '~/.claude/skills/skills/SKILL.md',
-      '~/.agents/skills/skills/SKILL.md',
-    ]);
+    // install_paths is keyed by scope; each value is a single
+    // vendor-neutral target path.
+    expect(data.install_paths.user).toEqual(['~/.agents/skills/skills/SKILL.md']);
     expect(data.install_paths.project).toEqual([
-      './.claude/skills/skills/SKILL.md',
       './.agents/skills/skills/SKILL.md',
     ]);
 
@@ -132,7 +128,7 @@ describe('GET /api/skills/live-skills — defaults', () => {
         `https://app.example.com/api/skills/live-skills?agent=claude&scope=user&layout=${layout}`,
       );
       expect(data.agent).toBe('claude');
-      expect(data.install_path).toBe('~/.claude/skills/skills/SKILL.md');
+      expect(data.install_path).toBe('~/.agents/skills/skills/SKILL.md');
       // No legacy fields leak into the response (all dropped).
       expect(data.layout).toBeUndefined();
       expect(data.format).toBeUndefined();
@@ -145,20 +141,20 @@ describe('GET /api/skills/live-skills — defaults', () => {
 
 describe('GET /api/skills/live-skills — per-agent rendering', () => {
   // After the overhaul every agent emits the same universal SKILL.md
-  // path (claude tree first, agents tree second). After the
+  // path under ~/.agents/skills. After the
   // 2026-05-04 cleanup, every agent also uses the same `$ARGUMENTS`
   // token: only Claude does template substitution per its docs;
   // Cursor/Codex/Gemini/opencode read SKILL.md verbatim and surface
   // the token as instructional text.
   it.each([
-    ['claude', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['claude', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['cursor', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['cursor', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['codex', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['gemini', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['gemini', 'project', './.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
-    ['opencode', 'user', '~/.claude/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['claude', 'user', '~/.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['claude', 'project', './.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['cursor', 'user', '~/.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['cursor', 'project', './.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['codex', 'user', '~/.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['gemini', 'user', '~/.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['gemini', 'project', './.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
+    ['opencode', 'user', '~/.agents/skills/skills/SKILL.md', '$ARGUMENTS'],
   ])(
     'agent=%s scope=%s renders the universal SKILL.md path',
     async (agent, scope, installPath, argRef) => {
@@ -167,8 +163,7 @@ describe('GET /api/skills/live-skills — per-agent rendering', () => {
       );
       expect(data.agent).toBe(agent);
       expect(data.agent_fallback).toBe(false);
-      // install_path is the FIRST element of install_paths[scope]
-      // (the Claude-tree mirror, for back-compat with old UIs).
+      // install_path is the single vendor-neutral target path.
       expect(data.install_path).toBe(installPath);
       expect(data.scope).toBe(scope);
       expect(data.scope_fallback).toBe(false);
@@ -178,16 +173,14 @@ describe('GET /api/skills/live-skills — per-agent rendering', () => {
     },
   );
 
-  it('install_paths always contains BOTH the agent-specific tree AND the agents/ mirror', async () => {
+  it('install_paths contains only the agents/ tree', async () => {
     const data = await callGET(
       'https://app.example.com/api/skills/live-skills?agent=claude&scope=user',
     );
-    expect(data.install_paths.user).toContain(
-      '~/.claude/skills/skills/SKILL.md',
-    );
-    expect(data.install_paths.user).toContain(
-      '~/.agents/skills/skills/SKILL.md',
-    );
+    expect(data.install_paths.user).toEqual(['~/.agents/skills/skills/SKILL.md']);
+    expect(data.install_paths.project).toEqual([
+      './.agents/skills/skills/SKILL.md',
+    ]);
   });
 
   it('ignores invalid scope values and treats them as unset', async () => {
@@ -245,13 +238,10 @@ describe('GET /api/skills/live-skills — input sanitization', () => {
       'https://app.example.com/api/skills/live-skills?command_name=my-skills&scope=project',
     );
     expect(data.inputs.command_name).toBe('my-skills');
-    expect(data.install_path).toBe('./.claude/skills/my-skills/SKILL.md');
-    expect(data.install_paths.user).toContain(
-      '~/.claude/skills/my-skills/SKILL.md',
-    );
-    expect(data.install_paths.user).toContain(
+    expect(data.install_path).toBe('./.agents/skills/my-skills/SKILL.md');
+    expect(data.install_paths.user).toEqual([
       '~/.agents/skills/my-skills/SKILL.md',
-    );
+    ]);
     expect(data.template).toContain('/my-skills');
   });
 
@@ -271,7 +261,7 @@ describe('GET /api/skills/live-skills — input sanitization', () => {
       )}&scope=project`,
     );
     expect(data.inputs.command_name).toBe('skills');
-    expect(data.install_path).toBe('./.claude/skills/skills/SKILL.md');
+    expect(data.install_path).toBe('./.agents/skills/skills/SKILL.md');
   });
 
   it('caps description at 500 chars', async () => {
@@ -405,22 +395,18 @@ describe('GET /api/skills/live-skills — response shape', () => {
     const codexMeta = data.agents.find((a: any) => a.id === 'codex');
     const opencodeMeta = data.agents.find((a: any) => a.id === 'opencode');
 
-    // Every agent's install_paths is the SAME universal pair (claude tree
-    // + agents tree). The agent picker only swaps the launch label and
-    // arg-ref token.
+    // Every agent's install_paths is the SAME vendor-neutral target.
+    // The agent picker only swaps the launch label and arg-ref token.
     expect(claudeMeta.install_paths.user).toEqual([
-      '~/.claude/skills/catalog/SKILL.md',
       '~/.agents/skills/catalog/SKILL.md',
     ]);
     expect(claudeMeta.install_paths.project).toEqual([
-      './.claude/skills/catalog/SKILL.md',
       './.agents/skills/catalog/SKILL.md',
     ]);
     expect(claudeMeta.scopes_available).toEqual(['user', 'project']);
 
     // All 5 agents support both scopes after the overhaul.
     expect(codexMeta.install_paths.user).toEqual([
-      '~/.claude/skills/catalog/SKILL.md',
       '~/.agents/skills/catalog/SKILL.md',
     ]);
     expect(codexMeta.scopes_available).toEqual(['user', 'project']);
