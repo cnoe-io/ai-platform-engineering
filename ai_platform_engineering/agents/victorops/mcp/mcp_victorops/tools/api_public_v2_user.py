@@ -4,50 +4,71 @@
 
 """Tools for /api-public/v2/user operations"""
 
+import json
 import logging
-from typing import Dict, Any, Optional
-from ..api.client import make_api_request, assemble_nested_body
+from typing import Any, Dict, Optional
+
+from ..api.client import assemble_nested_body, make_api_request
+from ..utils.cache import user_cache
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v2_user(email: Optional[str] = None, org_slug: Optional[str] = None) -> Dict[str, Any]:
-    """
-        List users
+async def get_api_public_v2_user(
+    email: Optional[str] = None,
+    org_slug: Optional[str] = None,
+    force_refresh: bool = False,
+) -> str:
+    """List users.
 
-        OpenAPI Description:
-            Get a list of users for your organization. Optionally, search for users by email address.
+    OpenAPI Description:
+        Get a list of users for your organization. Optionally, search
+        for users by email address.
 
     This API may be called a maximum of 2 times per second.
 
+    Unfiltered listings (no `email`) are cached in-process. TTL is set
+    by VICTOROPS_CACHE_TTL_USERS_SECONDS (default 1800). Set to 0 to
+    disable. Email-filtered lookups always go to the API.
 
-        Args:
+    Output is the upstream payload, pretty-printed, with the top-level
+    list wrapped under "users".
 
-            email (str): An email address with which to search for users
-
-
-        Returns:
-            Dict[str, Any]: The JSON response from the API call.
-
-        Raises:
-            Exception: If the API request fails or returns an error.
+    Args:
+        email: Optional email address to look up a single user.
+        org_slug: VictorOps organization slug. Required when multiple
+            orgs are configured.
+        force_refresh: Bypass the cache and re-fetch from the API.
+            Only meaningful when `email` is None.
     """
     logger.debug("Making GET request to /api-public/v2/user")
 
-    params = {}
-    data = {}
-
+    params: Dict[str, Any] = {}
     if email is not None:
         params["email"] = str(email).lower() if isinstance(email, bool) else email
 
-    flat_body = {}
+    flat_body: Dict[str, Any] = {}
     data = assemble_nested_body(flat_body)
 
-    success, response = await make_api_request("/api-public/v2/user", method="GET", org_slug=org_slug, params=params, data=data)
+    cache = user_cache()
+    cache_key_org = org_slug or "_default_"
+    use_cache = email is None
 
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+    raw: Optional[Dict[str, Any]] = (
+        cache.get("user", cache_key_org) if (use_cache and not force_refresh) else None
+    )
+    if raw is None:
+        success, response = await make_api_request(
+            "/api-public/v2/user", method="GET",
+            org_slug=org_slug, params=params, data=data,
+        )
+        if not success:
+            logger.error(f"Request failed: {response.get('error')}")
+            return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+        raw = {"users": response} if isinstance(response, list) else response
+        if use_cache:
+            cache.set("user", cache_key_org, raw)
+
+    return json.dumps(raw, indent=2, default=str)

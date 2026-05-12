@@ -47,7 +47,7 @@ Examples:
     uv run ~/.config/caipe/caipe-skills.py                       # list all
     INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
     uv run ~/.config/caipe/caipe-skills.py --source github --repo owner/r QUERY
-    uv run ~/.config/caipe/caipe-skills.py --register ~/.claude/skills/foo/SKILL.md
+    uv run ~/.config/caipe/caipe-skills.py --register ~/.agents/skills/foo/SKILL.md
 
 The script prints the catalog JSON to stdout and exits 0 on success.
 On client-side errors (no key, bad config, invalid URL, missing path)
@@ -418,7 +418,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Add or refresh PATH in the install manifest, then exit. "
-            "Used by /update-skills to record installs without rewriting "
+            "Used by /update-caipe-skills to record installs without rewriting "
             "JSON inline. Skips the catalog query."
         ),
     )
@@ -441,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Manifest write is a pure-local operation; no catalog round-trip
     # and no credential resolution needed. Branch early so a mis-typed
-    # config file doesn't block /update-skills from recording its work.
+    # config file doesn't block /update-caipe-skills from recording its work.
     if args.register:
         return _register_skill(args.register, manifest_scope=args.manifest)
 

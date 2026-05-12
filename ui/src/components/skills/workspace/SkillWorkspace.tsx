@@ -64,10 +64,6 @@ import { cn } from "@/lib/utils";
 import {
   useSkillForm,
 } from "@/components/skills/workspace/use-skill-form";
-import {
-  SupervisorSyncBadge,
-  useSupervisorSyncStateForSkill,
-} from "@/components/skills/SupervisorSyncBadge";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { AgentSkill } from "@/types/agent-skill";
@@ -242,8 +238,6 @@ export function SkillWorkspace({
   // History tab needs a stable id; for new (unsaved) skills there is no
   // backing audit log yet.
   const skillIdForHistory = existingConfig?.id;
-
-  const supervisorSync = useSupervisorSyncStateForSkill(existingConfig);
 
   // ---------------------------------------------------------------------
   // Unsaved-changes guard
@@ -526,9 +520,6 @@ export function SkillWorkspace({
                 <Eye className="h-3 w-3" />
                 Read-only
               </Badge>
-            )}
-            {existingConfig && (
-              <SupervisorSyncBadge state={supervisorSync} />
             )}
             {existingConfig && (
               <SkillScanStatusIndicator config={existingConfig} />
