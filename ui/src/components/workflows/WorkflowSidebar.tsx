@@ -37,6 +37,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   useWorkflowExecStore,
   type WfRunSummary,
   type WfRunStatus,
@@ -182,6 +190,11 @@ export function WorkflowSidebar({
   const [workflowSearchQuery, setWorkflowSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
 
+  // Delete run confirmation dialog
+  const [deleteRunId, setDeleteRunId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { deleteRun } = useWorkflowExecStore();
+
   const configNameMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const c of configs) map[c._id] = c.name;
@@ -271,6 +284,23 @@ export function WorkflowSidebar({
     await deleteConfig(config._id);
   };
 
+  const handleConfirmDeleteRun = async () => {
+    if (!deleteRunId) return;
+    setIsDeleting(true);
+    try {
+      // If we're viewing the run being deleted, navigate away
+      if (activeRunId === deleteRunId) {
+        router.push("/workflows");
+      }
+      await deleteRun(deleteRunId);
+    } catch {
+      // store handles errors
+    } finally {
+      setIsDeleting(false);
+      setDeleteRunId(null);
+    }
+  };
+
   const handleRunConfig = async (config: WorkflowConfig) => {
     try {
       const runId = await executeWorkflow(config._id);
@@ -298,6 +328,7 @@ export function WorkflowSidebar({
   };
 
   return (
+    <>
     <motion.div
       className="flex flex-col border-r border-border/50 bg-card/30 shrink-0 overflow-hidden"
       variants={sidebarVariants}
@@ -660,6 +691,7 @@ export function WorkflowSidebar({
                         configNameMap={configNameMap}
                         hasActiveFilters={hasActiveFilters}
                         onSelectRun={handleSelectRun}
+                        onDeleteRun={setDeleteRunId}
                       />
                     </ScrollArea>
                   </motion.div>
@@ -670,6 +702,39 @@ export function WorkflowSidebar({
         )}
       </AnimatePresence>
     </motion.div>
+
+      {/* Delete run confirmation dialog */}
+      <Dialog open={!!deleteRunId} onOpenChange={(open) => !open && setDeleteRunId(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete workflow run</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the workflow run, all associated files, and stream events. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteRunId(null)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleConfirmDeleteRun}
+              disabled={isDeleting}
+              className="gap-1.5"
+            >
+              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -877,6 +942,7 @@ function RunsTab({
   configNameMap,
   hasActiveFilters,
   onSelectRun,
+  onDeleteRun,
 }: {
   runs: WfRunSummary[];
   totalCount: number;
@@ -885,6 +951,7 @@ function RunsTab({
   configNameMap: Record<string, string>;
   hasActiveFilters: boolean;
   onSelectRun: (runId: string) => void;
+  onDeleteRun: (runId: string) => void;
 }) {
   if (isLoading && totalCount === 0) {
     return (
@@ -934,27 +1001,40 @@ function RunsTab({
         ).length;
 
         return (
-          <button
+          <div
             key={run._id}
-            onClick={() => onSelectRun(run._id)}
             className={cn(
-              "w-full text-left px-3 py-2.5 transition-colors hover:bg-accent/50",
+              "group relative w-full text-left px-3 py-2.5 transition-colors hover:bg-accent/50",
               isActive && "bg-accent"
             )}
           >
-            <div className="flex items-center gap-2 mb-1">
-              {STATUS_ICON[run.status]}
-              <span className="text-sm font-medium text-foreground truncate flex-1">
-                {configName}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground pl-5">
-              <span>
-                {completedSteps}/{run.steps.length} steps
-              </span>
-              {run.started_at && <span>{formatTimeAgo(run.started_at)}</span>}
-            </div>
-          </button>
+            <button
+              onClick={() => onSelectRun(run._id)}
+              className="w-full text-left"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                {STATUS_ICON[run.status]}
+                <span className="text-sm font-medium text-foreground truncate flex-1">
+                  {configName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground pl-5">
+                <span>
+                  {completedSteps}/{run.steps.length} steps
+                </span>
+                {run.started_at && <span>{formatTimeAgo(run.started_at)}</span>}
+              </div>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteRun(run._id);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         );
       })}
     </div>

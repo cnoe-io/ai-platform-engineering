@@ -22,10 +22,75 @@ import {
   detectStaleRun,
   type WorkflowRunDocument,
 } from "@/lib/server/workflow-engine";
-import { readEventsByRun } from "@/lib/server/event-store";
+import { readEventsByRun, deleteEventsByRun } from "@/lib/server/event-store";
 import type { WorkflowConfig } from "@/types/workflow-config";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
+
+/** Days to retain workflow runs before auto-cleanup. 0 = disabled. */
+const RETENTION_DAYS = parseInt(process.env.WORKFLOW_RUN_RETENTION_DAYS ?? "7", 10);
+
+/** Throttle cleanup to run at most once per 30 minutes */
+let lastCleanupAt = 0;
+const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+
+/**
+ * Opportunistic cleanup of expired workflow runs.
+ * Deletes runs older than RETENTION_DAYS along with their files and events.
+ * Runs at most once every 5 minutes, fire-and-forget.
+ */
+async function cleanupExpiredRuns(): Promise<void> {
+  if (RETENTION_DAYS <= 0) return;
+
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+
+  try {
+    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const cutoff = new Date(now - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+
+    const expiredRuns = await col
+      .find({
+        status: { $in: ["completed", "failed"] },
+        $or: [
+          { completed_at: { $lt: cutoff } },
+          { started_at: { $lt: cutoff }, completed_at: null },
+        ],
+      })
+      .project({ _id: 1, workflow_config_id: 1 })
+      .toArray();
+
+    if (expiredRuns.length === 0) return;
+
+    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+
+    for (const run of expiredRuns) {
+      const runId = run._id as string;
+      // Clean up files (best-effort)
+      try {
+        const fsNamespace = JSON.stringify([run.workflow_config_id, runId, "filesystem"]);
+        await fetch(
+          `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+          { method: "DELETE" },
+        );
+      } catch { /* best-effort */ }
+
+      // Clean up events (best-effort)
+      try {
+        await deleteEventsByRun(runId);
+      } catch { /* best-effort */ }
+    }
+
+    // Bulk delete the run documents
+    const ids = expiredRuns.map((r) => r._id);
+    await col.deleteMany({ _id: { $in: ids } });
+
+    console.log(`[workflow-cleanup] Deleted ${expiredRuns.length} expired workflow runs (retention: ${RETENTION_DAYS}d)`);
+  } catch (err) {
+    console.warn("[workflow-cleanup] Error during cleanup:", err);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // POST — Start a new workflow run
@@ -107,6 +172,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   // Legacy: list runs for user
   return await withAuth(request, async (_req, user) => {
+    // Fire-and-forget cleanup of expired runs
+    cleanupExpiredRuns().catch(() => {});
+
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
     const runs = await col
       .find({})
@@ -162,6 +230,40 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (_req, user) => {
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+
+    // Load run to get workflow_config_id for file cleanup
+    const run = await col.findOne({ _id: id });
+
+    // Clean up GridFS files via backend
+    if (run?.workflow_config_id) {
+      try {
+        const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+        const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
+        await fetch(
+          `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+          {
+            method: "DELETE",
+            headers: {
+              "X-User-Context": Buffer.from(JSON.stringify({
+                email: user.email,
+                name: user.name,
+              })).toString("base64"),
+            },
+          },
+        );
+      } catch {
+        // Best-effort file cleanup — don't block run deletion
+      }
+    }
+
+    // Clean up stream events
+    try {
+      await deleteEventsByRun(id);
+    } catch {
+      // Best-effort event cleanup
+    }
+
+    // Delete the run document
     await col.deleteOne({ _id: id });
 
     return successResponse({ id, message: "Workflow run deleted successfully" });

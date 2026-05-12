@@ -4,10 +4,11 @@ Provides access to files stored in GridFS by namespace tuple.
 No conversation or agent coupling — callers provide the namespace directly.
 
 Endpoints:
-  GET    /files/list     — list file paths in a namespace
-  GET    /files/content  — get content of a single file
-  PUT    /files/content  — create or update a file
-  DELETE /files/content  — delete a file
+  GET    /files/list      — list file paths in a namespace
+  GET    /files/content   — get content of a single file
+  PUT    /files/content   — create or update a file
+  DELETE /files/content   — delete a file
+  DELETE /files/namespace — delete all files in a namespace
 """
 
 import json
@@ -180,3 +181,23 @@ async def delete_file_content(
     logger.info(f"Deleted file {path} from namespace={namespace}")
 
     return ApiResponse(success=True, data={"deleted": path})
+
+
+@router.delete("/namespace", response_model=ApiResponse)
+async def delete_namespace(
+    fs_namespace: str = Query(
+        ..., description='GridFS namespace as JSON array, e.g. ["configId","runId","filesystem"]'
+    ),
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> ApiResponse:
+    """Delete all files in a GridFS namespace."""
+    namespace = _parse_namespace(fs_namespace)
+    db = _get_db(mongo)
+
+    store = _get_gridfs_store(db)
+    count = store.delete_by_namespace(namespace)
+
+    logger.info(f"Deleted {count} files from namespace={namespace}")
+
+    return ApiResponse(success=True, data={"namespace": list(namespace), "deleted_count": count})

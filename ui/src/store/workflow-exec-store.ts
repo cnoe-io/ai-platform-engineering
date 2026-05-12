@@ -114,6 +114,8 @@ interface WorkflowExecState {
   resumeStep: (runId: string, stepIndex: number, resumeData: string) => Promise<void>;
   /** Cancel a running workflow */
   cancelRun: (runId: string) => Promise<void>;
+  /** Delete a workflow run (and its files/events) */
+  deleteRun: (runId: string) => Promise<void>;
   /** Clear state */
   clear: () => void;
 }
@@ -267,6 +269,31 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       await get().loadRun(runId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to cancel";
+      set({ error: msg });
+      throw err;
+    }
+  },
+
+  deleteRun: async (runId) => {
+    set({ error: null });
+    try {
+      const res = await fetch(`/api/workflow-runs?id=${encodeURIComponent(runId)}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `Delete failed: ${res.status}`);
+      }
+
+      // Remove from sidebar list
+      set((s) => ({
+        runs: s.runs.filter((r) => r._id !== runId),
+        // Clear current run if it was the deleted one
+        ...(s.run?._id === runId ? { run: null, stepEvents: {} } : {}),
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to delete";
       set({ error: msg });
       throw err;
     }

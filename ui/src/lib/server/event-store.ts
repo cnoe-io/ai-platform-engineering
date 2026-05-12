@@ -115,3 +115,17 @@ export async function ensureEventStoreIndexes(): Promise<void> {
     { unique: true, name: "source_type_source_id_unique" },
   );
 }
+
+/**
+ * Delete all events for a workflow run (all steps).
+ * Returns the count of deleted documents.
+ */
+export async function deleteEventsByRun(runId: string): Promise<number> {
+  const col = await getCollection<StreamEventDocument>(COLLECTION);
+  const prefix = `${runId}-step-`;
+  const result = await col.deleteMany({
+    source_type: "workflow_step",
+    source_id: { $regex: `^${prefix}` },
+  });
+  return result.deletedCount;
+}
