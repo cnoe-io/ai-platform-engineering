@@ -432,13 +432,14 @@ export function TrySkillsGateway() {
     <div className="space-y-6 max-w-6xl">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          How to use Skills API Gateway with coding agents
+          Advanced install
         </h1>
         <p className="text-sm text-muted-foreground">
-          Start with the live catalog (Step 1), then mint a catalog API key (Step 2) for authenticated{" "}
-          <code className="text-xs">curl</code> / installer access. Step 3 installs the single live-skills{" "}
-          <code className="text-xs">/skills</code> command. Bulk install of every previewed skill is optional and
-          listed after Step 2 as an advanced flow.
+          For first-time setup, use <strong>Quick install</strong> — it writes your config and runs the
+          installer in one shot. The steps below are for custom installs: filtering which skills to install
+          (Step 1), scripted{" "}
+          <code className="text-xs">curl</code> access via a catalog API key (Step 2), and per-agent or
+          bulk install options (Step 3).
         </p>
       </div>
 
