@@ -88,6 +88,12 @@ describe('GET /api/skills/update-skills — defaults', () => {
 
     expect(data.defaults.description).toMatch(/refresh.*locally-installed/i);
     expect(data.defaults.description).toMatch(/catalog/i);
+    expect(data.template).toContain(
+      'description: Refresh locally-installed CAIPE skills from the live catalog',
+    );
+    expect(data.template).not.toContain(
+      'description: Browse and install skills from the CAIPE skill catalog',
+    );
   });
 
   it('honors a custom command_name over the default', async () => {
@@ -151,14 +157,20 @@ describe('GET /api/skills/update-skills — template resolution', () => {
       String(p).endsWith('/data/skills/update-skills.md'),
     );
     mockStat.mockReturnValue({ isFile: () => true, size: 128 });
-    mockRead.mockReturnValue('---\ndescription: chart copy\n---\n# body');
+    mockRead.mockReturnValue('---\ndescription: {{DESCRIPTION}}\n---\n# body');
 
     const data = await callGET(
       'https://app.example.com/api/skills/update-skills',
     );
 
     expect(data.source).toMatch(/file:.*update-skills\.md$/);
-    expect(data.canonical_template).toContain('chart copy');
+    expect(data.canonical_template).toContain('description: {{DESCRIPTION}}');
+    expect(data.template).toContain(
+      'description: Refresh locally-installed CAIPE skills from the live catalog',
+    );
+    expect(data.template).not.toContain(
+      'description: Browse and install skills from the CAIPE skill catalog',
+    );
   });
 });
 
@@ -199,9 +211,10 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       ]),
     });
 
-    // install_paths[scope] is an ARRAY with the vendor-neutral target path.
+    // install_paths[scope] is an ARRAY with the Claude-native and shared target paths.
     expect(Array.isArray(data.install_paths.user)).toBe(true);
     expect(data.install_paths.user).toEqual([
+      '~/.claude/skills/update-caipe-skills/SKILL.md',
       '~/.agents/skills/update-caipe-skills/SKILL.md',
     ]);
 
