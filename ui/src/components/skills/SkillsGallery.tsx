@@ -83,7 +83,6 @@ import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
-import { SupervisorSyncBadge } from "@/components/skills/SupervisorSyncBadge";
 import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
 import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
@@ -351,17 +350,6 @@ const PRESET_CATEGORIES: string[] = [
   "Custom",
 ];
 
-/**
- * Supervisor sync badge — sourced from `@/components/skills/SupervisorSyncBadge`.
- *
- * The local definition that previously lived here was a silent
- * `<Link>`-based variant. We've consolidated to the shared component
- * which opens a confirmation modal explaining that the supervisor
- * refresh briefly recompiles the multi-agent graph (and that dynamic
- * custom agents are unaffected). Importing the shared one means card,
- * row, and workspace renderings stay in lockstep.
- */
-
 export function SkillsGallery({
   onEditConfig,
   onCreateNew,
@@ -493,49 +481,6 @@ export function SkillsGallery({
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
-
-  // Supervisor sync state
-  const [supervisorSynced, setSupervisorSynced] = useState(false);
-  const [supervisorLoading, setSupervisorLoading] = useState(true);
-  // ISO timestamp of the supervisor's last `_build_graph()` merge. We compare
-  // each skill's `updated_at` against this to flag per-skill drift; if a skill
-  // was edited *after* the supervisor merged, the running graph is stale.
-  const [supervisorMergedAt, setSupervisorMergedAt] = useState<Date | null>(null);
-  const [supervisorReachable, setSupervisorReachable] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/skills/supervisor-status")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        const reachable = data && typeof data === "object" && !data.message;
-        setSupervisorReachable(Boolean(reachable));
-        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
-        const merged = typeof data?.skills_merged_at === "string" ? new Date(data.skills_merged_at) : null;
-        setSupervisorMergedAt(merged && !Number.isNaN(merged.getTime()) ? merged : null);
-      })
-      .catch(() => {
-        setSupervisorSynced(false);
-        setSupervisorReachable(false);
-      })
-      .finally(() => setSupervisorLoading(false));
-  }, []);
-
-  /**
-   * Per-skill supervisor sync state.
-   * - `synced`: edited at-or-before the supervisor's last graph merge.
-   * - `stale`: edited after the supervisor's last merge — graph is running an older copy.
-   * - `unknown`: supervisor unreachable or hasn't reported a merge yet.
-   */
-  const skillSyncState = useCallback(
-    (cfg: AgentSkill): "synced" | "stale" | "unknown" => {
-      if (!supervisorReachable || supervisorLoading) return "unknown";
-      if (!supervisorMergedAt) return "unknown";
-      const updated = cfg.updated_at instanceof Date ? cfg.updated_at : new Date(cfg.updated_at);
-      if (Number.isNaN(updated.getTime())) return "unknown";
-      return updated.getTime() <= supervisorMergedAt.getTime() ? "synced" : "stale";
-    },
-    [supervisorReachable, supervisorLoading, supervisorMergedAt],
-  );
 
   /**
    * A built-in (`is_system: true`) Mongo-backed skill that the lock
@@ -1039,7 +984,7 @@ export function SkillsGallery({
                 <ScrollText className="h-4 w-4 opacity-90" strokeWidth={2.25} />
                 <span className="hidden md:inline">Scan history</span>
               </Button>
-              {/* "Skills API Gateway" launcher — original prominent
+              {/* "Skills Gateway" launcher — original prominent
                   gradient pill that opens the dedicated Gateway page
                   (`/skills/gateway`). We tried a Gallery / Gateway
                   segmented toggle here briefly, but the launcher
@@ -1049,8 +994,8 @@ export function SkillsGallery({
                 type="button"
                 size="sm"
                 onClick={() => router.push("/skills/gateway")}
-                aria-label="Open Skills API Gateway — OpenAPI, auth, and agent integration"
-                title="Skills API Gateway: OpenAPI, API keys, and coding-agent setup"
+                aria-label="Open Skills Gateway — OpenAPI, auth, and agent integration"
+                title="Skills Gateway: OpenAPI, API keys, and coding-agent setup"
                 className={cn(
                   "gap-2 h-9 text-sm px-4 font-medium border border-sky-500/20",
                   "text-sky-50/95 shadow-md shadow-black/25",
@@ -1061,8 +1006,8 @@ export function SkillsGallery({
                 )}
               >
                 <Waypoints className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
-                <span className="hidden sm:inline">Skills API Gateway</span>
-                <span className="sm:hidden font-semibold">API Gateway</span>
+                <span className="hidden sm:inline">Skills Gateway</span>
+                <span className="sm:hidden font-semibold">Gateway</span>
               </Button>
               {isAdmin && (
                 <Button
@@ -1368,7 +1313,6 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -1444,7 +1388,6 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
@@ -1549,7 +1492,6 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
@@ -1748,20 +1690,12 @@ export function SkillsGallery({
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                  {!supervisorSynced && !supervisorLoading && (
-                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
-                  )}
                   <Button
                     onClick={handleTrySkill}
-                    className={supervisorSynced ? "gradient-primary text-white gap-2" : "gap-2"}
-                    variant={supervisorSynced ? "default" : "secondary"}
-                    disabled={!supervisorSynced || supervisorLoading || extractTemplateVars(activeFormConfig).some(v => v.required && !paramValues[v.name]?.trim())}
+                    className="gradient-primary text-white gap-2"
+                    disabled={extractTemplateVars(activeFormConfig).some(v => v.required && !paramValues[v.name]?.trim())}
                   >
-                    {supervisorLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MessageSquare className="h-4 w-4" />
-                    )}
+                    <MessageSquare className="h-4 w-4" />
                     Try Skill
                   </Button>
                 </div>

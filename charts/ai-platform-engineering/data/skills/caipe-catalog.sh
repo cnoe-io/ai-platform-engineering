@@ -135,7 +135,7 @@ RAW="$(curl -fsS \
   "$CATALOG_URL" 2>/dev/null)" || RAW=""
 
 if [ -z "$RAW" ]; then
-  emit_context "[caipe-catalog hook] Could not reach CAIPE catalog at ${BASE_URL} within ${HOOK_TIMEOUT_SECS}s. Skills are still available via /skills if installed locally."
+  emit_context "[caipe-catalog hook] Could not reach CAIPE catalog at ${BASE_URL} within ${HOOK_TIMEOUT_SECS}s. Skills are still available via /{{COMMAND_NAME}} if installed locally."
   exit 0
 fi
 
@@ -167,8 +167,8 @@ lines.append("")
 lines.append(f"Gateway: {base_url}  ·  {len(skills)} skill(s) available")
 lines.append("")
 lines.append("To browse / fetch skills not installed locally:")
-lines.append("  /skills <query>            # interactive live search")
-lines.append("  /update-skills             # refresh local copies from catalog")
+lines.append("  /{{COMMAND_NAME}} <query>            # interactive live search")
+lines.append("  /{{UPDATE_COMMAND_NAME}}             # refresh local copies from catalog")
 lines.append("")
 lines.append("Catalog index:")
 lines.append("")
@@ -197,7 +197,7 @@ if len(out) > CAP:
     shown = truncated.count("\n") - 8  # subtract header lines
     truncated += (
         f"\n\n[truncated: catalog has {len(skills)} skills, only the first "
-        f"~{shown} shown. Use /skills to search the rest, or set "
+        f"~{shown} shown. Use /{{COMMAND_NAME}} to search the rest, or set "
         f"CAIPE_HOOK_PAGE_SIZE to control how many appear here.]"
     )
     out = truncated

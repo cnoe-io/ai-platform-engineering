@@ -109,7 +109,7 @@ const config: Config = {
               badge: true,
             },
             '0.4.9': {
-              label: '0.4.9 (Latest)',
+              label: '0.4.10 (Latest)',
               path: '',
               badge: false,
             },

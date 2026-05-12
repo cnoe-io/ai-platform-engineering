@@ -53,7 +53,7 @@ The install manifest records which on-disk skills CAIPE owns. Two paths:
 Check both. If both exist, the project-local manifest takes precedence
 for skills it lists; user-wide owns the rest. If neither exists, report
 "No CAIPE skills installed — run the Quick install one-liner from the
-Skills API Gateway first" and stop.
+Skills Gateway first" and stop.
 
 ### 2. Fetch the live catalog
 
