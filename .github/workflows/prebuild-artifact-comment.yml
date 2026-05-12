@@ -1,0 +1,33 @@
+name: "[Prebuild] Artifact Comment Reconciler"
+description: "Rebuild the managed PR prebuild comment from uploaded status artifacts"
+
+on:
+  repository_dispatch:
+    types: [prebuild-artifact-status]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: prebuild-artifact-comment-pr-${{ github.event.client_payload.pr_number }}-sha-${{ github.event.client_payload.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.client_payload.pr_number != '' &&
+      github.event.client_payload.head_sha != ''
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Reconcile prebuild artifact comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.client_payload.pr_number }}
+          HEAD_SHA: ${{ github.event.client_payload.head_sha }}
+        run: python3 .github/scripts/reconcile-prebuild-artifacts.py

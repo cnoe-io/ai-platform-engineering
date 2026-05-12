@@ -1,21 +1,24 @@
 ---
 name: release-docs
 description: >
-  Generate release notes and a migration guide for ai-platform-engineering.
-  Produces docs/releases/<version>.md (what changed, who should upgrade, highlights)
-  and docs/migration/<from>-to-<to>.md (breaking changes, renamed keys, upgrade runbook).
+  Generate a combined release blog post for ai-platform-engineering.
+  Produces a single docs/releases/YYYY-MM-DD-release-X-Y-Z.md file containing
+  release notes and the upgrade guide (migration guide) inline.
   Use when cutting a release, when a user asks "what changed in 0.4.x", or when
   upgrading their values.yaml to a new chart version.
 ---
 
-# Release Notes + Migration Guide Generator
+# Release Blog Post Generator
 
-Produce two documents for an `ai-platform-engineering` release:
+Produce one combined blog post for an `ai-platform-engineering` release:
 
-1. **`docs/releases/<to>.md`** — human-readable release notes (changelog narrative,
-   highlights, known issues).
-2. **`docs/migration/<from>-to-<to>.md`** — operator upgrade guide (breaking changes,
-   renamed Helm keys, new required fields, step-by-step runbook).
+**`docs/releases/YYYY-MM-DD-release-X-Y-Z.md`** — release notes narrative
+(highlights, what's new, bug fixes, breaking changes) followed by the full
+upgrade guide (Helm values diff, step-by-step runbook, personal impact
+analysis) as an embedded section.
+
+The file is picked up by the Docusaurus `releases` blog plugin and published at
+`/blog/releases/release-X.Y.Z`.
 
 ---
 
@@ -24,9 +27,9 @@ Produce two documents for an `ai-platform-engineering` release:
 Runs in two modes:
 
 - **Coding agent** (Claude Code, Cursor) with shell access — run `git` and `helm`
-  commands directly and write files to disk.
-- **Chat-only** (CAIPE chat, Slack, web UI) — render output as fenced markdown blocks
-  the user can copy; note which commands to run manually.
+  commands directly and write the file to disk.
+- **Chat-only** (CAIPE chat, Slack, web UI) — render output as a fenced markdown
+  block the user can copy; note which commands to run manually.
 
 Detect by whether a `Bash`/shell tool is available.
 
@@ -38,15 +41,14 @@ Ask the user for:
 
 | Input | Example | Required |
 |-------|---------|----------|
-| **To version** | `0.4.8` | Yes |
-| **From version** | `0.4.7` | Yes (defaults to previous tag) |
+| **To version** | `0.4.9` | Yes |
+| **From version** | `0.4.8` | Yes (defaults to previous tag) |
 | **User's `values.yaml`** | paste or path | No — enables personal impact analysis |
 | **Environment** | `dev` / `preview` / `prod` / `vm` | No — enables env-specific notes |
 
 If from/to are not provided, detect from the repo:
 
 ```bash
-# latest two semver tags
 git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -2
 ```
 
@@ -62,7 +64,7 @@ Run all of the following in parallel where possible.
 git log <from>..<to> --oneline --no-merges
 ```
 
-Also fetch full PR bodies for non-chore commits to get context:
+Fetch full PR bodies for non-chore commits:
 
 ```bash
 # for each PR number in the log, e.g. (#1324):
@@ -84,10 +86,9 @@ diff -u /tmp/values-from.yaml /tmp/values-to.yaml
 helm show chart "$CHART" --version <to>
 ```
 
-### 2d — CHANGELOG.md (already machine-generated)
+### 2d — CHANGELOG.md
 
 ```bash
-# Entries between the two version headers
 sed -n '/^## <to>/,/^## <from>/p' CHANGELOG.md
 ```
 
@@ -109,27 +110,33 @@ sed -n '/^## <to>/,/^## <from>/p' CHANGELOG.md
 
 | Category | Criteria |
 |----------|----------|
-| **Breaking** | Key renamed, removed, or type changed; old value silently ignored |
-| **New required** | New key with no default; chart errors without it |
-| **New optional** | New key with working default; no action needed |
+| **Breaking** | Key renamed, removed, or type changed |
+| **New required** | New key with no default |
+| **New optional** | New key with working default |
 | **Deprecated** | Key still works but will be removed |
 | **Default changed** | Same key, different default value |
 
 ---
 
-## Step 4 — Write `docs/releases/<to>.md`
+## Step 4 — Write `docs/releases/YYYY-MM-DD-release-X-Y-Z.md`
+
+Use the date the tag was pushed (or today's date if cutting now).
 
 ```markdown
-# Release Notes — ai-platform-engineering <to>
-
-> Released: <date>  
-> Chart: `oci://ghcr.io/cnoe-io/charts/ai-platform-engineering:<to>`  
-> Previous release: [<from>](../<from>.md)
+---
+slug: release-<to>
+title: "Release <to> — <2-5 word subtitle capturing the biggest change>"
+date: <YYYY-MM-DD>
+authors: [sriaradhyula]
+tags: [release]
+---
 
 ## Highlights
 
 <2-4 sentence narrative of the most significant changes in plain English.
 Focus on operator/user impact, not internal implementation details.>
+
+<!-- truncate -->
 
 ## What's New
 
@@ -145,11 +152,9 @@ Focus on operator/user impact, not internal implementation details.>
 
 ## Security
 
-- <Any security-context, PSS, or CVE-related changes>
+<Any security-context, PSS, or CVE-related changes. Omit section if none.>
 
 ## Breaking Changes
-
-> ⚠️ See the [Migration Guide](<from>-to-<to>.md) for upgrade instructions.
 
 <If none:>
 No breaking changes. Drop-in upgrade from <from>.
@@ -159,42 +164,22 @@ No breaking changes. Drop-in upgrade from <from>.
 <If none:>
 None known at this time.
 
-## Upgrade
-
-```bash
-helm upgrade ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
-  --version <to> \
-  -f your-values.yaml
-```
-
-Full upgrade instructions: [Migration Guide](<from>-to-<to>.md)
-```
-
 ---
 
-## Step 5 — Write `docs/migration/<from>-to-<to>.md`
+## Upgrade Guide: <from> → <to>
 
-```markdown
-# Migration Guide: ai-platform-engineering <from> → <to>
+### Overview
 
-## Overview
+<One paragraph: overall theme, e.g. "Drop-in upgrade — no values.yaml edits required.">
 
-<One paragraph: overall theme, e.g. "Adds AWS MCP server, introduces
-call-limit middleware, moves to PSS-Baseline security contexts — no
-values.yaml changes required for most operators.">
-
-## Helm Values Changes
+### Helm Values Changes
 
 <If no diff:>
-No Helm values changes between <from> and <to>.
-Drop-in upgrade — no values.yaml edits required.
+No Helm values changes between <from> and <to>. Drop-in upgrade.
 
-<If diff exists, use the sections below:>
+<If diff exists, use these subsections:>
 
-### Breaking Changes
-
-#### 1. <Change title>
+#### Breaking Changes
 
 **Affected key**: `global.foo.bar`
 
@@ -209,113 +194,50 @@ global:
 ```yaml
 global:
   foo:
-    bar: "new-value"   # required
+    bar: "new-value"
 ```
-
-**Why**: <reason>
 
 **Action**: Update your `values.yaml`. If left unchanged, <consequence>.
 
----
+#### New Optional Fields
 
-### New Required Fields
+| Env Var / Key | Default | Description |
+|---------------|---------|-------------|
+| `TOOL_CALL_LIMIT` | `0` (disabled) | Max tool invocations per run |
 
-#### 1. `<key>`
-
-```yaml
-<key>: <default>   # <description>
-```
-
-**Action**: No action for the default. Set to `<non-default>` to enable <feature>.
-
----
-
-### Default Value Changes
-
-| Key | Old default | New default | Impact |
-|-----|------------|------------|--------|
-| `caipe-ui.config.NODE_ENV` | `development` | `production` | Set explicitly if running locally |
-
----
-
-### Deprecated / Removed Keys
+#### Deprecated / Removed Keys
 
 | Key | Removed in | Replacement |
 |-----|-----------|-------------|
-| `tags.skill-scanner` | <to> | `global.skillScanner.enabled` |
+| `tags.old-key` | <to> | `global.newKey` |
 
----
+### Upgrade Runbook
 
-## Upgrade Runbook
-
-### 1. Update chart version
+#### 1. Update chart version
 
 ```bash
-# GitOps / config.json
-"chart_version": "<to>"
-
-# Or Helm directly
 helm upgrade ai-platform-engineering \
   oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
   --version <to> \
   -f your-values.yaml
 ```
 
-### 2. Apply values.yaml changes
+#### 2. Apply values.yaml changes
 
-<Paste exact diffs for each breaking change. One code block per change.>
+<Paste exact diffs for each breaking change.>
 
-### 3. Remove deprecated keys
-
-Remove from your `values.yaml`:
-- `<deprecated-key-1>`
-- `<deprecated-key-2>`
-
-### 4. Sync / redeploy
-
-**ArgoCD (GitOps)**:
-```bash
-argocd app sync <app-name> --prune
-```
-
-**Local Docker Compose**:
-```bash
-docker compose pull && docker compose up -d
-```
-
-### 5. Verify
+#### 3. Verify
 
 ```bash
-# All pods healthy
 kubectl get pods -n <namespace>
-
-# ExternalSecrets synced
-kubectl get externalsecrets -n <namespace>
-
-# New components running (adjust for your release)
-kubectl get deploy -n <namespace>
 ```
 
----
+### Personal Impact Analysis
 
-## Personal Impact Analysis
+<If user provided values.yaml: cross-reference against breaking-changes list.>
+<If not: prompt them to provide it for a personalised checklist.>
 
-<If the user provided their values.yaml:>
-Cross-reference against the breaking-changes list above. Only keys that
-appear in the user's file are flagged below.
-
-| Key | Found in your values.yaml | Action |
-|-----|--------------------------|--------|
-| `global.foo.bar` | ✅ yes (`line 42`) | ⚠️ ACTION REQUIRED — update to new value |
-| `tags.skill-scanner` | ✅ yes | ⚠️ ACTION REQUIRED — replace with `global.skillScanner.enabled` |
-
-<If the user did not provide their values.yaml:>
-Provide your `values.yaml` and re-run this skill to get a personalised
-impact checklist.
-
----
-
-## Full Values Diff
+### Full Values Diff
 
 <details>
 <summary>Raw diff (<from> → <to>)</summary>
@@ -329,18 +251,12 @@ impact checklist.
 
 ---
 
-## Step 6 — Write files to disk (coding agent)
+## Step 5 — Write file to disk (coding agent)
 
 ```bash
-mkdir -p docs/releases docs/migration
+mkdir -p docs/releases
 
-# Write release notes
-cat > docs/releases/<to>.md << 'EOF'
-<generated content>
-EOF
-
-# Write migration guide
-cat > docs/migration/<from>-to-<to>.md << 'EOF'
+cat > docs/releases/<YYYY-MM-DD>-release-<X-Y-Z>.md << 'EOF'
 <generated content>
 EOF
 ```
@@ -348,19 +264,22 @@ EOF
 Commit:
 
 ```bash
-git add docs/releases/<to>.md docs/migration/<from>-to-<to>.md
-git commit -s -m "docs: add release notes and migration guide for <from> → <to>"
+git add docs/releases/<YYYY-MM-DD>-release-<X-Y-Z>.md
+git commit -s -m "docs: release notes + upgrade guide for <from> → <to>"
 ```
 
 ---
 
 ## Guidelines
 
+- `<!-- truncate -->` goes immediately after the Highlights section so the blog
+  list shows just the intro paragraph
 - Show concrete before/after YAML for every breaking change — never prose-only
 - For breaking changes, state the *consequence* of not updating
-- Keep the runbook linear — steps 1–5 should be self-contained without cross-references
-- If `helm show values` is unavailable (auth, network), note the command and ask the user to paste output — never guess at the diff
+- Keep the upgrade runbook linear — steps should be self-contained
+- If `helm show values` is unavailable, ask the user to paste output — never guess
 - Highlight environment-specific notes (VM kind clusters use `standard` storageClass; EKS uses `gp2`/`gp3`)
 - For `ExternalSecret` additions, list the exact Vault path and key the chart now expects
-- Omit `chore`, `ci`, `test`, and `refactor` commits from user-facing release notes
+- Omit `chore`, `ci`, `test`, and `refactor` commits from user-facing notes
 - If there are zero helm value changes, say so explicitly and reassure it is a drop-in upgrade
+- Do NOT create separate migration guide files — the upgrade guide lives inside the release post

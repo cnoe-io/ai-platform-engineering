@@ -2,10 +2,10 @@
  * GET /api/skills/helpers/caipe-skills.py
  *
  * Returns the canonical CAIPE skills helper as a Python source file. This
- * file is the single client-side dependency for both the `/skills`
- * (live-skills) and `/update-skills` slash commands: it queries the
+ * file is the single client-side dependency for both the `/caipe-skills`
+ * (live-skills) and `/update-caipe-skills` slash commands: it queries the
  * catalog API and (with `--register PATH`) writes install-manifest
- * entries used by `/update-skills` to track which on-disk skills CAIPE
+ * entries used by `/update-caipe-skills` to track which on-disk skills CAIPE
  * owns.
  *
  * `install.sh` curls this endpoint exactly once per install scope into

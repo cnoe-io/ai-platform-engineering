@@ -14,8 +14,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  # Match ALL ai-platform-engineering services in this release, EXCEPT MCP services
-  # MCP containers don't expose /metrics endpoints
+  # Match ALL ai-platform-engineering services in this release, EXCEPT services
+  # that don't expose /metrics endpoints (mcp, rag-server, agent-ontology, skill-scanner, caipe-ui)
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -24,6 +24,10 @@ spec:
         operator: NotIn
         values:
           - mcp
+          - rag-server
+          - agent-ontology
+          - skill-scanner
+          - caipe-ui
   endpoints:
     - port: http
       path: {{ .Values.metrics.path | default "/metrics" }}

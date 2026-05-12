@@ -1,0 +1,124 @@
+---
+id: dynamic-agents-chart
+sidebar_label: dynamic-agents
+---
+
+:::caution Auto-generated
+This page is auto-generated from the Helm chart source. Do not edit directly.
+Regenerate with `make docs-helm-charts`.
+:::
+
+# dynamic-agents
+
+A Helm chart for Dynamic Agents - Standalone agent builder service with MCP tool support
+
+| | |
+|---|---|
+| **Version** | `0.2.38` |
+| **Type** | application |
+
+## Quick Start
+
+```bash
+# Add and install the chart
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
+
+# Upgrade an existing release
+helm upgrade dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
+```
+
+## Customizing Values
+
+Override default values using `--set` flags or a custom values file:
+
+```bash
+# Override individual values
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38 \
+  --set replicaCount=2
+
+# Use a custom values file
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38 \
+  -f custom-values.yaml
+
+# Show all configurable values
+helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
+```
+
+## Reading the Values Table
+
+| Column | Meaning |
+|--------|---------|
+| **Key** | Dot-separated path into `values.yaml` (e.g. `image.repository`) |
+| **Type** | Go/Helm data type (`string`, `int`, `bool`, `object`, `list`) |
+| **Default** | Value used when not overridden |
+| **Description** | What the parameter controls |
+
+## Values
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` |  |
+| autoscaling.enabled | bool | `false` |  |
+| autoscaling.maxReplicas | int | `10` |  |
+| autoscaling.minReplicas | int | `1` |  |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
+| config.AGENT_RUNTIME_TTL_SECONDS | string | `"3600"` |  |
+| config.AUTH_ENABLED | string | `"false"` |  |
+| config.CORS_ORIGINS | string | `"[\"*\"]"` |  |
+| config.ENABLE_TRACING | string | `"false"` |  |
+| config.MONGODB_DATABASE | string | `"caipe"` |  |
+| env | object | `{}` |  |
+| existingSecret | string | `""` |  |
+| externalSecrets.apiVersion | string | `"v1beta1"` |  |
+| externalSecrets.data | list | `[]` |  |
+| externalSecrets.enabled | bool | `false` |  |
+| externalSecrets.secretStoreRef.kind | string | `"ClusterSecretStore"` |  |
+| externalSecrets.secretStoreRef.name | string | `"vault"` |  |
+| fullnameOverride | string | `""` |  |
+| image.pullPolicy | string | `"Always"` |  |
+| image.repository | string | `"ghcr.io/cnoe-io/caipe-dynamic-agents"` |  |
+| image.tag | string | `""` |  |
+| imagePullSecrets | list | `[]` |  |
+| ingress.annotations | object | `{}` |  |
+| ingress.className | string | `"nginx"` |  |
+| ingress.enabled | bool | `false` |  |
+| ingress.hosts[0].host | string | `"dynamic-agents.local"` |  |
+| ingress.hosts[0].paths[0].path | string | `"/"` |  |
+| ingress.hosts[0].paths[0].pathType | string | `"Prefix"` |  |
+| ingress.tls | list | `[]` |  |
+| livenessProbe.failureThreshold | int | `3` |  |
+| livenessProbe.httpGet.path | string | `"/healthz"` |  |
+| livenessProbe.httpGet.port | string | `"http"` |  |
+| livenessProbe.initialDelaySeconds | int | `30` |  |
+| livenessProbe.periodSeconds | int | `10` |  |
+| livenessProbe.timeoutSeconds | int | `5` |  |
+| llmSecret | string | `""` |  |
+| nameOverride | string | `""` |  |
+| nodeSelector | object | `{}` |  |
+| podAnnotations | object | `{}` |  |
+| podLabels | object | `{}` |  |
+| podSecurityContext | object | `{}` |  |
+| readinessProbe.failureThreshold | int | `3` |  |
+| readinessProbe.httpGet.path | string | `"/healthz"` |  |
+| readinessProbe.httpGet.port | string | `"http"` |  |
+| readinessProbe.initialDelaySeconds | int | `5` |  |
+| readinessProbe.periodSeconds | int | `5` |  |
+| readinessProbe.timeoutSeconds | int | `3` |  |
+| replicaCount | int | `1` |  |
+| resources | object | `{}` |  |
+| revisionHistoryLimit | int | `3` |  |
+| securityContext | object | `{}` |  |
+| seedConfig.agents | list | `[]` |  |
+| seedConfig.enabled | bool | `false` |  |
+| seedConfig.mcp_servers | list | `[]` |  |
+| seedConfig.models | list | `[]` |  |
+| service.port | int | `8001` |  |
+| service.type | string | `"ClusterIP"` |  |
+| serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.create | bool | `true` |  |
+| serviceAccount.name | string | `""` |  |
+| tolerations | list | `[]` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |
+

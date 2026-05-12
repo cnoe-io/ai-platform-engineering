@@ -25,12 +25,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Hash,
+  FileText,
   Globe,
+  Hash,
   Copy,
   ExternalLink,
 } from "lucide-react";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
 
 interface ConversationItem {
@@ -41,6 +42,8 @@ interface ConversationItem {
   created_at: string;
   updated_at: string;
   checkpoint_count: number;
+  file_count?: number;
+  message_count?: number;
   client_type?: string;
   idempotency_key?: string;
   metadata?: {
@@ -168,26 +171,32 @@ export function ConversationsTab() {
     return agent?.ui?.gradient_theme || null;
   };
 
+  const getAgentCustomTheme = (agentId: string | null) => {
+    if (!agentId) return null;
+    const agent = agents.get(agentId);
+    return agent?.ui?.custom_theme_config || null;
+  };
+
   const handleClear = async (conversationId: string) => {
-    if (!confirm("Are you sure you want to clear this conversation's checkpoint data? This will remove all messages but keep the conversation record.")) {
+    if (!confirm("Are you sure you want to delete all data for this conversation? This will permanently remove the conversation, messages, checkpoints, and stored files.")) {
       return;
     }
 
     setClearingId(conversationId);
     try {
-      const response = await fetch(`/api/dynamic-agents/conversations/${conversationId}/clear`, {
-        method: "POST",
+      const response = await fetch(`/api/admin/audit-logs/${encodeURIComponent(conversationId)}`, {
+        method: "DELETE",
       });
       const data = await response.json();
 
       if (data.success) {
-        toast("Conversation cleared successfully", "success");
+        toast("Conversation deleted successfully", "success");
         fetchConversations();
       } else {
-        toast(data.error || "Failed to clear conversation", "error");
+        toast(data.error || "Failed to delete conversation", "error");
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to clear conversation";
+      const message = err instanceof Error ? err.message : "Failed to delete conversation";
       toast(message, "error");
     } finally {
       setClearingId(null);
@@ -354,13 +363,14 @@ export function ConversationsTab() {
                     <div className="flex items-center gap-1.5">
                       {(() => {
                         const gradient = getAgentGradient(conv.agent_id);
-                        const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                        const customTheme = getAgentCustomTheme(conv.agent_id);
+                        const gradientStyle = gradient ? getGradientStyle(gradient, customTheme) : null;
                         return gradientStyle ? (
                           <div 
                             className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
                             style={gradientStyle}
                           >
-                            <Bot className="h-2.5 w-2.5 text-white" />
+                            <Bot className="h-2.5 w-2.5" style={{ color: getAccentColor(gradient, customTheme) || "white" }} />
                           </div>
                         ) : (
                           <Bot className="h-3 w-3 text-purple-500" />
@@ -405,7 +415,7 @@ export function ConversationsTab() {
                       className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={(e) => { e.stopPropagation(); handleClear(conv.id); }}
                       disabled={clearingId === conv.id}
-                      title="Clear checkpoint data"
+                      title="Delete all conversation data"
                     >
                       {clearingId === conv.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -630,6 +640,24 @@ export function ConversationsTab() {
                   <span className="text-sm">{selectedConversation.checkpoint_count}</span>
                 </div>
 
+                {/* Messages (WebUI only) */}
+                {(selectedConversation.message_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Messages</span>
+                    <span className="text-sm">{selectedConversation.message_count}</span>
+                  </div>
+                )}
+
+                {/* Files */}
+                {(selectedConversation.file_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Files</span>
+                    <span className="text-sm">{selectedConversation.file_count}</span>
+                  </div>
+                )}
+
                 {/* Dates */}
                 <div className="flex items-start gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -664,7 +692,7 @@ export function ConversationsTab() {
                     ) : (
                       <Trash2 className="h-4 w-4 mr-2" />
                     )}
-                    Clear Checkpoint Data
+                    Delete All
                   </Button>
                 </div>
               </div>

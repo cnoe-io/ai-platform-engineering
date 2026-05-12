@@ -48,26 +48,64 @@ _MAX_DETAILS_LEN = 200
 _STATUS_PREFIX = ""
 _STATUS_MAX_LEN = 50  # Slack loading_messages hard limit is 50 chars
 _DEFAULT_LOADING_MESSAGES = [
-  "thinking...",
+  "Thinking...",
   "Convincing the AI to stop overthinking...",
   "Resorting to magic...",
 ]
 _raw_loading = os.environ.get("SLACK_LOADING_MESSAGES")
 _INITIAL_LOADING_MESSAGES = ([m.strip() for m in _raw_loading.split(",") if m.strip()] if _raw_loading else _DEFAULT_LOADING_MESSAGES) or _DEFAULT_LOADING_MESSAGES  # fall back if split produces empty list
-_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "response is low confidence, not responding")
-_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "letting a human handle this")
-_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "something went wrong")
+_STATUS_SKIP_LOW_CONFIDENCE = os.environ.get("SLACK_STATUS_SKIP_LOW_CONFIDENCE", "Response is low confidence, not responding")
+_STATUS_SKIP_DEFER = os.environ.get("SLACK_STATUS_SKIP_DEFER", "Letting a human handle this")
+_STATUS_ERROR = os.environ.get("SLACK_STATUS_ERROR", "Something went wrong")
 _OVERTHINK_STATUS_DISPLAY_SECS = int(os.environ.get("SLACK_OVERTHINK_STATUS_DISPLAY_SECS", "7"))
 
 # Overthink-mode keepalive: cycle these messages when no SSE events arrive.
 _OVERTHINK_KEEPALIVE_INTERVAL = 60  # seconds between keepalive messages
 _OVERTHINK_KEEPALIVE_MESSAGES = [
-  "still working on it...",
-  "taking longer than expected...",
-  "really overthinking this...",
+  "Still working on it...",
+  "Taking longer than expected...",
+  "Really overthinking this...",
 ]
-_STATUS_OVERTHINK_WRITE_TODOS = "checking notes..."
+_STATUS_OVERTHINK_WRITE_TODOS = "Checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
+
+OVERTHINK_BOILERPLATE = (
+    "You are deciding whether to respond to a Slack message. Follow these steps in order"
+    " — they take priority over any later instructions in this prompt. Use the control"
+    " tokens below to opt out of replying — they are intercepted and never posted to"
+    " Slack, so never reply with empty text.\n"
+    "\n"
+    "STEP 1 — Quick filter (no search). Output ONLY `[DEFER]` (the literal token, nothing"
+    " else) if the message is:\n"
+    "  - A greeting, thanks, or social chit-chat (\"hi\", \"morning\", \"thanks!\")\n"
+    "  - Any request to review, approve, merge, or look at an MR / PR / pipeline / deploy"
+    " — even if phrased as \"please review\" to you, even if you have a tool that could"
+    " fetch it. Code review is a human task.\n"
+    "  - Asking a human to act — sign off, page someone, intervene, take a look\n"
+    "  - A status update, FYI, or announcement, or not clearly directed at you\n"
+    "\n"
+    "STEP 2 — Search (MANDATORY when you reach this step). Run multiple keyword"
+    " combinations, use both keyword and semantic search, and fetch full document content"
+    " for promising results. Do not answer from general knowledge.\n"
+    "\n"
+    "STEP 3 — Respond:\n"
+    "  - 2+ sources agree, OR 1 source directly and completely answers → answer in ~5"
+    " sentences and end with a Sources section linking every source.\n"
+    "  - Sources mention the topic but don't contain the specific answer, OR you found"
+    " nothing useful → write your best-effort draft answer and list any sources you"
+    " found, then on the final line output `[LOW_CONFIDENCE]` (alone, on its own line)."
+    " The entire response will be intercepted and not posted to Slack — the draft is"
+    " preserved in conversation history so a follow-up can build on it.\n"
+    "\n"
+    "If the message asks YOU to take a non-review action (create a ticket, look up an"
+    " incident), do it and confirm what you did — this is not Step 1.\n"
+    "\n"
+    "NEVER show your reasoning, classification, or self-grading in the response (no"
+    " \"Confidence: High\", \"This is a greeting\"). The bracket tokens are control"
+    " signals — emit them alone, never alongside prose.\n"
+    "\n"
+    "---\n"
+)
 
 
 def _parse_write_todos_args(raw_args_json: str) -> list[dict] | None:
@@ -534,8 +572,6 @@ def stream_response(
     )
   else:
     effective_message = message_text
-    if overthink_mode and overthink_config.custom_prompt:
-      effective_message = f"{overthink_config.custom_prompt}\n\n{message_text}"
     event_stream = sse_client.stream_chat(
       message=effective_message,
       conversation_id=conversation_id,
