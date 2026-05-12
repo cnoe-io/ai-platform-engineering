@@ -4,6 +4,12 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const versionsConfig = require('./versions-config.json') as {
+  lastVersion: string;
+  versions: Record<string, { label: string; path: string; badge: boolean }>;
+};
+
 const config: Config = {
   title: 'CAIPE',
   tagline: 'AI-powered Platform Engineering — deploy intelligent agents for your platform stack.',
@@ -101,24 +107,8 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
-          lastVersion: '0.4.9',
-          versions: {
-            current: {
-              label: 'main 🚧',
-              path: 'next',
-              badge: true,
-            },
-            '0.4.9': {
-              label: '0.4.11 (Latest)',
-              path: '',
-              badge: false,
-            },
-            '0.4.8': {
-              label: '0.4.8',
-              path: '0.4.8',
-              badge: false,
-            },
-          },
+          lastVersion: versionsConfig.lastVersion,
+          versions: versionsConfig.versions,
         },
         blog: {
           showReadingTime: true,
