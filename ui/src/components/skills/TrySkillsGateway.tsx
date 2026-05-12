@@ -157,7 +157,6 @@ export function TrySkillsGateway() {
   const [queryRepo, setQueryRepo] = useState("");
   const [queryTags, setQueryTags] = useState("");
   const [queryVisibility, setQueryVisibility] = useState("");
-  const [queryPageSize, setQueryPageSize] = useState("20");
   const [queryIncludeContent, setQueryIncludeContent] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -181,11 +180,9 @@ export function TrySkillsGateway() {
     if (queryRepo) params.set("repo", queryRepo);
     if (queryTags.trim()) params.set("tags", queryTags.trim());
     if (queryVisibility) params.set("visibility", queryVisibility);
-    params.set("page", "1");
-    params.set("page_size", queryPageSize || "20");
     if (queryIncludeContent) params.set("include_content", "true");
     return `${baseUrl}/api/skills?${params.toString()}`;
-  }, [baseUrl, queryQ, querySource, queryRepo, queryTags, queryVisibility, queryPageSize, queryIncludeContent]);
+  }, [baseUrl, queryQ, querySource, queryRepo, queryTags, queryVisibility, queryIncludeContent]);
 
   const catalogUrl = buildCatalogUrl();
 
@@ -596,17 +593,6 @@ export function TrySkillsGateway() {
                 <option value="team">team</option>
                 <option value="personal">personal</option>
               </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Page size</label>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                value={queryPageSize}
-                onChange={(e) => setQueryPageSize(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
             </div>
             <div className="flex items-end pb-2">
               <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer">
