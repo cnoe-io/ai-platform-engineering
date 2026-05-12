@@ -21,8 +21,8 @@ export interface Team {
   /**
    * Spec 104 team-scoped RBAC: agents the team can chat with and tools the
    * team can invoke. Persisted on the team document and materialized into
-   * Keycloak realm roles (`agent_user:<id>`, `tool_user:<id>`) on every
-   * member when the resources change.
+   * Keycloak realm roles (`agent_user:<id>`, `tool_user:<id>`) and, when
+   * enabled, OpenFGA team-resource tuples on every member when resources change.
    */
   resources?: {
     agents?: string[];        // dynamic_agents._id values → agent_user:<id>

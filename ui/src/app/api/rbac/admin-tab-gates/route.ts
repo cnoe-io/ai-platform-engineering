@@ -21,6 +21,7 @@ const ALL_TABS: AdminTabKey[] = [
   "action_audit",
   "policy",
   "ag_policies",
+  "openfga",
 ];
 
 const DEFAULT_POLICIES: AdminTabPolicy[] = [
@@ -38,6 +39,7 @@ const DEFAULT_POLICIES: AdminTabPolicy[] = [
   { tab_key: "action_audit", expression: "'admin' in user.roles" },
   { tab_key: "policy", expression: "'admin' in user.roles" },
   { tab_key: "ag_policies", expression: "'admin' in user.roles" },
+  { tab_key: "openfga", expression: "'admin' in user.roles" },
 ];
 
 function decodeJwtPayload(token: string): Record<string, unknown> {

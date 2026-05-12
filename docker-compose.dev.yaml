@@ -1321,6 +1321,12 @@ services:
       # For Okta-style deployments, also see OIDC_ACCEPTED_AUDIENCES.
       - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
       - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-}
+      # OpenFGA ReBAC reconciliation is opt-in so non-RBAC local UI runs do
+      # not require the OpenFGA profile. The remote RBAC stack enables it in
+      # `.env` and writes Team Resources changes as OpenFGA tuples.
+      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       # OIDC_DISCOVERY_URL: Docker-internal URL used for server-side discovery +
       # token refresh. Defaults to the in-network Keycloak URL so caipe-ui can
       # fetch the well-known doc without going via the host. Browser still uses
@@ -1394,11 +1400,11 @@ services:
       - ./ui/tsconfig.json:/app/tsconfig.json
       - ./ui/postcss.config.mjs:/app/postcss.config.mjs
       - ./ui/eslint.config.mjs:/app/eslint.config.mjs
-      # Anonymous volumes: prevent the host from shadowing the
-      # container's installed deps and dev build cache. No-op in prod
-      # runner (those paths aren't touched there).
+      # Anonymous volume: keep container-installed deps isolated from the host
+      # in hot-reload mode. Do not mount /app/.next in the runner stage: it
+      # shadows the image's compiled Next server output and can keep stale API
+      # route chunks alive after an image rebuild.
       - /app/node_modules
-      - /app/.next
     # `next dev` when in hot mode, default entrypoint otherwise.
     command: ${CAIPE_UI_COMMAND:-/app/entrypoint.sh}
     depends_on:
@@ -2224,6 +2230,7 @@ services:
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
+      - /app/.venv
       # Override host path with CAIPE_SLACK_BOT_CONFIG_FILE (preferred; matches main's naming).
       # If unset, mount the committed example template config/slack-bot-config.yaml.
       - ${CAIPE_SLACK_BOT_CONFIG_FILE:-./config/slack-bot-config.yaml}:/etc/caipe/bot-config.yaml:ro
@@ -2310,7 +2317,7 @@ services:
   # Slack bot: socket mode or http://localhost:8030 — set SLACK_* tokens in .env
   #
   # Admin console: http://localhost:7080/admin (admin / admin)
-  # OpenFGA API: http://localhost:8082  Playground: http://localhost:3002
+  # OpenFGA API: http://localhost:18080  Playground: http://localhost:13002
   # Agent Gateway proxy: http://localhost:4000
   # Agent Gateway admin UI: http://localhost:15000/ui
   #
@@ -2395,8 +2402,10 @@ services:
       - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
       - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
-      - "7080:7080"
-      - "7443:7443"
+      # Keep direct Keycloak access local to the Docker host. Public/browser
+      # ingress should go through the HTTPS reverse proxy.
+      - "127.0.0.1:7080:7080"
+      - "127.0.0.1:7443:7443"
     depends_on:
       keycloak-postgres:
         condition: service_healthy
@@ -2543,9 +2552,9 @@ services:
       OPENFGA_PLAYGROUND_ENABLED: "true"
     command: run
     ports:
-      - "127.0.0.1:${OPENFGA_HTTP_PORT:-8082}:8080"
-      - "127.0.0.1:${OPENFGA_GRPC_PORT:-8083}:8081"
-      - "127.0.0.1:${OPENFGA_PLAYGROUND_PORT:-3002}:3000"
+      - "127.0.0.1:${OPENFGA_HTTP_PORT:-18080}:8080"
+      - "127.0.0.1:${OPENFGA_GRPC_PORT:-18081}:8081"
+      - "127.0.0.1:${OPENFGA_PLAYGROUND_PORT:-13002}:3000"
     healthcheck:
       test:
         - CMD
@@ -2593,7 +2602,7 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz', timeout=2)"
+        - "import socket; socket.create_connection(('localhost', 9100), timeout=2).close()"
       interval: 5s
       timeout: 3s
       retries: 10
@@ -2634,7 +2643,7 @@ services:
         condition: service_healthy
     ports:
       - "4000:4000"
-      - "15000:15000" # Admin UI (config.config.adminAddr)
+      - "127.0.0.1:15000:15000" # Admin UI (config.config.adminAddr)
     volumes:
       - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
       - ag_config:/etc/agentgateway/dynamic:ro

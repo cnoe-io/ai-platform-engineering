@@ -17,10 +17,13 @@ When you need to change something in the auth path, this table tells you which f
 | Dynamic agents agent-level authorization (CEL / visibility) | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py` |
 | AgentGateway static CEL policies (rendered) | `deploy/agentgateway/config.yaml` |
 | AgentGateway Jinja template (source of truth for rendering) | `deploy/agentgateway/config.yaml.j2` |
-| AgentGateway OpenFGA `extAuthz` listener gate | `deploy/agentgateway/config.yaml` and `deploy/agentgateway/config.yaml.j2` (`extAuthz` block) |
+| AgentGateway OpenFGA gRPC `extAuthz` route gate | `deploy/agentgateway/config.yaml` and `deploy/agentgateway/config.yaml.j2` (`extAuthz` block) |
 | OpenFGA dev PDP stack in Docker Compose (`openfga`, bridge, init, Postgres) | `docker-compose.dev.yaml` (`rbac` profile, OpenFGA services) |
 | OpenFGA authorization model + seed tuple writer | `deploy/openfga-experiment/model.fga`, `deploy/openfga-experiment/init/authorization-model.json`, `deploy/openfga-experiment/init/seed.py` |
-| AgentGateway HTTP `ext_authz` adapter to OpenFGA Check | `deploy/openfga-experiment/bridge/main.py` |
+| AgentGateway Envoy gRPC `ext_authz` adapter to OpenFGA Check | `deploy/openfga-experiment/bridge/main.py`, `deploy/openfga-experiment/bridge/tests/test_grpc_bridge.py` |
+| Admin UI OpenFGA tuple writer for Team Resources saves (`team:<slug>#member can_use agent:<id>`, `can_call tool:<prefix>`) | `ui/src/lib/rbac/openfga.ts`, `ui/src/lib/rbac/__tests__/openfga.test.ts`, `ui/src/app/api/admin/teams/[id]/resources/route.ts`, `ui/src/app/api/__tests__/admin-team-resources.test.ts` |
+| Admin UI: OpenFGA ReBAC relationship builder, effective-access preview, policy graph, and tuple inspector | `ui/src/components/admin/OpenFgaRebacTab.tsx`, `ui/src/app/(app)/admin/page.tsx`, `ui/src/app/api/admin/openfga/*/route.ts`, `ui/src/lib/rbac/openfga.ts` |
+| Admin tab visibility gate for OpenFGA ReBAC | `ui/src/lib/rbac/types.ts`, `ui/src/app/api/rbac/admin-tab-gates/route.ts`, `ui/src/hooks/useAdminTabGates.ts`, `ui/src/components/admin/CelTabPoliciesEditor.tsx` |
 | `ag-config-bridge` (MongoDB → config.yaml sync + seed) | `deploy/agentgateway/config-bridge.py` |
 | Admin UI: edit AG CEL policies at runtime | `ui/src/app/api/rbac/ag-policies/route.ts` |
 | MongoDB collections: `ag_mcp_policies`, `ag_mcp_backends`, `ag_sync_state` | managed by `config-bridge.py` |
@@ -45,7 +48,7 @@ When you need to change something in the auth path, this table tells you which f
 | Spec 104 team-scoped CEL rules (`tool_user:<tool>`, `tool_user:*`, `admin_user`) — added inline in MCP authorization rules block | `deploy/agentgateway/config.yaml` (search for "Spec 104") |
 | Spec 104 Keycloak seed (creates `admin_user`, `tool_user:*`, `team_member:demo-team`, `agent_user:test-april-2025`, per-MCP `tool_user:<server>_*` roles; assigns the admin bundle to every email in `BOOTSTRAP_ADMIN_EMAILS`) | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` (`seed_spec104_main` block; `deploy/keycloak/init-idp.sh` is a symlink to this) |
 | Spec 104 spec / acceptance criteria | `docs/docs/specs/104-team-scoped-rbac/spec.md` |
-| Spec 104 Story 4 — Admin UI **Team Resources** API: `GET/PUT /api/admin/teams/[id]/resources`, persists `team.resources = { agents, agent_admins, tools, tool_wildcard }` and reconciles `agent_user:<id>` / `agent_admin:<id>` / `tool_user:<prefix>` / `tool_user:*` assignments per member | `ui/src/app/api/admin/teams/[id]/resources/route.ts` |
+| Spec 104 Story 4 — Admin UI **Team Resources** API: `GET/PUT /api/admin/teams/[id]/resources`, persists `team.resources = { agents, agent_admins, tools, tool_wildcard }`, reconciles Keycloak `agent_user:<id>` / `agent_admin:<id>` / `tool_user:<prefix>` / `tool_user:*` assignments per member, and optionally writes OpenFGA team-resource tuples | `ui/src/app/api/admin/teams/[id]/resources/route.ts` |
 | Spec 104 — Admin UI **Team Roles** API (catch-all realm-role assignment): `GET/PUT /api/admin/teams/[id]/roles`, surfaces the realm-role catalog grouped by prefix and reconciles `team.keycloak_roles` against members | `ui/src/app/api/admin/teams/[id]/roles/route.ts` |
 | Spec 104 — Admin UI Team management dialog: Resources tab (Use+Manage per agent, MCP-server tool prefixes, `tool_user:*` wildcard) and Roles tab (MultiSelect over realm-role catalog) | `ui/src/components/admin/TeamDetailsDialog.tsx` |
 | Spec 104 Story 4 — Keycloak Admin helpers used by the resources/roles APIs: idempotent `ensureRealmRole`, email→`sub` lookup `findUserIdByEmail`, `listRealmRoles` for the Roles-tab catalog | `ui/src/lib/rbac/keycloak-admin.ts` |
@@ -55,7 +58,7 @@ When you need to change something in the auth path, this table tells you which f
 | Spec 098 US9 — Slack Channels tab inside the team-management dialog (live discovery picker, manual-ID fallback, per-row bound-agent dropdown sourced from `team.resources.agents`) | `ui/src/components/admin/TeamDetailsDialog.tsx` (`SlackChannelsPanel`) |
 | Spec 098 US9 — `Team.slack_channels = [{ slack_channel_id, channel_name, slack_workspace_id, bound_agent_id }]` denormalised count for team-card chip | `ui/src/types/teams.ts` |
 | Spec 104 Story 4 — Admin UI dialog with the **Resources** tab (checkboxes for agents + per-MCP tool prefixes) | `ui/src/components/admin/TeamDetailsDialog.tsx` |
-| Spec 104 Story 4 — Jest coverage for resources API (auth gates, diff reconciliation, missing-KC-account handling) | `ui/src/app/api/__tests__/admin-team-resources.test.ts` |
+| Spec 104 Story 4 — Jest coverage for resources API (auth gates, Keycloak diff reconciliation, OpenFGA tuple reconciliation, missing-KC-account handling) | `ui/src/app/api/__tests__/admin-team-resources.test.ts`, `ui/src/lib/rbac/__tests__/openfga.test.ts` |
 | RAG server team/KB scope filter (`inject_kb_filter`) — datasource-level RBAC | `ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py` |
 | RAG hybrid ACL — per-document `acl_tags` filter (opt-in: `RBAC_DOC_ACL_TAGS_ENABLED`) | `ai_platform_engineering/knowledge_bases/rag/server/src/server/doc_acl.py` |
 | RAG hybrid ACL backfill — assigns `acl_tags=["__public__"]` to existing Milvus rows before flipping the flag | `scripts/rag-doc-acl-migration.py` |

@@ -17,6 +17,7 @@ interface ChannelMapping {
   channel_name: string;
   agent_id: string;
   agent_name?: string;
+  agent_visibility?: "private" | "team" | "global" | null;
   slack_workspace_id?: string;
   created_by?: string;
   created_at?: string;
@@ -27,6 +28,7 @@ interface ChannelMapping {
 interface AgentOption {
   _id: string;
   name: string;
+  visibility?: "private" | "team" | "global";
 }
 
 interface SlackChannelMappingTabProps {
@@ -63,10 +65,13 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
       if (agentJson.success) {
         const agentList = Array.isArray(agentJson.data) ? agentJson.data : [];
         setAgents(
-          agentList.map((a: AgentOption) => ({
-            _id: String(a._id),
-            name: String(a.name),
-          }))
+          agentList
+            .map((a: AgentOption) => ({
+              _id: String(a._id),
+              name: String(a.name),
+              visibility: a.visibility,
+            }))
+            .filter((a: AgentOption) => a.visibility !== "private")
         );
       }
     } catch (e) {
@@ -190,10 +195,15 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
                   <option value="">Select agent...</option>
                   {agents.map((a) => (
                     <option key={a._id} value={a._id}>
-                      {a.name}
+                      {a.name}{a.visibility ? ` (${a.visibility})` : ""}
                     </option>
                   ))}
                 </select>
+                {agents.length === 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Slack channel mappings require a team-shared or global agent.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex gap-2">
@@ -243,6 +253,11 @@ export function SlackChannelMappingTab({ isAdmin }: SlackChannelMappingTabProps)
                         {m.agent_name || m.agent_id}
                         {m.stale_agent && m.active && (
                           <span title="Agent may have been deleted or disabled">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                          </span>
+                        )}
+                        {m.agent_visibility === "private" && m.active && (
+                          <span title="Private agents cannot be used for Slack channel routing">
                             <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                           </span>
                         )}

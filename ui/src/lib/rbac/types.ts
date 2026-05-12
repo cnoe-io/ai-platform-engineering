@@ -152,7 +152,8 @@ export type AdminTabKey =
   | "audit_logs"
   | "action_audit"
   | "policy"
-  | "ag_policies";
+  | "ag_policies"
+  | "openfga";
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;

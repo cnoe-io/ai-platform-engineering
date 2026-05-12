@@ -22,7 +22,7 @@ SEED_SUB = (
 def wait_ready() -> None:
     for i in range(60):
         try:
-            r = httpx.get(f"{OPENFGA}/v1/stores", timeout=2.0)
+            r = httpx.get(f"{OPENFGA}/stores", timeout=2.0)
             if r.status_code == 200:
                 return
         except httpx.HTTPError:
@@ -36,12 +36,12 @@ def main() -> None:
     wait_ready()
 
     with httpx.Client(timeout=60.0) as client:
-        r = client.get(f"{OPENFGA}/v1/stores")
+        r = client.get(f"{OPENFGA}/stores")
         r.raise_for_status()
         stores = r.json().get("stores", [])
         store_id = next((s["id"] for s in stores if s.get("name") == STORE_NAME), None)
         if not store_id:
-            r = client.post(f"{OPENFGA}/v1/stores", json={"name": STORE_NAME})
+            r = client.post(f"{OPENFGA}/stores", json={"name": STORE_NAME})
             r.raise_for_status()
             store_id = r.json()["id"]
             print(f"created store_id={store_id}")
@@ -51,7 +51,7 @@ def main() -> None:
         model_path = Path(__file__).resolve().parent / "authorization-model.json"
         model_body = json.loads(model_path.read_text())
         r = client.post(
-            f"{OPENFGA}/v1/stores/{store_id}/authorization-models",
+            f"{OPENFGA}/stores/{store_id}/authorization-models",
             json=model_body,
         )
         r.raise_for_status()
@@ -59,18 +59,27 @@ def main() -> None:
         print(f"authorization_model_id={model_id}")
 
         if SEED_SUB:
+            tuple_key = {
+                "user": f"user:{SEED_SUB}",
+                "relation": "can_call",
+                "object": "document:mcp",
+            }
+            r = client.post(
+                f"{OPENFGA}/stores/{store_id}/check",
+                json={"tuple_key": tuple_key},
+            )
+            r.raise_for_status()
+            if r.json().get("allowed"):
+                print(f"tuple already present for user:{SEED_SUB} can_call document:mcp")
+                return
             w = {
                 "writes": {
                     "tuple_keys": [
-                        {
-                            "user": f"user:{SEED_SUB}",
-                            "relation": "can_call",
-                            "object": "document:mcp",
-                        }
+                        tuple_key
                     ]
                 }
             }
-            r = client.post(f"{OPENFGA}/v1/stores/{store_id}/write", json=w)
+            r = client.post(f"{OPENFGA}/stores/{store_id}/write", json=w)
             r.raise_for_status()
             print(f"tuple written for user:{SEED_SUB} can_call document:mcp")
         else:

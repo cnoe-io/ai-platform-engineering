@@ -14,20 +14,16 @@ binds:
         audiences: [{{ audience }}]
         jwks:
           url: {{ jwks_url }}
-      extAuthz:
-        host: openfga-authz-bridge:9100
-        failureMode:
-          denyWithStatus: 403
-        policies:
-          http:
-            requestTimeout: "5s"
-        protocol:
-          http:
-            path: '"/check"'
-        includeRequestHeaders:
-          - authorization
     routes:
     - policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode:
+            denyWithStatus: 403
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub}'
         authorization:
           rules:
           - deny: '!has(jwt.sub)'

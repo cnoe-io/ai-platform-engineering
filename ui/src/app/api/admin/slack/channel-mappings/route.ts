@@ -22,6 +22,13 @@ type ChannelAgentMappingDoc = {
   active: boolean;
 };
 
+type ChannelMappedAgentDoc = {
+  _id: string;
+  name?: string;
+  enabled?: boolean;
+  visibility?: "private" | "team" | "global";
+};
+
 function requireMongo() {
   if (!isMongoDBConfigured) {
     throw new ApiError("MongoDB is not configured", 503);
@@ -34,17 +41,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     requireMongo();
 
     const coll = await getCollection<ChannelAgentMappingDoc>(COLLECTION);
-    const agents = await getCollection<{ _id: string; name: string }>("dynamic_agents");
+    const agents = await getCollection<ChannelMappedAgentDoc>("dynamic_agents");
     const raw = await coll.find({}).sort({ created_at: -1 }).limit(500).toArray();
 
     const items = await Promise.all(
       raw.map(async (m) => {
         let agentName = "";
         let agentMissing = false;
+        let agentVisibility: ChannelMappedAgentDoc["visibility"] | null = null;
         try {
           const a = await agents.findOne({ _id: m.agent_id as unknown as string });
           if (!a) agentMissing = true;
-          else agentName = String(a.name ?? "");
+          else {
+            agentName = String(a.name ?? "");
+            agentVisibility = a.visibility ?? null;
+          }
         } catch {
           agentMissing = true;
         }
@@ -61,6 +72,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           created_at: m.created_at?.toISOString?.() ?? null,
           active: m.active !== false,
           stale_agent: agentMissing,
+          agent_visibility: agentVisibility,
         };
       })
     );
@@ -96,10 +108,19 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         ? body.workspace_id.trim()
         : "unknown";
 
-    const agents = await getCollection<{ _id: string; name: string }>("dynamic_agents");
+    const agents = await getCollection<ChannelMappedAgentDoc>("dynamic_agents");
     const agentOk = await agents.findOne({ _id: body.agent_id.trim() as unknown as string });
     if (!agentOk) {
       throw new ApiError("Agent does not exist", 400);
+    }
+    if (agentOk.enabled === false) {
+      throw new ApiError("Disabled agents cannot be mapped to Slack channels", 400);
+    }
+    if (agentOk.visibility === "private") {
+      throw new ApiError(
+        "Private agents cannot be mapped to Slack channels. Share the agent with a team or make it global first.",
+        400
+      );
     }
 
     const coll = await getCollection<ChannelAgentMappingDoc>(COLLECTION);

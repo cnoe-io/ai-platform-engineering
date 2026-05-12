@@ -4,60 +4,46 @@
  * Proxies to the Dynamic Agents backend /api/v1/middleware endpoint.
  * Returns middleware definitions for dynamic UI rendering.
  *
- * This endpoint does not require authentication - it returns static metadata.
+ * Although the backend route returns static metadata, the dynamic-agents
+ * service runs with `DA_REQUIRE_BEARER=true`, so every request must carry
+ * the user's session JWT.
  */
 
-import { NextRequest } from "next/server";
-import { getServerConfig } from "@/lib/config";
+import { NextRequest, NextResponse } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
+  authenticateRequest,
+  getDynamicAgentsConfig,
+  proxyRequest,
+} from "@/lib/da-proxy";
 
 /**
  * GET /api/dynamic-agents/middleware
  * List available middleware types and their configuration options.
  */
-export const GET = withErrorHandler(async (request: NextRequest) => {
-  const config = getServerConfig();
+export async function GET(request: NextRequest): Promise<Response> {
+  const authResult = await authenticateRequest(request);
+  if (authResult instanceof NextResponse) return authResult;
 
-  if (!config.dynamicAgentsEnabled) {
-    throw new ApiError("Dynamic agents are not enabled", 403);
-  }
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
 
-  const dynamicAgentsUrl = config.dynamicAgentsUrl;
-  if (!dynamicAgentsUrl) {
-    throw new ApiError("Dynamic agents URL not configured", 500);
-  }
+  const backendUrl = new URL(
+    "/api/v1/middleware",
+    daConfig.dynamicAgentsUrl,
+  );
 
-  try {
-    const response = await fetch(`${dynamicAgentsUrl}/api/v1/middleware`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+  const response = await proxyRequest(
+    backendUrl.toString(),
+    "GET",
+    authResult,
+    "[middleware]",
+  );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(
-        `Backend error: ${response.status} - ${errorText}`,
-        response.status
-      );
-    }
+  if (!response.ok) return response;
 
-    const data = await response.json();
-
-    // Backend returns { success: true, data: { middleware: [...] } }
-    return successResponse(data.data?.middleware || []);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-    throw new ApiError(
-      `Failed to fetch middleware definitions: ${error instanceof Error ? error.message : "Unknown error"}`,
-      500
-    );
-  }
-});
+  const payload = await response.json();
+  return NextResponse.json({
+    success: true,
+    data: payload.data?.middleware || [],
+  });
+}

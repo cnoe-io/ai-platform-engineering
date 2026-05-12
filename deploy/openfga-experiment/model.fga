@@ -1,11 +1,37 @@
-# Minimal model for AgentGateway + ext_authz + OpenFGA dev PDP.
-# Optional tuple written at init: user:<keycloak_sub> can_call document:mcp
-# Bridge maps JWT `sub` → user:<sub> and checks can_call on document:mcp.
+# CAIPE ReBAC model for AgentGateway + OpenFGA.
+#
+# Coarse AGW gate:
+#   user:<keycloak_sub> can_call document:mcp
+#
+# Team Resources admin UI reconciles:
+#   user:<keycloak_sub> member team:<slug>
+#   team:<slug>#member can_use agent:<agent_id>
+#   team:<slug>#member can_manage agent:<agent_id>
+#   team:<slug>#member can_call tool:<tool_prefix>
 
 model
   schema 1.1
 
 type user
+
+type team
+  relations
+    define member: [user]
+
+type agent
+  relations
+    define can_use: [team#member]
+    define can_manage: [team#member]
+
+type tool
+  relations
+    define can_call: [team#member]
+
+type knowledge_base
+  relations
+    define can_read: [team#member]
+    define can_ingest: [team#member]
+    define can_admin: [team#member]
 
 type document
   relations

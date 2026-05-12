@@ -40,6 +40,7 @@ const TAB_LABELS: Record<string, string> = {
   action_audit: "Action Audit",
   policy: "Policy",
   ag_policies: "AG MCP Policies",
+  openfga: "OpenFGA ReBAC",
 };
 
 export function CelTabPoliciesEditor({ isAdmin }: CelTabPoliciesEditorProps) {

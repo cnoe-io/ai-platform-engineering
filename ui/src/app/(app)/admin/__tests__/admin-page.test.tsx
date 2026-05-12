@@ -68,6 +68,10 @@ jest.mock('@/components/admin/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
+jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
+  OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
+}));
+
 jest.mock('@/components/admin/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
 }));
@@ -201,6 +205,8 @@ const allGatesOpen = {
   audit_logs: true,
   action_audit: true,
   policy: true,
+  ag_policies: true,
+  openfga: true,
 };
 
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {

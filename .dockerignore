@@ -74,6 +74,12 @@ build/
 # Allow build directory files needed for Docker builds
 !build/Dockerfile*
 !build/*.sh
+
+# UI build artifacts must never enter the root Docker build context. If a
+# stale `.next` directory is copied before `next build`, Turbopack can reuse
+# obsolete server route chunks even when the TypeScript source has changed.
+ui/.next/
+ui/node_modules/
 develop-eggs/
 dist/
 downloads/

@@ -28,6 +28,7 @@ import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
 import { AgMcpPoliciesEditor } from "@/components/admin/AgMcpPoliciesEditor";
+import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
 import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
 import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTab";
@@ -204,7 +205,7 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'action-audit', 'roles', 'slack', 'ag-policies'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'action-audit', 'roles', 'slack', 'ag-policies', 'openfga'] as const;
 
 type CategoryKey = 'people' | 'insights' | 'platform' | 'security';
 
@@ -261,6 +262,7 @@ const CATEGORIES: Category[] = [
       { value: 'action-audit', label: 'Action Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'policy', label: 'Policy', icon: Shield, gateKey: 'policy' },
       { value: 'ag-policies', label: 'AG MCP Policies', icon: Shield, gateKey: 'ag_policies' },
+      { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
     ],
   },
 ];
@@ -2475,6 +2477,10 @@ function AdminPage() {
 
               <TabsContent value="ag-policies" className="space-y-4">
                 <AgMcpPoliciesEditor isAdmin={isAdmin} />
+              </TabsContent>
+
+              <TabsContent value="openfga" className="space-y-4">
+                <OpenFgaRebacTab isAdmin={isAdmin} />
               </TabsContent>
 
               <TabsContent value="roles" className="space-y-4">

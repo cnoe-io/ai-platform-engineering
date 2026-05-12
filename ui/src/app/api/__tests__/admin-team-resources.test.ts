@@ -66,6 +66,13 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   removeRealmRolesFromUser: (...a: unknown[]) => mockRemoveRealmRolesFromUser(...a),
 }));
 
+const mockBuildTeamResourceTupleDiff = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
+jest.mock("@/lib/rbac/openfga", () => ({
+  buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
+  writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
+}));
+
 function setDefaultPermissionMock(allow: boolean) {
   const { checkPermission } = require("@/lib/rbac/keycloak-authz") as {
     checkPermission: jest.Mock;
@@ -149,6 +156,8 @@ beforeEach(() => {
     clientRole: false,
     containerId: "caipe",
   }));
+  mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
+  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
 });
 
 async function loadRoute() {
@@ -160,6 +169,10 @@ async function loadRoute() {
     findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
     assignRealmRolesToUser: (...a: unknown[]) => mockAssignRealmRolesToUser(...a),
     removeRealmRolesFromUser: (...a: unknown[]) => mockRemoveRealmRolesFromUser(...a),
+  }));
+  jest.doMock("@/lib/rbac/openfga", () => ({
+    buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
+    writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
   }));
   jest.doMock("@/lib/mongodb", () => ({
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -322,6 +335,73 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     // otherwise re-saving on the next page load would re-trigger reconciliation
     // with stale state.
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles OpenFGA tuples from team resources before persisting Mongo", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      ...teamWith({ agents: ["agent-old"], tools: [] }),
+      slug: "platform-engineering",
+    });
+    mockCollections["teams"] = teamsCol;
+    const tupleDiff = {
+      writes: [
+        { user: "team:platform-engineering#member", relation: "can_use", object: "agent:agent-new" },
+      ],
+      deletes: [],
+    };
+    mockBuildTeamResourceTupleDiff.mockReturnValue(tupleDiff);
+
+    const { PUT } = await loadRoute();
+
+    const res = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({ agents: ["agent-new"], tools: ["jira_*"] }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith({
+      teamSlug: "platform-engineering",
+      memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
+      agents: { added: ["agent-new"], removed: ["agent-old"] },
+      agentAdmins: { added: [], removed: [] },
+      tools: { added: ["jira_*"], removed: [] },
+      toolWildcard: { added: false, removed: false },
+    });
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith(tupleDiff);
+    expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not persist Mongo when OpenFGA reconciliation fails", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      ...teamWith({ agents: [], tools: [] }),
+      slug: "platform-engineering",
+    });
+    mockCollections["teams"] = teamsCol;
+    mockWriteOpenFgaTupleDiff.mockRejectedValue(new Error("OpenFGA unavailable"));
+
+    const { PUT } = await loadRoute();
+
+    const res = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({ agents: ["agent-new"], tools: [] }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(500);
+    expect(teamsCol.updateOne).not.toHaveBeenCalled();
   });
 
   it("rejects malformed body (non-string array element)", async () => {

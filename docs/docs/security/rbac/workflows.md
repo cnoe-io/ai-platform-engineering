@@ -278,11 +278,16 @@ Every Slack channel can be mapped to exactly one dynamic agent (1:1 mapping). Wh
    - `visibility = private` → deny (private agents are not appropriate for channel routing)
 4. **Route**: pass the resolved `agent_id` to the chat/stream call; fallback to YAML config default if no mapping exists
 
+The Slack YAML config still registers which channels the bot listens to, but
+RBAC mode does **not** require an agent binding in that YAML. A valid active
+MongoDB `channel_agent_mappings` row is enough to dispatch the message to the
+dynamic agent.
+
 ### Admin UI
 
 Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings**.
 
-- Dropdown lists all dynamic agents visible to the admin
+- Dropdown lists only routable dynamic agents (`global` or `team`). Private agents are intentionally excluded and the API rejects them because channel messages represent shared channel context, not the agent owner's private workspace.
 - Upsert semantics: creating a new mapping for an already-mapped channel replaces the old mapping
 - Deactivating a mapping (soft delete) falls back to the YAML config default agent
 

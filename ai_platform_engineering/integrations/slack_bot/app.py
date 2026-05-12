@@ -35,7 +35,7 @@ from utils.hitl_handler import HITLCallbackHandler
 from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
-from utils.config_models import get_escalation_config
+from utils.config_models import AgentBinding, UsersConfig, get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -320,6 +320,20 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       matched.append(agent)
   return matched
+
+
+def _rbac_agent_match(context, *, listen: str = "message") -> AgentBinding | None:
+  """Return a synthetic agent binding for a MongoDB channel→agent mapping.
+
+  RBAC channel routing is configured in MongoDB, not the legacy Slack YAML.
+  The channel still needs to be registered in YAML so the bot knows which
+  channels to listen to, but the actual target agent can come entirely from
+  the RBAC middleware.
+  """
+  rbac_agent_id = _channel_agent_id_from_context(context)
+  if not rbac_agent_id:
+    return None
+  return AgentBinding(agent_id=rbac_agent_id, users=UsersConfig(listen=listen))
 
 
 def _resolve_escalation(channel_config, agent_id: str | None = None):
@@ -1227,7 +1241,13 @@ def handle_message_events(body, say, client, context=None):
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
   if not matches:
-    return
+    rbac_match = _rbac_agent_match(context, listen="message")
+    if not rbac_match:
+      return
+    logger.info(
+      f"[{event.get('ts')}] Routing via RBAC channel mapping to agent={rbac_match.agent_id}"
+    )
+    matches = [rbac_match]
 
   # First-match wins: config order is the priority order. Only one agent responds
   # per event so that thread memory stays coherent on follow-ups.

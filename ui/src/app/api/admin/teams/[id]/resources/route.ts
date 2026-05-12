@@ -44,6 +44,10 @@ import {
   removeRealmRolesFromUser,
   type KeycloakRole,
 } from "@/lib/rbac/keycloak-admin";
+import {
+  buildTeamResourceTupleDiff,
+  writeOpenFgaTupleDiff,
+} from "@/lib/rbac/openfga";
 import type { Team, TeamMember } from "@/types/teams";
 
 interface DynamicAgentLite {
@@ -290,6 +294,7 @@ export const PUT = withErrorHandler(
       const members: TeamMember[] = team.members ?? [];
       const skippedMembers: string[] = [];
       const updatedMembers: string[] = [];
+      const resolvedMemberUserIds: string[] = [];
 
       const rolesToAdd: KeycloakRole[] = [
         ...addedAgentRoles,
@@ -318,6 +323,7 @@ export const PUT = withErrorHandler(
             if (rolesToRemove.length > 0) {
               await removeRealmRolesFromUser(userId, rolesToRemove);
             }
+            resolvedMemberUserIds.push(userId);
             updatedMembers.push(m.user_id);
           } catch (err) {
             // One member failure shouldn't poison the rest. Log + continue.
@@ -330,7 +336,25 @@ export const PUT = withErrorHandler(
         }
       }
 
-      // ── 3. Persist selection on the team document.
+      // ── 3. Reconcile OpenFGA ReBAC tuples before Mongo persistence.
+      //
+      //    Keycloak remains the source for JWT role materialization while OpenFGA
+      //    owns relationship facts. Keep the same ordering contract as KC:
+      //    fail before Mongo if the remote PDP state cannot be reconciled.
+      const openFgaTupleDiff = buildTeamResourceTupleDiff({
+        teamSlug: team.slug || id,
+        memberUserIds: resolvedMemberUserIds,
+        agents: agentDiff,
+        agentAdmins: agentAdminDiff,
+        tools: toolDiff,
+        toolWildcard: {
+          added: wildcardDiff.added.length > 0,
+          removed: wildcardDiff.removed.length > 0,
+        },
+      });
+      const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
+
+      // ── 4. Persist selection on the team document.
       const now = new Date();
       await teamsCol.updateOne(
         { _id: teamId } as never,
@@ -371,6 +395,7 @@ export const PUT = withErrorHandler(
         },
         members_updated: updatedMembers,
         members_skipped: skippedMembers,
+        openfga,
       });
     });
   }
