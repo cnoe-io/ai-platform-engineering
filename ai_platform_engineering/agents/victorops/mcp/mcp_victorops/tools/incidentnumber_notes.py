@@ -4,6 +4,7 @@
 
 """Tools for /api-public/v1/incidents/{incidentNumber}/notes operations"""
 
+import json
 import logging
 from typing import Dict, Any , Optional
 from ..api.client import make_api_request, assemble_nested_body
@@ -13,7 +14,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
 
 
-async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber: str, org_slug: Optional[str] = None) -> Dict[str, Any]:
+async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber: str, org_slug: Optional[str] = None) -> str:
     """
         Get the notes associated with an incident
 
@@ -51,10 +52,11 @@ async def get_api_public_v1_incidents_incident_number_notes(path_incidentNumber:
         # VictorOps returns 404 when an incident has no notes — treat as empty
         if "404" in error_msg:
             logger.debug(f"No notes found for incident {path_incidentNumber}")
-            return {"notes": []}
+            return json.dumps({"notes": []}, indent=2)
         logger.error(f"Request failed: {error_msg}")
-        return {"error": error_msg or "Request failed"}
-    return response
+        return json.dumps({"error": error_msg or "Request failed"}, indent=2)
+    wrapped = {"notes": response} if isinstance(response, list) else response
+    return json.dumps(wrapped, indent=2, default=str)
 
 
 async def post_api_public_v1_incidents_incident_number_notes(
@@ -63,7 +65,7 @@ async def post_api_public_v1_incidents_incident_number_notes(
     body_display_name: Optional[str]  = None,
     body_json_value: Optional[Dict[str, Any]] = None,
     org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
         Create a new Note
 
@@ -110,5 +112,5 @@ async def post_api_public_v1_incidents_incident_number_notes(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)

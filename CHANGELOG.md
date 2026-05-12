@@ -1,3 +1,67 @@
+## 0.4.11 (2026-05-12)
+
+## 0.4.10-dev.4 (2026-05-12)
+
+### Feat
+
+- **admin**: improve Supervisor Skills badge labels and add tooltips
+- **skills**: add HIDE_BUILTIN_SKILLS flag and catalog key bypass for auth middleware
+
+### Fix
+
+- **auth**: restrict catalog key bypass to /skills/refresh path only
+
+## 0.4.10-dev.3 (2026-05-12)
+
+### Fix
+
+- **auth**: replace brittle new-tab session refresh
+
+## 0.4.10-dev.2 (2026-05-12)
+
+### Feat
+
+- **ci**: prebuild comment to be merged to one not per img
+- **overthink**: replace ambiguous "the bot" with mechanism description
+- **overthink**: rewrite boilerplate as stepwise prompt with explicit precedence
+
+### Fix
+
+- **skills**: remove duplicate quick install command
+- **skills**: simplify minted key install options
+- **skills**: remove stale supervisor sync indicators
+- **skills**: install Claude helper skills natively
+- **skills**: use branded helper slash commands
+- **skills**: preserve Claude settings on purge
+- **skills**: use shared agents skill directory
+- **skills**: protect quick install secrets
+- **ci**: repair gateway PR checks
+- **skills**: simplify gateway install experience
+- **skills**: remove quick install summary chips
+- **skills**: clarify quick install API key gate
+- **skills**: widen gateway content layout
+- **skills**: correct launch guidance wording
+- **skills**: link to agent setup docs
+- **skills**: collapse quick install advanced options
+- **skills**: clarify launch guide commands
+- **skills**: simplify gateway quick install flow
+- **skills**: remove pagination from quick-install catalog URL
+- **charts**: exclude caipe-ui from ServiceMonitor scraping
+- **charts**: exclude non-metrics services from ServiceMonitor scraping
+
+## 0.4.10-dev.1 (2026-05-09)
+
+### Feat
+
+- **victorops**: consolidate to v2 reporting incidents, drop slim projections
+
+### Fix
+
+- **docs**: replace relative RUN.md link with GitHub URL in 0.3.x migration guide
+- **ci**: add permissions: contents: read to docs-build-check workflow
+- **docs**: escape MDX angle bracket in spec plan + add PR build check
+- **victorops**: drop unused typing imports from chat tool
+
 ## 0.4.10 (2026-05-08)
 
 ### Feat

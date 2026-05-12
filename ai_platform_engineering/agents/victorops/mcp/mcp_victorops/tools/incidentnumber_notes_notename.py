@@ -4,6 +4,7 @@
 
 """Tools for /api-public/v1/incidents/{incidentNumber}/notes/{noteName} operations"""
 
+import json
 import logging
 from typing import Dict, Any , Optional
 from ..api.client import make_api_request, assemble_nested_body
@@ -20,7 +21,7 @@ async def put_api_public_v1_incidents_incident_number_notes_note_name(
     body_display_name: Optional[str] = None,
     body_json_value: Optional[Dict[str, Any]] = None,
     org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
         Update a Note
 
@@ -69,13 +70,13 @@ async def put_api_public_v1_incidents_incident_number_notes_note_name(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)
 
 
 async def delete_api_public_v1_incidents_incident_number_notes_note_name(
     path_incidentNumber: str, path_noteName: str, org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
         Delete a Note
 
@@ -116,5 +117,5 @@ async def delete_api_public_v1_incidents_incident_number_notes_note_name(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)
