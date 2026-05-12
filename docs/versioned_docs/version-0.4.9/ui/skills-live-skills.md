@@ -5,7 +5,7 @@ title: Live-skills (`/skills` slash command)
 
 # Live-skills (`/skills` slash command)
 
-The **Skills API Gateway** page (UI → *Skills* → *Skills API Gateway*) renders
+The **Skills Gateway** page (UI → *Skills* → *Skills Gateway*) renders
 a copy-pasteable slash command that lets a coding agent (Claude Code, Cursor,
 Spec Kit, etc.) browse, search, run, install, and update skills served by the
 CAIPE skill catalog.
@@ -23,7 +23,7 @@ image.
 | Helm ConfigMap   | `skills-live-skills` (key `live-skills.md`)                          |
 | Mounted in pod   | `/app/data/skills-live-skills/live-skills.md` on the `caipe-ui` pod  |
 | Served at        | `GET /api/skills/live-skills` (returns `{ template, source, … }`)  |
-| Rendered in      | `Skills API Gateway` UI → "Create the live-skills skill" card      |
+| Rendered in      | `Skills Gateway` UI → "Create the live-skills skill" card      |
 
 The UI substitutes three placeholders client-side based on the form fields
 on the page:
@@ -151,7 +151,7 @@ path.
 
 ## What the user sees
 
-Once the template is in place, the **Skills API Gateway** page lets the user:
+Once the template is in place, the **Skills Gateway** page lets the user:
 
 - Pick a **slash command name** (`skills` by default).
 - Pick a **description** (rendered into the artifact's frontmatter / metadata).

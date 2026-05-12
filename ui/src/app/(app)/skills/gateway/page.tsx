@@ -30,7 +30,7 @@ export default function SkillsGatewayPage() {
             )}
           >
             <Waypoints className="h-4 w-4 shrink-0" strokeWidth={2.25} />
-            Skills API Gateway
+            Skills Gateway
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-6">

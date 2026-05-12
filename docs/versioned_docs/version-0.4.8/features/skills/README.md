@@ -18,7 +18,7 @@ can be:
   Cursor, Codex CLI, Gemini CLI, or opencode (via the
   [`/api/skills/install.sh`](#install-on-your-laptop) one-liner), or
 - **fetched on demand by an external coding agent** through the
-  [Skills API Gateway](#wire-your-coding-agent-to-the-live-catalog) — the agent calls the catalog
+  [Skills Gateway](#wire-your-coding-agent-to-the-live-catalog) — the agent calls the catalog
   REST API directly rather than copying anything to disk.
 
 This doc is the umbrella reference. For the exhaustive feature contracts,
@@ -54,7 +54,7 @@ shared header**:
 | Page                    | URL              | What you do here                                                                                              |
 | ----------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Skills Gallery**      | `/skills`        | Browse the merged catalog, open the workspace editor, run **AI Assist** (`POST /api/skills/generate`), import from GitHub / GitLab, manage revisions. |
-| **Skills API Gateway**  | `/skills/gateway`| Mint a catalog API key, copy the install one-liner, get the per-agent launch guide, render the `/skills` slash command for your coding agent. |
+| **Skills Gateway**  | `/skills/gateway`| Mint a catalog API key, copy the install one-liner, get the per-agent launch guide, render the `/skills` slash command for your coding agent. |
 
 The Gallery is where skills are **authored and managed**; the Gateway is
 where you **wire CAIPE up to your coding agent**. You can use either alone.
@@ -69,7 +69,7 @@ disk. The catalog the supervisor reads is filtered by the configured
 
 ### Install on your laptop
 
-The Skills API Gateway page renders a one-line installer. Run it once:
+The Skills Gateway page renders a one-line installer. Run it once:
 
 ```bash
 curl -fsSL "<gateway>/api/skills/install.sh?agent=claude&scope=user" | bash
@@ -258,7 +258,7 @@ The UI's `next dev` only sees variables set in `ui/.env.local` —
 | `skill_hubs`       | Hub registrations (GitHub / GitLab, `include_paths`, credentials ref, schedule). |
 | `hub_skills`       | Cache of `SKILL.md` files crawled from registered hubs. Read-only.          |
 | `skill_scan_findings` | Scanner output keyed by skill content hash. Drives the [scan gate](#scan-gating). |
-| `catalog_api_keys` | Hashes + metadata of catalog API keys minted from the Skills API Gateway.   |
+| `catalog_api_keys` | Hashes + metadata of catalog API keys minted from the Skills Gateway.   |
 
 For the index strategy and field-by-field types, see
 [data-model.md](../../specs/2026-04-29-skills-api-unification/data-model.md)
@@ -266,7 +266,7 @@ in the unification spec.
 
 ### Catalog API keys
 
-The Skills API Gateway mints **catalog API keys** (`catalog_api_keys`
+The Skills Gateway mints **catalog API keys** (`catalog_api_keys`
 collection) that the install one-liner and external coding agents send
 as `X-Caipe-Catalog-Key`. Key values are stored hashed; the cleartext
 token is shown to the user once at mint time.

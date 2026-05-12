@@ -7,7 +7,7 @@
 
 ## Background
 
-The CAIPE Skills API Gateway today exposes `/api/skills/install.sh` — a one-line `curl | bash` installer that drops every catalog skill onto a user's machine in a per-agent file format and directory layout. It supports two layouts (`commands` and `skills`) and four file formats (`markdown-frontmatter`, `markdown-plain`, `gemini-toml`, `continue-json-fragment`), driven by the agent registry in `ui/src/app/api/skills/live-skills/agents.ts`.
+The CAIPE Skills Gateway today exposes `/api/skills/install.sh` — a one-line `curl | bash` installer that drops every catalog skill onto a user's machine in a per-agent file format and directory layout. It supports two layouts (`commands` and `skills`) and four file formats (`markdown-frontmatter`, `markdown-plain`, `gemini-toml`, `continue-json-fragment`), driven by the agent registry in `ui/src/app/api/skills/live-skills/agents.ts`.
 
 Since shipping that installer, the four major coding agents that we target (Claude Code, Cursor, Codex CLI, Gemini CLI) plus a fifth (opencode) have **all** standardized on the open `agentskills.io` `SKILL.md` format under a `skills/<name>/SKILL.md` tree (see [Claude Code](https://docs.claude.com/en/docs/claude-code/skills), [Cursor](https://cursor.com/docs/skills), [Codex](https://developers.openai.com/codex/skills), [Gemini CLI](https://geminicli.com/docs/cli/skills/), [opencode](https://opencode.ai/docs/skills/)). All five also auto-discover from a vendor-neutral `~/.agents/skills/` mirror. Continue and Spec Kit, the two outliers we previously had to special-case, are no longer worth carrying.
 
