@@ -551,26 +551,20 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await within(dialog).findByText(/API key minted/i);
     expect(within(dialog).queryByText(/API key required/i)).toBeNull();
 
-    // The full key should not be visible by default after mint. Users can
-    // copy it without revealing it, or explicitly reveal it if they need to
-    // inspect/paste manually.
+    // The full key should not be visible by default after mint. The
+    // recommended bootstrap command carries it in masked form unless the
+    // user explicitly reveals it.
     expect(within(dialog).queryByText(mintedKeyValue)).toBeNull();
-    expect(within(dialog).getByText(/^FAKE-T\*+-USE$/)).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(/cannot show this key\s+again/i);
+    expect(within(dialog).queryByText(/Option A/i)).toBeNull();
+    expect(within(dialog).queryByText(/Two options/i)).toBeNull();
     expect(
-      within(dialog).getByText(/cannot show it again/i),
-    ).toBeInTheDocument();
-
-    const copyApiKey = within(dialog).getByRole("button", {
-      name: /copy api key/i,
-    });
-    const liveWriteText = jest.spyOn(navigator.clipboard, "writeText");
-    await user.click(copyApiKey);
-    expect(liveWriteText).toHaveBeenLastCalledWith(mintedKeyValue);
+      within(dialog).getByTestId("quick-install-bootstrap-snippet"),
+    ).toHaveTextContent("FAKE-T**************-USE");
 
     await user.click(
       within(dialog).getByRole("button", { name: /show api key/i }),
     );
-    expect(within(dialog).getByText(mintedKeyValue)).toBeInTheDocument();
     expect(
       within(dialog).getByTestId("quick-install-bootstrap-snippet"),
     ).toHaveTextContent(mintedKeyValue);
@@ -598,18 +592,17 @@ describe("TrySkillsGateway → Quick install modal", () => {
     );
     await within(dialog).findByText(/API key minted/i);
 
-    // After mint, three clipboard-writers exist in the dialog:
-    //   1) Option A — the bare API key (CopyableBlock, icon-only,
-    //      aria-label="Copy API key").
-    //   2) Option B — the bootstrap snippet (CopyableBlock with
-    //      visible text "Copy", inside the
+    // After mint, two clipboard-writers exist in the dialog:
+    //   1) The bootstrap snippet (CopyableBlock with visible text
+    //      "Copy", inside the
     //      `quick-install-bootstrap-snippet` panel).
-    //   3) The "Run this in your terminal" inline button (visible text
+    //   2) The "Run this in your terminal" inline button (visible text
     //      "Copy", `data-testid="quick-install-copy-bare-curl"`),
     //      which is the one this test cares about — the clean
     //      single-line `curl … | bash` that exists regardless of mint
     //      state.
-    // Target #3 by testid so this test stays orthogonal to Options A/B.
+    // Target #2 by testid so this test stays orthogonal to the
+    // bootstrap command.
     clipboardWriteTextMock.mockClear();
     // `userEvent.setup()` installs its own clipboard polyfill that
     // shadows our `Object.defineProperty` mock, so we spy on the live

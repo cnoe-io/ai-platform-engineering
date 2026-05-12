@@ -1770,33 +1770,11 @@ export function TrySkillsGateway() {
                           </Button>
                         </div>
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
-                          ⚠ Copy it now — we cannot show it again. Two
-                          options:
+                          ⚠ Copy this command now — we cannot show this key
+                          again.
                         </div>
 
-                        {/* Option A: bare key, for users who want to
-                            hand-edit ~/.config/caipe/config.json
-                            (matches the previous UX). */}
-                        <div className="space-y-1">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
-                            Option A — paste into{" "}
-                            <code className="font-mono">
-                              ~/.config/caipe/config.json
-                            </code>{" "}
-                            yourself
-                          </p>
-                          <CopyableBlock
-                            as="code"
-                            text={mintedKey}
-                            displayText={
-                              showMintedKey ? mintedKey : maskSecret(mintedKey)
-                            }
-                            ariaLabel="Copy API key"
-                          />
-                        </div>
-
-                        {/* Option B (Option-4 from the install-flow
-                            design): single-shot bootstrap. Writes
+                        {/* Single-shot bootstrap. Writes
                             ~/.config/caipe/config.json with chmod 600
                             then runs the same install one-liner the
                             "Run this in your terminal" block shows
@@ -1833,8 +1811,7 @@ export function TrySkillsGateway() {
                               data-testid="quick-install-bootstrap-snippet"
                             >
                               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
-                                Option B — write config + install in
-                                one shot{" "}
+                                Write config + install in one shot{" "}
                                 <span className="normal-case font-normal text-muted-foreground">
                                   (recommended for first-time setup)
                                 </span>
