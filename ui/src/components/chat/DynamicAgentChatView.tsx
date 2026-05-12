@@ -3,7 +3,9 @@
 import React, { useState } from "react";
 import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "@/components/dynamic-agents/DynamicAgentContext";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
+import { usePanelRef } from "react-resizable-panels";
 
 interface ChatViewProps {
   /** The dynamic agent backend endpoint */
@@ -48,7 +50,7 @@ interface ChatViewProps {
 
 /**
  * Chat view for Dynamic Agents.
- * Combines ChatPanel with DynamicAgentContext (simplified tools/info panel).
+ * Combines ChatPanel with a resizable DynamicAgentContext panel.
  */
 export function ChatView({
   endpoint,
@@ -72,44 +74,70 @@ export function ChatView({
   isLoadingMessages,
 }: ChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
+  const contextPanelRef = usePanelRef();
+
+  const handleCollapse = (collapsed: boolean) => {
+    if (collapsed) {
+      contextPanelRef.current?.collapse();
+    } else {
+      // expand() restores to previous size or minSize
+      contextPanelRef.current?.expand();
+    }
+  };
 
   return (
-    <div className="flex-1 min-w-0 flex h-full">
-      {/* Chat Panel - no fade animation to avoid flash on conversation switch */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <ChatPanel
-          endpoint={endpoint}
-          conversationId={conversationId}
-          conversationTitle={conversationTitle}
-          readOnly={readOnly || agentNotFound || agentDisabled}
-          readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
-          agentId={selectedAgentId}
-          agentGradient={agentGradient}
-          agentCustomTheme={agentCustomTheme}
-          agentName={agentName}
-          agentSkills={agentSkills}
-          isLoadingMessages={isLoadingMessages}
-        />
-      </div>
+    <ResizablePanelGroup direction="horizontal" className="flex-1 min-w-0 h-full">
+      {/* Chat Panel */}
+      <ResizablePanel minSize={40}>
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden h-full">
+          <ChatPanel
+            endpoint={endpoint}
+            conversationId={conversationId}
+            conversationTitle={conversationTitle}
+            readOnly={readOnly || agentNotFound || agentDisabled}
+            readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
+            agentId={selectedAgentId}
+            agentGradient={agentGradient}
+            agentCustomTheme={agentCustomTheme}
+            agentName={agentName}
+            agentSkills={agentSkills}
+            isLoadingMessages={isLoadingMessages}
+          />
+        </div>
+      </ResizablePanel>
+
+      <ResizableHandle />
 
       {/* Context Panel - Dynamic Agent variant */}
-      <DynamicAgentContext
-        conversationId={conversationId}
-        agentId={selectedAgentId}
-        agentName={agentName}
-        agentDescription={agentDescription}
-        agentModel={agentModel}
-        agentVisibility={agentVisibility}
-        agentGradient={agentGradient}
-        agentCustomTheme={agentCustomTheme}
-        allowedTools={allowedTools}
-        subagents={subagents}
-        agentSkills={agentSkills}
-        agentNotFound={agentNotFound}
-        agentDisabled={agentDisabled}
-        collapsed={contextPanelCollapsed}
-        onCollapse={setContextPanelCollapsed}
-      />
-    </div>
+      <ResizablePanel
+        panelRef={contextPanelRef}
+        defaultSize="64px"
+        minSize="340px"
+        maxSize="70%"
+        collapsible
+        collapsedSize="64px"
+        onResize={(size) => {
+          setContextPanelCollapsed(size.inPixels <= 80);
+        }}
+      >
+        <DynamicAgentContext
+          conversationId={conversationId}
+          agentId={selectedAgentId}
+          agentName={agentName}
+          agentDescription={agentDescription}
+          agentModel={agentModel}
+          agentVisibility={agentVisibility}
+          agentGradient={agentGradient}
+          agentCustomTheme={agentCustomTheme}
+          allowedTools={allowedTools}
+          subagents={subagents}
+          agentSkills={agentSkills}
+          agentNotFound={agentNotFound}
+          agentDisabled={agentDisabled}
+          collapsed={contextPanelCollapsed}
+          onCollapse={handleCollapse}
+        />
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }

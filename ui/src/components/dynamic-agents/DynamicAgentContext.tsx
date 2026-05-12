@@ -11,9 +11,11 @@ import {
   RefreshCw,
   Download,
   Server,
+  FolderOpen,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { FileTree } from "@/components/dynamic-agents/FileTree";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
 import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
@@ -121,6 +123,56 @@ export function DynamicAgentContext({
     return () => { cancelled = true; };
   }, [subagents, session?.accessToken]);
 
+  // File browser state
+  const [showFiles, setShowFiles] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+
+  const handleToggleFiles = useCallback(async () => {
+    if (showFiles) {
+      setShowFiles(false);
+      return;
+    }
+    if (!agentId || !conversationId) return;
+
+    setShowFiles(true);
+    setIsLoadingFiles(true);
+    try {
+      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
+      const res = await fetch(`/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  }, [showFiles, agentId, conversationId]);
+
+  const handleFileDownload = useCallback(async (path: string) => {
+    if (!agentId || !conversationId) return;
+    try {
+      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
+      const res = await fetch(`/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const blob = new Blob([data.content || ""], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = path.split("/").pop() || "file";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      // ignore
+    }
+  }, [agentId, conversationId]);
+
   // Download chat handler
   const handleDownloadChat = useCallback(() => {
     if (!conversation) return;
@@ -199,11 +251,8 @@ export function DynamicAgentContext({
   }, [agentId, conversationId, session?.accessToken, isRestarting, clearStreamEvents]);
 
   return (
-    <motion.div
-      initial={false}
-      animate={{ width: collapsed ? 64 : 340 }}
-      transition={{ duration: 0.2 }}
-      className="relative h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 shrink-0 overflow-hidden"
+    <div
+      className="relative h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 overflow-hidden"
     >
       {/* Header - only show when expanded */}
       {!collapsed && (
@@ -297,6 +346,11 @@ export function DynamicAgentContext({
               agentDisabled={agentDisabled}
               onDownloadChat={handleDownloadChat}
               hasMessages={!!conversation?.messages?.length}
+              showFiles={showFiles}
+              files={files}
+              isLoadingFiles={isLoadingFiles}
+              onToggleFiles={handleToggleFiles}
+              onFileDownload={handleFileDownload}
             />
           </div>
         </ScrollArea>
@@ -326,7 +380,7 @@ export function DynamicAgentContext({
           <ChevronLeft className="h-4 w-4" />
         </button>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -362,6 +416,12 @@ interface AgentInfoContentProps {
   onDownloadChat?: () => void;
   /** Whether there are messages to download */
   hasMessages?: boolean;
+  /** File browser state */
+  showFiles?: boolean;
+  files?: string[];
+  isLoadingFiles?: boolean;
+  onToggleFiles?: () => void;
+  onFileDownload?: (path: string) => void;
 }
 
 function AgentInfoContent({
@@ -383,6 +443,11 @@ function AgentInfoContent({
   agentDisabled,
   onDownloadChat,
   hasMessages,
+  showFiles,
+  files = [],
+  isLoadingFiles,
+  onToggleFiles,
+  onFileDownload,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = allowedTools
@@ -603,6 +668,44 @@ function AgentInfoContent({
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Files Section */}
+      {onToggleFiles && (
+        <div className="space-y-2 pt-2 border-t border-border/50">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <FolderOpen className="h-3.5 w-3.5" />
+            Files
+          </h4>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onToggleFiles}
+            className={cn("w-full justify-center gap-2 text-xs", showFiles && "bg-muted")}
+          >
+            {isLoadingFiles ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FolderOpen className="h-3.5 w-3.5" />
+            )}
+            {showFiles ? "Hide Files" : "Show Files"}
+            {files.length > 0 && (
+              <span className="text-[10px] text-muted-foreground">({files.length})</span>
+            )}
+          </Button>
+          {showFiles && (
+            <div className="mt-2">
+              {files.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No files created yet.</p>
+              ) : (
+                <FileTree
+                  files={files}
+                  onFileClick={onFileDownload}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
