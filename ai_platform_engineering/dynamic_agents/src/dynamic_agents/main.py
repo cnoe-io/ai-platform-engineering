@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 
 from dynamic_agents.config import get_settings
 from dynamic_agents.metrics import PrometheusHTTPMiddleware
-from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
+from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, files, health, mcp_servers, middleware
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
 from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
 
@@ -137,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_servers.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
+    app.include_router(files.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(middleware.router, prefix="/api/v1")
 
