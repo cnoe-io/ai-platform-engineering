@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Grid Neon Icon</title>
+  <desc>Neon sci-fi grid mark evoking AI collaboration</desc>
+
+  <defs>
+    <!-- Neon gradients -->
+    <linearGradient id="gStroke" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+
+    <linearGradient id="gNode" x1="0" y1="0" x2="512" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#D946EF"/>
+    </linearGradient>
+
+    <!-- Glow filter -->
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="6" result="blur1"/>
+      <feColorMatrix in="blur1" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.85 0" result="glow1"/>
+      <feGaussianBlur stdDeviation="14" result="blur2"/>
+      <feColorMatrix in="blur2" type="matrix"
+        values="1 0 0 0 0
+                0 1 0 0 0
+                0 0 1 0 0
+                0 0 0 0.45 0" result="glow2"/>
+      <feMerge>
+        <feMergeNode in="glow2"/>
+        <feMergeNode in="glow1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle inner glow -->
+    <filter id="inner" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2" result="b"/>
+      <feComposite in="b" in2="SourceAlpha" operator="in" result="i"/>
+      <feColorMatrix in="i" type="matrix"
+        values="0 0 0 0 0.12
+                0 0 0 0 0.82
+                0 0 0 0 0.92
+                0 0 0 0.35 0" result="c"/>
+      <feMerge>
+        <feMergeNode in="c"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Icon geometry (transparent background) -->
+  <g filter="url(#glow)">
+    <!-- 3x3 rounded squares -->
+    <!-- Layout: margin 76, tile 104, gap 24 -->
+    <!-- Row 1 -->
+    <rect x="76"  y="76"  width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="204" y="76"  width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="332" y="76"  width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <!-- Row 2 -->
+    <rect x="76"  y="204" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="204" y="204" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="332" y="204" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <!-- Row 3 -->
+    <rect x="76"  y="332" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="204" y="332" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+    <rect x="332" y="332" width="104" height="104" rx="26" stroke="url(#gStroke)" stroke-width="10" filter="url(#inner)"/>
+
+    <!-- Circuit-like connectors (stylized) -->
+    <path d="M256 128 V200" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M128 256 H200" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M312 256 H384" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M256 312 V384" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Diagonals to central nexus -->
+    <path d="M128 128 L236 236" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M384 128 L276 236" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M128 384 L236 276" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M384 384 L276 276" stroke="url(#gStroke)" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Central core -->
+    <rect x="232" y="232" width="48" height="48" rx="14" fill="none" stroke="url(#gStroke)" stroke-width="10"/>
+    <rect x="244" y="244" width="24" height="24" rx="8" fill="url(#gNode)" opacity="0.9"/>
+
+    <!-- Nodes -->
+    <circle cx="128" cy="128" r="12" fill="url(#gNode)"/>
+    <circle cx="384" cy="128" r="12" fill="url(#gNode)"/>
+    <circle cx="128" cy="384" r="12" fill="url(#gNode)"/>
+    <circle cx="384" cy="384" r="12" fill="url(#gNode)"/>
+    <circle cx="256" cy="128" r="10" fill="url(#gNode)"/>
+    <circle cx="128" cy="256" r="10" fill="url(#gNode)"/>
+    <circle cx="384" cy="256" r="10" fill="url(#gNode)"/>
+    <circle cx="256" cy="384" r="10" fill="url(#gNode)"/>
+  </g>
+</svg>

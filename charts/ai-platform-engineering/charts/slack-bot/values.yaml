@@ -37,12 +37,84 @@ serviceAccount:
 #   SLACK_INTEGRATION_PROMPT_MENTION:         Override mention prompt
 #   SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP: Override humble followup prompt
 #   SLACK_INTEGRATION_PROMPT_AI_ALERTS:       Override AI alerts prompt
+#
+# Spec 103 (Just-In-Time Keycloak user creation):
+#   SLACK_JIT_CREATE_USER:               "true" (default) auto-creates a
+#                                        federated-only Keycloak shell user
+#                                        on first Slack DM when no Keycloak
+#                                        user with the Slack profile email
+#                                        exists yet. "false" falls back to
+#                                        sending the existing HMAC-signed
+#                                        linking URL so the user onboards
+#                                        via the web UI before Slack use.
+#                                        Reuses the keycloakAdmin.* credential
+#                                        above — no new Secret to wire (see
+#                                        plan.md R-8 for the accepted trade-off).
+#   SLACK_JIT_ALLOWED_EMAIL_DOMAINS:     Optional comma-separated allowlist
+#                                        of email domains eligible for JIT
+#                                        (e.g. "corp.com,acme.io"). Empty =>
+#                                        any domain. Recommended for prod
+#                                        when the federated IdP can return
+#                                        non-corporate emails.
 config:
   APP_NAME: "CAIPE"
   SLACK_BOT_MODE: "socket"
   CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
   SLACK_INTEGRATION_SILENCE_ENV: "false"
   MONGODB_DATABASE: "caipe"
+  SLACK_JIT_CREATE_USER: "true"
+  SLACK_JIT_ALLOWED_EMAIL_DOMAINS: ""
+
+# -- Cross-chart binding to the Keycloak bot client_secret.
+# When set, the pod's OAUTH2_CLIENT_SECRET env var is sourced via
+# secretKeyRef from the named Secret instead of (or in addition to) the
+# `existingSecret`/`externalSecrets` flat map. This is the recommended
+# wiring when you install the umbrella chart: the keycloak subchart
+# creates `<release>-keycloak-bot` (random in dev, ESO-managed in prod)
+# AND configures Keycloak to use that exact value as the client_secret,
+# so both ends of the OAuth flow stay in sync without duplication.
+#
+# For umbrella installs, just set:
+#   slack-bot:
+#     oauth2:
+#       clientSecretFromSecret:
+#         name: <release>-keycloak-bot
+#         # key: KC_BOT_CLIENT_SECRET    # default — only override if you renamed it
+oauth2:
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_BOT_CLIENT_SECRET"
+
+# -- Cross-chart binding to the Keycloak Admin-API credentials used by the slack-bot
+# for user-attribute lookups (find Keycloak user by `slack_user_id` attribute,
+# read/write `team_id` etc.). This is a SEPARATE auth flow from the OAuth2 OBO
+# above — it uses the `client_credentials` grant on a *confidential* Keycloak
+# client that has `view-users` + `query-users` on `realm-management`.
+#
+# In a default umbrella install, the keycloak subchart provisions
+# `caipe-platform` with those roles, so wiring this to the same secret as the
+# OBO flow is incorrect — they are different clients with different secrets.
+#
+# Set BOTH `clientId` (typically "caipe-platform") and `clientSecretFromSecret`
+# pointing at the K8s/ESO Secret that holds that client's secret. Example for a
+# release named `caipe`:
+#   slack-bot:
+#     keycloakAdmin:
+#       clientId: "caipe-platform"
+#       clientSecretFromSecret:
+#         name: "caipe-keycloak-platform"
+#         key:  "KC_PLATFORM_CLIENT_SECRET"
+#
+# Historical note: pre-098 these were named `KEYCLOAK_ADMIN_*` and shared a
+# namespace with the UI BFF admin vars, which caused a 401 collision in dev.
+# The surface-specific `KEYCLOAK_SLACK_BOT_ADMIN_*` env names eliminate that
+# risk and leave room for future bot surfaces (Webex, Teams, …) without
+# re-namespacing.
+keycloakAdmin:
+  clientId: ""
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_PLATFORM_CLIENT_SECRET"
 
 # -- Reference to a pre-existing Kubernetes Secret.
 # All keys in the secret are injected as env vars via envFrom → secretRef.

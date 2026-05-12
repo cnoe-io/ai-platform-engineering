@@ -17,9 +17,11 @@ import { decodeJwt } from "jose";
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
- * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
+ * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access"; set to empty to disable)
  * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
+ * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
+ * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
  */
 
 // Check if refresh token support should be enabled
@@ -47,6 +49,29 @@ export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_A
 // Users in this group can view admin data but cannot make changes
 // Leave empty to allow all authenticated users to view admin dashboard
 export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "";
+
+// Bootstrap admin emails — solves the chicken-and-egg problem where you
+// need an admin to assign admin roles but can't become admin without one.
+// Comma-separated list of emails that are treated as admin on login.
+// Once real OIDC group mappings or MongoDB roles are configured, remove this.
+const BOOTSTRAP_ADMIN_EMAILS: Set<string> = new Set(
+  (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
+    .split(",")
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
+  console.log(
+    `[Auth] 🔑 Bootstrap admins configured (${BOOTSTRAP_ADMIN_EMAILS.size}):`,
+    Array.from(BOOTSTRAP_ADMIN_EMAILS).join(", ")
+  );
+}
+
+export function isBootstrapAdmin(email: string | undefined | null): boolean {
+  if (!email || BOOTSTRAP_ADMIN_EMAILS.size === 0) return false;
+  return BOOTSTRAP_ADMIN_EMAILS.has(email.toLowerCase());
+}
 
 // Default group claim names to check (in order of priority)
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
@@ -259,6 +284,10 @@ async function refreshAccessToken(token: {
 }) {
   try {
     const issuer = process.env.OIDC_ISSUER;
+    // Server-side calls (discovery + token refresh) prefer OIDC_DISCOVERY_URL so
+    // they can use the Docker-internal hostname while OIDC_ISSUER stays
+    // browser-facing. See provider config below for full rationale.
+    const serverIssuer = process.env.OIDC_DISCOVERY_URL || issuer;
     const clientId = process.env.OIDC_CLIENT_ID;
     const clientSecret = process.env.OIDC_CLIENT_SECRET;
 
@@ -306,7 +335,7 @@ async function refreshAccessToken(token: {
       // Falls back to Keycloak-style path if discovery fails.
       let tokenEndpoint: string;
       try {
-        const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
+        const wellKnownUrl = `${serverIssuer}/.well-known/openid-configuration`;
         const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
         if (discoveryResponse.ok) {
           const discoveryDoc = await discoveryResponse.json();
@@ -314,11 +343,11 @@ async function refreshAccessToken(token: {
           console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
         } else {
           console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
-          tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+          tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
         }
       } catch (discoveryError) {
         console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
-        tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+        tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
       }
 
       console.log("[Auth] Refreshing access token...");
@@ -414,16 +443,24 @@ export const authOptions: NextAuthOptions = {
       id: "oidc",
       name: "SSO",
       type: "oauth",
-      wellKnown: process.env.OIDC_ISSUER
-        ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
-        : undefined,
-      // Request offline_access to get refresh tokens (if enabled)
-      // Falls back to warning-only mode if refresh tokens not available
+      // OIDC_DISCOVERY_URL lets server-side discovery use a Docker-internal URL
+      // (e.g. http://keycloak:7080/realms/caipe) while OIDC_ISSUER stays as the
+      // browser-facing URL (e.g. http://localhost:7080/realms/caipe) so the
+      // "iss" claim in JWTs validates against what the browser was redirected to.
+      // Falls back to OIDC_ISSUER when not set (single-URL deployments).
+      wellKnown: process.env.OIDC_DISCOVERY_URL
+        ? `${process.env.OIDC_DISCOVERY_URL}/.well-known/openid-configuration`
+        : process.env.OIDC_ISSUER
+          ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
+          : undefined,
+      // Keycloak issues regular refresh tokens for confidential clients
+      // without needing offline_access scope. Requesting offline_access
+      // requires extra Keycloak config and causes login failures if not
+      // enabled on the client/realm. Regular refresh tokens are sufficient.
       authorization: {
         params: {
-          scope: ENABLE_REFRESH_TOKEN
-            ? "openid email profile groups offline_access"
-            : "openid email profile groups"
+          scope: "openid email profile groups",
+          ...(process.env.OIDC_IDP_HINT ? { kc_idp_hint: process.env.OIDC_IDP_HINT } : {}),
         }
       },
       idToken: true,
@@ -431,26 +468,76 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.OIDC_CLIENT_ID,
       clientSecret: process.env.OIDC_CLIENT_SECRET,
       profile(profile) {
-        // Handle various OIDC provider claim formats
-        // Duo uses: fullname, firstname, lastname, username
-        // Standard OIDC: name, preferred_username, email
+        // Build display name from available claims.
+        // Keycloak sends standard OIDC: name, given_name, family_name
+        // Duo SSO sends: fullname, firstname, lastname, username
+        const composedName =
+          `${profile.given_name || profile.firstname || ""} ${profile.family_name || profile.lastname || ""}`.trim();
+        const name =
+          profile.name || profile.fullname || composedName ||
+          profile.preferred_username || profile.username || profile.email;
+
+        console.log("[Auth profile] Claims:", {
+          name: profile.name,
+          given_name: profile.given_name,
+          family_name: profile.family_name,
+          fullname: profile.fullname,
+          preferred_username: profile.preferred_username,
+          resolved: name,
+        });
+
         return {
           id: profile.sub,
-          name: profile.fullname || profile.name || profile.preferred_username ||
-                `${profile.firstname || ""} ${profile.lastname || ""}`.trim() ||
-                profile.username || profile.email,
-          email: profile.email || profile.username, // Some providers use username as email
+          name,
+          email: profile.email || profile.username,
           image: profile.picture,
         };
       },
     },
   ],
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
-      // Initial sign in - persist the OAuth tokens
+    async jwt({ token, account, profile, trigger, session: updateData }) {
+      // Strip idToken from existing sessions — it adds ~1KB and pushes
+      // the cookie over the 4096-byte limit, causing chunking loops.
+      if (token.idToken) {
+        delete token.idToken;
+      }
+
+      // Force-refresh when admin changes roles/permissions and calls
+      // update({ forceRefresh: true }) from the client.
+      if (
+        trigger === "update" &&
+        updateData &&
+        typeof updateData === "object" &&
+        (updateData as Record<string, unknown>).forceRefresh &&
+        token.refreshToken
+      ) {
+        console.log("[Auth] Force-refreshing token (role/permission change)");
+        const refreshed = await refreshAccessToken(token) as typeof token;
+        // Re-extract realm roles from the fresh access token
+        if (refreshed.accessToken && !refreshed.error) {
+          try {
+            const parts = (refreshed.accessToken as string).split(".");
+            if (parts.length === 3) {
+              const payload = JSON.parse(
+                Buffer.from(parts[1], "base64url").toString()
+              );
+              const ra = payload.realm_access;
+              if (ra && Array.isArray(ra.roles)) {
+                refreshed.realmRoles = ra.roles;
+                console.log("[Auth] Updated realm roles from refreshed token:", ra.roles);
+              }
+            }
+          } catch (e) {
+            console.warn("[Auth] Could not decode refreshed access token for realm roles:", e);
+          }
+        }
+        return refreshed;
+      }
+
+      // Initial sign in - persist the OAuth tokens (NOT id_token).
       if (account) {
         token.accessToken = account.access_token;
-        token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
 
@@ -496,13 +583,49 @@ export const authOptions: NextAuthOptions = {
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
+        // Extract Keycloak realm_access.roles (098 RBAC)
+        // Realm roles live in a separate claim from IdP groups and must
+        // be merged so that OIDC_REQUIRED_ADMIN_GROUP works for both
+        // IdP group names AND Keycloak realm role names.
+        const realmAccess = profileData.realm_access as { roles?: string[] } | undefined;
+        if (realmAccess?.roles) {
+          token.realmRoles = realmAccess.roles;
+          for (const role of realmAccess.roles) {
+            if (!groups.includes(role)) {
+              groups.push(role);
+            }
+          }
+        }
+
+        // Only store the authorization result and role (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes
+        token.isAuthorized = hasRequiredGroup(groups);
+
+        const email = profileData.email as string | undefined;
+        const adminViaGroup = isAdminUser(groups);
+        const adminViaBootstrap = isBootstrapAdmin(email);
+        token.role = (adminViaGroup || adminViaBootstrap) ? 'admin' : 'user';
+
+        if (adminViaBootstrap && !adminViaGroup) {
+          console.log(`[Auth JWT] ✅ Bootstrap admin granted for ${email} (via BOOTSTRAP_ADMIN_EMAILS)`);
+        }
+
+        // Extract org claim for multi-tenant isolation (FR-020)
+        if (typeof profileData.org === "string") {
+          token.org = profileData.org;
+        }
+
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
         console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
-        console.log('[Auth JWT] Required admin view group:', REQUIRED_ADMIN_VIEW_GROUP);
         console.log('[Auth JWT] User role:', token.role);
-        console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
+        if (token.realmRoles) {
+          console.log('[Auth JWT] Keycloak realm roles:', token.realmRoles);
+        }
+        if (token.org) {
+          console.log('[Auth JWT] Org (tenant):', token.org);
+        }
       }
 
       // NOTE: When trigger === "update" (from updateSession() or refetchInterval),
@@ -606,10 +729,8 @@ export const authOptions: NextAuthOptions = {
 
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
-        // Store access token and ID token for client-side use
         session.accessToken = token.accessToken as string;
-        session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
-        session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
+        session.hasRefreshToken = !!token.refreshToken;
       }
 
       session.error = token.error as string | undefined;
@@ -645,6 +766,10 @@ export const authOptions: NextAuthOptions = {
       // We don't store profile in token anymore (saves session cookie size)
       // Just pass through the sub if available
       session.sub = token.sub as string | undefined;
+
+      // 098 RBAC: Keycloak realm roles and org claim for enterprise RBAC
+      session.realmRoles = token.realmRoles as string[] | undefined;
+      session.org = token.org as string | undefined;
 
       return session;
     },
@@ -724,36 +849,34 @@ export const authOptions: NextAuthOptions = {
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
-    idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
-    hasRefreshToken?: boolean; // Whether refresh token is available
+    hasRefreshToken?: boolean;
     error?: string;
-    // groups removed from session - too large (40+ groups = 8KB cookie!)
-    // Instead, extract groups client-side from idToken when needed
     isAuthorized?: boolean;
-    sub?: string; // User subject ID from OIDC
-    expiresAt?: number; // Access token expiry (Unix timestamp)
-    refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
+    sub?: string;
+    expiresAt?: number;
+    refreshTokenExpiresAt?: number;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
     canAccessDynamicAgents?: boolean; // Whether user can access custom agents
+    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
-    idToken?: string;
     refreshToken?: string;
     expiresAt?: number;
     refreshTokenExpiresAt?: number;
     error?: string;
-    // groups removed - too large (40+ groups = 8KB cookie!)
-    // profile removed - not needed
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
+    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }

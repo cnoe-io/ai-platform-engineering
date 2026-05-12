@@ -27,6 +27,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -44,6 +46,14 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/cel-evaluator', () => ({
+  evaluate: jest.fn().mockReturnValue(true),
+}));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 jest.mock('uuid', () => ({
@@ -386,6 +396,8 @@ describe('POST /api/chat/conversations/[id]/messages — readonly sharing', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: VIEWER_EMAIL, name: 'Viewer' },
+      accessToken: 'test-access-token',
+      sub: 'viewer-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/messages/route');
@@ -425,6 +437,8 @@ describe('POST /api/chat/conversations/[id]/messages — readonly sharing', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: EDITOR_EMAIL, name: 'Editor' },
+      accessToken: 'test-access-token',
+      sub: 'editor-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/messages/route');

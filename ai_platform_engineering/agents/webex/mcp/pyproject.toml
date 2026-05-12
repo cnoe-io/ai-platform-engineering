@@ -12,13 +12,17 @@ keywords = ["webex", "mcp", "llm", "automation"]
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "click==8.3.1",
-    "mcp==1.26.0",
-    "pydantic==2.12.5",
-    "httpx==0.28.1",
-    "python-dotenv==1.2.1",
     "fastmcp==3.2.3",
+    "httpx==0.28.1",
+    "mcp==1.26.0",
+    "mcp-agent-auth",
+    "pydantic==2.12.5",
+    "python-dotenv==1.2.1",
     "typing-extensions==4.15.0",
 ]
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [tool.uv]
 constraint-dependencies = ["uv==0.11.6"]

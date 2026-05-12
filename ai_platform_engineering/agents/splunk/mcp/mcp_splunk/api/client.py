@@ -9,19 +9,20 @@ import os
 from typing import Any
 
 import httpx
+from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 API_URL = os.getenv("SPLUNK_API_URL")
-API_TOKEN = os.getenv("SPLUNK_TOKEN")
 
 if not API_URL:
     raise ValueError("SPLUNK_API_URL environment variable is not set.")
-if not API_TOKEN:
-    raise ValueError("SPLUNK_TOKEN environment variable is not set.")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mcp_splunk")
+
+if not os.getenv("SPLUNK_TOKEN"):
+    logger.warning("SPLUNK_TOKEN is not set; token must be supplied via Authorization: Bearer header")
 
 
 
@@ -72,8 +73,7 @@ async def make_api_request(
     logger.debug(f"Making {method} request to {path}")
 
     if not token:
-        logger.debug("No token provided, using default token")
-        token = API_TOKEN
+        token = get_request_token("SPLUNK_TOKEN")
 
     if not token:
         logger.error("No token available - neither provided nor found in environment")

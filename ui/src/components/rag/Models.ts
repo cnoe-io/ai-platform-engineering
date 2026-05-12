@@ -35,6 +35,12 @@ export type IngestorInfo = {
 
 export type DataSourceInfo = {
 	datasource_id: string
+	/**
+	 * Human-friendly display label. Auto-derived on creation, editable by admins.
+	 * Falls back to the lazy-derived name from the server (or `datasource_id`
+	 * for very legacy rows). NEVER used as an authorization key.
+	 */
+	name?: string | null
 	ingestor_id: string
 	description: string
 	source_type: string

@@ -9,7 +9,11 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 
 let mockNpsEnabled = true;
 jest.mock('@/lib/config', () => ({
@@ -61,13 +65,11 @@ function makeRequest(url: string): NextRequest {
 const adminSession = {
   user: { email: 'admin@example.com', name: 'Admin' },
   role: 'admin',
-  canViewAdmin: true,
 };
 
 const userSession = {
   user: { email: 'user@example.com', name: 'User' },
   role: 'user',
-  canViewAdmin: false,
 };
 
 describe('GET /api/admin/nps', () => {
@@ -108,10 +110,15 @@ describe('GET /api/admin/nps', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view access', async () => {
+  it('returns 200 for authenticated non-admin (no admin gate on route)', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    const npsCol = createMockCollection();
+    mockCollections['nps_responses'] = npsCol;
+    mockCollections['nps_campaigns'] = createMockCollection();
     const res = await GET(makeRequest('/api/admin/nps'));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns correct NPS score and breakdown for mixed responses', async () => {

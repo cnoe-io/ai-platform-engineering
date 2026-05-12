@@ -559,6 +559,7 @@ async def sync_org(client: Client, github_client: "GitHubClient", org_login: str
   # 1. Create/Update the datasource
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name=f"GitHub: {org_login}",
     ingestor_id=client.ingestor_id or "",
     description=f"GitHub entities from organization: {org_login}",
     source_type="github",

@@ -111,3 +111,35 @@ ENV HOSTNAME="0.0.0.0"
 # 2. Server component reads process.env at request time via API
 # Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]
+
+# ---------- Stage 4: Development (hot reload) ----------
+# Opt-in via `target: dev` in docker-compose (set CAIPE_UI_BUILD_TARGET=dev,
+# typically by running `make dev-ui-hot` or exporting DEV_HOT_RELOAD=true and
+# the wrapper in docker-compose.dev.yaml). Mounts ./ui/src and ./ui/public
+# from the host so `next dev` picks up edits in <1s.
+#
+# Anonymous volumes for /app/node_modules and /app/.next must be declared in
+# the compose file so the host bind doesn't shadow the container's installs.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS dev
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Reuse the dependency closure from the deps stage to avoid an extra `npm ci`.
+COPY --from=deps /app/node_modules ./node_modules
+COPY ui/package.json ui/package-lock.json* ./
+# Copy the rest of the UI sources so first boot works even before any host
+# bind-mount overlays them; the bind-mount then takes precedence on subsequent
+# starts and on file edits.
+COPY ui ./
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+# WATCHPACK_POLLING fallback: chokidar fs events sometimes drop through
+# Docker Desktop's VirtioFS on macOS. Polling at 1s is cheap insurance.
+ENV WATCHPACK_POLLING=true
+ENV CHOKIDAR_USEPOLLING=true
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

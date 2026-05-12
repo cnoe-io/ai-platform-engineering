@@ -1,0 +1,46 @@
+name: Validate RBAC Living Docs
+
+# Spec 102 — User Story 8.
+#
+# Fails the PR check if any RBAC-relevant code file (auth helpers,
+# middleware, BFF auth surface, agentgateway policy seed, Keycloak
+# bootstrap) changed without a matching update to
+# docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md.
+#
+# Trivial changes (tests, markdown, formatting) are auto-exempt — see
+# scripts/validate_rbac_docs.py for the full carve-out list.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - "release/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-rbac-docs:
+    name: RBAC docs in sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the merge-base to compute a meaningful diff. fetch-depth: 0
+          # is the safe choice; the validator script only walks file names.
+          fetch-depth: 0
+
+      - name: Resolve base ref
+        id: base
+        run: |
+          # GITHUB_BASE_REF is set on pull_request events to the target branch.
+          BASE="origin/${GITHUB_BASE_REF:-main}"
+          echo "ref=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Comparing against: $BASE"
+
+      - name: Run validator
+        run: |
+          python3 scripts/validate_rbac_docs.py \
+            --base "${{ steps.base.outputs.ref }}" \
+            --head HEAD

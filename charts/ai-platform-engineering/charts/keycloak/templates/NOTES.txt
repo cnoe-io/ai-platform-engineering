@@ -1,0 +1,47 @@
+{{ include "keycloak.fullname" . }} installed.
+
+Admin secret:        {{ include "keycloak.adminSecretName" . }}
+{{- if .Values.idp.enabled }}
+IdP client-secret:   {{ include "keycloak.idpSecretName" . }}
+{{- end }}
+{{- if .Values.tokenExchange.enabled }}
+Bot client-secret:   {{ include "keycloak.botSecretName" . }}
+{{- end }}
+
+{{- if .Values.externalSecrets.enabled }}
+
+WARNING: `externalSecrets.enabled=true` (legacy flat shape) is DEPRECATED.
+         Migrate to `admin.externalSecret.enabled=true` with structured
+         `remoteRefs.{username,password}`. See values.yaml for details.
+{{- end }}
+
+{{- if and .Values.tokenExchange.enabled
+          (not .Values.tokenExchange.externalSecret.enabled)
+          (not .Values.tokenExchange.secretRef)
+          (not .Values.tokenExchange.botClientSecret) }}
+
+NOTE: Bot client_secret was auto-generated (random 32-char). For prod,
+      use `tokenExchange.externalSecret` (ESO) or `tokenExchange.secretRef`.
+      The Secret has `helm.sh/resource-policy=keep` so it survives uninstall —
+      delete it manually if you truly want a fresh credential.
+{{- end }}
+
+{{- if and .Values.idp.enabled
+          (not .Values.idp.externalSecret.enabled)
+          (not .Values.idp.secretRef) }}
+
+ERROR: idp.enabled=true but no source for IDP_CLIENT_SECRET.
+       Set ONE of:
+         - idp.secretRef: <existing-secret-name>      (key: IDP_CLIENT_SECRET)
+         - idp.externalSecret.enabled: true           (with secretStoreRef + remoteRef)
+       The init-idp Job will exit non-zero until this is resolved.
+{{- end }}
+
+To wire the slack-bot subchart to the same client_secret as Keycloak (the
+recommended single-source-of-truth setup), add this to your umbrella values:
+
+  slack-bot:
+    oauth2:
+      clientSecretFromSecret:
+        name: {{ include "keycloak.botSecretName" . }}
+        key: KC_BOT_CLIENT_SECRET

@@ -7,6 +7,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
+from .token_context import current_bearer_token
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -80,6 +82,7 @@ class SharedKeyMiddleware(BaseHTTPMiddleware):
             logger.error('Dispatch error: %s', e, exc_info=True)
             return self._forbidden(f'Authentication failed: {e}', request)
 
+        current_bearer_token.set(access_token)
         return await call_next(request)
 
     def _forbidden(self, reason: str, request: Request):

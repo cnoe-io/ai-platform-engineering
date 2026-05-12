@@ -6,6 +6,7 @@ from typing import Callable, Optional, List, Dict, Any
 from common.utils import get_logger
 from common.graph_db.base import GraphDB
 from common.metadata_storage import MetadataStorage
+from common.models.rbac import UserContext
 import dotenv
 from langchain_core.messages.utils import count_tokens_approximately
 from redis.asyncio import Redis
@@ -13,6 +14,7 @@ from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOG
 from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch, StructuredEntity, StructuredEntityId
 import traceback
 from server.query_service import VectorDBQueryService
+from server.rbac import get_accessible_kb_ids, RBAC_TEAM_SCOPE_ENABLED
 from fastmcp import FastMCP
 from common.utils import json_encode
 from server.snippet_utils import format_search_result
@@ -33,6 +35,53 @@ class AgentTools:
     self.metadata_storage: MetadataStorage = metadata_storage
     self.data_graphdb: Optional[GraphDB] = data_graph_db
     self.ontology_graphdb: Optional[GraphDB] = ontology_graph_db
+
+  @staticmethod
+  def _get_mcp_user_context() -> Optional[UserContext]:
+    """Read the UserContext set by MCPAuthMiddleware via contextvars."""
+    try:
+      from server.restapi import mcp_user_context_var
+      return mcp_user_context_var.get(None)
+    except Exception:
+      return None
+
+  @staticmethod
+  def _extract_team_id(user_context: UserContext) -> Optional[str]:
+    """Parse ``team_member(<id>)`` from realm roles to find the user's team."""
+    for role in (user_context.realm_roles or []):
+      m = re.match(r"^team_member\((.+)\)$", str(role).strip())
+      if m:
+        return m.group(1)
+    return None
+
+  async def _resolve_accessible_kb_ids(
+    self,
+    scope: str = "read",
+  ) -> Optional[List[str]]:
+    """
+    Resolve accessible KB IDs for the current MCP request user.
+
+    Returns None when RBAC is inactive or the user has unrestricted access
+    (so the caller should skip filtering).  Returns a list of datasource IDs
+    when filtering is required; an empty list means nothing is accessible.
+    """
+    if not RBAC_TEAM_SCOPE_ENABLED:
+      return None
+    user = self._get_mcp_user_context()
+    if user is None:
+      return None
+    if user.email == "trusted-network" or user.email.startswith("trusted:"):
+      return None
+    if user.email.startswith("client:"):
+      return None
+
+    team_id = self._extract_team_id(user)
+    accessible = await get_accessible_kb_ids(
+      user, scope, "default", team_id=team_id,
+    )
+    if "*" in accessible:
+      return None
+    return accessible
 
   # Tool IDs permanently managed by the server — never register from custom config
   _SKIP_TOOL_IDS = {"search", "fetch_document", "list_datasources_and_entity_types"}

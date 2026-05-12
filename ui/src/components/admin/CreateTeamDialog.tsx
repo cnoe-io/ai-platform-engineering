@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Loader2 } from "lucide-react";
 
 interface CreateTeamDialogProps {
@@ -26,9 +27,29 @@ export function CreateTeamDialog({
 }: CreateTeamDialogProps) {
   const [teamName, setTeamName] = useState("");
   const [description, setDescription] = useState("");
-  const [members, setMembers] = useState("");
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [userEmails, setUserEmails] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    // /api/admin/users returns Keycloak realm users in the shape
+    // { users: [{ email, ... }], total, page, pageSize } (no success/data envelope).
+    fetch("/api/admin/users?pageSize=100")
+      .then((r) => r.json())
+      .then((res) => {
+        const users = Array.isArray(res?.users) ? res.users : res?.data?.users;
+        if (Array.isArray(users)) {
+          setUserEmails(
+            users
+              .map((u: { email?: string }) => u.email)
+              .filter(Boolean)
+          );
+        }
+      })
+      .catch(() => {});
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,12 +57,6 @@ export function CreateTeamDialog({
     setError(null);
 
     try {
-      // Parse members (comma or newline separated emails)
-      const memberList = members
-        .split(/[,\n]/)
-        .map((email) => email.trim())
-        .filter((email) => email.length > 0);
-
       const response = await fetch("/api/admin/teams", {
         method: "POST",
         headers: {
@@ -50,7 +65,7 @@ export function CreateTeamDialog({
         body: JSON.stringify({
           name: teamName,
           description: description || undefined,
-          members: memberList.length > 0 ? memberList : undefined,
+          members: selectedMembers.length > 0 ? selectedMembers : undefined,
         }),
       });
 
@@ -63,8 +78,8 @@ export function CreateTeamDialog({
       // Reset form
       setTeamName("");
       setDescription("");
-      setMembers("");
-      
+      setSelectedMembers([]);
+
       // Close dialog and trigger refresh
       onOpenChange(false);
       onSuccess();
@@ -80,7 +95,7 @@ export function CreateTeamDialog({
     if (!loading) {
       setTeamName("");
       setDescription("");
-      setMembers("");
+      setSelectedMembers([]);
       setError(null);
       onOpenChange(false);
     }
@@ -128,16 +143,18 @@ export function CreateTeamDialog({
 
             {/* Members */}
             <div className="space-y-2">
-              <Label htmlFor="members">
+              <Label>
                 Members (Optional)
               </Label>
-              <Textarea
-                id="members"
-                placeholder="Enter email addresses separated by commas or new lines&#10;user1@example.com, user2@example.com"
-                value={members}
-                onChange={(e) => setMembers(e.target.value)}
-                disabled={loading}
-                rows={4}
+              <MultiSelect
+                options={userEmails}
+                selected={selectedMembers}
+                onChange={setSelectedMembers}
+                placeholder="Search and select members..."
+                searchPlaceholder="Search by email..."
+                emptyLabel="No users found"
+                badgeLabel="members"
+                className="w-full max-w-full"
               />
               <p className="text-xs text-muted-foreground">
                 You will be added as the team owner automatically

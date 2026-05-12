@@ -36,6 +36,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -105,14 +107,6 @@ function userSession() {
   };
 }
 
-function readonlyAdminSession() {
-  return {
-    user: { email: 'viewer@example.com', name: 'Viewer User' },
-    role: 'user',
-    canViewAdmin: true,
-  };
-}
-
 function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
@@ -167,20 +161,6 @@ describe('GET /api/admin/audit-logs — Auth & Feature Flag', () => {
     const req = makeRequest('/api/admin/audit-logs');
     const res = await listGET(req);
     expect(res.status).toBe(403);
-  });
-
-  it('returns 403 for readonly admin viewers (canViewAdmin)', async () => {
-    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
-
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    mockCollections['users'] = usersCol;
-
-    const req = makeRequest('/api/admin/audit-logs');
-    const res = await listGET(req);
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toContain('Admin access required');
   });
 
   it('returns 403 when auditLogsEnabled is false', async () => {
@@ -356,8 +336,8 @@ describe('GET /api/admin/audit-logs/[id]/messages — Auth & Feature Flag', () =
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 for readonly admin viewers', async () => {
-    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+  it('returns 403 when user is not a full admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
     usersCol.findOne.mockResolvedValue(null);
@@ -505,8 +485,8 @@ describe('GET /api/admin/audit-logs/export — Auth & Feature Flag', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 for readonly admin viewers', async () => {
-    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+  it('returns 403 when user is not a full admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
     usersCol.findOne.mockResolvedValue(null);
@@ -677,8 +657,8 @@ describe('GET /api/admin/audit-logs/owners — Auth & Feature Flag', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 for readonly admin viewers', async () => {
-    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+  it('returns 403 when user is not a full admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
 
     const usersCol = createMockCollection();
     usersCol.findOne.mockResolvedValue(null);

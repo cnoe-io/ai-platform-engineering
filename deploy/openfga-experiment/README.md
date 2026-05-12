@@ -1,0 +1,83 @@
+# OpenFGA + AgentGateway `ext_authz` dev stack
+
+This folder contains the OpenFGA seed model and gRPC bridge used by the
+`docker-compose.dev.yaml` `rbac` profile. AgentGateway calls the bridge through
+Envoy gRPC `ext_authz`; the bridge adapts that request to an OpenFGA `Check`.
+
+## What runs
+
+| Piece | Role |
+|-------|------|
+| `openfga-postgres` | Durable OpenFGA metadata |
+| `openfga-migrate` | One-shot DB migration |
+| `openfga` | OpenFGA API (HTTP `:8080`, gRPC `:8081`, Playground `:3000` **inside** the container) |
+| `openfga-init` | Creates store `caipe-openfga`, writes authorization model, optional coarse AGW tuple |
+| `openfga-authz-bridge` | Small Envoy gRPC `Authorization.Check` service — AGW calls `openfga-authz-bridge:9100`; bridge decodes JWT `sub` from request headers (unverified, **dev only**) and calls OpenFGA `Check` |
+
+Published host ports are bound to localhost only: **18080** (OpenFGA HTTP),
+**18081** (gRPC), **13002** (Playground), **9100** (bridge). Override them with
+`OPENFGA_HTTP_PORT`, `OPENFGA_GRPC_PORT`, or `OPENFGA_PLAYGROUND_PORT` if needed.
+
+## Important: two gates
+
+With the default `deploy/agentgateway/config.yaml`, **every** MCP request must pass:
+
+1. **`extAuthz`** → OpenFGA `user:<sub> can_call document:mcp`
+2. **Existing `mcpAuthorization` CEL** (spec 104 rules)
+
+So you need **both** a seeded OpenFGA tuple **and** normal Keycloak realm roles for your user.
+
+## ReBAC model
+
+The model is intentionally richer than the current coarse AGW check:
+
+| Object | Relation | Purpose |
+|--------|----------|---------|
+| `document:mcp` | `can_call: [user]` | Current route-level AGW `extAuthz` gate. |
+| `team:<slug>` | `member: [user]` | Team membership from Admin UI team members. |
+| `agent:<agent_id>` | `can_use`, `can_manage` for `team#member` | Dynamic agent use/manage grants from Team Resources. |
+| `tool:<server>_*` / `tool:*` | `can_call` for `team#member` | MCP-server prefix and all-tools grants from Team Resources. |
+| `knowledge_base:<id>` | `can_read`, `can_ingest`, `can_admin` for `team#member` | Reserved for the KB admin surface. |
+
+When `OPENFGA_RECONCILE_ENABLED=true` on `caipe-ui`, saving
+`Admin → Teams → Resources` writes the corresponding team/resource tuples before
+persisting the Mongo team document. The writer checks tuples before writes/deletes
+so repeated saves are idempotent.
+
+## Quick start
+
+1. **Set your Keycloak user `sub`** (from any access token — jwt.io):
+
+   ```bash
+   export OPENFGA_SEED_SUB="<uuid-from-token-sub-claim>"
+   ```
+
+2. **Bring up** OpenFGA + bridge **with** the usual dev stack (`rbac` profile so `agentgateway` exists):
+
+   ```bash
+   docker compose -f docker-compose.dev.yaml --profile rbac up -d \
+     openfga-postgres openfga-migrate openfga openfga-init \
+     openfga-authz-bridge agentgateway
+   ```
+
+3. **Exercise MCP through AGW** as usual (`http://localhost:4000`). If OpenFGA denies, you get **403** before the request reaches the MCP backend.
+
+## Escape hatch (bypass OpenFGA only)
+
+If you need to prove the wire without tuples, set subs that always get an allow response from the bridge:
+
+```bash
+export OPENFGA_BYPASS_SUBS="<sub1>,<sub2>"
+```
+
+Restart `openfga-authz-bridge` with that env.
+
+## Security warnings
+
+- The bridge **does not verify JWT signatures** — it only base64-decodes the payload for `sub`. Acceptable **only** on a private Docker network where AGW has already enforced `jwtAuth: strict`. For production, pass verified claims from AGW gRPC `ext_authz` metadata or verify JWTs in the bridge with JWKS.
+- **Do not** expose port `9100` to the public internet.
+
+## Next steps (out of scope here)
+
+- Map `mcp.tool.name` and `jwt.active_team` into OpenFGA checks (this demo uses a single `document:mcp` object).
+- Shadow mode (CEL vs OpenFGA disagree metric) — not implemented in this minimal experiment.

@@ -12,6 +12,7 @@ import {
   validateRequired,
   getPaginationParams,
   getUserTeamIds,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
@@ -126,7 +127,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  // Combine release/0.4.0's dual-auth (bearer token | session) with comprehensive
+  // RBAC enforcement. The bearer path is required by the Slack bot and other
+  // first-party service callers; the RBAC check is required to enforce the
+  // 098-enterprise-rbac scope on supervisor invocations.
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'supervisor', 'invoke');
   const body: CreateConversationRequest = await request.json();
 
   validateRequired(body, ['title', 'client_type']);

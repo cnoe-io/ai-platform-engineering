@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user",
+      "relations": {}
+    },
+    {
+      "type": "team",
+      "relations": {
+        "member": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "member": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "agent",
+      "relations": {
+        "can_use": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "tool",
+      "relations": {
+        "can_call": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_call": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "knowledge_base",
+      "relations": {
+        "can_read": {
+          "this": {}
+        },
+        "can_ingest": {
+          "this": {}
+        },
+        "can_admin": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_ingest": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_admin": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "document",
+      "relations": {
+        "can_call": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_call": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

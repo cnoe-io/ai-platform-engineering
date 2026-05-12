@@ -5,6 +5,7 @@ import { Shield, Save, RotateCcw, Loader2, AlertCircle, CheckCircle2 } from "luc
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { CelTabPoliciesEditor } from "@/components/admin/CelTabPoliciesEditor";
 
 interface PolicyData {
   name: string;
@@ -117,6 +118,8 @@ export function PolicyTab({ isAdmin }: PolicyTabProps) {
   }
 
   return (
+    <div className="space-y-6">
+    <CelTabPoliciesEditor isAdmin={isAdmin} />
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -189,5 +192,6 @@ export function PolicyTab({ isAdmin }: PolicyTabProps) {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

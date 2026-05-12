@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { ApiError, getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -23,6 +23,14 @@ import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 export interface AuthResult {
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
   userContextHeader?: string;
+  /**
+   * The raw user JWT (Bearer access token) that authenticated this
+   * request, when available. Forwarded to DA as ``Authorization:
+   * Bearer <token>`` so DA's ``JwtAuthMiddleware`` can validate it
+   * against Keycloak and bind ``current_user_token`` for downstream
+   * MCP / agentgateway calls. See spec 102 Phase 8 / T103, T106.
+   */
+  bearerToken?: string;
 }
 
 /**
@@ -70,14 +78,45 @@ export async function authenticateRequest(
     };
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
-    return { userContextHeader: encoded };
+    const bearerToken = (s?.accessToken as string | undefined) || undefined;
+    return { userContextHeader: encoded, bearerToken };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+
+    // Forward structured ApiError shape so the web UI / slack-bot can render
+    // a specific message (e.g. "session expired — sign in again" vs
+    // "token audience mismatch — contact admin") instead of a generic
+    // "Unauthorized". Falls back to 401 NOT_SIGNED_IN for any non-ApiError
+    // throw — current call sites only throw ApiError, but this keeps us
+    // safe if a new auth path leaks a plain Error.
+    if (err instanceof ApiError) {
+      console.error(
+        `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} ` +
+          `status=${err.statusCode} reason=${err.reason ?? "unknown"} code=${err.code ?? "-"} msg=${err.message}`,
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          error: err.message,
+          code: err.code,
+          reason: err.reason,
+          action: err.action,
+        },
+        { status: err.statusCode },
+      );
+    }
+
     console.error(
       `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} reason=${message}`,
     );
     return NextResponse.json(
-      { success: false, error: "Unauthorized" },
+      {
+        success: false,
+        error: "You are not signed in. Please sign in to continue.",
+        code: "NOT_SIGNED_IN",
+        reason: "not_signed_in",
+        action: "sign_in",
+      },
       { status: 401 },
     );
   }
@@ -137,6 +176,9 @@ export function buildBackendHeaders(
   if (authResult.userContextHeader) {
     headers["X-User-Context"] = authResult.userContextHeader;
   }
+  if (authResult.bearerToken) {
+    headers["Authorization"] = `Bearer ${authResult.bearerToken}`;
+  }
   return headers;
 }
 
@@ -171,6 +213,10 @@ export async function proxySSEStream(
 ): Promise<Response> {
   const backendHeaders = buildBackendHeaders("application/json", authResult);
   backendHeaders["Accept"] = "text/event-stream";
+
+  console.log(
+    `${logPrefix} Forwarding to ${backendUrl} hasAuth=${!!backendHeaders["Authorization"]} hasUserCtx=${!!backendHeaders["X-User-Context"]}`,
+  );
 
   try {
     const backendResponse = await fetch(backendUrl, {

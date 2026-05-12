@@ -10,10 +10,15 @@ Or directly: python tests/test_policy_middleware.py
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parents[1]))
+
+_GITHUB_SUBAGENT_POLICY_LP = str(
+    Path(__file__).resolve().parent / "fixtures" / "policy_github_subagent_test.lp"
+)
 
 from ai_platform_engineering.utils.deepagents_custom.policy_middleware import (
     PolicyMiddleware,
@@ -78,57 +83,81 @@ def test_readonly_tools_allowed_for_github():
 
 def test_write_tools_denied_for_github():
     """Test that write GitHub tools are denied for github subagent (without self-service mode)."""
-    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
-    
-    # These tools are always denied (not available even in self-service mode)
-    write_tools = [
-        "add_issue_comment",
-        "assign_copilot_to_issue",
-        "issue_write",
-        "sub_issue_write",
-        "add_comment_to_pending_review",
-        "merge_pull_request",
-        "pull_request_review_write",
-        "request_copilot_review",
-        "update_pull_request",
-        "update_pull_request_branch",
-        "delete_file",
-    ]
-    
-    for tool in write_tools:
-        allowed = middleware._is_allowed(tool)
-        print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
-        assert not allowed, f"Write tool '{tool}' should be DENIED for github agent"
-    
-    print(f"\n✅ All {len(write_tools)} write tools correctly denied")
+    with patch(
+        "ai_platform_engineering.utils.mongodb_client.get_policy_from_mongodb",
+        return_value=None,
+    ):
+        middleware = PolicyMiddleware(
+            agent_name="github",
+            agent_type="subagent",
+            policy_path=_GITHUB_SUBAGENT_POLICY_LP,
+        )
+
+        # These tools are always denied (not available even in self-service mode)
+        write_tools = [
+            "add_issue_comment",
+            "assign_copilot_to_issue",
+            "issue_write",
+            "sub_issue_write",
+            "add_comment_to_pending_review",
+            "merge_pull_request",
+            "pull_request_review_write",
+            "request_copilot_review",
+            "update_pull_request",
+            "update_pull_request_branch",
+            "delete_file",
+        ]
+
+        for tool in write_tools:
+            allowed = middleware._is_allowed(tool)
+            print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
+            assert not allowed, f"Write tool '{tool}' should be DENIED for github agent"
+
+        print(f"\n✅ All {len(write_tools)} write tools correctly denied")
 
 
 def test_self_service_tools_denied_without_self_service_mode():
     """Test that self-service tools are denied without self-service mode."""
-    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
-    
-    self_service_tools = [
-        "create_repository",
-        "create_pull_request",
-        "create_branch",
-        "create_or_update_file",
-        "push_files",
-        "fork_repository",
-    ]
-    
-    for tool in self_service_tools:
-        allowed = middleware._is_allowed(tool)
-        print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
-        assert not allowed, f"Self-service tool '{tool}' should be DENIED without self-service mode"
-    
-    print("\n✅ Self-service tools correctly denied without self-service mode")
+    with patch(
+        "ai_platform_engineering.utils.mongodb_client.get_policy_from_mongodb",
+        return_value=None,
+    ):
+        middleware = PolicyMiddleware(
+            agent_name="github",
+            agent_type="subagent",
+            policy_path=_GITHUB_SUBAGENT_POLICY_LP,
+        )
+
+        self_service_tools = [
+            "create_repository",
+            "create_pull_request",
+            "create_branch",
+            "create_or_update_file",
+            "push_files",
+            "fork_repository",
+        ]
+
+        for tool in self_service_tools:
+            allowed = middleware._is_allowed(tool)
+            print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
+            assert not allowed, f"Self-service tool '{tool}' should be DENIED without self-service mode"
+
+        print("\n✅ Self-service tools correctly denied without self-service mode")
 
 
 def test_self_service_tools_allowed_with_self_service_mode():
     """Test that self-service tools are allowed with self-service mode."""
     from ai_platform_engineering.agents.github.agent_github.tools import self_service_mode_ctx
-    
-    middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
+
+    with patch(
+        "ai_platform_engineering.utils.mongodb_client.get_policy_from_mongodb",
+        return_value=None,
+    ):
+        middleware = PolicyMiddleware(
+            agent_name="github",
+            agent_type="subagent",
+            policy_path=_GITHUB_SUBAGENT_POLICY_LP,
+        )
     
     self_service_tools = [
         "create_repository",

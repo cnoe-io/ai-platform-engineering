@@ -16,6 +16,8 @@ jest.mock('next-auth', () => ({
 // Mock auth config
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 import { getServerSession } from 'next-auth';

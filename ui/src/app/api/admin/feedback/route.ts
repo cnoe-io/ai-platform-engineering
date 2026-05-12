@@ -10,7 +10,7 @@ import {
   withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -33,7 +33,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+    await requireRbacPermission(session, 'admin_ui', 'view');
 
     const { searchParams } = new URL(req.url);
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)

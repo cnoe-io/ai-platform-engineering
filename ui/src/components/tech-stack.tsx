@@ -265,14 +265,14 @@ export function TechStackButton({ variant = "floating" }: TechStackButtonProps) 
               <p className="text-[10px] text-center text-muted-foreground">
                 Built with ❤️ by the{" "}
                 <a
-                  href="https://cnoe.io/"
+                  href="https://caipe.io/"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline"
                 >
-                  CNOE
+                  caipe.io
                 </a>{" "}
-                community
+                OSS community
               </p>
             </div>
           </motion.div>

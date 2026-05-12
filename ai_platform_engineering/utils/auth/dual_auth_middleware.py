@@ -21,6 +21,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
+from .token_context import current_bearer_token
+
 # NOTE: verify_token is imported lazily in dispatch() to avoid pulling in
 # OAuth2 module-level env validation (JWKS_URI, AUDIENCE, etc.) at import
 # time.  The oauth2_middleware module only initialises those globals when
@@ -79,6 +81,7 @@ class DualAuthMiddleware(BaseHTTPMiddleware):
         # Use constant-time comparison to prevent timing attacks.
         if hmac.compare_digest(access_token, A2A_AUTH_SHARED_KEY):
             logger.debug("Authenticated via shared key")
+            current_bearer_token.set(access_token)
             return await call_next(request)
 
         # 2. Fall back to OAuth2 JWT validation (UI OIDC flow)
@@ -91,6 +94,7 @@ class DualAuthMiddleware(BaseHTTPMiddleware):
             is_valid = verify_token(access_token)
             if is_valid:
                 logger.debug("Authenticated via OAuth2 JWT")
+                current_bearer_token.set(access_token)
                 return await call_next(request)
             else:
                 logger.warning("Token failed both shared key and OAuth2 validation")

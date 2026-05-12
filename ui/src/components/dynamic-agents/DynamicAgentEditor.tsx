@@ -1555,6 +1555,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   disabled={loading}
                 />
               </div>
+
+              {/* Advanced: Middleware */}
+              <div className="border-t pt-4">
+                <MiddlewarePicker
+                  value={features}
+                  onChange={setFeatures}
+                  disabled={loading}
+                  availableModels={availableModels}
+                />
+              </div>
             </div>
           )}
 
@@ -1645,7 +1655,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
+          <Button onClick={handleSubmit} disabled={loading || !isValid}>
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

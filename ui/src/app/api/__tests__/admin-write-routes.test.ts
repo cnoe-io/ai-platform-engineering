@@ -5,7 +5,7 @@
  * Tests for Admin Write API Routes
  *
  * Covers:
- * - PATCH /api/admin/users/[email]/role — update user role
+ * - PATCH /api/admin/users/[id]/role — update user role
  * - POST /api/admin/teams/[id]/members — add member to team
  * - DELETE /api/admin/teams/[id]/members — remove member from team
  * - POST /api/admin/migrate-conversations — migrate conversations
@@ -32,7 +32,31 @@ jest.mock('next-auth', () => ({
 // Mock auth config
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+function setDefaultCheckPermissionMock() {
+  const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
+    checkPermission: jest.Mock;
+  };
+  checkPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+}
+
+function resetRouteModules() {
+  jest.resetModules();
+  setDefaultCheckPermissionMock();
+}
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -85,10 +109,19 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'), options);
 }
 
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -96,6 +129,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -131,23 +165,24 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
+  setDefaultCheckPermissionMock();
 });
 
 // ============================================================================
-// PATCH /api/admin/users/[email]/role — Update user role
+// PATCH /api/admin/users/[id]/role — Update user role
 // ============================================================================
 
-describe('PATCH /api/admin/users/[email]/role', () => {
+describe('PATCH /api/admin/users/[id]/role', () => {
   let PATCH: any;
 
   beforeEach(async () => {
-    jest.resetModules();
-    const mod = await import('@/app/api/admin/users/[email]/role/route');
+    resetRouteModules();
+    const mod = await import('@/app/api/admin/users/[id]/role/route');
     PATCH = mod.PATCH;
   });
 
   const makeContext = (email: string) => ({
-    params: Promise.resolve({ email }),
+    params: Promise.resolve({ id: email }),
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -162,6 +197,13 @@ describe('PATCH /api/admin/users/[email]/role', () => {
   });
 
   it('returns 403 when not admin', async () => {
+    // Spec 102 / Phase 3 — this route migrated from requireAdmin (which threw
+    // "Admin access required - must be member of admin group") to
+    // requireRbacPermission, which throws the standard ApiError(403)
+    // "You do not have permission to perform this action." The default
+    // checkPermission mock at the top of this file already returns
+    // { allowed: false, reason: 'DENY_NO_CAPABILITY' }, so non-admin sessions
+    // hit the new 403 path.
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/users/user@example.com/role', {
       method: 'PATCH',
@@ -171,7 +213,7 @@ describe('PATCH /api/admin/users/[email]/role', () => {
     const res = await PATCH(req, makeContext('user@example.com'));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('returns 503 when MongoDB not configured', async () => {
@@ -286,7 +328,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     POST = mod.POST;
   });
@@ -316,7 +358,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
     const res = await POST(req, makeContext(TEST_TEAM_ID));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toMatch(/do not have permission|Admin access required/);
   });
 
   it('returns 400 when user_id is missing', async () => {
@@ -419,7 +461,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     DELETE = mod.DELETE;
   });
@@ -445,7 +487,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
     const res = await DELETE(req, makeContext(TEST_TEAM_ID));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toMatch(/do not have permission|Admin access required/);
   });
 
   it('returns 400 when user_id query param is missing', async () => {
@@ -537,7 +579,7 @@ describe('POST /api/admin/migrate-conversations', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/migrate-conversations/route');
     POST = mod.POST;
   });
@@ -563,7 +605,7 @@ describe('POST /api/admin/migrate-conversations', () => {
     const res = await POST(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toContain('requires admin access');
   });
 
   it('returns 503 when MongoDB not configured', async () => {

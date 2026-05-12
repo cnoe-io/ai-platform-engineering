@@ -15,6 +15,7 @@ import type { StreamAdapter } from "./adapter";
 import type { StreamCallbacks, StreamParams, RawStreamEvent } from "./callbacks";
 import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
 import { parseSSEStream, type RawSSEEvent } from "./parse-sse";
+import { buildStreamErrorFromResponse } from "./stream-error";
 
 /** Flat API route prefix for chat streaming. */
 const STREAM_BASE = "/api/v1/chat/stream";
@@ -121,16 +122,10 @@ export class CustomStreamAdapter implements StreamAdapter {
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error(
-            "Session expired: Your authentication token has expired. " +
-            "Please save your work and log in again.",
-          );
-        }
-        const errorBody = await response.text().catch(() => "");
-        throw new Error(
-          `HTTP error: ${response.status} ${response.statusText}. ${errorBody || "(empty)"}`,
-        );
+        // Build a structured StreamError so the chat panel can distinguish
+        // auth failures (toast + sign-in CTA) from generic backend errors
+        // (inline error in the assistant turn). See lib/streaming/stream-error.ts.
+        throw await buildStreamErrorFromResponse(response);
       }
 
       for await (const raw of parseSSEStream(response)) {

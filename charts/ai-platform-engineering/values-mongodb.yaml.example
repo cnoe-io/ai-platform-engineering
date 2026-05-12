@@ -110,7 +110,7 @@ caipe-ui:
     # OIDC configuration (non-sensitive)
     OIDC_REQUIRED_GROUP: "app-users"
     OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-    OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+    # BOOTSTRAP_ADMIN_EMAILS: "admin@example.com"
     OIDC_ENABLE_REFRESH_TOKEN: "true"
 
     # Support email

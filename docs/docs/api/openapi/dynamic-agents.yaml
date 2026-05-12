@@ -1,0 +1,1496 @@
+openapi: 3.1.0
+info:
+  title: CAIPE Dynamic Agents API
+  version: 1.0.0
+  description: |
+    OpenAPI specification for the Dynamic Agents FastAPI service (`dynamic_agents`).
+    Base path is the service root (e.g. `http://localhost:8100`). JSON responses unless noted.
+    Admin-only routes require an admin claim in the JWT; others require a valid Bearer token
+    (or dev auth bypass when `AUTH_ENABLED=false`).
+servers:
+  - url: /
+    description: Dynamic Agents Service
+security:
+  - bearerAuth: []
+tags:
+  - name: agents
+    description: Dynamic agent configuration (CRUD, list, subagent candidates)
+  - name: chat
+    description: Chat streaming, resume, non-streaming invoke, runtime cache
+  - name: conversations
+    description: Conversation messages, todos, virtual files, metadata, admin clear
+  - name: mcp-servers
+    description: MCP server configuration and probe
+  - name: builtin-tools
+    description: Built-in tool definitions for agent configuration UI
+  - name: models
+    description: Discoverable LLM models for agent configuration
+  - name: health
+    description: Liveness and readiness probes
+paths:
+  /:
+    get:
+      operationId: getServiceRoot
+      summary: Service banner
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Service identity and docs link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootResponse"
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Health check with configuration summary
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Health status (may report unhealthy if MongoDB disconnected)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /readyz:
+    get:
+      operationId: getReadyz
+      summary: Readiness probe
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Ready or not ready (HTTP 200 in both cases per implementation)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+  /api/v1/agents:
+    get:
+      operationId: listAgents
+      summary: List dynamic agents visible to the current user
+      description: |
+        Returns global agents, team agents where the user is a member, and the user's private agents.
+        Admins see all agents including disabled. Paginated with `page` and `limit`.
+      tags: [agents]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Paginated agent documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAgentsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      operationId: createAgent
+      summary: Create a dynamic agent
+      description: Requires admin. Validates subagent visibility against parent visibility.
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicAgentConfigCreate"
+      responses:
+        "200":
+          description: Created agent document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAgent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/agents/{agent_id}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      operationId: getAgent
+      summary: Get a dynamic agent by ID
+      tags: [agents]
+      responses:
+        "200":
+          description: Agent document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAgent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    patch:
+      operationId: updateAgent
+      summary: Partially update a dynamic agent
+      description: Requires admin. Config-driven agents cannot be modified.
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicAgentConfigUpdate"
+      responses:
+        "200":
+          description: Updated agent document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAgent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteAgent
+      summary: Delete a dynamic agent
+      description: Requires admin. System and config-driven agents cannot be deleted.
+      tags: [agents]
+      responses:
+        "200":
+          description: Deletion confirmation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeletedId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/agents/{agent_id}/available-subagents:
+    get:
+      operationId: listAvailableSubagents
+      summary: List agents that may be configured as subagents
+      description: |
+        Admin only. Excludes the agent itself and agents that would create a delegation cycle.
+      tags: [agents]
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Candidate subagents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseAvailableSubagents"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/chat/start-stream:
+    post:
+      operationId: chatStartStream
+      summary: Start SSE chat stream
+      description: |
+        Server-Sent Events (`text/event-stream`). Events include `content`, `tool_start`, `tool_end`,
+        `input_required`, `error`, and final `done`.
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/chat/resume-stream:
+    post:
+      operationId: chatResumeStream
+      summary: Resume SSE stream after HITL input
+      description: |
+        Call after `input_required`. `form_data` is a JSON string of form values or dismissal text.
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeStreamRequest"
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/chat/invoke:
+    post:
+      operationId: chatInvoke
+      summary: Non-streaming chat invocation
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Aggregated assistant output
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatInvokeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/chat/restart-runtime:
+    post:
+      operationId: chatRestartRuntime
+      summary: Invalidate cached runtime for an agent session
+      description: Forces MCP reconnect on the next message.
+      tags: [chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestartRuntimeRequest"
+      responses:
+        "200":
+          description: Cache invalidation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartRuntimeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/conversations/{conversation_id}/messages:
+    get:
+      operationId: getConversationMessages
+      summary: Get conversation messages from LangGraph checkpointer
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+      responses:
+        "200":
+          description: Messages and optional pending interrupt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMessagesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/conversations/{conversation_id}/todos:
+    get:
+      operationId: getConversationTodos
+      summary: Get todo list state for a conversation
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+      responses:
+        "200":
+          description: Todos from checkpoint state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationTodosResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/conversations/{conversation_id}/files/list:
+    get:
+      operationId: listConversationFiles
+      summary: List virtual file paths for a conversation
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+      responses:
+        "200":
+          description: Sorted file paths
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationFilesListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/conversations/{conversation_id}/files/content:
+    get:
+      operationId: getConversationFileContent
+      summary: Read content of a virtual file
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+        - name: path
+          in: query
+          required: true
+          description: Path in the agent virtual filesystem
+          schema:
+            type: string
+      responses:
+        "200":
+          description: File content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileContentResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    delete:
+      operationId: deleteConversationFileContent
+      summary: Delete a virtual file from checkpoint state
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted path
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeletedPath"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/conversations/{conversation_id}/metadata:
+    post:
+      operationId: ensureConversationMetadata
+      summary: Upsert conversation sidebar metadata
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/AgentIdQuery"
+      responses:
+        "200":
+          description: Whether a new metadata row was inserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationMetadataResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/conversations/{conversation_id}/clear:
+    post:
+      operationId: clearConversationCheckpoints
+      summary: Clear LangGraph checkpoints for a conversation
+      description: Admin only. Keeps conversation metadata; deletes checkpoint rows.
+      tags: [conversations]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: Counts of deleted checkpoint documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseClearConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/mcp-servers:
+    get:
+      operationId: listMcpServers
+      summary: List MCP server configurations
+      description: Admin only. Includes disabled servers.
+      tags: [mcp-servers]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Paginated MCP server documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedMcpServersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      operationId: createMcpServer
+      summary: Create an MCP server configuration
+      description: Admin only. `stdio` requires `command`; `sse`/`http` require `endpoint`.
+      tags: [mcp-servers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/McpServerCreate"
+      responses:
+        "200":
+          description: Created server document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMcpServer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Duplicate server id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HttpError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/mcp-servers/{server_id}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      operationId: getMcpServer
+      summary: Get MCP server by ID
+      tags: [mcp-servers]
+      responses:
+        "200":
+          description: Server document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMcpServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    patch:
+      operationId: updateMcpServer
+      summary: Partially update an MCP server
+      description: Admin only. Config-driven servers cannot be modified.
+      tags: [mcp-servers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/McpServerUpdate"
+      responses:
+        "200":
+          description: Updated server document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseMcpServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMcpServer
+      summary: Delete an MCP server configuration
+      description: Admin only. Config-driven servers cannot be deleted.
+      tags: [mcp-servers]
+      responses:
+        "200":
+          description: Deleted server id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeletedId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/mcp-servers/{server_id}/probe:
+    post:
+      operationId: probeMcpServer
+      summary: Probe MCP server for tool manifest
+      description: |
+        Admin only. On-demand connection; tools are not persisted. Returns `success: false` with
+        `error` when the server is disabled or probe fails (HTTP 200 with body).
+      tags: [mcp-servers]
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+      responses:
+        "200":
+          description: Probe outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpServerProbeResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/builtin-tools:
+    get:
+      operationId: listBuiltinTools
+      summary: List built-in tool definitions
+      description: Public metadata for UI configuration (no auth).
+      tags: [builtin-tools]
+      security: []
+      responses:
+        "200":
+          description: Tool catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuiltinToolsListResponse"
+  /api/v1/llm-models:
+    get:
+      operationId: listLlmModels
+      summary: List selectable LLM models
+      tags: [models]
+      responses:
+        "200":
+          description: Models from service configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseLlmModels"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Bearer JWT from the identity provider (OIDC access token forwarded by clients).
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema:
+        type: string
+    AgentIdQuery:
+      name: agent_id
+      in: query
+      required: true
+      description: Dynamic agent configuration id
+      schema:
+        type: string
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ServerId:
+      name: server_id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+    Forbidden:
+      description: Authenticated but not allowed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationErrorBody"
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+    ServiceUnavailable:
+      description: Dependency unavailable (e.g. database)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HttpError"
+  schemas:
+    HttpError:
+      type: object
+      properties:
+        detail:
+          description: Error message or validation payload from FastAPI
+          oneOf:
+            - type: string
+            - type: array
+              items: {}
+    ValidationErrorBody:
+      type: object
+      description: Typical FastAPI/Pydantic 422 body
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    RootResponse:
+      type: object
+      required: [service, version, docs]
+      properties:
+        service:
+          type: string
+          example: dynamic-agents
+        version:
+          type: string
+          example: "0.1.0"
+        docs:
+          type: string
+          example: /docs
+    HealthResponse:
+      type: object
+      required: [status, timestamp, details, config]
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        timestamp:
+          type: integer
+          format: int64
+        details:
+          type: object
+          additionalProperties: true
+        config:
+          type: object
+          required: [mongodb_database, collections, agent_runtime_ttl_seconds]
+          properties:
+            mongodb_database:
+              type: string
+            collections:
+              type: object
+              additionalProperties:
+                type: string
+            agent_runtime_ttl_seconds:
+              type: integer
+    ReadinessResponse:
+      type: object
+      required: [ready]
+      properties:
+        ready:
+          type: boolean
+        error:
+          type: string
+          description: Present when ready is false
+    VisibilityType:
+      type: string
+      enum: [private, team, global]
+    TransportType:
+      type: string
+      enum: [stdio, sse, http]
+    SubAgentRef:
+      type: object
+      required: [agent_id, name, description]
+      properties:
+        agent_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    BuiltinToolConfigField:
+      type: object
+      required: [name, type, label, description, required]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string, number, boolean]
+        label:
+          type: string
+        description:
+          type: string
+        default:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: "null"
+        required:
+          type: boolean
+    FetchUrlToolConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        allowed_domains:
+          type: string
+          default: "*"
+    CurrentDatetimeToolConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+    UserInfoToolConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+    SleepToolConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        max_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+    RequestUserInputToolConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+    BuiltinToolsConfig:
+      type: object
+      properties:
+        fetch_url:
+          $ref: "#/components/schemas/FetchUrlToolConfig"
+        current_datetime:
+          $ref: "#/components/schemas/CurrentDatetimeToolConfig"
+        user_info:
+          $ref: "#/components/schemas/UserInfoToolConfig"
+        sleep:
+          $ref: "#/components/schemas/SleepToolConfig"
+        request_user_input:
+          $ref: "#/components/schemas/RequestUserInputToolConfig"
+    AgentUIConfig:
+      type: object
+      properties:
+        gradient_theme:
+          type: ["string", "null"]
+    DynamicAgentConfigBase:
+      type: object
+      required:
+        - name
+        - system_prompt
+        - model_id
+        - model_provider
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          default: {}
+        model_id:
+          type: string
+        model_provider:
+          type: string
+        visibility:
+          $ref: "#/components/schemas/VisibilityType"
+          default: private
+        shared_with_teams:
+          type: ["array", "null"]
+          items:
+            type: string
+        subagents:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubAgentRef"
+          default: []
+        builtin_tools:
+          oneOf:
+            - $ref: "#/components/schemas/BuiltinToolsConfig"
+            - type: "null"
+        ui:
+          oneOf:
+            - $ref: "#/components/schemas/AgentUIConfig"
+            - type: "null"
+        enabled:
+          type: boolean
+          default: true
+    DynamicAgentConfigCreate:
+      allOf:
+        - $ref: "#/components/schemas/DynamicAgentConfigBase"
+    DynamicAgentConfigUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        model_id:
+          type: string
+        model_provider:
+          type: string
+        visibility:
+          $ref: "#/components/schemas/VisibilityType"
+        shared_with_teams:
+          type: ["array", "null"]
+          items:
+            type: string
+        subagents:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/SubAgentRef"
+        builtin_tools:
+          oneOf:
+            - $ref: "#/components/schemas/BuiltinToolsConfig"
+            - type: "null"
+        ui:
+          oneOf:
+            - $ref: "#/components/schemas/AgentUIConfig"
+            - type: "null"
+        enabled:
+          type: boolean
+    DynamicAgentConfig:
+      allOf:
+        - $ref: "#/components/schemas/DynamicAgentConfigBase"
+        - type: object
+          required:
+            - _id
+            - owner_id
+            - is_system
+            - config_driven
+            - created_at
+            - updated_at
+          properties:
+            _id:
+              type: string
+              description: Agent document id (alias for id)
+            owner_id:
+              type: string
+            is_system:
+              type: boolean
+            config_driven:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    PaginatedAgentsResponse:
+      type: object
+      required: [items, total, page, limit, total_pages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DynamicAgentConfig"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+    ApiResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        data:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+            - type: "null"
+        error:
+          type: ["string", "null"]
+    ApiResponseAgent:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/DynamicAgentConfig"
+    ApiResponseDeletedId:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deleted]
+              properties:
+                deleted:
+                  type: string
+    AvailableSubagentCandidate:
+      type: object
+      required: [id, name, visibility]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        visibility:
+          type: string
+    ApiResponseAvailableSubagents:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [agents]
+              properties:
+                agents:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AvailableSubagentCandidate"
+    ChatRequest:
+      type: object
+      required: [message, conversation_id, agent_id]
+      properties:
+        message:
+          type: string
+        conversation_id:
+          type: string
+        agent_id:
+          type: string
+        trace_id:
+          type: ["string", "null"]
+          description: Optional Langfuse trace id
+    ResumeStreamRequest:
+      type: object
+      required: [agent_id, conversation_id, form_data]
+      properties:
+        agent_id:
+          type: string
+        conversation_id:
+          type: string
+        form_data:
+          type: string
+          description: JSON string of HITL form values or dismissal message
+        trace_id:
+          type: ["string", "null"]
+    RestartRuntimeRequest:
+      type: object
+      required: [agent_id, session_id]
+      properties:
+        agent_id:
+          type: string
+        session_id:
+          type: string
+          description: Same as conversation / thread id
+    RestartRuntimeResponse:
+      type: object
+      required: [success, invalidated, agent_id, session_id]
+      properties:
+        success:
+          type: boolean
+        invalidated:
+          type: boolean
+        agent_id:
+          type: string
+        session_id:
+          type: string
+    ChatInvokeResponse:
+      type: object
+      required: [success, content, tool_calls, agent_id, conversation_id]
+      properties:
+        success:
+          type: boolean
+        content:
+          type: string
+        tool_calls:
+          type: array
+          items: {}
+        agent_id:
+          type: string
+        conversation_id:
+          type: string
+        trace_id:
+          type: ["string", "null"]
+    ConversationMessage:
+      type: object
+      required: [id, role, content]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        timestamp:
+          type: ["string", "null"]
+          format: date-time
+    InterruptData:
+      type: object
+      required: [interrupt_id, prompt, fields]
+      properties:
+        interrupt_id:
+          type: string
+        prompt:
+          type: string
+        fields:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    ConversationMessagesResponse:
+      type: object
+      required: [conversation_id, agent_id, messages, has_pending_interrupt]
+      properties:
+        conversation_id:
+          type: string
+        agent_id:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationMessage"
+        has_pending_interrupt:
+          type: boolean
+        interrupt_data:
+          oneOf:
+            - $ref: "#/components/schemas/InterruptData"
+            - type: "null"
+    TodoItem:
+      type: object
+      required: [content, status]
+      properties:
+        content:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed]
+    ConversationTodosResponse:
+      type: object
+      required: [conversation_id, agent_id, todos]
+      properties:
+        conversation_id:
+          type: string
+        agent_id:
+          type: string
+        todos:
+          type: array
+          items:
+            $ref: "#/components/schemas/TodoItem"
+    ConversationFilesListResponse:
+      type: object
+      required: [conversation_id, agent_id, files]
+      properties:
+        conversation_id:
+          type: string
+        agent_id:
+          type: string
+        files:
+          type: array
+          items:
+            type: string
+    FileContentResponse:
+      type: object
+      required: [conversation_id, path, content]
+      properties:
+        conversation_id:
+          type: string
+        path:
+          type: string
+        content:
+          type: string
+    ApiResponseDeletedPath:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deleted]
+              properties:
+                deleted:
+                  type: string
+    ConversationMetadataResponse:
+      type: object
+      required: [success, conversation_id, created]
+      properties:
+        success:
+          type: boolean
+        conversation_id:
+          type: string
+        created:
+          type: boolean
+    ApiResponseClearConversation:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [conversation_id, checkpoints_deleted, writes_deleted]
+              properties:
+                conversation_id:
+                  type: string
+                checkpoints_deleted:
+                  type: integer
+                writes_deleted:
+                  type: integer
+    McpServerBase:
+      type: object
+      required: [name, transport]
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        transport:
+          $ref: "#/components/schemas/TransportType"
+        endpoint:
+          type: ["string", "null"]
+        command:
+          type: ["string", "null"]
+        args:
+          type: ["array", "null"]
+          items:
+            type: string
+        env:
+          type: ["object", "null"]
+          additionalProperties:
+            type: string
+        enabled:
+          type: boolean
+          default: true
+    McpServerCreate:
+      allOf:
+        - $ref: "#/components/schemas/McpServerBase"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              description: Unique slug (stored as _id)
+    McpServerUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        transport:
+          $ref: "#/components/schemas/TransportType"
+        endpoint:
+          type: ["string", "null"]
+        command:
+          type: ["string", "null"]
+        args:
+          type: ["array", "null"]
+          items:
+            type: string
+        env:
+          type: ["object", "null"]
+          additionalProperties:
+            type: string
+        enabled:
+          type: boolean
+    McpServer:
+      allOf:
+        - $ref: "#/components/schemas/McpServerBase"
+        - type: object
+          required: [_id, config_driven, created_at, updated_at]
+          properties:
+            _id:
+              type: string
+            config_driven:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    PaginatedMcpServersResponse:
+      type: object
+      required: [items, total, page, limit, total_pages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/McpServer"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+    ApiResponseMcpServer:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/McpServer"
+    McpProbeTool:
+      type: object
+      description: Tool metadata from MCP manifest (shape varies by server)
+      additionalProperties: true
+    McpServerProbeResult:
+      type: object
+      required: [server_id, success]
+      properties:
+        server_id:
+          type: string
+        success:
+          type: boolean
+        tools:
+          type: ["array", "null"]
+          items:
+            $ref: "#/components/schemas/McpProbeTool"
+        error:
+          type: ["string", "null"]
+    BuiltinToolDefinition:
+      type: object
+      required: [id, name, description, enabled_by_default, config_fields]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enabled_by_default:
+          type: boolean
+        config_fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuiltinToolConfigField"
+    BuiltinToolsListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required: [tools]
+          properties:
+            tools:
+              type: array
+              items:
+                $ref: "#/components/schemas/BuiltinToolDefinition"
+    LlmModelDescriptor:
+      type: object
+      required: [model_id, name, provider, description]
+      properties:
+        model_id:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+        description:
+          type: string
+    ApiResponseLlmModels:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/LlmModelDescriptor"

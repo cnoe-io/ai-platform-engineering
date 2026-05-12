@@ -1,0 +1,529 @@
+openapi: 3.1.0
+info:
+  title: CAIPE Supervisor Agent API
+  version: 1.0.0
+  description: |
+    HTTP surface for the CAIPE Supervisor implementing the [A2A (Agent-to-Agent)](https://github.com/google/A2A) protocol.
+    Task operations use **JSON-RPC 2.0** over `POST /` (envelope: `jsonrpc`, `method`, `id`, `params` / `result` / `error`).
+
+    **Authentication** is optional: `A2A_AUTH_SHARED_KEY` or `A2A_AUTH_OAUTH2=true` (JWT against OIDC). When enabled, use Bearer JWT on protected routes; agent card well-known URLs remain public.
+
+  license:
+    identifier: Apache-2.0
+
+servers:
+  - url: /
+    description: A2A Supervisor
+
+tags:
+  - name: agent-card
+    description: Agent capability discovery (A2A agent card)
+  - name: tasks
+    description: JSON-RPC 2.0 task and message methods on POST /
+  - name: tools
+    description: MCP tool listing (single-node deployment only)
+  - name: metrics
+    description: Prometheus metrics
+  - name: health
+    description: Process health (FastAPI binding)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /.well-known/agent-card.json:
+    get:
+      tags: [agent-card]
+      summary: Get agent card (A2A discovery)
+      description: |
+        Returns the agent capability card per the A2A specification.
+        Legacy alias `/.well-known/agent.json` may also be served.
+      operationId: getAgentCard
+      security: []
+      responses:
+        "200":
+          description: Agent card document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCard"
+        "404":
+          description: Agent card not available
+
+  /:
+    post:
+      tags: [tasks]
+      summary: JSON-RPC 2.0 endpoint
+      description: |
+        Single endpoint for all A2A JSON-RPC methods. The `method` field discriminates the request shape and behavior.
+        Streaming methods (`message/stream`, `tasks/resubscribe`) return **Server-Sent Events** (`text/event-stream`); each `data:` line is a JSON-RPC response object.
+      operationId: jsonRpc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JsonRpcRequest"
+      responses:
+        "200":
+          description: |
+            JSON-RPC success or error for non-streaming methods, or SSE stream for streaming methods.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JsonRpcResponse"
+              examples:
+                messageSendResult:
+                  summary: message/send result
+                  value:
+                    jsonrpc: "2.0"
+                    id: req-001
+                    result:
+                      id: task-abc123
+                      status:
+                        state: completed
+                        timestamp: "2026-03-25T15:30:00Z"
+                      artifacts:
+                        - name: final_result
+                          description: Agent response
+                          parts:
+                            - kind: text
+                              text: Found 12 ArgoCD applications...
+                jsonRpcError:
+                  summary: JSON-RPC error
+                  value:
+                    jsonrpc: "2.0"
+                    id: req-001
+                    error:
+                      code: -32600
+                      message: Invalid Request
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE stream. Each event body is a JSON object matching `JsonRpcResponse` (typically a `result` payload with task id, status, and/or artifact updates).
+              example: |
+                data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-xyz","status":{"state":"working","timestamp":"2026-03-25T15:30:01Z"}}}
+
+                data: {"jsonrpc":"2.0","id":"req-002","result":{"id":"task-xyz","artifact":{"name":"tool_notification_start","description":"Calling ArgoCD","parts":[{"kind":"text","text":"Deploying my-app..."}]},"append":false}}
+        "400":
+          description: Malformed HTTP request or invalid JSON body
+        "401":
+          description: Unauthorized (when authentication middleware is enabled)
+        "403":
+          description: Forbidden (invalid credentials or scope)
+
+  /tools:
+    get:
+      tags: [tools]
+      summary: List MCP tools by sub-agent
+      description: |
+        Returns dynamically discovered MCP tool names grouped by sub-agent.
+        **Only available** when the supervisor runs in single-node mode (`main_single.py`).
+      operationId: getTools
+      responses:
+        "200":
+          description: Tool names grouped by agent key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolsResponse"
+        "404":
+          description: Not available (multi-agent / non–single-node deployment)
+        "500":
+          description: Initialization or agent error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolsErrorResponse"
+
+  /metrics:
+    get:
+      tags: [metrics]
+      summary: Prometheus metrics
+      description: |
+        Prometheus text exposition format. Available when `METRICS_ENABLED=true`.
+        Some paths (e.g. well-known, health) may be excluded from instrumentation.
+      operationId: getMetrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus metrics
+          content:
+            text/plain; version=0.0.4:
+              schema:
+                type: string
+              example: |
+                # HELP a2a_requests_total Total number of A2A requests
+                # TYPE a2a_requests_total counter
+                a2a_requests_total{method="message/send",status="200"} 42
+        "404":
+          description: Metrics disabled (`METRICS_ENABLED` not true)
+
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      description: Health endpoint for the FastAPI-based supervisor binding (`protocol_bindings/fastapi/main.py`).
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "400":
+          description: Bad request
+        "503":
+          description: Service unavailable
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Optional OAuth2 / JWT when `A2A_AUTH_OAUTH2=true` (validated against configured OIDC, e.g. Keycloak).
+        Not required when authentication is disabled or for explicitly public routes.
+
+  schemas:
+    AgentCard:
+      type: object
+      description: A2A agent card (discovery)
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+          format: uri
+        version:
+          type: string
+        defaultInputModes:
+          type: array
+          items:
+            type: string
+        defaultOutputModes:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: object
+          additionalProperties: true
+          properties:
+            streaming:
+              type: boolean
+            pushNotifications:
+              type: boolean
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSkill"
+
+    AgentSkill:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        examples:
+          type: array
+          items:
+            type: string
+
+    JsonRpcRequest:
+      oneOf:
+        - $ref: "#/components/schemas/JsonRpcRequestMessageSend"
+        - $ref: "#/components/schemas/JsonRpcRequestMessageStream"
+        - $ref: "#/components/schemas/JsonRpcRequestTasksGet"
+        - $ref: "#/components/schemas/JsonRpcRequestTasksCancel"
+        - $ref: "#/components/schemas/JsonRpcRequestTasksResubscribe"
+      discriminator:
+        propertyName: method
+        mapping:
+          message/send: "#/components/schemas/JsonRpcRequestMessageSend"
+          message/stream: "#/components/schemas/JsonRpcRequestMessageStream"
+          tasks/get: "#/components/schemas/JsonRpcRequestTasksGet"
+          tasks/cancel: "#/components/schemas/JsonRpcRequestTasksCancel"
+          tasks/resubscribe: "#/components/schemas/JsonRpcRequestTasksResubscribe"
+
+    JsonRpcRequestBase:
+      type: object
+      required: [jsonrpc, method, id]
+      properties:
+        jsonrpc:
+          const: "2.0"
+          description: JSON-RPC version
+        id:
+          description: Request correlation id (string, number, or null)
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"
+        method:
+          type: string
+
+    JsonRpcRequestMessageSend:
+      allOf:
+        - $ref: "#/components/schemas/JsonRpcRequestBase"
+        - type: object
+          required: [params]
+          properties:
+            method:
+              const: message/send
+            params:
+              $ref: "#/components/schemas/TaskSendParams"
+
+    JsonRpcRequestMessageStream:
+      allOf:
+        - $ref: "#/components/schemas/JsonRpcRequestBase"
+        - type: object
+          required: [params]
+          properties:
+            method:
+              const: message/stream
+            params:
+              $ref: "#/components/schemas/TaskSendParams"
+
+    JsonRpcRequestTasksGet:
+      allOf:
+        - $ref: "#/components/schemas/JsonRpcRequestBase"
+        - type: object
+          required: [params]
+          properties:
+            method:
+              const: tasks/get
+            params:
+              $ref: "#/components/schemas/TasksGetParams"
+
+    JsonRpcRequestTasksCancel:
+      allOf:
+        - $ref: "#/components/schemas/JsonRpcRequestBase"
+        - type: object
+          required: [params]
+          properties:
+            method:
+              const: tasks/cancel
+            params:
+              $ref: "#/components/schemas/TasksCancelParams"
+
+    JsonRpcRequestTasksResubscribe:
+      allOf:
+        - $ref: "#/components/schemas/JsonRpcRequestBase"
+        - type: object
+          required: [params]
+          properties:
+            method:
+              const: tasks/resubscribe
+            params:
+              $ref: "#/components/schemas/TasksResubscribeParams"
+
+    TaskSendParams:
+      type: object
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/A2AMessage"
+
+    TasksGetParams:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: Task identifier returned from a prior message/send or stream event
+
+    TasksCancelParams:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+
+    TasksResubscribeParams:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+
+    A2AMessage:
+      type: object
+      required: [role, parts]
+      additionalProperties: true
+      properties:
+        role:
+          type: string
+          examples: [user, agent]
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessagePart"
+
+    MessagePart:
+      type: object
+      required: [kind]
+      additionalProperties: true
+      properties:
+        kind:
+          type: string
+          examples: [text]
+        text:
+          type: string
+
+    JsonRpcResponse:
+      oneOf:
+        - $ref: "#/components/schemas/JsonRpcSuccessResponse"
+        - $ref: "#/components/schemas/JsonRpcErrorResponse"
+
+    JsonRpcSuccessResponse:
+      type: object
+      additionalProperties: false
+      required: [jsonrpc, id, result]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"
+        result:
+          description: |
+            Method-specific result: full task, task status snapshot, or streaming fragment
+            (`artifact`, `append`, etc. allowed via additional properties on TaskResult).
+          $ref: "#/components/schemas/TaskResult"
+
+    JsonRpcErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [jsonrpc, id, error]
+      properties:
+        jsonrpc:
+          const: "2.0"
+        id:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: "null"
+        error:
+          $ref: "#/components/schemas/JsonRpcError"
+
+    JsonRpcError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          description: Optional structured error details
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+
+    TaskResult:
+      type: object
+      description: Typical A2A task object returned by message/send, tasks/get, or embedded in stream events
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Artifact"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/A2AMessage"
+
+    TaskStatus:
+      type: object
+      additionalProperties: true
+      properties:
+        state:
+          type: string
+          description: Task lifecycle state
+          enum:
+            - submitted
+            - working
+            - input-required
+            - completed
+            - failed
+            - canceled
+        timestamp:
+          type: string
+          format: date-time
+
+    Artifact:
+      type: object
+      description: Named artifact (tool notification, plan update, result chunk, etc.)
+      additionalProperties: true
+      properties:
+        name:
+          type: string
+          examples:
+            - tool_notification_start
+            - tool_notification_end
+            - execution_plan_update
+            - execution_plan_status_update
+            - streaming_result
+            - partial_result
+            - final_result
+            - UserInputMetaData
+        description:
+          type: string
+        parts:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessagePart"
+
+    ToolsResponse:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Map of sub-agent key to MCP tool names
+
+    ToolsErrorResponse:
+      type: object
+      properties:
+        tools:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        error:
+          type: string
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: healthy

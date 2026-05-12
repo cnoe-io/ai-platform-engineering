@@ -9,13 +9,18 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "httpx==0.28.1",
-  "python-dotenv==1.2.1",
-  "pydantic==2.12.5",
-  "mcp==1.26.0",
   "fastmcp==3.2.3",
-  "typing-extensions==4.15.0"
+  "httpx==0.28.1",
+  "mcp==1.26.0",
+  "mcp-agent-auth",
+  "pydantic==2.12.5",
+  "python-dotenv==1.2.1",
+  "typing-extensions==4.15.0",
 ]
+
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
+
 [tool.poetry.scripts]
 mcp_argocd = "mcp_confluence.server:main"
 

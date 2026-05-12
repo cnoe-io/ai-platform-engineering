@@ -18,11 +18,20 @@
  * file so existing route-handler imports (`import { ApiError } from
  * "@/lib/api-middleware"`) keep working unchanged.
  */
+import type { AuthFailureAction, AuthFailureReason } from "./auth-error";
+
 export class ApiError extends Error {
   constructor(
     message: string,
     public statusCode: number = 500,
     public code?: string,
+    /**
+     * Machine-readable failure category. Optional for backward compat with
+     * existing throw-sites; auth/authz code paths should set it.
+     */
+    public reason?: AuthFailureReason,
+    /** UI recovery hint. */
+    public action?: AuthFailureAction,
   ) {
     super(message);
     this.name = "ApiError";

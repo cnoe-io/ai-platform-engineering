@@ -4,9 +4,10 @@ import logging
 import json
 import httpx
 import base64
+import asyncio
 from typing import List, Optional, Dict, Any, Annotated
 from pydantic import Field
-from mcp_jira.api.client import make_api_request
+from mcp_jira.api.client import make_api_request, validate_prerequisites
 from mcp_jira.models.jira.search import JiraSearchResult
 
 # Configure logging
@@ -119,6 +120,50 @@ async def search(
 
     except Exception as e:
         raise ValueError(f"Failed to search Jira issues: {str(e)}")
+
+
+def search_jira_issues(
+    jql: str,
+    fields: Optional[str] = None,
+    limit: int = 25,
+    start_at: int = 0,
+) -> JiraSearchResult | str:
+    """Backward-compatible sync wrapper used by older tests and tooling."""
+    ok, result = validate_prerequisites()
+    if not ok:
+        return f"Error: {result.get('error', 'Missing Jira configuration')}"
+
+    async def _run_search() -> JiraSearchResult:
+        payload: Dict[str, Any] = {
+            "fieldsByKeys": True,
+            "jql": jql,
+            "maxResults": limit,
+            "startAt": start_at,
+        }
+
+        requested_fields: Optional[List[str]] = None
+        if fields and fields != "*all":
+            requested_fields = [field.strip() for field in fields.split(",")]
+            payload["fields"] = requested_fields
+        elif fields is None:
+            requested_fields = DEFAULT_READ_JIRA_FIELDS
+            payload["fields"] = requested_fields
+
+        success, response = await make_api_request(
+            path="rest/api/3/search/jql",
+            method="POST",
+            data=payload,
+        )
+        if not success:
+            error_text = response.get("error") if isinstance(response, dict) else str(response)
+            raise ValueError(error_text)
+
+        return JiraSearchResult.from_api_response(response, requested_fields=requested_fields)
+
+    try:
+        return asyncio.run(_run_search())
+    except Exception as exc:
+        return f"Error: {exc}"
 
 
 async def check_jql_match(
