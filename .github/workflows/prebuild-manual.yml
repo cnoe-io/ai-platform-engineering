@@ -1,0 +1,301 @@
+name: "[Prebuild] Manual PR Fanout"
+description: "Manually run prebuild publishing for a prebuild/* PR head"
+
+run-name: "Manual prebuild for PR #${{ inputs.pr_number }} (${{ inputs.target }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Open prebuild/* PR number to build from"
+        required: true
+        type: number
+      target:
+        description: "Which prebuild workflow set to run"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - docker
+          - helm
+          - mcp-agent
+          - a2a-sub-agent
+          - supervisor-agent
+          - caipe-ui
+          - skill-scanner
+          - dynamic-agents
+          - slack-bot
+          - a2a-rag
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  resolve-pr:
+    name: Resolve and Validate PR
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      target: ${{ steps.pr.outputs.target }}
+      head_ref: ${{ steps.pr.outputs.head_ref }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_ref: ${{ steps.pr.outputs.base_ref }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      mcp_agent_changed: ${{ steps.pr.outputs.mcp_agent_changed }}
+      a2a_sub_agent_changed: ${{ steps.pr.outputs.a2a_sub_agent_changed }}
+      supervisor_agent_changed: ${{ steps.pr.outputs.supervisor_agent_changed }}
+      caipe_ui_changed: ${{ steps.pr.outputs.caipe_ui_changed }}
+      skill_scanner_changed: ${{ steps.pr.outputs.skill_scanner_changed }}
+      dynamic_agents_changed: ${{ steps.pr.outputs.dynamic_agents_changed }}
+      slack_bot_changed: ${{ steps.pr.outputs.slack_bot_changed }}
+      a2a_rag_changed: ${{ steps.pr.outputs.a2a_rag_changed }}
+      helm_changed: ${{ steps.pr.outputs.helm_changed }}
+    steps:
+      - name: Resolve PR metadata
+        id: pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            if (!Number.isInteger(prNumber) || prNumber <= 0) {
+              core.setFailed(`Invalid PR number: ${process.env.PR_NUMBER}`);
+              return;
+            }
+
+            const target = process.env.TARGET || 'all';
+            const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+            const allowed = new Set(['admin', 'maintain', 'write']);
+            if (!allowed.has(permission.permission)) {
+              core.setFailed(`@${context.actor} does not have write permission to run prebuild publishing.`);
+              return;
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (pr.state !== 'open') {
+              core.setFailed(`PR #${prNumber} is ${pr.state}; manual prebuild only supports open PRs.`);
+              return;
+            }
+
+            if (pr.head.repo.full_name !== repoFullName) {
+              core.setFailed(`PR #${prNumber} head repo is ${pr.head.repo.full_name}; manual prebuild only supports same-repo PRs.`);
+              return;
+            }
+
+            if (!pr.head.ref.startsWith('prebuild/')) {
+              core.setFailed(`PR #${prNumber} head branch must start with prebuild/, got ${pr.head.ref}.`);
+              return;
+            }
+
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('target', target);
+            core.setOutput('head_ref', pr.head.ref);
+            core.setOutput('head_sha', pr.head.sha);
+            core.setOutput('base_ref', pr.base.ref);
+            core.setOutput('base_sha', pr.base.sha);
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const changedFiles = files.map(file => file.filename);
+
+            const matchesPattern = (file, pattern) => {
+              if (pattern.endsWith('/**')) {
+                return file.startsWith(pattern.slice(0, -2));
+              }
+              return file === pattern;
+            };
+            const changed = patterns => changedFiles.some(file =>
+              patterns.some(pattern => matchesPattern(file, pattern))
+            );
+
+            const pathSets = {
+              mcp_agent: [
+                'ai_platform_engineering/agents/**',
+                '.github/**',
+                'build/agents/Dockerfile.mcp',
+              ],
+              a2a_sub_agent: [
+                'ai_platform_engineering/utils/**',
+                'ai_platform_engineering/agents/**',
+                '.github/**',
+                'build/agents/Dockerfile.a2a',
+              ],
+              supervisor_agent: [
+                'build/Dockerfile',
+                'ai_platform_engineering/multi_agents/**',
+                'ai_platform_engineering/agents/**',
+                'ai_platform_engineering/utils/**',
+                'ai_platform_engineering/__init__.py',
+              ],
+              caipe_ui: [
+                'ui/**',
+                'build/Dockerfile.caipe-ui',
+              ],
+              skill_scanner: [
+                'build/Dockerfile.skill-scanner',
+                'docker-compose.dev.yaml',
+              ],
+              dynamic_agents: [
+                'ai_platform_engineering/dynamic_agents/**',
+              ],
+              slack_bot: [
+                'ai_platform_engineering/integrations/slack_bot/**',
+              ],
+              a2a_rag: [
+                'ai_platform_engineering/knowledge_bases/rag/**',
+              ],
+              helm: [
+                'charts/rag-stack/**',
+                'charts/ai-platform-engineering/**',
+              ],
+            };
+
+            for (const [name, patterns] of Object.entries(pathSets)) {
+              const didChange = changed(patterns);
+              core.setOutput(`${name}_changed`, String(didChange));
+              core.info(`${name}: ${didChange ? 'changed' : 'unchanged'}`);
+            }
+
+            core.info(`Manual prebuild target: ${target}`);
+            core.info(`PR #${pr.number}: ${pr.head.ref}@${pr.head.sha} -> ${pr.base.ref}@${pr.base.sha}`);
+            core.info(`Changed files: ${changedFiles.length}`);
+
+  prebuild-mcp-agent:
+    name: MCP Agent Images
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'mcp-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.mcp_agent_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-mcp-agent.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-a2a-sub-agent:
+    name: A2A Sub-Agent Images
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'a2a-sub-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_sub_agent_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-a2a-sub-agent.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-supervisor-agent:
+    name: Supervisor Agent Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'supervisor-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.supervisor_agent_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-supervisor-agent.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-caipe-ui:
+    name: CAIPE UI Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'caipe-ui' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.caipe_ui_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-caipe-ui.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-skill-scanner:
+    name: Skill Scanner Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'skill-scanner' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.skill_scanner_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-skill-scanner.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-dynamic-agents:
+    name: Dynamic Agents Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'dynamic-agents' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.dynamic_agents_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-dynamic-agents.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-slack-bot:
+    name: Slack Bot Image
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'slack-bot' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.slack_bot_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-slack-bot.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-a2a-rag:
+    name: A2A RAG Images
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'a2a-rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_rag_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-a2a-rag.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit
+
+  prebuild-helm:
+    name: Helm Charts
+    needs: resolve-pr
+    if: ${{ needs.resolve-pr.outputs.target == 'helm' || (needs.resolve-pr.outputs.target == 'all' && needs.resolve-pr.outputs.helm_changed == 'true') }}
+    uses: ./.github/workflows/prebuild-helm.yml
+    with:
+      pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
+      new_commit: false
+      head_ref: ${{ needs.resolve-pr.outputs.head_ref }}
+      head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
+      base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
+      base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+    secrets: inherit

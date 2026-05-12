@@ -14,6 +14,16 @@ on:
         required: false
         type: boolean
         default: false
+      head_ref:
+        description: 'PR head branch ref'
+        required: false
+        type: string
+        default: ''
+      head_sha:
+        description: 'PR head commit SHA'
+        required: false
+        type: string
+        default: ''
       base_ref:
         description: 'PR base branch ref'
         required: false
@@ -64,20 +74,25 @@ jobs:
               pull_number: parseInt(prNumber)
             });
 
-            core.setOutput('head_ref', pr.head.ref);
-            core.setOutput('head_sha', pr.head.sha);
+            const inputHeadRef = '${{ inputs.head_ref }}';
+            const inputHeadSha = '${{ inputs.head_sha }}';
+            const headRef = inputHeadRef || pr.head.ref;
+            const headSha = inputHeadSha || pr.head.sha;
             const inputBaseRef = '${{ inputs.base_ref }}';
             const inputBaseSha = '${{ inputs.base_sha }}';
             const baseRef = inputBaseRef || pr.base.ref;
             const baseSha = inputBaseSha || pr.base.sha;
 
+            core.setOutput('head_ref', headRef);
+            core.setOutput('head_sha', headSha);
             core.setOutput('base_ref', baseRef);
             core.setOutput('base_sha', baseSha);
             core.setOutput('head_repo_full_name', pr.head.repo.full_name);
             core.setOutput('labels', pr.labels.map(l => l.name).join(','));
 
             console.log(`PR #${prNumber}: ${pr.head.ref} -> ${baseRef}`);
-            console.log(`Head SHA: ${pr.head.sha}`);
+            console.log(`Head ref: ${headRef}`);
+            console.log(`Head SHA: ${headSha}`);
             console.log(`Base SHA: ${baseSha}`);
             console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
 

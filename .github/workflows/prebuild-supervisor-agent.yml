@@ -10,6 +10,29 @@ on:
       - 'ai_platform_engineering/agents/**'
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/__init__.py'
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to publish prebuild for'
+        required: true
+        type: number
+      head_ref:
+        description: 'PR head branch ref'
+        required: true
+        type: string
+      head_sha:
+        description: 'PR head commit SHA'
+        required: true
+        type: string
+      base_ref:
+        description: 'PR base branch ref'
+        required: true
+        type: string
+      base_sha:
+        description: 'PR base commit SHA'
+        required: false
+        type: string
+        default: ''
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
@@ -21,8 +44,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       github.event.action != 'closed'
     permissions:
       contents: write
@@ -37,14 +59,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Check build eligibility
         id: eligibility
         shell: bash
         run: |
-          git fetch origin "${{ github.event.pull_request.base.ref }}"
-          BASE="origin/${{ github.event.pull_request.base.ref }}"
+          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
+          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE="$BASE_SHA"
+          else
+            BASE="origin/${BASE_REF}"
+          fi
 
           CORE_CHANGED=false
           if git diff --name-only "$BASE..HEAD" -- \
@@ -57,7 +86,7 @@ jobs:
             CORE_CHANGED=true
           fi
 
-          if [[ "$CORE_CHANGED" == "true" || "${{ contains(github.head_ref, 'single-node') }}" == "true" ]]; then
+          if [[ "$CORE_CHANGED" == "true" || "${{ contains(inputs.head_ref || github.head_ref, 'single-node') }}" == "true" ]]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
@@ -79,11 +108,18 @@ jobs:
         id: compute_tag
         shell: bash
         run: |
-          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH="${{ inputs.head_ref || github.head_ref }}"
+          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
+          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT="origin/${BASE_REF}"
+          fi
+          COMMIT_COUNT=$(git rev-list --count "${BASE_COMMIT}..HEAD")
           PREBUILD_TAG="${BRANCH_SANITIZED}-${COMMIT_COUNT}"
           echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
           echo "PREBUILD_TAG=${PREBUILD_TAG}" >> $GITHUB_ENV
@@ -93,9 +129,9 @@ jobs:
         if: steps.eligibility.outputs.should_build == 'true'
         uses: ./.github/actions/prebuild-status
         with:
-          pr_number: ${{ github.event.pull_request.number }}
-          head_sha: ${{ github.event.pull_request.head.sha }}
-          head_ref: ${{ github.head_ref }}
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
           source: supervisor-agent
           type: docker
           name: ai-platform-engineering
@@ -135,9 +171,9 @@ jobs:
         if: ${{ always() && steps.compute_tag.outputs.prebuild_tag != '' }}
         uses: ./.github/actions/prebuild-status
         with:
-          pr_number: ${{ github.event.pull_request.number }}
-          head_sha: ${{ github.event.pull_request.head.sha }}
-          head_ref: ${{ github.head_ref }}
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
           source: supervisor-agent
           type: docker
           name: ai-platform-engineering
