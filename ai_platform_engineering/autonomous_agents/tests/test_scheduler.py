@@ -25,17 +25,20 @@ from autonomous_agents.models import (
     WebhookTrigger,
 )
 from autonomous_agents.scheduler import (
-    _augment_prompt_for_followup,
-    execute_task,
-    fire_webhook_task,
     get_scheduler,
     register_task,
     register_tasks,
-    set_chat_history_publisher,
-    set_run_store,
     unregister_task,
 )
 from autonomous_agents.services.chat_history import _conversation_id_for_task
+from autonomous_agents.services.task_runner import (
+    _augment_prompt_for_followup,
+    execute_task,
+    fire_webhook_task,
+    get_run_store,
+    set_chat_history_publisher,
+    set_run_store,
+)
 
 
 class _DictRunStore:
@@ -122,8 +125,7 @@ def _reset_scheduler_globals():
 
     The singletons now live in ``services.task_runner`` (extracted from
     ``scheduler.py``); the fixture rebinds the underscore globals there
-    directly because reassigning a re-export on ``scheduler`` would be a
-    stale binding and silently no-op.
+    directly so each test starts from a clean runner state.
     """
     import autonomous_agents.services.task_runner as runner_mod
 
@@ -188,19 +190,11 @@ class TestRunStoreWiring:
 
     def test_get_run_store_raises_when_uninjected(self):
         """No in-memory fallback; uninjected store surfaces a clear error."""
-        # TODO(deletion-target): repoint at services.task_runner when the
-        # scheduler re-export block is retired.
-        from autonomous_agents.scheduler import get_run_store
-
         with pytest.raises(RuntimeError, match="RunStore not initialized"):
             get_run_store()
 
     def test_set_run_store_replaces_active_store(self):
         """``set_run_store`` swaps the active RunStore singleton."""
-        # TODO(deletion-target): repoint at services.task_runner when the
-        # scheduler re-export block is retired.
-        from autonomous_agents.scheduler import get_run_store
-
         first = _DictRunStore()
         set_run_store(first)
         assert get_run_store() is first

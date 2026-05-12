@@ -246,10 +246,7 @@ async def lifespan(app: FastAPI):
     # Cleanup on shutdown
     logger.info("Shutting down Autonomous Agents service...")
 
-    # Close the Webex HTTP client (if any) so the httpx connection pool
-    # is released cleanly. set_webex_client(None) afterwards so a
-    # surviving reference in the route module can't accidentally call
-    # get_message on a closed client during a graceful shutdown window.
+    # Close the Webex HTTP client and set_webex_client(None)
     if webex_client is not None:
         try:
             await webex_client.aclose()
@@ -288,14 +285,6 @@ def create_app() -> FastAPI:
     )
 
     # Mount API routes.
-    # ``webex.router`` MUST come BEFORE ``webhooks.router`` so the
-    # statically-shaped ``/hooks/webex/events`` path is matched first
-    # under the path-precedence rules. With one-segment ``/hooks/{task_id}``
-    # and two-segment ``/hooks/webex/events`` the two cannot collide on
-    # FastAPI's current matcher, but ordering it this way is cheap
-    # insurance against a future refactor that introduces e.g.
-    # ``/hooks/{task_id}/events``. The shadow test in
-    # tests/test_webex_route.py asserts this assumption.
     app.include_router(health.router)
     app.include_router(tasks.router, prefix="/api/v1")
     app.include_router(webex.router, prefix="/api/v1")

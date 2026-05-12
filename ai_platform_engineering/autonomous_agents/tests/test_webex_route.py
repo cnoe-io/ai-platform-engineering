@@ -32,13 +32,11 @@ from autonomous_agents.models import (
 )
 from autonomous_agents.routes import webex as webex_route
 from autonomous_agents.routes import webhooks as webhooks_route
-from autonomous_agents.routes.webhooks import register_webhook_task as _register
 
 # Run-store and Webex thread-map singletons live in services.task_runner
-# after the scheduler/runner split; monkey-patch on the owning module so
-# the rebind isn't lost to a stale re-export alias.
+# after the scheduler/runner split; monkey-patch on the owning module.
 from autonomous_agents.services import task_runner as task_runner_module
-from autonomous_agents.services import webhook_adapters
+from autonomous_agents.services import webhook_adapters, webhook_registry
 
 # ``_fire_and_log`` and the ``get_mongo_service`` lookup both moved into
 # ``services.webhook_dispatch`` after the dispatch-extraction split.
@@ -49,6 +47,9 @@ from autonomous_agents.services import webhook_dispatch as webhook_dispatch_modu
 from autonomous_agents.services.webex_threads import (
     InMemoryWebexThreadMap,
     WebexThreadEntry,
+)
+from autonomous_agents.services.webhook_registry import (
+    register_webhook_task as _register,
 )
 
 
@@ -147,7 +148,7 @@ def app_and_state(monkeypatch):
     app.include_router(webex_route.router, prefix="/api/v1")
     app.include_router(webhooks_route.router, prefix="/api/v1")
 
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -198,7 +199,7 @@ def app_and_state(monkeypatch):
         state["client"] = client
         yield state
 
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
     webex_route.set_webex_client(None)
     webex_route.set_bot_person_id(None)
     get_settings.cache_clear()
@@ -496,7 +497,7 @@ class TestForwardPath:
         """Thread map pointing at a deleted task returns 404."""
         state = app_and_state
         payload = _seed_forward(state)
-        webhooks_route._webhook_tasks.clear()
+        webhook_registry._webhook_tasks.clear()
 
         resp = state["client"].post(
             "/api/v1/hooks/webex/events",

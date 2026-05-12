@@ -31,14 +31,16 @@ from autonomous_agents.models import (
     WebhookTrigger,
 )
 from autonomous_agents.routes import webhooks as webhooks_route
-from autonomous_agents.routes.webhooks import register_webhook_task as _register
 from autonomous_agents.routes.webhooks import router as webhooks_router
-from autonomous_agents.services import webhook_adapters
+from autonomous_agents.services import webhook_adapters, webhook_registry
 
 # After the dispatch-extraction split, ``fire_webhook_task`` is called
 # from ``webhook_dispatch._fire_and_log`` -- patch the live binding
 # there rather than the legacy attribute on the route module.
 from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
+from autonomous_agents.services.webhook_registry import (
+    register_webhook_task as _register,
+)
 
 
 def _make_task(
@@ -94,7 +96,7 @@ def client(monkeypatch) -> TestClient:
 
     app = FastAPI()
     app.include_router(webhooks_router, prefix="/api/v1")
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -133,7 +135,7 @@ def client(monkeypatch) -> TestClient:
         test_client.mongo = fake_mongo  # type: ignore[attr-defined]
         yield test_client
 
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
     get_settings.cache_clear()
 
 

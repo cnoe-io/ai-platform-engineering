@@ -30,22 +30,23 @@ from autonomous_agents.models import (
     TaskStatus,
 )
 from autonomous_agents.routes import tasks as tasks_route
-from autonomous_agents.routes import webhooks as webhooks_route
 from autonomous_agents.routes.tasks import (
     _MAX_TASK_RUNS,
-    _run_preflight_and_persist,
     _serialize_task,
     get_task_runs,
     list_all_runs,
-    set_task_store,
 )
 from autonomous_agents.scheduler import get_scheduler
-from autonomous_agents.services import task_lifecycle
+from autonomous_agents.services import task_lifecycle, webhook_registry
 from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
     TaskStore,
+)
+from autonomous_agents.services.task_lifecycle import (
+    _run_preflight_and_persist,
+    set_task_store,
 )
 
 
@@ -175,11 +176,8 @@ def _ok_ack() -> Acknowledgement:
 def _reset_router_state():
     """Reset module-level singletons between tests so state doesn't bleed."""
     yield
-    # Reach into ``task_lifecycle`` (the owning module after PR3) rather
-    # than ``tasks_route``. Reassigning ``tasks_route._task_store`` would
-    # rebind only the re-export alias and leave production lookups via
-    # ``get_task_store()`` pointing at the original singleton -- same
-    # stale-binding hazard as ``scheduler._run_store`` in PR1.
+    # Reach into ``task_lifecycle`` because it owns the TaskStore
+    # singleton used by the route handlers.
     task_lifecycle._task_store = None
 
 
@@ -216,12 +214,9 @@ def client():
     # the owning module and avoids the same stale-binding hazard
     # documented in ``_reset_router_state``.
     set_task_store(_DictTaskStore())
-    # ``.clear()`` (not reassignment) — the registry now lives in
-    # ``services.webhook_registry`` and ``webhooks_route._webhook_tasks``
-    # is a live re-export alias. Reassigning ``= {}`` would rebind only
-    # the alias on this module and silently leave production lookups
-    # pointing at the stale dict.
-    webhooks_route._webhook_tasks.clear()
+    # ``.clear()`` (not reassignment) preserves any references held by
+    # route modules while emptying the service-owned registry.
+    webhook_registry._webhook_tasks.clear()
 
     app = FastAPI()
     app.include_router(tasks_route.router, prefix="/api/v1")
@@ -234,7 +229,7 @@ def client():
     scheduler_mod._scheduler = None
     # Same module-ownership rationale as ``_reset_router_state``.
     task_lifecycle._task_store = None
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
 
 
 class TestListAndGet:
@@ -279,7 +274,7 @@ class TestCreate:
         """Webhook tasks land in the webhook registry, not in APScheduler."""
         client.post("/api/v1/tasks", json=_webhook_task("hook1"))
 
-        assert "hook1" in webhooks_route._webhook_tasks
+        assert "hook1" in webhook_registry._webhook_tasks
         assert get_scheduler().get_jobs() == []
 
     def test_with_disabled_flag_skips_scheduler(self, client: TestClient):
@@ -369,18 +364,18 @@ class TestUpdate:
         assert response.status_code == 200
 
         assert get_scheduler().get_jobs() == []
-        assert "t1" in webhooks_route._webhook_tasks
+        assert "t1" in webhook_registry._webhook_tasks
 
     def test_swap_from_webhook_to_cron_detaches_webhook(self, client: TestClient):
         """Webhook => cron swap removes the prior webhook registration."""
         client.post("/api/v1/tasks", json=_webhook_task("t1"))
-        assert "t1" in webhooks_route._webhook_tasks
+        assert "t1" in webhook_registry._webhook_tasks
 
         swap = _cron_task("t1")
         response = client.put("/api/v1/tasks/t1", json=swap)
         assert response.status_code == 200
 
-        assert "t1" not in webhooks_route._webhook_tasks
+        assert "t1" not in webhook_registry._webhook_tasks
         assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
 
     def test_404_for_unknown_id(self, client: TestClient):
@@ -470,10 +465,8 @@ class TestWebhookSecretPreservationOnPut:
         assert response.status_code == 200
         assert response.json()["trigger"]["has_secret"] is True
 
-        # Reach into ``task_lifecycle`` (the owning module after PR3) rather
-        # than the legacy ``tasks_route`` alias. ``get_task_store()`` raises
-        # on None; reading the underscore singleton directly preserves the
-        # ``is not None`` typing guard the test uses below.
+        # ``get_task_store()`` raises on None; reading the owning module's
+        # underscore singleton directly preserves the typing guard below.
         stored = task_lifecycle._task_store
         assert stored is not None
 
@@ -514,11 +507,11 @@ class TestDelete:
     def test_removes_webhook_registration(self, client: TestClient):
         """DELETE removes the webhook registry entry."""
         client.post("/api/v1/tasks", json=_webhook_task("hook1"))
-        assert "hook1" in webhooks_route._webhook_tasks
+        assert "hook1" in webhook_registry._webhook_tasks
 
         response = client.delete("/api/v1/tasks/hook1")
         assert response.status_code == 204
-        assert "hook1" not in webhooks_route._webhook_tasks
+        assert "hook1" not in webhook_registry._webhook_tasks
 
     def test_404_for_unknown_id(self, client: TestClient):
         """DELETE on unknown id returns 404."""
@@ -685,22 +678,8 @@ class TestDynamicAgentRouting:
         assert serialized["agent"] == "github"
 
 
-def test_task_store_singleton_alias_is_consistent() -> None:
-    """The transitional re-export must resolve the same TaskStore singleton.
-
-    Direct analogue of ``test_webhook_tasks_alias_is_live`` from PR2.
-    The case here is slightly stronger because correctness depends on
-    ``get_task_store()`` returning the same value whether called via
-    ``routes.tasks`` (re-export) or ``services.task_lifecycle`` (canonical
-    owner). A future "ruff fix" that collapses the re-export into a stale
-    copy -- or accidentally rebinds the underscore singleton on the
-    routes module instead of the service module -- would silently break
-    every CRUD handler at runtime. This test catches that loudly.
-
-    Save / restore the prior value so test ordering can't pollute state
-    if pytest reorders. ``cast(TaskStore, object())`` type-narrows the
-    sentinel for strict mypy.
-    """
+def test_task_route_uses_lifecycle_task_store() -> None:
+    """Task routes resolve the TaskStore through the lifecycle module."""
     prior = task_lifecycle._task_store
     sentinel = cast(TaskStore, object())
     task_lifecycle._task_store = sentinel

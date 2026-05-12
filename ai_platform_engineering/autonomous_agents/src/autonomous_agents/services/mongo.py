@@ -774,7 +774,7 @@ class MongoService:
         # supervisor sub-agent hint) > the explicit ``agent`` kwarg
         # (used by ``publish_run`` which has the scheduler-resolved
         # value already). This matches the precedence in
-        # ``scheduler._publish_safely`` (``task.dynamic_agent_id or
+        # ``task_runner._publish_safely`` (``task.dynamic_agent_id or
         # task.agent``) and ``routes/tasks.py``'s preflight branch so
         # every persisted artifact agrees on which agent owns the
         # thread.

@@ -19,8 +19,8 @@ updated / deleted" orchestration that used to live mixed into
   pipeline -- a distinct lifecycle stage.
 
 The contract between this module and the routes module is the public
-``get_task_store`` / ``set_task_store`` accessors plus the underscore
-helpers re-exported via ``routes/tasks.py``'s transitional block.
+``get_task_store`` / ``set_task_store`` accessors plus the lifecycle
+helpers imported by the route handlers.
 """
 
 from __future__ import annotations

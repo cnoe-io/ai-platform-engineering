@@ -8,14 +8,6 @@ fakes in tests) is the single source of truth for task definitions.
 Every mutation here goes through the store first, then immediately
 re-syncs the APScheduler job and the webhook registry via the
 hot-reload helpers so changes take effect without a service restart.
-
-After PR3, the definition-lifecycle orchestration (store singleton,
-runtime sync, pre-flight, chat-publish wrappers) lives in
-``services/task_lifecycle.py``. This module is purely the FastAPI
-handler layer + wire-shape rendering (``_serialize_task`` /
-``_serialize_trigger``). See the transitional re-export block at the
-bottom of this file for the deletion-target shim covering legacy test
-imports.
 """
 
 import asyncio
@@ -331,39 +323,3 @@ async def trigger_task_manually(task_id: str) -> dict:
 async def list_all_runs() -> list[TaskRun]:
     """Return the full run history across all tasks."""
     return await get_run_store().list_all()
-
-
-# ---- Transitional re-exports (deletion target: next minor release) ----
-# Production code should import these from ``services.task_lifecycle``
-# directly. Kept here so the existing test file
-# (``tests/test_tasks_route.py``) keeps working through one release
-# cycle without churn. Same deletion criterion as the PR1/PR2 re-export
-# blocks at ``scheduler.py:152-170`` and ``routes/webhooks.py``.
-#
-# Concrete deletion blockers for each name:
-#
-# * ``set_task_store`` -- ``tests/test_tasks_route.py:33-40`` imports it
-#   from this module. ``main.py`` already imports it from
-#   ``services.task_lifecycle`` directly (PR3 production migration).
-# * ``_run_preflight_and_persist`` -- ``tests/test_tasks_route.py:35``
-#   imports it directly and ``lines 599 / 631`` call it as a unit-test
-#   seam (no FastAPI client involved). Repointing those two imports
-#   plus call sites at ``services.task_lifecycle`` is what unblocks
-#   deleting this re-export.
-# * ``_safe_publish_preflight_ack`` -- internal helper to
-#   ``_run_preflight_and_persist``; included here only so the re-export
-#   surface is symmetric with the helpers handlers do use. No current
-#   external caller; deletable as soon as we audit downstream forks.
-#
-# Note: ``_task_store`` (the underscore module global) is NOT
-# re-exported. Reassigning ``tasks_route._task_store`` would rebind
-# only the alias on this module and silently leave production lookups
-# pointing at the original ``task_lifecycle._task_store``. Same
-# stale-binding lesson as ``scheduler._run_store`` in PR1. Tests that
-# need to poke the singleton directly do so via the
-# ``task_lifecycle`` import path (the audit's "Hazard A.expanded").
-from autonomous_agents.services.task_lifecycle import (  # noqa: E402, F401
-    _run_preflight_and_persist,
-    _safe_publish_preflight_ack,
-    set_task_store,
-)

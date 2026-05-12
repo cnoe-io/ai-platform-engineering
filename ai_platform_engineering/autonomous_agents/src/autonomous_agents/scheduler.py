@@ -3,12 +3,6 @@
 Also exposes single-task ``register_task`` / ``unregister_task`` helpers so
 the CRUD endpoints can hot-reload the scheduler without bouncing the
 service.
-
-The task-execution pipeline (``execute_task`` and friends) lives in
-``services.task_runner``; this module is intentionally only the
-APScheduler binding layer. Re-exports at the bottom are transitional
-shims so older imports keep working — see the deletion-target comment
-on the block.
 """
 
 import logging
@@ -40,6 +34,7 @@ _scheduler: AsyncIOScheduler | None = None
 
 
 def get_scheduler() -> AsyncIOScheduler:
+    """Initialize and return the global APScheduler instance"""
     global _scheduler
     if _scheduler is None:
         _scheduler = AsyncIOScheduler(timezone="UTC")
@@ -116,10 +111,7 @@ def unregister_task(task_id: str) -> bool:
     """Remove ``task_id`` from APScheduler if present.
 
     Returns ``True`` if a job was removed, ``False`` if no such job
-    existed (e.g. a webhook-only task, a disabled task that was never
-    scheduled, or a stale id from a duplicate UI delete). Returning a
-    bool instead of raising lets the CRUD endpoint be idempotent
-    without an extra "does it exist?" round-trip.
+    existed.
     """
     scheduler = get_scheduler()
     try:
@@ -135,8 +127,8 @@ def unregister_task(task_id: str) -> bool:
 def register_tasks(tasks: list[TaskDefinition]) -> None:
     """Bulk-register all cron and interval tasks, then start the scheduler.
 
-    Called once from the FastAPI lifespan with the YAML-seeded task
-    list. Subsequent CRUD-driven changes go through
+    Called once from the FastAPI lifespan with the task list loaded from MongoDB.
+    Subsequent CRUD-driven changes go through
     :func:`register_task` / :func:`unregister_task` directly so the
     scheduler is never restarted at runtime.
     """
@@ -147,39 +139,3 @@ def register_tasks(tasks: list[TaskDefinition]) -> None:
     if not scheduler.running:
         scheduler.start()
     logger.info(f"Scheduler started with {len(scheduler.get_jobs())} job(s)")
-
-
-# ---- Transitional re-exports (deletion target: next minor release) ----
-# Production code should import these from ``services.task_runner``
-# directly. Kept here so external callers and the existing test files
-# (test_scheduler.py, test_webex_threads.py) keep working through one
-# release cycle without churn. After production import sites have been
-# audited and migrated, remove this block; the tests can be updated to
-# import from ``services.task_runner`` at the same time.
-#
-# Note: ``_webhook_tasks``-style mutable singletons (run-store,
-# chat-history publisher, Webex thread map) are exposed via their
-# ``get_/set_`` accessors. The underlying ``_run_store`` /
-# ``_chat_history_publisher`` / ``_webex_thread_map`` module globals are
-# NOT re-exported — accessing them through this module would have been
-# a stale binding (rebinding ``scheduler._run_store`` would not affect
-# ``task_runner._run_store``). Anyone who needs to poke the singletons
-# should go through the accessors.
-# ``execute_task`` is intentionally not re-listed below: it's already
-# imported at the top of this module (for ``add_job``) so the name is
-# already part of ``autonomous_agents.scheduler``'s public surface.
-from autonomous_agents.services.task_runner import (  # noqa: E402, F401
-    _attach_run_to_trigger_safely,
-    _augment_prompt_for_followup,
-    _prompt_for_publish,
-    _publish_safely,
-    _record_safely,
-    _record_webex_threads_safely,
-    fire_webhook_task,
-    get_chat_history_publisher,
-    get_run_store,
-    get_webex_thread_map,
-    set_chat_history_publisher,
-    set_run_store,
-    set_webex_thread_map,
-)

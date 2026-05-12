@@ -9,9 +9,9 @@ consume it as equals.
 
 The underlying ``_webhook_tasks`` dict is intentionally still module-
 level mutable state; tests rely on being able to ``.clear()`` it. Do
-not reassign ``_webhook_tasks = {}`` -- any re-export alias on
-``routes/webhooks.py`` would not see the rebind, and the route's
-lookups would silently miss every task in the new dict.
+not reassign ``_webhook_tasks = {}`` -- route modules hold references
+to this dict through the registry helpers, and tests intentionally
+clear the same object between cases.
 """
 
 from __future__ import annotations

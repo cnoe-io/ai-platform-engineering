@@ -38,7 +38,7 @@ Design
   multiple runs append rather than overwriting.
 * **Best-effort.** The publisher is observability, not source of truth:
   a flaky chat database must never abort a scheduled task. Callers
-  wrap every publish call in ``scheduler._publish_safely`` or the
+  wrap every publish call in ``task_runner._publish_safely`` or the
   route-level equivalent so failures are logged and swallowed.
 """
 
@@ -119,7 +119,7 @@ class ChatHistoryPublisher(Protocol):
     Implementations MUST be safe to call concurrently from the
     scheduler and from the FastAPI request handlers. They MAY raise on
     transient store failures; callers wrap every call in
-    ``scheduler._publish_safely`` or ``routes.tasks._publish_safely``
+    ``task_runner._publish_safely`` or ``task_lifecycle`` helpers
     so a raising implementation never aborts task execution or 500s a
     CRUD route.
     """

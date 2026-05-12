@@ -19,7 +19,7 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.scheduler import (
+from autonomous_agents.services.task_runner import (
     execute_task,
     set_run_store,
     set_webex_thread_map,
@@ -53,7 +53,7 @@ class _DictRunStore:
 def _reset_scheduler_singletons():
     """The run-store and Webex thread-map singletons live in
     ``services.task_runner`` after the scheduler/runner split; rebind
-    them there directly to avoid stale-binding through a re-export."""
+    them there directly so each test starts clean."""
     import autonomous_agents.services.task_runner as runner_mod
 
     original_runs = runner_mod._run_store

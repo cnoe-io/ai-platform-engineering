@@ -48,38 +48,10 @@ class Settings(BaseSettings):
     # Supervisor A2A endpoint — autonomous agents send tasks here
     supervisor_url: str = "http://localhost:8000"
 
-    # ------------------------------------------------------------------
-    # Dynamic-agents service routing.
-    # ------------------------------------------------------------------
-    # When a TaskDefinition has ``dynamic_agent_id`` set, the scheduler
-    # and preflight bypass the supervisor and call the dynamic-agents
-    # service instead so the prompt actually executes through the
-    # user's custom agent (its tools / system prompt / middleware),
-    # rather than being silently swallowed by the supervisor's
-    # permissive LLM router.
-    #
-    # ``dynamic_agents_url`` is intentionally optional: deployments that
-    # never use custom agents leave it unset and dynamic-agent tasks
-    # surface as a clear ack failure ("DYNAMIC_AGENTS_URL is not
-    # configured ...") instead of a silent transport error.
+    # Dynamic-agents
     dynamic_agents_url: str | None = None
-
-    # Synthetic email stamped into the X-User-Context header that
-    # autonomous-agents sends to the dynamic-agents service. The
-    # dynamic-agents auth layer trusts whatever the gateway puts in
-    # this header (see dynamic_agents/auth/auth.py); here the
-    # "gateway" is the autonomous-agents service itself running a
-    # system-driven task with no human user attached.
     dynamic_agents_system_email: str = "autonomous@system"
-
-    # Per-call HTTP timeout for ``POST /chat/invoke`` against the
-    # dynamic-agents service. Mirrors ``a2a_timeout_seconds`` for the
-    # supervisor path. Per-task ``timeout_seconds`` overrides this.
     dynamic_agents_timeout_seconds: float = Field(default=300.0, gt=0)
-
-    # Per-call HTTP timeout for the dynamic-agent preflight probe
-    # (``GET /agents/{id}/probe``). Tight on purpose — preflight is
-    # interactive and a slow probe wedges the editor form.
     dynamic_agents_preflight_timeout_seconds: float = Field(
         default=10.0, gt=0
     )

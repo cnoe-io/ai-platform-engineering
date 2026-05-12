@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Protocol, runtime_checkable
 
-
 logger = logging.getLogger("autonomous_agents")
 
 

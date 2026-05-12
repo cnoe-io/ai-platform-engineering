@@ -33,9 +33,6 @@ from autonomous_agents.models import (
 )
 from autonomous_agents.routes import webhooks as webhooks_route
 from autonomous_agents.routes.webhooks import (
-    register_webhook_task as _register,
-)
-from autonomous_agents.routes.webhooks import (
     router as webhooks_router,
 )
 
@@ -44,6 +41,10 @@ from autonomous_agents.routes.webhooks import (
 # webhooks_route module (the legacy target) would attach a dead
 # attribute -- the real call goes through this module's name binding.
 from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
+from autonomous_agents.services import webhook_registry
+from autonomous_agents.services.webhook_registry import (
+    register_webhook_task as _register,
+)
 
 
 def _make_task(
@@ -138,7 +139,7 @@ def client(monkeypatch) -> TestClient:
     app = FastAPI()
     app.include_router(webhooks_router, prefix="/api/v1")
 
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -198,7 +199,7 @@ def client(monkeypatch) -> TestClient:
         test_client.mongo = fake_mongo  # type: ignore[attr-defined]
         yield test_client
 
-    webhooks_route._webhook_tasks.clear()
+    webhook_registry._webhook_tasks.clear()
     get_settings.cache_clear()
 
 
@@ -211,22 +212,13 @@ def _set_settings(monkeypatch, **overrides: Any) -> Settings:
     return settings
 
 
-def test_webhook_tasks_alias_is_live() -> None:
-    """``routes/webhooks._webhook_tasks`` is a live alias to the registry dict.
+def test_webhook_registry_registers_into_lookup_table() -> None:
+    """The webhook route resolves tasks from the service-owned registry."""
+    webhook_registry._webhook_tasks.clear()
+    task = _make_task()
+    _register(task)
 
-    Locks down a contract the transitional re-export block in
-    ``routes/webhooks.py`` depends on: when production code (and the
-    rest of the test suite) does ``webhooks_route._webhook_tasks``, it
-    must see the *same* dict that ``services.webhook_registry`` owns,
-    not a copy. The hazard this guards against is a future "tidy
-    refactor" turning the ``from ... import _webhook_tasks`` into a
-    property, a copy via ``dict(...)``, or a typing-only re-export --
-    any of which would make ``.clear()`` /``.pop()`` /``__setitem__``
-    on the alias silently no-op against production lookups.
-    """
-    from autonomous_agents.services import webhook_registry
-
-    assert webhooks_route._webhook_tasks is webhook_registry._webhook_tasks
+    assert webhook_registry.get_webhook_task(task.id) is task
 
 
 class TestInitialFireSecrets:

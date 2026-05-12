@@ -13,14 +13,6 @@ duplicate delivery (same dedup header value, or same HMAC signature)
 returns ``200 OK`` with the *original* run id rather than re-firing
 the task. See :mod:`autonomous_agents.services.trigger_instances` for
 the dedup-key precedence.
-
-This module now keeps only the HTTP-shaped concerns: verification
-(secret/adapter/signature/replay window), parsing, and the per-route
-response shape. The registry and the shared "claim -> spawn -> envelope"
-pipeline live in :mod:`services.webhook_registry` and
-:mod:`services.webhook_dispatch` respectively. Re-exports at the bottom
-of this module are transitional shims so older imports keep working --
-see the deletion-target comment on that block.
 """
 
 from __future__ import annotations
@@ -487,34 +479,3 @@ async def receive_followup(
     if outcome.trigger_instance_id is not None:
         envelope["trigger_instance_id"] = outcome.trigger_instance_id
     return envelope
-
-
-# ---- Transitional re-exports (deletion target: next minor release) ----
-# Production code should import these from their new owning modules
-# (``services.webhook_registry`` for the registry helpers,
-# ``services.webhook_dispatch`` for ``_fire_and_log`` / ``_claim_or_log``).
-# Kept here so existing tests and any external callers keep working
-# through one release cycle without churn; the deletion criterion is
-# the same as the scheduler/runner re-export block.
-#
-# Critical contract: ``_webhook_tasks`` is re-exported as a *live alias*
-# to the underlying dict in ``services.webhook_registry``. Python module
-# imports for mutable containers are by-reference, so ``.clear()`` /
-# ``.pop()`` / ``__setitem__`` against either binding mutate the same
-# dict. The pattern that BREAKS this contract is reassignment
-# (``webhooks_route._webhook_tasks = {}``), which rebinds the alias on
-# this module only and silently leaves production lookups pointing at
-# the original dict. ``tests/test_tasks_route.py`` was updated to use
-# ``.clear()`` in this PR; the invariant test in ``test_webhooks.py``
-# locks down the live-alias property so a future "tidy refactor" can't
-# turn the import into a copy without failing CI.
-from autonomous_agents.services.webhook_dispatch import (  # noqa: E402, F401
-    _claim_or_log,
-    _fire_and_log,
-)
-from autonomous_agents.services.webhook_registry import (  # noqa: E402, F401
-    _webhook_tasks,
-    register_webhook_task,
-    register_webhook_tasks,
-    unregister_webhook_task,
-)
