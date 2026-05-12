@@ -535,6 +535,7 @@ class AgentRuntime:
             gradient_theme = config.ui.gradient_theme if config.ui else None
             tools.append(
                 create_self_identity_tool(
+                    agent_id=config.id,
                     name=config.name,
                     description=config.description,
                     model_id=config.model.id,
