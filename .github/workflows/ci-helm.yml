@@ -52,10 +52,15 @@ jobs:
           CHART_ONLY=false
           REGISTRY_PATH="pre-release-helm-charts"
           IS_FINAL_RELEASE=false
+          IS_PRE_RELEASE=false
 
           if [[ "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             REGISTRY_PATH="charts"
             IS_FINAL_RELEASE=true
+          fi
+
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+($|-chart\.[0-9]+$) ]]; then
+            IS_PRE_RELEASE=true
           fi
 
           if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
@@ -63,6 +68,7 @@ jobs:
           fi
 
           echo "is_final_release=$IS_FINAL_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "is_pre_release=$IS_PRE_RELEASE" >> "$GITHUB_OUTPUT"
           echo "tag_version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
           echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
           echo "chart_only=$CHART_ONLY" >> "$GITHUB_OUTPUT"
@@ -86,6 +92,8 @@ jobs:
       - name: Detect changed charts
         id: detect
         run: |
+          IS_PRE_RELEASE="${{ steps.tag.outputs.is_pre_release }}"
+
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^charts/" || true)
           else
@@ -97,6 +105,12 @@ jobs:
 
           if [[ -z "$CHANGED_FILES" ]]; then
             echo "No chart files changed in tagged commit"
+            if [[ "$IS_PRE_RELEASE" == "true" ]]; then
+              echo "Pre-release tag detected; packaging charts so missing OCI chart versions are published"
+              echo "rag-stack-changed=true" >> "$GITHUB_OUTPUT"
+              echo "ai-platform-changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "rag-stack-changed=false" >> "$GITHUB_OUTPUT"
             echo "ai-platform-changed=false" >> "$GITHUB_OUTPUT"
             exit 0
