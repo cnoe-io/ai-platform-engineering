@@ -4,7 +4,7 @@ import React, { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, Copy, Check, Radio, Loader2, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import { StreamEvent } from "@/lib/streaming/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";

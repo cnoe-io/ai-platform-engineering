@@ -55,7 +55,7 @@ jest.mock('@/components/shared/AgentLogos', () => ({
 // ============================================================================
 
 import { AgentStreamBox } from '../AgentStreamBox'
-import type { StreamEvent } from '@/components/dynamic-agents/sse-types'
+import type { StreamEvent } from '@/lib/streaming/types'
 
 // ============================================================================
 // Helpers

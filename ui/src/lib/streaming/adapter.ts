@@ -13,8 +13,8 @@
  */
 
 import type { StreamCallbacks, StreamParams } from "./callbacks";
-import { CustomStreamAdapter } from "./custom-adapter";
-import { AGUIStreamAdapter } from "./agui-adapter";
+import { CustomStreamAdapter } from "./clients/browser-custom-consumer";
+import { AGUIStreamAdapter } from "./clients/browser-agui-consumer";
 
 // ═══════════════════════════════════════════════════════════════
 // Adapter interface

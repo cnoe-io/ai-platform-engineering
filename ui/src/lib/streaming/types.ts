@@ -199,6 +199,12 @@ export interface StreamEvent {
 
   /** HITL metadata */
   metadata?: HITLMetadata;
+
+  // ─── Workflow run fields (used by workflow runs; ignored by TimelineManager for DA chats) ──
+  /** Dynamic agent that produced this event (set by workflow service) */
+  agent_id?: string;
+  /** Step index within the workflow run (set by workflow service) */
+  step_index?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════

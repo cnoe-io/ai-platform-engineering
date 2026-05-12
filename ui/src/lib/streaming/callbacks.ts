@@ -8,7 +8,7 @@
  * All callbacks are optional — adapters check before calling.
  */
 
-import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
+import type { InputFieldDefinition } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Raw event type for persistence / replay

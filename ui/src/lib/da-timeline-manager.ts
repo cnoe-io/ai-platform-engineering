@@ -23,8 +23,8 @@ import type {
   StatusSegment,
   StatusType,
 } from "@/types/dynamic-agent-timeline";
-import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
-import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import type { ToolStartEventData } from "@/lib/streaming/types";
+import { SUBAGENT_TOOL_NAME } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Internal Types

@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
 import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/lib/streaming/types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -412,8 +412,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         // No Authorization header — session cookie handles auth for same-origin requests.
         // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          `/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -436,8 +437,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDownloadingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
         );
 
         if (response.ok) {
@@ -475,8 +477,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDeletingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
           }

@@ -1,4 +1,4 @@
-import type { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import type { StreamEvent } from "@/lib/streaming/types";
 import type { Participant } from "@/types/mongodb";
 
 // A2A Protocol Types - Spec Conformant

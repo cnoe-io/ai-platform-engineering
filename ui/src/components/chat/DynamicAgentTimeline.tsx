@@ -32,7 +32,7 @@ import type {
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { isFileToolName, isTodoToolName } from "@/components/dynamic-agents/sse-types";
+import { isFileToolName, isTodoToolName } from "@/lib/streaming/types";
 import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 
 // ═══════════════════════════════════════════════════════════════

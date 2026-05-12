@@ -1,9 +1,9 @@
 /**
- * Custom SSE protocol adapter.
+ * AG-UI Browser Client
  *
- * Consumes the legacy custom SSE format (event types: content, tool_start,
- * tool_end, input_required, warning, error, done) and translates them into
- * protocol-agnostic StreamCallbacks.
+ * Browser-side streaming client for the AG-UI protocol. Handles fetch,
+ * AbortController, and raw event emission. Delegates protocol logic
+ * (event parsing, state tracking, callback dispatch) to protocols/agui.ts.
  *
  * Routes (flat, conversation_id + protocol in body):
  *   POST /api/v1/chat/stream/start
@@ -11,25 +11,32 @@
  *   POST /api/v1/chat/stream/cancel
  */
 
-import type { StreamAdapter } from "./adapter";
-import type { StreamCallbacks, StreamParams, RawStreamEvent } from "./callbacks";
-import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
-import { parseSSEStream, type RawSSEEvent } from "./parse-sse";
+import type { StreamAdapter } from "../adapter";
+import type { StreamCallbacks, StreamParams, RawStreamEvent } from "../callbacks";
+import { parseSSEStream, type RawSSEEvent } from "../parse-sse";
+import {
+  createAGUIProtocolState,
+  resetProtocolState,
+  processAGUIEvent,
+  type AGUIProtocolState,
+} from "../protocols/agui";
 
 /** Flat API route prefix for chat streaming. */
 const STREAM_BASE = "/api/v1/chat/stream";
 const CANCEL_URL = `${STREAM_BASE}/cancel`;
 
 // ═══════════════════════════════════════════════════════════════
-// CustomStreamAdapter
+// AGUIStreamAdapter
 // ═══════════════════════════════════════════════════════════════
 
-export class CustomStreamAdapter implements StreamAdapter {
+export class AGUIStreamAdapter implements StreamAdapter {
   private accessToken?: string;
   private abortController: AbortController | null = null;
+  private protocolState: AGUIProtocolState;
 
   constructor(accessToken?: string) {
     this.accessToken = accessToken;
+    this.protocolState = createAGUIProtocolState();
   }
 
   abort(): void {
@@ -58,14 +65,14 @@ export class CustomStreamAdapter implements StreamAdapter {
       });
 
       if (!response.ok) {
-        console.error(`[CustomAdapter] Cancel failed: ${response.status}`);
+        console.error(`[AGUIAdapter] Cancel failed: ${response.status}`);
         return false;
       }
 
       const result = await response.json();
       return result.cancelled ?? false;
     } catch (error) {
-      console.error("[CustomAdapter] Cancel error:", error);
+      console.error("[AGUIAdapter] Cancel error:", error);
       return false;
     }
   }
@@ -76,7 +83,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       message: params.message,
       conversation_id: params.conversationId,
       agent_id: params.agentId,
-      protocol: "custom",
+      protocol: "agui",
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -89,7 +96,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       conversation_id: params.conversationId,
       agent_id: params.agentId,
       resume_data: params.resumeData,
-      protocol: "custom",
+      protocol: "agui",
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -99,6 +106,8 @@ export class CustomStreamAdapter implements StreamAdapter {
   // ── Private: shared stream loop ────────────────────────────
 
   private async _stream(url: string, body: string, callbacks: StreamCallbacks): Promise<void> {
+    resetProtocolState(this.protocolState);
+
     if (this.abortController) {
       this.abortController.abort();
     }
@@ -135,106 +144,26 @@ export class CustomStreamAdapter implements StreamAdapter {
 
       for await (const raw of parseSSEStream(response)) {
         this._emitRawEvent(raw, callbacks);
-        const terminal = this._dispatchEvent(raw, callbacks);
+
+        // Parse and dispatch via protocol state machine
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(raw.data);
+        } catch {
+          console.error(`[AGUIAdapter] Failed to parse event data:`, raw.data);
+          continue;
+        }
+
+        const terminal = processAGUIEvent(raw.event, parsed, this.protocolState, callbacks);
         if (terminal) break;
       }
     } catch (error) {
       if ((error as Error).name === "AbortError") {
-        // Client-side abort — not an error
         return;
       }
       throw error;
     } finally {
       this.abortController = null;
-    }
-  }
-
-  // ── Private: event dispatch ────────────────────────────────
-
-  /**
-   * Dispatch a single raw SSE event to the appropriate callback.
-   * Returns true if this is a terminal event (stream should stop).
-   */
-  private _dispatchEvent(raw: RawSSEEvent, callbacks: StreamCallbacks): boolean {
-    const { event, data } = raw;
-
-    try {
-      switch (event) {
-        case "content": {
-          const parsed = JSON.parse(data);
-          callbacks.onContent?.(parsed.text ?? "", parsed.namespace ?? []);
-          return false;
-        }
-
-        case "tool_start": {
-          const parsed = JSON.parse(data);
-          callbacks.onToolStart?.(
-            parsed.tool_call_id,
-            parsed.tool_name,
-            parsed.args,
-            parsed.namespace ?? [],
-          );
-          return false;
-        }
-
-        case "tool_end": {
-          const parsed = JSON.parse(data);
-          callbacks.onToolEnd?.(
-            parsed.tool_call_id,
-            undefined, // custom protocol doesn't include tool_name in tool_end
-            parsed.error,
-            parsed.namespace ?? [],
-            undefined, // args (not sent in custom protocol tool_end)
-            parsed.result,
-          );
-          return false;
-        }
-
-        case "input_required": {
-          const parsed = JSON.parse(data);
-          if (parsed.type === "tool_approval") {
-            callbacks.onToolApprovalRequired?.(
-              parsed.interrupt_id,
-              parsed.tool_name,
-              parsed.tool_args,
-              parsed.allowed_decisions,
-              parsed.agent,
-            );
-          } else {
-            callbacks.onInputRequired?.(
-              parsed.interrupt_id,
-              parsed.prompt,
-              parsed.fields as InputFieldDefinition[],
-              parsed.agent,
-            );
-          }
-          return true; // terminal — stream pauses for user input
-        }
-
-        case "warning": {
-          const parsed = JSON.parse(data);
-          callbacks.onWarning?.(parsed.message, parsed.namespace ?? []);
-          return false;
-        }
-
-        case "done": {
-          callbacks.onDone?.();
-          return true;
-        }
-
-        case "error": {
-          const parsed = JSON.parse(data);
-          callbacks.onError?.(parsed.error || "Unknown error");
-          return true;
-        }
-
-        default:
-          // Unknown event type — skip
-          return false;
-      }
-    } catch (e) {
-      console.error(`[CustomAdapter] Failed to parse ${event} data:`, e, data);
-      return false;
     }
   }
 
