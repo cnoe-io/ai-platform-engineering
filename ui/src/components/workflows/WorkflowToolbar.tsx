@@ -114,7 +114,7 @@ export function WorkflowToolbar({
               className="gap-1.5 h-8 text-xs px-3"
               title="Download workflow as JSON"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Upload className="h-3.5 w-3.5" />
               Export
             </Button>
           )}
@@ -127,7 +127,7 @@ export function WorkflowToolbar({
                 className="gap-1.5 h-8 text-xs px-3"
                 title="Upload workflow JSON"
               >
-                <Upload className="h-3.5 w-3.5" />
+                <Download className="h-3.5 w-3.5" />
                 Import
               </Button>
               <input

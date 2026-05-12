@@ -80,7 +80,7 @@ function WorkflowStepNodeComponent({ data, selected }: NodeProps) {
               ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
               : "bg-blue-500/10 text-blue-500",
           )}>
-            on_error: {nodeData.on_error}
+            {nodeData.on_error === "skip" ? "Skip on error" : "Retry on error"}
           </span>
         </div>
       )}

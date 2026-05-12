@@ -11,6 +11,8 @@ import {
   ChevronUp,
   Code,
   Loader2,
+  MousePointerClick,
+  Plus,
   Search,
   Trash2,
 } from "lucide-react";
@@ -43,6 +45,7 @@ interface WorkflowStepSidebarProps {
   stepIndex: number;
   onChange: (updates: Partial<WorkflowStep>) => void;
   onDelete: (stepIndex: number) => void;
+  onAddStep?: () => void;
   agents: SidebarAgent[];
   agentsLoading: boolean;
   /** Total number of steps in the workflow (for template variable chips) */
@@ -238,6 +241,7 @@ export function WorkflowStepSidebar({
   stepIndex,
   onChange,
   onDelete,
+  onAddStep,
   agents,
   agentsLoading,
   totalSteps,
@@ -311,11 +315,33 @@ export function WorkflowStepSidebar({
   );
 
   if (!step) {
+    // No steps at all — prompt to add first step
+    if (totalSteps === 0 && onAddStep) {
+      return (
+        <div className="w-[624px] border-l border-border bg-card/50 flex items-center justify-center">
+          <div className="text-center px-6">
+            <Plus className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground mb-4">
+              No steps yet. Add your first step to get started.
+            </p>
+            <Button variant="outline" size="sm" onClick={onAddStep} className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" />
+              Add Step
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // Steps exist but none selected
     return (
       <div className="w-[624px] border-l border-border bg-card/50 flex items-center justify-center">
-        <p className="text-sm text-muted-foreground text-center px-6">
-          Select a step on the canvas to edit its properties
-        </p>
+        <div className="text-center px-6">
+          <MousePointerClick className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">
+            Select a step on the canvas to edit its properties
+          </p>
+        </div>
       </div>
     );
   }
@@ -338,7 +364,7 @@ export function WorkflowStepSidebar({
           title="Delete step"
         >
           <Trash2 className="h-3 w-3" />
-          Delete
+           Delete Step
         </Button>
       </div>
 
@@ -417,11 +443,11 @@ export function WorkflowStepSidebar({
           />
         </div>
 
-        {/* On Error + Retry */}
+        {/* Error Handling + Retry */}
         <div className="flex gap-3">
           <div className="flex-1 space-y-2">
             <Label htmlFor="on_error" className="text-xs font-semibold">
-              On Error
+              Error Handling
             </Label>
             <select
               id="on_error"

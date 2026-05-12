@@ -616,6 +616,12 @@ function WorkflowCanvasInner({
           stepIndex={selectedStepIndex}
           onChange={handleStepChange}
           onDelete={handleDeleteStep}
+          onAddStep={() => {
+            markDirty();
+            const newStep = createBlankStep();
+            setSteps((prev) => [...prev, newStep]);
+            setSelectedStepIndex(0);
+          }}
           agents={sidebarAgents}
           agentsLoading={agentsLoading}
           totalSteps={steps.length}

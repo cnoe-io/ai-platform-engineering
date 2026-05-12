@@ -113,18 +113,31 @@ export function WorkflowStepTimeline({
 
   return (
     <div id={`workflow-step-${step.index}`}>
-      {/* Step header with divider */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`text-sm font-medium ${stepStatusColor(step.status)}`}>
+      {/* Step header — node-like card to match editor style */}
+      <div className={cn(
+        "flex items-center gap-2.5 mb-3 px-3 py-2 rounded-lg border transition-colors",
+        step.status === "running" && "border-blue-500/40 bg-blue-500/5",
+        step.status === "completed" && "border-green-500/30 bg-green-500/5",
+        step.status === "failed" && "border-red-500/30 bg-red-500/5",
+        step.status === "waiting_for_input" && "border-amber-500/30 bg-amber-500/5",
+        step.status === "skipped" && "border-muted-foreground/20 bg-muted/30",
+        step.status === "pending" && "border-border bg-card/50",
+      )}>
+        <span className={cn("text-sm font-medium", stepStatusColor(step.status))}>
           {stepStatusIcon(step.status)}
         </span>
         <span className="text-sm font-semibold text-foreground">
           Step {step.index + 1}
         </span>
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">
-          - {step.display_text}
+        <span className="text-sm text-muted-foreground truncate">
+          {step.display_text}
         </span>
-        <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-700 ml-2" />
+        <div className="flex-1" />
+        {durationSec !== undefined && (
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+            {durationSec}s
+          </span>
+        )}
       </div>
 
       {/* Chat-bubble layout: avatar | content (only when step has started) */}

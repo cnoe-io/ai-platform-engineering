@@ -1003,15 +1003,13 @@ function RunsTab({
         return (
           <div
             key={run._id}
+            onClick={() => onSelectRun(run._id)}
             className={cn(
-              "group relative w-full text-left px-3 py-2.5 transition-colors hover:bg-accent/50",
+              "group relative w-full text-left px-3 py-2.5 transition-colors hover:bg-accent/50 cursor-pointer",
               isActive && "bg-accent"
             )}
           >
-            <button
-              onClick={() => onSelectRun(run._id)}
-              className="w-full text-left"
-            >
+            <div>
               <div className="flex items-center gap-2 mb-1">
                 {STATUS_ICON[run.status]}
                 <span className="text-sm font-medium text-foreground truncate flex-1">
@@ -1024,13 +1022,13 @@ function RunsTab({
                 </span>
                 {run.started_at && <span>{formatTimeAgo(run.started_at)}</span>}
               </div>
-            </button>
+            </div>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onDeleteRun(run._id);
               }}
-              className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+              className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground cursor-pointer"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
