@@ -80,22 +80,22 @@ function jsonResponse({ ok, status = 200, body = {} }: FetchEntry) {
 }
 
 // Post-overhaul shape: install_paths is keyed by scope and each value
-// is an ARRAY of universal-target paths (Claude tree + agents tree).
+// is an ARRAY of target paths.
 // All deprecated layout/format/fragment fields are gone.
 const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template:
-    "---\nname: skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
-  install_path: "~/.claude/skills/skills/SKILL.md",
+    "---\nname: caipe-skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
+  install_path: "~/.claude/skills/caipe-skills/SKILL.md",
   install_paths: {
     user: [
-      "~/.claude/skills/skills/SKILL.md",
-      "~/.agents/skills/skills/SKILL.md",
+      "~/.claude/skills/caipe-skills/SKILL.md",
+      "~/.agents/skills/caipe-skills/SKILL.md",
     ],
     project: [
-      "./.claude/skills/skills/SKILL.md",
-      "./.agents/skills/skills/SKILL.md",
+      "./.claude/skills/caipe-skills/SKILL.md",
+      "./.agents/skills/caipe-skills/SKILL.md",
     ],
   },
   scope: "user",
@@ -103,19 +103,19 @@ const LIVE_SKILLS_BODY = {
   scope_fallback: false,
   scopes_available: ["user", "project"],
   launch_guide:
-    "## Launch the skill\n\nRun `/skills` inside Claude Code.\n",
+    "## Launch the skill\n\nRun `/caipe-skills` inside Claude Code.\n",
   agents: [
     {
       id: "claude",
       label: "Claude Code",
       install_paths: {
         user: [
-          "~/.claude/skills/skills/SKILL.md",
-          "~/.agents/skills/skills/SKILL.md",
+          "~/.claude/skills/caipe-skills/SKILL.md",
+          "~/.agents/skills/caipe-skills/SKILL.md",
         ],
         project: [
-          "./.claude/skills/skills/SKILL.md",
-          "./.agents/skills/skills/SKILL.md",
+          "./.claude/skills/caipe-skills/SKILL.md",
+          "./.agents/skills/caipe-skills/SKILL.md",
         ],
       },
       scopes_available: ["user", "project"],
@@ -181,9 +181,8 @@ async function renderAndChooseScope(scope: "user" | "project" = "user") {
   // The scope picker is a pair of <input type="radio" name="install-scope">
   // with human-friendly labels ("User-wide (reused across all projects)"
   // for `user`, "Project-local (committed with this repo)" for `project`).
-  // After the skills-only overhaul, the project radio sits inside an
-  // "Advanced: install per-project instead" <details>. We must open
-  // that disclosure first or the radio won't render in the DOM.
+  // Project-local install now lives behind the main Advanced install options
+  // disclosure, then the "Install per-project instead" disclosure.
   await waitFor(() => {
     expect(
       document.querySelectorAll('input[name="install-scope"][value="user"]').length,
@@ -191,10 +190,14 @@ async function renderAndChooseScope(scope: "user" | "project" = "user") {
   });
 
   if (scope === "project") {
-    const advanced = await waitFor(() =>
-      screen.getByText(/Advanced: install per-project instead/i),
+    const advancedInstallOptions = await waitFor(() =>
+      screen.getByText(/^Advanced install options$/i),
     );
-    await user.click(advanced);
+    await user.click(advancedInstallOptions);
+    const projectInstall = await waitFor(() =>
+      screen.getByText(/Install per-project instead/i),
+    );
+    await user.click(projectInstall);
   }
 
   // Click the matching radio. Both Step 3 picker and the Quick install

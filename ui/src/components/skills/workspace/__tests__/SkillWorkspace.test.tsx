@@ -23,14 +23,6 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
-// Mock the supervisor status hook + badge
-jest.mock("@/components/skills/SupervisorSyncBadge", () => ({
-  SupervisorSyncBadge: ({ state }: { state: string }) => (
-    <span data-testid="sync-badge" data-state={state} />
-  ),
-  useSupervisorSyncStateForSkill: () => "synced",
-}));
-
 // Mock the scan indicator
 jest.mock("@/components/skills/SkillScanStatusIndicator", () => ({
   SkillScanStatusIndicator: () => <span data-testid="scan-indicator" />,
@@ -152,13 +144,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("SkillWorkspace — header", () => {
-  it("renders the skill name and a sync badge for an existing skill", () => {
+  it("renders the skill name without a per-skill sync badge", () => {
     render(<SkillWorkspace existingConfig={SAMPLE_SKILL} />);
     expect(screen.getByText("Triage")).toBeInTheDocument();
-    expect(screen.getByTestId("sync-badge")).toHaveAttribute(
-      "data-state",
-      "synced",
-    );
+    expect(screen.queryByTestId("sync-badge")).not.toBeInTheDocument();
   });
 
   it("shows a Read-only badge when readOnly is true", () => {

@@ -6,13 +6,6 @@ on:
     branches:
       - main
       - 'release/**'
-    paths:
-      - 'charts/**'
-      - 'ai_platform_engineering/**'
-      - 'build/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'ui/**'
     types: [opened, synchronize, reopened, edited]
 
 permissions:
@@ -23,11 +16,62 @@ permissions:
   actions: read
 
 jobs:
+  eligibility:
+    name: Check PR eligibility
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      reason: ${{ steps.check.outputs.reason }}
+    steps:
+      - name: 🔍 Check changed paths or release merge
+        id: check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const releaseMergeRe = /^release\/\d+\.\d+\.\d+(?:-hotfix)?$/;
+            const isReleaseMerge = pr.base.ref === 'main' && releaseMergeRe.test(pr.head.ref);
+
+            const watchedPrefixes = [
+              'charts/',
+              'ai_platform_engineering/',
+              'build/',
+              'ui/'
+            ];
+            const watchedFiles = new Set([
+              'pyproject.toml',
+              'uv.lock'
+            ]);
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            const matchedFile = files.find(({ filename }) =>
+              watchedPrefixes.some(prefix => filename.startsWith(prefix)) ||
+              watchedFiles.has(filename)
+            );
+
+            const shouldRun = isReleaseMerge || Boolean(matchedFile);
+            const reason = isReleaseMerge
+              ? `release merge ${pr.head.ref} -> ${pr.base.ref}`
+              : matchedFile
+                ? `matched path ${matchedFile.filename}`
+                : 'no watched path changes';
+
+            core.setOutput('should_run', String(shouldRun));
+            core.setOutput('reason', reason);
+            core.info(`should_run=${shouldRun}: ${reason}`);
+
   version-bump:
     name: Bump version files on PR
     runs-on: ubuntu-latest
+    needs: eligibility
     # Don't run on commits made by the bot (avoid infinite loop)
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     outputs:
       new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
       should_prebuild: ${{ steps.helm-labels.outputs.should_run }}
@@ -182,22 +226,26 @@ jobs:
             core.info(`Applied PR flow label: ${label.name}`);
 
       - name: 💬 Comment if branch needs update
+        id: branch-update-comment
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           NEEDS_UPDATE: ${{ steps.branch-status.outputs.needs_update }}
           HAS_CONFLICTS: ${{ steps.mergeability.outputs.has_conflicts }}
         with:
           script: |
-            const marker = '<!-- pr-version-bump:update-branch -->';
             const prNumber = context.payload.pull_request.number;
             const baseRef = process.env.BASE_REF;
             const headRef = process.env.HEAD_REF;
+            const headSha = process.env.HEAD_SHA;
             const headRepo = process.env.HEAD_REPO;
             const repo = `${context.repo.owner}/${context.repo.repo}`;
+            const markerPrefix = '<!-- pr-version-bump:update-branch';
+            const marker = `<!-- pr-version-bump:update-branch sha=${headSha} -->`;
             const isFork = headRepo !== repo;
             const isPrebuild = headRef.startsWith('prebuild/');
             const needsUpdate = process.env.NEEDS_UPDATE === 'true';
@@ -227,6 +275,7 @@ jobs:
 
             let body = `${marker}\n`;
             body += `## ❗ Branch update needed\n\n`;
+            body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
             body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
             body += `Run:\n\n`;
             body += '```bash\n';
@@ -237,31 +286,41 @@ jobs:
               body += `This is a \`prebuild/*\` branch, so Helm prebuild publishing will still run so you can test the chart changes while the branch is being updated.\n`;
             }
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
-
-            const existing = comments.find(comment =>
-              comment.user.type === 'Bot' && comment.body.includes(marker)
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                comment_id: existing.id,
-                body
+                issue_number: prNumber,
+                per_page: 100
               });
-            } else {
-              await github.rest.issues.createComment({
+
+              const existing = comments.filter(comment =>
+                comment.user?.type === 'Bot' && (comment.body || '').includes(markerPrefix)
+              );
+
+              for (const comment of existing) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: comment.id
+                });
+              }
+
+              const response = await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
                 body
               });
+              const commentUrl = response.data.html_url || '';
+              const result = existing.length > 0 ? 'recreated' : 'created';
+              core.setOutput('result', result);
+              core.setOutput('comment_url', commentUrl);
+              core.notice(`Branch update PR comment ${result}: ${commentUrl}`);
+            } catch (error) {
+              core.setOutput('result', 'failed');
+              core.setOutput('error', error.message);
+              core.warning(`Failed to replace branch update PR comment: ${error.message}`);
             }
 
       - name: 🐍 Set up Python
@@ -364,7 +423,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add pyproject.toml uv.lock CHANGELOG.md || true
+          git add pyproject.toml uv.lock CHANGELOG.md docs/docusaurus.config.ts docs/src/pages/index.tsx || true
 
           if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
             find charts -name "Chart.yaml" -type f -exec git add {} +
@@ -378,8 +437,31 @@ jobs:
 
       - name: ❌ Require branch update before merge
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
+        env:
+          COMMENT_RESULT: ${{ steps.branch-update-comment.outputs.result }}
+          COMMENT_URL: ${{ steps.branch-update-comment.outputs.comment_url }}
+          COMMENT_ERROR: ${{ steps.branch-update-comment.outputs.error }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
         run: |
-          echo "::error::This PR branch must be updated with ${{ github.event.pull_request.base.ref }} before it can merge. A comment with the exact commands was posted on the PR."
+          if [[ "$COMMENT_RESULT" == "created" ]]; then
+            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. A PR comment with the exact commands was created: $COMMENT_URL"
+          elif [[ "$COMMENT_RESULT" == "recreated" ]]; then
+            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. The previous PR comment was deleted and a new one was created: $COMMENT_URL"
+          else
+            echo "::error::This PR branch must be updated with $BASE_REF before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
+            echo "Run:"
+            if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
+              echo "git fetch https://github.com/${BASE_REPO}.git ${BASE_REF}"
+            else
+              echo "git fetch origin ${BASE_REF}"
+            fi
+            echo "git checkout ${HEAD_REF}"
+            echo "git merge FETCH_HEAD"
+            echo "git push"
+          fi
           exit 1
 
   # Call prebuild workflow for eligible PRs

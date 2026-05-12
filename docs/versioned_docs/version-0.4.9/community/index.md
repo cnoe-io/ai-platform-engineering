@@ -1,6 +1,6 @@
 # CNOE Agentic AI SIG Community
 
-🚀 [Getting Started](../getting-started/quick-start.md) | 🎥 [Meeting Recordings](https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings) | 🏛️ [Governance](https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai) | 🗺️ [Roadmap](https://github.com/orgs/cnoe-io/projects/9)
+🚀 [Getting Started](../getting-started/quick-start.md) | 🎥 [Meeting Recordings](https://www.youtube.com/@cnoe-community) | 🏛️ [Governance](https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai) | 🗺️ [Roadmap](https://github.com/orgs/cnoe-io/projects/9)
 
 ### 🗓️ Weekly Meetings
 
