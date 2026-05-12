@@ -318,7 +318,9 @@ async function aggregateLocally(
   const unavailableSources: string[] = [];
 
   // 1. Skill templates (filesystem / SKILLS_DIR)
-  try {
+  // Skip when HIDE_BUILTIN_SKILLS=true — users load templates explicitly via "Import template skills".
+  const hideBuiltin = process.env.HIDE_BUILTIN_SKILLS === "true";
+  if (!hideBuiltin) try {
     const { loadSkillTemplatesInternal } = await import(
       "./skill-templates-loader"
     );
@@ -398,7 +400,7 @@ async function aggregateLocally(
   } catch (err) {
     console.error("[Skills] Failed to load skill templates:", err);
     unavailableSources.push("default");
-  }
+  } // end if (!hideBuiltin)
 
   // 2. Agent skills (MongoDB) — match any content field
   try {
