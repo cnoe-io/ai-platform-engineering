@@ -168,12 +168,11 @@ config:
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
   # Built-in skill IDs to seed (comma-separated whitelist).
-  # When set, only listed templates are seeded; unlisted ones are removed.
-  # Leave empty to seed all built-in templates.
-  # BUILTIN_SKILL_IDS: ""
-  # Set to "true" to hide built-in (disk) skills from the gallery.
-  # Users load them explicitly via "Import template skills" instead.
-  # HIDE_BUILTIN_SKILLS: "false"
+  # "none" (default) disables auto-seeding entirely — use "Import template skills"
+  # in the Skills UI to load templates explicitly. Set to a comma-separated list
+  # of template IDs to seed only those; leave empty to seed all built-in templates.
+  # assisted-by claude code claude-sonnet-4-6
+  BUILTIN_SKILL_IDS: "none"
   # NextAuth URL (non-sensitive)
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment
