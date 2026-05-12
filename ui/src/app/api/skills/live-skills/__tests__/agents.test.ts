@@ -47,7 +47,7 @@ description: Browse and install skills from the CAIPE skill catalog
 
 const baseInputs = (overrides: Partial<RenderInputs> = {}): RenderInputs => ({
   canonicalTemplate: CANONICAL,
-  commandName: 'skills',
+  commandName: 'caipe-skills',
   description: '',
   baseUrl: 'https://gateway.example.com',
   ...overrides,
@@ -155,7 +155,9 @@ describe('AGENTS registry', () => {
   });
 
   it('explains Claude catalog, refresh, and local skill invocation without HTML entities', () => {
-    const guide = AGENTS.claude.launchGuide.replace(/\{name\}/g, 'skills');
+    const guide = AGENTS.claude.launchGuide
+      .replace(/\{name\}/g, 'caipe-skills')
+      .replace(/\{updateName\}/g, 'update-caipe-skills');
 
     expect(guide).not.toContain('&mdash;');
     expect(guide).not.toContain('npm install -g @anthropic-ai/claude-code');
@@ -164,13 +166,13 @@ describe('AGENTS registry', () => {
     expect(guide).toContain(
       '[Claude Code quickstart](https://code.claude.com/docs/en/quickstart)',
     );
-    expect(guide).toContain('`/skills`: browse the catalog');
-    expect(guide).toContain('`/skills kubernetes`: search');
+    expect(guide).toContain('`/caipe-skills`: browse the catalog');
+    expect(guide).toContain('`/caipe-skills kubernetes`: search');
     expect(guide).toContain(
-      '`/skills run create-ci-pipeline`: fetch and execute inline',
+      '`/caipe-skills run create-ci-pipeline`: fetch and execute inline',
     );
     expect(guide).toContain(
-      '`/update-skills`: install or refresh on-disk skill copies',
+      '`/update-caipe-skills`: install or refresh on-disk skill copies',
     );
     expect(guide).toContain(
       '`/create-ci-pipeline`: run the locally installed skill directly',
@@ -179,7 +181,9 @@ describe('AGENTS registry', () => {
   });
 
   it('links Cursor setup to the product get-started page', () => {
-    const guide = AGENTS.cursor.launchGuide.replace(/\{name\}/g, 'skills');
+    const guide = AGENTS.cursor.launchGuide
+      .replace(/\{name\}/g, 'caipe-skills')
+      .replace(/\{updateName\}/g, 'update-caipe-skills');
 
     expect(guide).not.toContain('**Install Cursor**');
     expect(guide).toContain('[Cursor get started](https://cursor.com/get-started)');
@@ -263,13 +267,14 @@ describe('substitutePlaceholders', () => {
       'cmd=/{{COMMAND_NAME}} desc={{DESCRIPTION}} url={{BASE_URL}} arg={{ARG_REF}}\n' +
       'again /{{COMMAND_NAME}} {{ARG_REF}}';
     const out = substitutePlaceholders(body, {
-      commandName: 'skills',
+      commandName: 'caipe-skills',
+      updateCommandName: 'update-caipe-skills',
       description: 'Catalog',
       baseUrl: 'https://x',
       argRef: '$1',
     });
     expect(out).toBe(
-      'cmd=/skills desc=Catalog url=https://x arg=$1\nagain /skills $1',
+      'cmd=/caipe-skills desc=Catalog url=https://x arg=$1\nagain /caipe-skills $1',
     );
     expect(out).not.toContain('{{');
   });
@@ -278,6 +283,7 @@ describe('substitutePlaceholders', () => {
     const body = '{{UNKNOWN}} {{COMMAND_NAME}}';
     const out = substitutePlaceholders(body, {
       commandName: 'x',
+      updateCommandName: 'update-x',
       description: 'd',
       baseUrl: 'u',
       argRef: 'a',
@@ -296,7 +302,7 @@ describe('renderForAgent — universal SKILL.md output', () => {
       expect(out.scope_fallback).toBe(false);
 
       // Canonical frontmatter: name (matches directory) + description.
-      expect(out.template).toMatch(/^---\nname: skills\ndescription: .+\n---\n\n/);
+      expect(out.template).toMatch(/^---\nname: caipe-skills\ndescription: .+\n---\n\n/);
 
       // No leftover placeholders.
       expect(out.template).not.toContain('{{ARG_REF}}');
@@ -307,16 +313,16 @@ describe('renderForAgent — universal SKILL.md output', () => {
       // install_path is the vendor-neutral target path with `{name}`
       // substituted.
       expect(out.install_path).not.toBeNull();
-      expect(out.install_path!.endsWith('/skills/SKILL.md')).toBe(true);
+      expect(out.install_path!.endsWith('/caipe-skills/SKILL.md')).toBe(true);
       expect(out.install_path).not.toContain('{name}');
 
       // install_paths has a single vendor-neutral target per scope.
-      expect(out.install_paths.user).toEqual(['~/.agents/skills/skills/SKILL.md']);
+      expect(out.install_paths.user).toEqual(['~/.agents/skills/caipe-skills/SKILL.md']);
       expect(out.install_paths.project).toEqual([
-        './.agents/skills/skills/SKILL.md',
+        './.agents/skills/caipe-skills/SKILL.md',
       ]);
       for (const p of out.install_paths.user!) {
-        expect(p.endsWith('/skills/SKILL.md')).toBe(true);
+        expect(p.endsWith('/caipe-skills/SKILL.md')).toBe(true);
       }
     },
   );
@@ -416,7 +422,7 @@ describe('renderForAgent — universal SKILL.md output', () => {
       'allowed-tools: ["Bash(python3 ~/.config/caipe/caipe-skills.py*)"]',
     );
     expect(out.template).toMatch(
-      /^---\nname: skills\ndescription: .+\ndisable-model-invocation: true\nallowed-tools: .+\n---\n\n/,
+      /^---\nname: caipe-skills\ndescription: .+\ndisable-model-invocation: true\nallowed-tools: .+\n---\n\n/,
     );
   });
 });

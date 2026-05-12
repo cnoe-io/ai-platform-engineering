@@ -270,6 +270,7 @@ export function makeTemplateRouteHandler(
         canonical_template: canonicalTemplate,
         placeholders: [
           "{{COMMAND_NAME}}",
+          "{{UPDATE_COMMAND_NAME}}",
           "{{DESCRIPTION}}",
           "{{BASE_URL}}",
           "{{ARG_REF}}",

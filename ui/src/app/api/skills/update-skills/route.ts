@@ -1,7 +1,8 @@
 /**
  * GET /api/skills/update-skills
  *
- * Returns the per-agent rendered `/update-skills` slash command template.
+ * Returns the per-agent rendered `/update-caipe-skills` slash command
+ * template by default.
  * Companion to `/api/skills/live-skills`: where live-skills is for one-off
  * live fetches, update-skills walks the user's installed.json manifest
  * and prompts before refreshing each on-disk skill from the catalog.
@@ -19,6 +20,7 @@
  */
 
 import { makeTemplateRouteHandler } from "../_lib/template-route";
+import { DEFAULT_UPDATE_SKILLS_COMMAND } from "../live-skills/agents";
 
 const FALLBACK_TEMPLATE = `---
 description: Refresh locally-installed CAIPE skills from the live catalog
@@ -51,6 +53,6 @@ export const GET = makeTemplateRouteHandler({
   chartTemplatePath:
     "charts/ai-platform-engineering/data/skills/update-skills.md",
   fallbackTemplate: FALLBACK_TEMPLATE,
-  defaultCommandName: "update-skills",
+  defaultCommandName: DEFAULT_UPDATE_SKILLS_COMMAND,
   defaultDescription: "Refresh locally-installed CAIPE skills from the live catalog",
 });

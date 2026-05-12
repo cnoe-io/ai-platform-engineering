@@ -2,8 +2,8 @@
  * GET /api/skills/live-skills
  *
  * Returns the live-skills slash command template (per-agent rendered) used
- * by the Skills Gateway UI to install the `/skills` "live escape hatch"
- * slash command.
+ * by the Skills Gateway UI to install the `/caipe-skills` "live escape
+ * hatch" slash command by default.
  *
  * This is the route the legacy `/api/skills/bootstrap` endpoint was
  * renamed to. The actual handler lives in `_lib/template-route.ts` so
@@ -21,6 +21,7 @@
  */
 
 import { makeTemplateRouteHandler } from "../_lib/template-route";
+import { DEFAULT_LIVE_SKILLS_COMMAND } from "./agents";
 
 const FALLBACK_TEMPLATE = `---
 description: Live-fetch a single skill from the CAIPE catalog
@@ -53,6 +54,6 @@ export const GET = makeTemplateRouteHandler({
   chartTemplatePath:
     "charts/ai-platform-engineering/data/skills/live-skills.md",
   fallbackTemplate: FALLBACK_TEMPLATE,
-  defaultCommandName: "skills",
+  defaultCommandName: DEFAULT_LIVE_SKILLS_COMMAND,
   defaultDescription: "Browse and install skills from the CAIPE skill catalog",
 });

@@ -86,25 +86,25 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template:
-    "---\nname: skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
-  install_path: "~/.agents/skills/skills/SKILL.md",
+    "---\nname: caipe-skills\ndescription: Browse the catalog\n---\n# Live skills\nDo a thing.",
+  install_path: "~/.agents/skills/caipe-skills/SKILL.md",
   install_paths: {
-    user: ["~/.agents/skills/skills/SKILL.md"],
-    project: ["./.agents/skills/skills/SKILL.md"],
+    user: ["~/.agents/skills/caipe-skills/SKILL.md"],
+    project: ["./.agents/skills/caipe-skills/SKILL.md"],
   },
   scope: "user",
   scope_requested: "user",
   scope_fallback: false,
   scopes_available: ["user", "project"],
   launch_guide:
-    "## Launch the skill\n\nRun `/skills` inside Claude Code.\n",
+    "## Launch the skill\n\nRun `/caipe-skills` inside Claude Code.\n",
   agents: [
     {
       id: "claude",
       label: "Claude Code",
       install_paths: {
-        user: ["~/.agents/skills/skills/SKILL.md"],
-        project: ["./.agents/skills/skills/SKILL.md"],
+        user: ["~/.agents/skills/caipe-skills/SKILL.md"],
+        project: ["./.agents/skills/caipe-skills/SKILL.md"],
       },
       scopes_available: ["user", "project"],
     },

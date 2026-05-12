@@ -28,8 +28,8 @@
  * -----
  * 1. `bulk-with-helpers` (DEFAULT, when no `catalog_url` and no
  *    `mode=live-only`): bulk-install every catalog skill, drop the two
- *    helper skills (`/skills` live-fetch + `/update-skills` user-driven
- *    refresh), install the Python catalog helper at
+ *    helper skills (`/caipe-skills` live-fetch + `/update-caipe-skills`
+ *    user-driven refresh by default), install the Python catalog helper at
  *    ~/.config/caipe/caipe-skills.py, and (Claude only) register the
  *    SessionStart hook at ~/.claude/hooks/caipe-catalog.sh that injects
  *    the live catalog index into Claude's `additionalContext`. The hook
@@ -40,7 +40,7 @@
  *    when `--upgrade` is passed.
  *
  * 2. `live-only` (`?mode=live-only`): the legacy default, demoted to an
- *    Advanced toggle in the UI. Installs ONLY the single `/skills`
+ *    Advanced toggle in the UI. Installs ONLY the single `/caipe-skills`
  *    live-skills slash command. No helpers, no hook, no auto-config.
  *
  * 3. `catalog-query bulk` (`?catalog_url=…`): unchanged. Materializes
@@ -74,7 +74,7 @@
  *                   non-uninstall modes. For `mode=uninstall` the scope
  *                   is OPTIONAL — when omitted the script walks BOTH
  *                   manifests with independent prompt loops.
- *   - command_name: slash command name. Defaults to "skills" (sanitized).
+ *   - command_name: slash command name. Defaults to "caipe-skills" (sanitized).
  *   - description:  optional description; defaults to the canonical
  *                   template's frontmatter description.
  *   - base_url:     gateway base URL the script should call back into
@@ -110,6 +110,8 @@ import { NextResponse } from "next/server";
 import {
   AGENTS,
   DEFAULT_AGENT_ID,
+  DEFAULT_LIVE_SKILLS_COMMAND,
+  deriveUpdateCommandName,
   scopesAvailableFor,
   type AgentSpec,
 } from "../live-skills/agents";
@@ -119,9 +121,9 @@ import { getRequestOrigin } from "../_lib/request-origin";
 
 function sanitizeCommandName(raw: string | null): string {
   const trimmed = (raw ?? "").trim();
-  if (!trimmed) return "skills";
-  if (trimmed.length > 64) return "skills";
-  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) return "skills";
+  if (!trimmed) return DEFAULT_LIVE_SKILLS_COMMAND;
+  if (trimmed.length > 64) return DEFAULT_LIVE_SKILLS_COMMAND;
+  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) return DEFAULT_LIVE_SKILLS_COMMAND;
   return trimmed;
 }
 
@@ -286,25 +288,32 @@ function buildInstallScript(inputs: ScriptInputs): string {
   // We pre-compute the parent skill-root directory for each target so
   // the bash side can `mkdir -p` them once.
   const skillRootDirs = scopePaths.map(skillsRootDirFor);
+  const updateCommandName = deriveUpdateCommandName(commandName);
 
   // The two helper-template URLs. We always render against THIS agent
   // so $ARGUMENTS-vs-$1 substitution lands correctly.
   const liveSkillsParams = new URLSearchParams({
     agent: agent.id,
     scope,
-    command_name: "skills",
+    command_name: commandName,
     base_url: baseUrl,
   }).toString();
   const updateSkillsParams = new URLSearchParams({
     agent: agent.id,
     scope,
-    command_name: "update-skills",
+    command_name: updateCommandName,
     base_url: baseUrl,
   }).toString();
   const liveSkillsUrl = `${baseUrl}/api/skills/live-skills?${liveSkillsParams}`;
   const updateSkillsUrl = `${baseUrl}/api/skills/update-skills?${updateSkillsParams}`;
   const helperPyUrl = `${baseUrl}/api/skills/helpers/caipe-skills.py?base_url=${encodeURIComponent(baseUrl)}`;
-  const hookShUrl = `${baseUrl}/api/skills/hooks/caipe-catalog.sh?base_url=${encodeURIComponent(baseUrl)}`;
+  const hookShUrl = `${baseUrl}/api/skills/hooks/caipe-catalog.sh?${new URLSearchParams(
+    {
+      base_url: baseUrl,
+      command_name: commandName,
+      update_command_name: updateCommandName,
+    },
+  ).toString()}`;
 
   // Bulk catalog query (used by both bulk-with-helpers and catalog-query
   // modes). page_size=200 covers any realistic single-org catalog.
@@ -312,7 +321,7 @@ function buildInstallScript(inputs: ScriptInputs): string {
     catalogUrl ??
     `${baseUrl}/api/skills?page=1&page_size=200&include_content=true`;
 
-  // For the live-only mode we render the single /skills slash command
+  // For the live-only mode we render the single browse slash command
   // for THIS agent and write it into the skill-root dirs
   // as <root>/<commandName>/SKILL.md (same place the helpers go).
   const singleSkillUrl = `${baseUrl}/api/skills/live-skills?${new URLSearchParams(
@@ -334,6 +343,7 @@ function buildInstallScript(inputs: ScriptInputs): string {
   const Q_AGENT_LABEL = shq(agent.label);
   const Q_SCOPE = shq(scope);
   const Q_COMMAND = shq(commandName);
+  const Q_UPDATE_COMMAND = shq(updateCommandName);
   const Q_BASE_URL = shq(baseUrl);
   const Q_LIVE_URL = shq(liveSkillsUrl);
   const Q_UPDATE_URL = shq(updateSkillsUrl);
@@ -381,7 +391,7 @@ ${scopePaths.map((p) => `#   - ${p}`).join("\n")}
 #
 # Mode-gated steps:
 #   - bulk catalog materialization     (${DO_BULK === "1" ? "enabled" : "skipped"})
-#   - /skills + /update-skills helpers (${DO_HELPERS === "1" ? "enabled" : "skipped"})
+#   - /${commandName} + /${updateCommandName} helpers (${DO_HELPERS === "1" ? "enabled" : "skipped"})
 ${isClaude ? `#   - Claude SessionStart hook         (${DO_HOOK === "1" ? "enabled" : "skipped"})\n` : `#   (no SessionStart hook — only Claude Code supports them today)\n`}#   - python helper at ~/.config/caipe/caipe-skills.py
 #   - ~/.config/caipe/config.json (base_url only, never api_key)
 #
@@ -398,6 +408,7 @@ AGENT_ID=${Q_AGENT_ID}
 AGENT_LABEL=${Q_AGENT_LABEL}
 SCOPE=${Q_SCOPE}
 COMMAND_NAME=${Q_COMMAND}
+UPDATE_COMMAND_NAME=${Q_UPDATE_COMMAND}
 BASE_URL=${Q_BASE_URL}
 LIVE_SKILLS_URL=${Q_LIVE_URL}
 UPDATE_SKILLS_URL=${Q_UPDATE_URL}
@@ -467,7 +478,7 @@ Flags:
   --force          Overwrite ANY existing target file (escape hatch).
   --no-bulk        Skip the bulk catalog install. Only the helpers,
                    the python helper, and (Claude) the hook are written.
-  --no-helpers     Skip writing the /skills and /update-skills helper
+  --no-helpers     Skip writing the /\$COMMAND_NAME and /\$UPDATE_COMMAND_NAME helper
                    skill commands.
   --no-hook        Skip the Claude SessionStart hook.
                    No-op when AGENT is not "claude".
@@ -770,46 +781,55 @@ do_legacy_cleanup() {
   [ "\$UPGRADE" -eq 1 ] || return 0
   local removed=0
 
-  # Legacy commands-layout paths for every supported agent. Both helper
-  # commands (skills, update-skills) and the original single-skill
-  # install named after \$COMMAND_NAME are cleaned up.
+  # Legacy commands-layout paths for every supported agent. Fixed legacy
+  # helper names and the current branded/custom helper names are cleaned up.
   local home="\${HOME:-.}"
   local legacy_paths=(
     # Claude Code
     "\$home/.claude/commands/skills.md"
     "\$home/.claude/commands/update-skills.md"
     "\$home/.claude/commands/\$COMMAND_NAME.md"
+    "\$home/.claude/commands/\$UPDATE_COMMAND_NAME.md"
     "./.claude/commands/skills.md"
     "./.claude/commands/update-skills.md"
     "./.claude/commands/\$COMMAND_NAME.md"
+    "./.claude/commands/\$UPDATE_COMMAND_NAME.md"
     # Cursor
     "\$home/.cursor/commands/skills.md"
     "\$home/.cursor/commands/update-skills.md"
     "\$home/.cursor/commands/\$COMMAND_NAME.md"
+    "\$home/.cursor/commands/\$UPDATE_COMMAND_NAME.md"
     "./.cursor/commands/skills.md"
     "./.cursor/commands/update-skills.md"
     "./.cursor/commands/\$COMMAND_NAME.md"
+    "./.cursor/commands/\$UPDATE_COMMAND_NAME.md"
     # Codex CLI
     "\$home/.codex/prompts/skills.md"
     "\$home/.codex/prompts/update-skills.md"
     "\$home/.codex/prompts/\$COMMAND_NAME.md"
+    "\$home/.codex/prompts/\$UPDATE_COMMAND_NAME.md"
     "./.codex/prompts/skills.md"
     "./.codex/prompts/update-skills.md"
     "./.codex/prompts/\$COMMAND_NAME.md"
+    "./.codex/prompts/\$UPDATE_COMMAND_NAME.md"
     # Gemini CLI (TOML)
     "\$home/.gemini/commands/skills.toml"
     "\$home/.gemini/commands/update-skills.toml"
     "\$home/.gemini/commands/\$COMMAND_NAME.toml"
+    "\$home/.gemini/commands/\$UPDATE_COMMAND_NAME.toml"
     "./.gemini/commands/skills.toml"
     "./.gemini/commands/update-skills.toml"
     "./.gemini/commands/\$COMMAND_NAME.toml"
+    "./.gemini/commands/\$UPDATE_COMMAND_NAME.toml"
     # opencode
     "\$home/.config/opencode/command/skills.md"
     "\$home/.config/opencode/command/update-skills.md"
     "\$home/.config/opencode/command/\$COMMAND_NAME.md"
+    "\$home/.config/opencode/command/\$UPDATE_COMMAND_NAME.md"
     "./.opencode/command/skills.md"
     "./.opencode/command/update-skills.md"
     "./.opencode/command/\$COMMAND_NAME.md"
+    "./.opencode/command/\$UPDATE_COMMAND_NAME.md"
   )
   for legacy in "\${legacy_paths[@]}"; do
     if [ -f "\$legacy" ]; then
@@ -1028,7 +1048,7 @@ PY
   manifest_register_paths "config" "config" "\$CAIPE_CONFIG_FILE"
 }
 
-# ---------- Step: install /skills + /update-skills helper skills ----------
+# ---------- Step: install catalog helper skills ----------
 # Each helper is rendered ONCE for this agent then copied to every
 # universal target path. The helper's frontmatter declares
 # disable-model-invocation: true and allowed-tools so Claude Code
@@ -1037,17 +1057,17 @@ do_install_helpers() {
   [ "\$DO_HELPERS" -eq 1 ] || return 0
   [ "\$NO_HELPERS" -eq 1 ] && return 0
 
-  # Helper 1: /skills
+  # Helper 1: browse/search command.
   local tmp_live; tmp_live="\$(mktemp -t caipe-live-XXXXXX)"
   if fetch_template_to "\$LIVE_SKILLS_URL" "\$tmp_live"; then
-    write_to_all_targets "skills" "\$tmp_live" "helper" || true
+    write_to_all_targets "\$COMMAND_NAME" "\$tmp_live" "helper" || true
   fi
   rm -f "\$tmp_live"
 
-  # Helper 2: /update-skills
+  # Helper 2: paired refresh command.
   local tmp_upd; tmp_upd="\$(mktemp -t caipe-upd-XXXXXX)"
   if fetch_template_to "\$UPDATE_SKILLS_URL" "\$tmp_upd"; then
-    write_to_all_targets "update-skills" "\$tmp_upd" "helper" || true
+    write_to_all_targets "\$UPDATE_COMMAND_NAME" "\$tmp_upd" "helper" || true
   fi
   rm -f "\$tmp_upd"
 }
@@ -1055,7 +1075,7 @@ do_install_helpers() {
 # ---------- Step: bulk catalog materialization ----------
 # Same algorithm as before the overhaul, but writes each skill to ALL
 # universal target paths instead of one. We never overwrite the helper
-# command names ("skills", "update-skills").
+# command names.
 do_install_bulk() {
   [ "\$DO_BULK" -eq 1 ] || return 0
   [ "\$NO_BULK" -eq 1 ] && return 0
@@ -1084,14 +1104,14 @@ do_install_bulk() {
   # data we tried to pipe in (via printf | python3) would be
   # silently discarded. We pass the resolved skill-root directories
   # as trailing positional arguments instead.
-  python3 - "\$catalog_tmp" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" "\${RESOLVED_SKILL_ROOTS[@]}" <<'PY'
+  python3 - "\$catalog_tmp" "\$MANIFEST_PATH" "\$AGENT_ID" "\$SCOPE" "\$FORCE" "\$UPGRADE" "\$COMMAND_NAME" "\$UPDATE_COMMAND_NAME" "\${RESOLVED_SKILL_ROOTS[@]}" <<'PY'
 import base64, datetime, json, os, re, sys, tempfile
 
-src, manifest_path, agent, scope, force_s, upgrade_s, *roots = sys.argv[1:]
+src, manifest_path, agent, scope, force_s, upgrade_s, command_name, update_command_name, *roots = sys.argv[1:]
 force = force_s == "1"; upgrade = upgrade_s == "1"
 NAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 PART_RE = re.compile(r"[^A-Za-z0-9._-]")
-RESERVED = {"skills", "update-skills"}
+RESERVED = {command_name, update_command_name, "skills", "update-skills"}
 
 def is_flagged(skill):
     """Mirror of the supervisor-side scan_gate: a skill the security
@@ -1162,7 +1182,7 @@ for s in skills:
         flagged_count += 1
         continue
     if name in RESERVED:
-        # Reserved names collide with the meta /skills + /update-skills
+        # Reserved names collide with the catalog helper commands
         # commands the helper installs; we never overwrite those.
         print(f"==> skipped {name} (reserved name)")
         reserved += 1
@@ -1420,8 +1440,8 @@ echo
 if [ "\$DO_HELPERS" -eq 1 ] && [ "\$NO_HELPERS" -eq 0 ]; then
   echo "  next steps:"
   echo "    1. launch any of the agents listed above"
-  echo "    2. type /skills <query>          live-fetch a skill from the catalog"
-  echo "    3. type /update-skills           refresh local copies from the catalog"
+  echo "    2. type /\$COMMAND_NAME <query>          live-fetch a skill from the catalog"
+  echo "    3. type /\$UPDATE_COMMAND_NAME           refresh local copies from the catalog"
 elif [ "\$DO_LIVE_ONLY" -eq 1 ]; then
   echo "  next steps:"
   echo "    1. launch any of the agents listed above"
@@ -1991,7 +2011,7 @@ export async function GET(request: Request) {
   //   1. ?mode=uninstall locks us into uninstall mode.
   //   2. ?catalog_url=... + ?mode=bulk-with-helpers → bulk-with-helpers.
   //      The Quick Install UI relies on this so a user-chosen catalog
-  //      page can still trigger the /skills + /update-skills helper
+  //      page can still trigger the branded browse + refresh helper
   //      install. Without this branch the user would have to choose
   //      between "use my catalog URL" and "install helpers"; today
   //      they get neither because catalog_url silently downgraded

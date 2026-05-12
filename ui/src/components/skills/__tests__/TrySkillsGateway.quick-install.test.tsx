@@ -87,10 +87,10 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template: "# Live-skills\nDo a thing.",
-  install_path: "~/.agents/skills/skills/SKILL.md",
+  install_path: "~/.agents/skills/caipe-skills/SKILL.md",
   install_paths: {
-    user: ["~/.agents/skills/skills/SKILL.md"],
-    project: ["./.agents/skills/skills/SKILL.md"],
+    user: ["~/.agents/skills/caipe-skills/SKILL.md"],
+    project: ["./.agents/skills/caipe-skills/SKILL.md"],
   },
   scope: "user",
   scope_requested: "user",
@@ -100,7 +100,7 @@ const LIVE_SKILLS_BODY = {
   format: "markdown-frontmatter",
   is_fragment: false,
   launch_guide:
-    "## Launch the skill\n\nRun `/skills` inside Claude Code.\n",
+    "## Launch the skill\n\nRun `/caipe-skills` inside Claude Code.\n",
   agents: [
     {
       id: "claude",
@@ -108,8 +108,8 @@ const LIVE_SKILLS_BODY = {
       ext: "md",
       format: "markdown-frontmatter",
       install_paths: {
-        user: ["~/.agents/skills/skills/SKILL.md"],
-        project: ["./.agents/skills/skills/SKILL.md"],
+        user: ["~/.agents/skills/caipe-skills/SKILL.md"],
+        project: ["./.agents/skills/caipe-skills/SKILL.md"],
       },
       scopes_available: ["user", "project"],
       is_fragment: false,
@@ -375,14 +375,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
       screen.getAllByText((_, node) =>
         Boolean(
           node?.textContent?.includes(
-            "/skills to browse/search or run an installed skill directly",
+            "/caipe-skills to browse/search or run an installed skill directly",
           ),
         ),
       ).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText((_, node) =>
-        Boolean(node?.textContent?.includes("/update-skills")),
+        Boolean(node?.textContent?.includes("/update-caipe-skills")),
       ).length,
     ).toBeGreaterThan(0);
     expect(
@@ -455,14 +455,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
       within(dialog).queryByText((_, node) =>
         Boolean(
           node?.textContent?.includes(
-            "paths ./.agents/skills/skills/SKILL.md",
+            "paths ./.agents/skills/caipe-skills/SKILL.md",
           ),
         ),
       ),
     ).toBeNull();
     expect(
       within(dialog).queryByText(
-        "./.agents/skills/skills/SKILL.md./.agents/skills/skills/SKILL.md",
+        "./.agents/skills/caipe-skills/SKILL.md./.agents/skills/caipe-skills/SKILL.md",
       ),
     ).toBeNull();
   });
@@ -766,7 +766,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   // Helpers checkbox (default ON).
   //
   // The Quick Install URL must include &mode=bulk-with-helpers when the
-  // checkbox is on so the server installs /skills + /update-skills
+  // checkbox is on so the server installs /caipe-skills + /update-caipe-skills
   // helper SKILL.md files. Without this the route silently downgrades
   // to catalog-query mode (DO_HELPERS=0) because ?catalog_url= takes
   // precedence over a missing mode.

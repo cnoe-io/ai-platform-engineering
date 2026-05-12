@@ -47,6 +47,18 @@
  */
 export type AgentScope = "user" | "project";
 
+// assisted-by Codex Codex-sonnet-4-6
+export const DEFAULT_LIVE_SKILLS_COMMAND = "caipe-skills";
+export const DEFAULT_UPDATE_SKILLS_COMMAND = "update-caipe-skills";
+
+export function deriveUpdateCommandName(commandName: string): string {
+  if (commandName.startsWith("update-")) return commandName;
+  const updateCommandName = `update-${commandName}`;
+  return updateCommandName.length <= 64
+    ? updateCommandName
+    : DEFAULT_UPDATE_SKILLS_COMMAND;
+}
+
 /**
  * Universal install paths — every agent gets the same path per
  * scope. `{name}` is replaced with the slash command name. Tilde paths
@@ -96,7 +108,7 @@ export interface AgentSpec {
   /**
    * Short, copy-pasteable launch + invocation guidance shown in the UI
    * after the install step. Markdown allowed. Use `{name}` for the
-   * slash command name.
+   * browse command name and `{updateName}` for its paired refresh command.
    */
   launchGuide: string;
   /** Optional homepage / docs link. */
@@ -126,7 +138,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "- `/{name}`: browse the catalog",
       "- `/{name} kubernetes`: search",
       "- `/{name} run create-ci-pipeline`: fetch and execute inline",
-      "- `/update-skills`: install or refresh on-disk skill copies",
+      "- `/{updateName}`: install or refresh on-disk skill copies",
       "- `/create-ci-pipeline`: run the locally installed skill directly",
       "",
       "Skills are installed under the vendor-neutral `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo) tree. The installer also registers a Claude SessionStart hook so Claude can see the live catalog.",
@@ -313,13 +325,20 @@ export function parseFrontmatter(template: string): ParsedTemplate {
   };
 }
 
-/** Substitute the four canonical placeholders. */
+/** Substitute the canonical template placeholders. */
 export function substitutePlaceholders(
   body: string,
-  vars: { commandName: string; description: string; baseUrl: string; argRef: string },
+  vars: {
+    commandName: string;
+    updateCommandName: string;
+    description: string;
+    baseUrl: string;
+    argRef: string;
+  },
 ): string {
   return body
     .replace(/\{\{COMMAND_NAME\}\}/g, vars.commandName)
+    .replace(/\{\{UPDATE_COMMAND_NAME\}\}/g, vars.updateCommandName)
     .replace(/\{\{DESCRIPTION\}\}/g, vars.description)
     .replace(/\{\{BASE_URL\}\}/g, vars.baseUrl)
     .replace(/\{\{ARG_REF\}\}/g, vars.argRef);
@@ -360,7 +379,7 @@ export interface RenderResult {
   scope: AgentScope | null;
   /** True if the requested scope was unsupported. (Always false in the new layout.) */
   scope_fallback: boolean;
-  /** Launch & invocation guidance, with `{name}` substituted. */
+  /** Launch & invocation guidance, with `{name}` and `{updateName}` substituted. */
   launch_guide: string;
   /** Optional docs link for the agent. */
   docs_url?: string;
@@ -413,6 +432,7 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
 
   const body = substitutePlaceholders(parsed.body, {
     commandName: inputs.commandName,
+    updateCommandName: deriveUpdateCommandName(inputs.commandName),
     description,
     baseUrl: inputs.baseUrl,
     argRef: agent.argRef,
@@ -467,7 +487,9 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     scopes_available: scopesAvail,
     scope: resolvedScope,
     scope_fallback: scopeFallback,
-    launch_guide: agent.launchGuide.replace(/\{name\}/g, inputs.commandName),
+    launch_guide: agent.launchGuide
+      .replace(/\{name\}/g, inputs.commandName)
+      .replace(/\{updateName\}/g, deriveUpdateCommandName(inputs.commandName)),
     docs_url: agent.docsUrl,
     label: agent.label,
   };

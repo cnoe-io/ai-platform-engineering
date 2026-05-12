@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+const DEFAULT_SKILL_COMMAND_NAME = "caipe-skills";
 
 /**
  * Single-quote a value for safe inclusion in a bash snippet shown to the
@@ -68,7 +69,7 @@ export function TrySkillsGateway() {
     "default" | "upgrade" | "force"
   >("default");
   // When true, the rendered one-liner asks install.sh to also write
-  // the /skills and /update-skills helper SKILL.md files. Default ON
+  // the /caipe-skills and /update-caipe-skills helper SKILL.md files. Default ON
   // because (a) Quick Install used to silently skip them when
   // ?catalog_url= was set (it forced mode=catalog-query, which has
   // DO_HELPERS=0) and (b) those two helpers are how users actually
@@ -78,7 +79,9 @@ export function TrySkillsGateway() {
   const [copiedInstall, setCopiedInstall] = useState(false);
 
   // Live-skills skill customization
-  const [skillCommandName, setSkillCommandName] = useState("skills");
+  const [skillCommandName, setSkillCommandName] = useState(
+    DEFAULT_SKILL_COMMAND_NAME,
+  );
   const [skillDescription, setSkillDescription] = useState(
     "Browse and install skills from the CAIPE skill catalog",
   );
@@ -249,7 +252,7 @@ export function TrySkillsGateway() {
     const timer = setTimeout(() => {
       const params = new URLSearchParams({
         agent: selectedAgent,
-        command_name: skillCommandName.trim() || "skills",
+        command_name: skillCommandName.trim() || DEFAULT_SKILL_COMMAND_NAME,
       });
       if (selectedScope) params.set("scope", selectedScope);
       const desc = skillDescription.trim();
@@ -330,10 +333,13 @@ export function TrySkillsGateway() {
 
   // Sanitize the slash command name for display purposes (the server
   // performs its own sanitization for the rendered artifact).
-  const safeCommandName = (skillCommandName.trim() || "skills")
+  const safeCommandName = (skillCommandName.trim() || DEFAULT_SKILL_COMMAND_NAME)
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/^-+|-+$/g, "") || "skills";
+    .replace(/^-+|-+$/g, "") || DEFAULT_SKILL_COMMAND_NAME;
+  const updateSkillCommandName = safeCommandName.startsWith("update-")
+    ? safeCommandName
+    : `update-${safeCommandName}`;
 
   // Rendered artifact + metadata from the server (per selected agent).
   // Falls back to placeholders while the first fetch is in flight.
@@ -432,6 +438,8 @@ export function TrySkillsGateway() {
     if (previewSkillCount === 0) return null;
     const installShUrl = `${baseUrl}/api/skills/install.sh?scope=${encodeURIComponent(
       selectedScope,
+    )}&command_name=${encodeURIComponent(
+      safeCommandName,
     )}&catalog_url=${encodeURIComponent(catalogUrl)}`;
     // No CAIPE_CATALOG_KEY=… injection — install.sh reads the key from
     // ~/.config/caipe/config.json (Step 1). See installerSnippets above.
@@ -854,7 +862,7 @@ export function TrySkillsGateway() {
                     type="text"
                     value={skillCommandName}
                     onChange={(e) => setSkillCommandName(e.target.value)}
-                    placeholder="skills"
+                    placeholder={DEFAULT_SKILL_COMMAND_NAME}
                     className="w-full px-3 py-2 text-sm bg-background border border-border rounded-r-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
@@ -1546,7 +1554,9 @@ export function TrySkillsGateway() {
               to browse/search or run an installed skill directly.
             </li>
             <li>
-              <code className="font-mono text-[12px]">/update-skills</code>{" "}
+              <code className="font-mono text-[12px]">
+                /{updateSkillCommandName}
+              </code>{" "}
               to refresh.
             </li>
             <li>
@@ -1701,17 +1711,18 @@ export function TrySkillsGateway() {
                 // skills to ~/.agents/skills/).
                 // The install URL is composed from (in order):
                 //   * scope (user/project) — drives ~/.agents vs ./.agents
+                //   * command_name= — the branded/custom helper command
                 //   * catalog_url= — the user-chosen catalog page from
                 //                    the "Pick your skills" preview
                 //   * mode=bulk-with-helpers — only when the helpers
                 //                    checkbox is on. Without this the
                 //                    server routes catalog_url= to
                 //                    catalog-query mode which has
-                //                    DO_HELPERS=0 (= no /skills,
-                //                    /update-skills SKILL.md files).
+                //                    DO_HELPERS=0 (= no helper SKILL.md files).
                 const installShUrl =
                   `${baseUrl}/api/skills/install.sh` +
                   `?scope=${encodeURIComponent(selectedScope)}` +
+                  `&command_name=${encodeURIComponent(safeCommandName)}` +
                   `&catalog_url=${encodeURIComponent(catalogUrl)}` +
                   (quickInstallHelpers ? `&mode=bulk-with-helpers` : "");
                 // Single-line install snippet. install.sh reads the API key
@@ -1903,7 +1914,7 @@ export function TrySkillsGateway() {
                       <div className="mt-2 space-y-3">
                     {/* Install options. Single checkbox controlling
                         whether the rendered one-liner asks install.sh
-                        to also drop the /skills and /update-skills
+                        to also drop the branded browse and refresh
                         helper SKILL.md files (the meta-helpers that
                         let the user search and refresh the catalog
                         from inside Claude Code, Cursor, etc.).
@@ -1932,16 +1943,21 @@ export function TrySkillsGateway() {
                         />
                         <span className="text-xs">
                           <span className="font-medium">
-                            Install <code className="font-mono">/skills</code>{" "}
+                            Install{" "}
+                            <code className="font-mono">/{safeCommandName}</code>{" "}
                             and{" "}
-                            <code className="font-mono">/update-skills</code>{" "}
+                            <code className="font-mono">
+                              /{updateSkillCommandName}
+                            </code>{" "}
                             helpers
                           </span>
                           <span className="block text-[11px] text-muted-foreground mt-0.5">
                             Adds two slash commands to your skill tree:{" "}
-                            <code className="font-mono">/skills</code>{" "}
+                            <code className="font-mono">/{safeCommandName}</code>{" "}
                             (search and run any catalog skill) and{" "}
-                            <code className="font-mono">/update-skills</code>{" "}
+                            <code className="font-mono">
+                              /{updateSkillCommandName}
+                            </code>{" "}
                             (refresh on-disk skills from the live
                             catalog). Recommended — leave on unless
                             you only want the bulk skill files.

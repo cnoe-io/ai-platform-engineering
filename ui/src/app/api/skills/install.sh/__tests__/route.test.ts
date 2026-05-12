@@ -224,12 +224,20 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&command_name=my-skills",
     );
     expect(res.body).toContain("COMMAND_NAME='my-skills'");
-    // Live-skills + update-skills URLs preserve the chosen agent/scope.
+    expect(res.body).toContain("UPDATE_COMMAND_NAME='update-my-skills'");
+    // Live-skills + update-skills URLs preserve the chosen agent/scope
+    // and use paired custom command names.
     expect(res.body).toMatch(
       /LIVE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/live-skills\?[^']*agent=claude/,
     );
     expect(res.body).toMatch(
+      /LIVE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/live-skills\?[^']*command_name=my-skills/,
+    );
+    expect(res.body).toMatch(
       /UPDATE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/update-skills\?[^']*agent=claude/,
+    );
+    expect(res.body).toMatch(
+      /UPDATE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/update-skills\?[^']*command_name=update-my-skills/,
     );
     // Universal-path templates carry {name} (the bash side substitutes
     // {COMMAND_NAME} at install time).
@@ -237,12 +245,13 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
     expect(res.body).not.toContain("'./.claude/skills/{name}/SKILL.md'");
   });
 
-  it("sanitizes hostile command_name and falls back to 'skills'", async () => {
+  it("sanitizes hostile command_name and falls back to 'caipe-skills'", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&command_name=" +
         encodeURIComponent("rm -rf /"),
     );
-    expect(res.body).toContain("COMMAND_NAME='skills'");
+    expect(res.body).toContain("COMMAND_NAME='caipe-skills'");
+    expect(res.body).toContain("UPDATE_COMMAND_NAME='update-caipe-skills'");
   });
 
   it("sanitizes hostile base_url and falls back to the request origin", async () => {
@@ -520,7 +529,7 @@ describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {
     // The python invocation must include "${RESOLVED_SKILL_ROOTS[@]}"
     // BEFORE the <<'PY' heredoc -- not piped in via printf.
     expect(res.body).toMatch(
-      /python3 - "\$catalog_tmp"[^\n]*"\${RESOLVED_SKILL_ROOTS\[@\]}"\s+<<'PY'/,
+      /python3 - "\$catalog_tmp"[^\n]*"\$COMMAND_NAME" "\$UPDATE_COMMAND_NAME" "\${RESOLVED_SKILL_ROOTS\[@\]}"\s+<<'PY'/,
     );
     // Hard guard: the broken pattern (printf | python3 ... <<'PY')
     // must NOT reappear for the bulk install. Match any printf that
@@ -530,7 +539,7 @@ describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {
     );
     // The Python script must use *roots = sys.argv[1:] unpacking.
     expect(res.body).toContain(
-      "src, manifest_path, agent, scope, force_s, upgrade_s, *roots = sys.argv[1:]",
+      "src, manifest_path, agent, scope, force_s, upgrade_s, command_name, update_command_name, *roots = sys.argv[1:]",
     );
   });
 
@@ -600,6 +609,8 @@ describe("GET /api/skills/install.sh — flagged-skill security gate", () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    expect(res.body).toContain('RESERVED = {"skills", "update-skills"}');
+    expect(res.body).toContain(
+      'RESERVED = {command_name, update_command_name, "skills", "update-skills"}',
+    );
   });
 });

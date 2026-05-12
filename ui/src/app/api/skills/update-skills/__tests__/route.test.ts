@@ -69,16 +69,16 @@ const callGET = async (url: string) => {
 };
 
 describe('GET /api/skills/update-skills — defaults', () => {
-  it('uses "update-skills" as the default command name', async () => {
+  it('uses "update-caipe-skills" as the default command name', async () => {
     const data = await callGET(
       'https://app.example.com/api/skills/update-skills',
     );
 
-    expect(data.defaults.command_name).toBe('update-skills');
+    expect(data.defaults.command_name).toBe('update-caipe-skills');
     // The fallback template references the command name via the placeholder.
-    // The renderer should also have used "update-skills" as the install path
+    // The renderer should also have used "update-caipe-skills" as the install path
     // basename for any per-agent rendering with a scope.
-    expect(data.inputs.command_name).toBe('update-skills');
+    expect(data.inputs.command_name).toBe('update-caipe-skills');
   });
 
   it('uses the update-skills description as the default description', async () => {
@@ -98,7 +98,7 @@ describe('GET /api/skills/update-skills — defaults', () => {
     expect(data.inputs.command_name).toBe('refresh-skills');
     // Defaults stay anchored to the route's own default — only the input
     // changes per request.
-    expect(data.defaults.command_name).toBe('update-skills');
+    expect(data.defaults.command_name).toBe('update-caipe-skills');
   });
 });
 
@@ -192,6 +192,7 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       canonical_template: expect.any(String),
       placeholders: expect.arrayContaining([
         '{{COMMAND_NAME}}',
+        '{{UPDATE_COMMAND_NAME}}',
         '{{DESCRIPTION}}',
         '{{BASE_URL}}',
         '{{ARG_REF}}',
@@ -201,7 +202,7 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
     // install_paths[scope] is an ARRAY with the vendor-neutral target path.
     expect(Array.isArray(data.install_paths.user)).toBe(true);
     expect(data.install_paths.user).toEqual([
-      '~/.agents/skills/update-skills/SKILL.md',
+      '~/.agents/skills/update-caipe-skills/SKILL.md',
     ]);
 
     // Dropped legacy fields must not reappear.

@@ -21,7 +21,7 @@ or running a guaranteed-fresh version of a skill that's also installed
 locally.
 
 For routine use, prefer the locally-installed copies (just type
-`/<skill-name>`), and run `/update-skills` when you want to pull catalog
+`/<skill-name>`), and run `/{{UPDATE_COMMAND_NAME}}` when you want to pull catalog
 changes onto disk.
 
 ## SECURITY — never expose the API key
@@ -40,7 +40,7 @@ Parse `{{ARG_REF}}` to determine the mode:
 | `<query>` | **Search** — find matching skills | `/{{COMMAND_NAME}} pipeline` |
 | `run <name>` | **Run** — fetch & execute inline | `/{{COMMAND_NAME}} run create-ci-pipeline` |
 
-To install or refresh on-disk copies, use the dedicated `/update-skills`
+To install or refresh on-disk copies, use the dedicated `/{{UPDATE_COMMAND_NAME}}`
 slash command instead of doing it inline here.
 
 ## API Helper
@@ -159,4 +159,4 @@ This is the **primary** mode. Skills are fetched live and executed without savin
 - `repo=owner/repo` to filter by a specific hub repository
 - To browse all: `/{{COMMAND_NAME}}` — to search: `/{{COMMAND_NAME}} <query>`
 - To run live: `/{{COMMAND_NAME}} run <name>`
-- To install or refresh on-disk copies: use `/update-skills` (separate slash command).
+- To install or refresh on-disk copies: use `/{{UPDATE_COMMAND_NAME}}` (separate slash command).
