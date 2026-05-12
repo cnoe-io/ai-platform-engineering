@@ -87,13 +87,19 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template: "# Live-skills\nDo a thing.",
-  install_path: "./.claude/commands/skills.md",
+  install_path: "~/.claude/skills/skills/SKILL.md",
   install_paths: {
-    user: "~/.claude/commands/skills.md",
-    project: "./.claude/commands/skills.md",
+    user: [
+      "~/.claude/skills/skills/SKILL.md",
+      "~/.agents/skills/skills/SKILL.md",
+    ],
+    project: [
+      "./.claude/skills/skills/SKILL.md",
+      "./.agents/skills/skills/SKILL.md",
+    ],
   },
-  scope: "project",
-  scope_requested: "project",
+  scope: "user",
+  scope_requested: "user",
   scope_fallback: false,
   scopes_available: ["user", "project"],
   file_extension: "md",
@@ -108,8 +114,14 @@ const LIVE_SKILLS_BODY = {
       ext: "md",
       format: "markdown-frontmatter",
       install_paths: {
-        user: "~/.claude/commands/skills.md",
-        project: "./.claude/commands/skills.md",
+        user: [
+          "~/.claude/skills/skills/SKILL.md",
+          "~/.agents/skills/skills/SKILL.md",
+        ],
+        project: [
+          "./.claude/skills/skills/SKILL.md",
+          "./.agents/skills/skills/SKILL.md",
+        ],
       },
       scopes_available: ["user", "project"],
       is_fragment: false,
@@ -273,6 +285,12 @@ async function renderAndOpenModal({
   return user;
 }
 
+async function openModalAdvancedOptions(user: ReturnType<typeof userEvent.setup>) {
+  // assisted-by Codex Codex-sonnet-4-6
+  const dialog = getDialog();
+  await user.click(within(dialog).getByText(/^Advanced install options$/i));
+}
+
 function getDialog() {
   // shadcn/ui Dialog renders with role="dialog".
   return screen.getByRole("dialog");
@@ -402,13 +420,23 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // <select>.
     expect(within(dialog).getAllByText(/Claude Code/).length).toBeGreaterThan(0);
 
-    // Default scope after the live-skills fetch returns is "project" (from the mocked
-    // LIVE_SKILLS_BODY.scope), so the project path should be in the chip
-    // row. The same path also appears in the scope picker label, so we
-    // assert at-least-one match instead of unique.
+    // Default scope after renderAndOpenModal picks project-local, so the
+    // chip row should explain both universal target paths instead of
+    // concatenating the raw array into one unreadable string.
     expect(
-      within(dialog).getAllByText("./.claude/commands/skills.md").length,
+      within(dialog).getAllByText((_, node) =>
+        Boolean(
+          node?.textContent?.includes(
+            "paths ./.claude/skills/skills/SKILL.md and ./.agents/skills/skills/SKILL.md",
+          ),
+        ),
+      ).length,
     ).toBeGreaterThan(0);
+    expect(
+      within(dialog).queryByText(
+        "./.claude/skills/skills/SKILL.md./.agents/skills/skills/SKILL.md",
+      ),
+    ).toBeNull();
 
     // The "skills from catalog" fallback chip appears until a Preview is run
     // — previewData is null here so we expect that label, not "N skills".
@@ -433,6 +461,22 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(
       within(dialog).queryByText(/<your-catalog-api-key>/),
     ).toBeNull();
+  });
+
+  it("keeps install options and overwrite policy collapsed by default", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    expect(
+      within(dialog).getByText(/^Advanced install options$/i),
+    ).toBeVisible();
+    expect(within(dialog).getByText(/^Install options$/i)).not.toBeVisible();
+    expect(within(dialog).getByText(/^Overwrite policy$/i)).not.toBeVisible();
+
+    await openModalAdvancedOptions(user);
+
+    expect(within(dialog).getByText(/^Install options$/i)).toBeVisible();
+    expect(within(dialog).getByText(/^Overwrite policy$/i)).toBeVisible();
   });
 
   it("POSTs to /api/catalog-api-keys and flips the gate green after Generate", async () => {
@@ -551,14 +595,16 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // embed the API key — not as `<your-catalog-api-key>`, not as the
     // freshly minted value. install.sh resolves the key from
     // ~/.config/caipe/config.json (Step 1).
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
 
     expect(
       within(dialog).queryByText(/<your-catalog-api-key>/),
     ).toBeNull();
     expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
-    // The `--upgrade` hint (idempotency advice) still belongs in the modal.
+    await openModalAdvancedOptions(user);
+    // The `--upgrade` hint (idempotency advice) still belongs in the
+    // modal, but now lives in the advanced install options.
     expect(within(dialog).getAllByText(/--upgrade/).length).toBeGreaterThan(0);
   });
 
@@ -620,8 +666,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
   // ---------------------------------------------------------------------
 
   it("overwrite-policy: defaults to no flag and renders a clean curl | bash", async () => {
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const upgrade = within(dialog).getByTestId(
       "quick-install-upgrade",
@@ -642,6 +689,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("overwrite-policy: ticking --upgrade rewrites snippet to use bash -s -- --upgrade", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-upgrade"));
 
@@ -654,6 +702,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("overwrite-policy: ticking --force rewrites snippet to use bash -s -- --force", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-force"));
 
@@ -672,8 +721,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
   // ---------------------------------------------------------------------
 
   it("helpers checkbox: defaults to ON and snippet contains &mode=bulk-with-helpers", async () => {
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const helpers = within(dialog).getByTestId(
       "quick-install-helpers",
@@ -687,6 +737,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("helpers checkbox: unticking removes &mode=bulk-with-helpers from the snippet", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-helpers"));
 
@@ -701,6 +752,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("helpers checkbox: stacks with --force (both flags coexist on the same one-liner)", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     // Default state already has helpers=on; layer --force on top.
     await user.click(within(dialog).getByTestId("quick-install-force"));
@@ -807,6 +859,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // Tick --force in the overwrite-policy panel — the bootstrap
     // snippet's install line must pick up the same flag, otherwise
     // the two snippets would silently diverge on overwrite policy.
+    await openModalAdvancedOptions(user);
     await user.click(within(dialog).getByTestId("quick-install-force"));
 
     const panel = within(dialog).getByTestId(
@@ -819,6 +872,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("overwrite-policy: --upgrade and --force are mutually exclusive", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const upgrade = within(dialog).getByTestId(
       "quick-install-upgrade",

@@ -1722,8 +1722,13 @@ export function TrySkillsGateway() {
                   `?scope=${encodeURIComponent(selectedScope)}` +
                   `&catalog_url=${encodeURIComponent(catalogUrl)}` +
                   (quickInstallHelpers ? `&mode=bulk-with-helpers` : "");
-                const targetPath =
+                const targetPathsRaw =
                   liveSkills?.install_paths?.[selectedScope] ?? null;
+                const targetPaths: string[] = Array.isArray(targetPathsRaw)
+                  ? [...targetPathsRaw]
+                  : targetPathsRaw
+                    ? [targetPathsRaw as string]
+                    : [];
                 const skillCount = previewData?.meta?.total ?? null;
                 // Single-line install snippet. install.sh reads the API key
                 // from ~/.config/caipe/config.json (Step 1), so we don't
@@ -1763,11 +1768,12 @@ export function TrySkillsGateway() {
                       <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-foreground">
                         {agentLabel}
                       </span>
-                      {targetPath ? (
+                      {targetPaths.length > 0 ? (
                         <>
-                          <span className="text-muted-foreground">at</span>
                           <code className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-foreground">
-                            {targetPath}
+                            {targetPaths.length > 1
+                              ? `paths ${targetPaths.join(" and ")}`
+                              : `at ${targetPaths[0]}`}
                           </code>
                         </>
                       ) : null}
@@ -1894,6 +1900,15 @@ export function TrySkillsGateway() {
                       </div>
                     )}
 
+                    <details
+                      className="rounded-md border border-border bg-muted/20 px-3 py-2"
+                      data-testid="quick-install-advanced-options"
+                    >
+                      <summary className="cursor-pointer select-none text-[11px] font-medium text-foreground flex items-center gap-1">
+                        <ChevronRight className="h-3 w-3 transition-transform [details[open]_&]:rotate-90" />
+                        Advanced install options
+                      </summary>
+                      <div className="mt-2 space-y-3">
                     {/* Install options. Single checkbox controlling
                         whether the rendered one-liner asks install.sh
                         to also drop the /skills and /update-skills
@@ -2007,6 +2022,8 @@ export function TrySkillsGateway() {
                         (existing files untouched).
                       </p>
                     </div>
+                      </div>
+                    </details>
 
                     {/* The actual one-liner. Multi-line + monospace so the
                         long install.sh URL is readable. Big, full-width
