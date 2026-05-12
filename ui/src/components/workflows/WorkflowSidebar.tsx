@@ -1030,7 +1030,7 @@ function RunsTab({
                 e.stopPropagation();
                 onDeleteRun(run._id);
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+              className="absolute right-2 top-2.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
