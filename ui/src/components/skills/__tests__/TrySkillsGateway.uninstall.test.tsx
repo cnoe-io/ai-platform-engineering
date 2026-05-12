@@ -181,9 +181,8 @@ async function renderAndChooseScope(scope: "user" | "project" = "user") {
   // The scope picker is a pair of <input type="radio" name="install-scope">
   // with human-friendly labels ("User-wide (reused across all projects)"
   // for `user`, "Project-local (committed with this repo)" for `project`).
-  // After the skills-only overhaul, the project radio sits inside an
-  // "Advanced: install per-project instead" <details>. We must open
-  // that disclosure first or the radio won't render in the DOM.
+  // Project-local install now lives behind the main Advanced install options
+  // disclosure, then the "Install per-project instead" disclosure.
   await waitFor(() => {
     expect(
       document.querySelectorAll('input[name="install-scope"][value="user"]').length,
@@ -191,10 +190,14 @@ async function renderAndChooseScope(scope: "user" | "project" = "user") {
   });
 
   if (scope === "project") {
-    const advanced = await waitFor(() =>
-      screen.getByText(/Advanced: install per-project instead/i),
+    const advancedInstallOptions = await waitFor(() =>
+      screen.getByText(/^Advanced install options$/i),
     );
-    await user.click(advanced);
+    await user.click(advancedInstallOptions);
+    const projectInstall = await waitFor(() =>
+      screen.getByText(/Install per-project instead/i),
+    );
+    await user.click(projectInstall);
   }
 
   // Click the matching radio. Both Step 3 picker and the Quick install
