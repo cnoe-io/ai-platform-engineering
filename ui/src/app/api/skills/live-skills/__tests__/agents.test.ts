@@ -163,6 +163,12 @@ describe('AGENTS registry', () => {
     const guide = AGENTS.claude.launchGuide.replace(/\{name\}/g, 'skills');
 
     expect(guide).not.toContain('&mdash;');
+    expect(guide).not.toContain('npm install -g @anthropic-ai/claude-code');
+    expect(guide).not.toContain('brew install --cask claude-code');
+    expect(guide).not.toContain('**Install Claude Code**');
+    expect(guide).toContain(
+      '[Claude Code quickstart](https://code.claude.com/docs/en/quickstart)',
+    );
     expect(guide).toContain('`/skills`: browse the catalog');
     expect(guide).toContain('`/skills kubernetes`: search');
     expect(guide).toContain(
@@ -175,6 +181,13 @@ describe('AGENTS registry', () => {
       '`/create-ci-pipeline`: run the locally installed skill directly',
     );
     expect(guide).not.toContain('`/skills install create-ci-pipeline`');
+  });
+
+  it('links Cursor setup to the product get-started page', () => {
+    const guide = AGENTS.cursor.launchGuide.replace(/\{name\}/g, 'skills');
+
+    expect(guide).not.toContain('**Install Cursor**');
+    expect(guide).toContain('[Cursor get started](https://cursor.com/get-started)');
   });
 
   it('keeps launch guides free of literal HTML dash entities', () => {

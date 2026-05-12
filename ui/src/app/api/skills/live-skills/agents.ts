@@ -118,11 +118,7 @@ export const AGENTS: Record<string, AgentSpec> = {
     docsUrl: "https://docs.claude.com/en/docs/claude-code/skills",
     // assisted-by Codex Codex-sonnet-4-6
     launchGuide: [
-      "**Install Claude Code**:",
-      "```bash",
-      "npm install -g @anthropic-ai/claude-code",
-      "# or: brew install --cask claude-code",
-      "```",
+      "Need Claude Code? See the [Claude Code quickstart](https://code.claude.com/docs/en/quickstart).",
       "",
       "**Launch from your repo root**:",
       "```bash",
@@ -150,7 +146,7 @@ export const AGENTS: Record<string, AgentSpec> = {
     argRef: "$ARGUMENTS",
     docsUrl: "https://cursor.com/docs/skills",
     launchGuide: [
-      "**Install Cursor**: download from [cursor.com](https://cursor.com).",
+      "Need Cursor? See [Cursor get started](https://cursor.com/get-started).",
       "",
       "**Open the repo in Cursor**, then open the chat (`Cmd/Ctrl + L`).",
       "",
