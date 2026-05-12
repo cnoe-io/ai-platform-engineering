@@ -8,6 +8,7 @@ run-name: >-
   }} [${{ github.ref_name }}]
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -199,7 +200,7 @@ jobs:
             git add docs/docusaurus.config.ts docs/src/pages/index.tsx || true
             find charts -name "Chart.yaml" -type f -exec git add {} +
 
-            git commit -m "chore: bump version to $TAG"
+            git commit -s -m "chore: bump version to $TAG"
           fi
 
           # Create annotated tag and push
