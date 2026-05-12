@@ -57,7 +57,6 @@ export function TrySkillsGateway() {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedBulkOneLiner, setCopiedBulkOneLiner] = useState(false);
   const [copiedBulkUpgrade, setCopiedBulkUpgrade] = useState(false);
-  const [copiedQuickInstall, setCopiedQuickInstall] = useState(false);
   const [quickInstallOpen, setQuickInstallOpen] = useState(false);
   // Quick-install mode picker: pass nothing (default), `--upgrade`, or
   // `--force` to the install.sh script. Modeled as a single string with
@@ -1776,17 +1775,14 @@ export function TrySkillsGateway() {
 
                         {/* Single-shot bootstrap. Writes
                             ~/.config/caipe/config.json with chmod 600
-                            then runs the same install one-liner the
-                            "Run this in your terminal" block shows
-                            below. The key is embedded INSIDE a
+                            then runs the install one-liner. The key is
+                            embedded INSIDE a
                             single-quoted heredoc so bash doesn't try
                             to expand $... or backticks; both values
                             are JSON.stringify'd so any character is
                             safe inside the JSON string literal.
                             chmod 600 lands the key on disk readable
-                            only by the owner. The bare curl is
-                            unchanged below for repeat-installs that
-                            don't need to re-seed config.json. */}
+                            only by the owner. */}
                         {(() => {
                           const bootstrapLines = [
                             `mkdir -p ~/.config/caipe && \\`,
@@ -2002,74 +1998,6 @@ export function TrySkillsGateway() {
                       </div>
                     </details>
 
-                    {mintedKey ? (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-foreground">
-                            Run this in your terminal
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 gap-1.5 text-xs"
-                            data-testid="quick-install-copy-bare-curl"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(oneLiner);
-                              setCopiedQuickInstall(true);
-                              setTimeout(
-                                () => setCopiedQuickInstall(false),
-                                2000,
-                              );
-                            }}
-                          >
-                            {copiedQuickInstall ? (
-                              <>
-                                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                                Copied
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3.5 w-3.5" />
-                                Copy
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                        <pre
-                          className="rounded-md bg-muted p-3 text-xs leading-relaxed font-mono whitespace-pre-wrap break-all"
-                          data-testid="quick-install-bare-curl-snippet"
-                        >
-                          {oneLiner}
-                        </pre>
-                        <p className="text-[11px] text-muted-foreground">
-                          {quickInstallMode === "force" ? (
-                            <>
-                              <code className="font-mono">--force</code>{" "}
-                              mode: every target file at the install paths
-                              will be overwritten, including files this
-                              installer didn&rsquo;t create.
-                            </>
-                          ) : quickInstallMode === "upgrade" ? (
-                            <>
-                              <code className="font-mono">--upgrade</code>{" "}
-                              mode: only files this installer previously
-                              wrote (tracked in the manifest) will be
-                              refreshed. Other files are left alone.
-                            </>
-                          ) : (
-                            <>
-                              Idempotent and safe to re-run. Existing skill
-                              files are skipped — toggle{" "}
-                              <code className="font-mono">--upgrade</code>{" "}
-                              or{" "}
-                              <code className="font-mono">--force</code>{" "}
-                              above to overwrite.
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    ) : null}
                   </div>
                 );
               })()}

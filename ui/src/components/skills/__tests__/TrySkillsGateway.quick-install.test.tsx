@@ -10,13 +10,10 @@
  *      install path (the "what is about to happen?" preview).
  *   2. The API-key gate renders amber when no key is present and exposes
  *      a Generate button that POSTs to `/api/catalog-api-keys`.
- *   3. After minting, the gate flips to green and the raw key is shown in a
- *      copyable block with the one-time-visibility warning. Per PR #1268
- *      review feedback (Jeff Napper #6): the install snippet itself never
- *      embeds the minted key — install.sh reads the key out of
- *      `~/.config/caipe/config.json` (Step 1).
- *   4. The Copy button writes the single-line `curl … | bash` snippet
- *      verbatim (no `export CAIPE_CATALOG_KEY=…` prefix, no key inline).
+ *   3. After minting, the gate flips to green and shows a single-shot
+ *      bootstrap command with the one-time-visibility warning.
+ *   4. The bootstrap command writes `~/.config/caipe/config.json` and then
+ *      runs the install one-liner without a second redundant terminal block.
  *   5. The footer action closes the dialog.
  *
  * We mock `fetch` per-URL so the component receives realistic shapes from
@@ -306,6 +303,13 @@ function getDialog() {
   return screen.getByRole("dialog");
 }
 
+function getBootstrapSnippetText(dialog = getDialog()) {
+  const panel = within(dialog).getByTestId("quick-install-bootstrap-snippet");
+  const pre = panel.querySelector("pre");
+  expect(pre).not.toBeNull();
+  return pre!.textContent || "";
+}
+
 // ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
@@ -569,22 +573,23 @@ describe("TrySkillsGateway → Quick install modal", () => {
       within(dialog).getByTestId("quick-install-bootstrap-snippet"),
     ).toHaveTextContent(mintedKeyValue);
     expect(
-      within(dialog).getByText(/Run this in your terminal/i),
-    ).toBeInTheDocument();
+      within(dialog).queryByText(/Run this in your terminal/i),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-bare-curl-snippet"),
+    ).toBeNull();
     // But never as `export CAIPE_CATALOG_KEY=…` — install.sh reads the
-    // key from ~/.config/caipe/config.json, not the env. (See the
-    // separate clipboard test below for the bare-curl one-liner.)
+    // key from ~/.config/caipe/config.json, not the env.
     expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
   });
 
-  it("Copy writes the single-line `curl … | bash` snippet to clipboard", async () => {
+  it("does not render a second terminal-only curl snippet after minting", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
 
-    // Minting changes the API-key gate but should NOT affect the snippet,
-    // which is always a clean one-liner (install.sh reads the key from
-    // ~/.config/caipe/config.json). Mint anyway so we can verify the key
-    // is *not* leaking into the copy payload.
     await user.click(
       within(dialog).getByRole("button", {
         name: /generate install command with api key/i,
@@ -592,57 +597,13 @@ describe("TrySkillsGateway → Quick install modal", () => {
     );
     await within(dialog).findByText(/API key minted/i);
 
-    // After mint, two clipboard-writers exist in the dialog:
-    //   1) The bootstrap snippet (CopyableBlock with visible text
-    //      "Copy", inside the
-    //      `quick-install-bootstrap-snippet` panel).
-    //   2) The "Run this in your terminal" inline button (visible text
-    //      "Copy", `data-testid="quick-install-copy-bare-curl"`),
-    //      which is the one this test cares about — the clean
-    //      single-line `curl … | bash` that exists regardless of mint
-    //      state.
-    // Target #2 by testid so this test stays orthogonal to the
-    // bootstrap command.
-    clipboardWriteTextMock.mockClear();
-    // `userEvent.setup()` installs its own clipboard polyfill that
-    // shadows our `Object.defineProperty` mock, so we spy on the live
-    // `writeText` *just before* the click and inspect that.
-    const liveWriteText = jest.spyOn(navigator.clipboard, "writeText");
-    await user.click(
-      within(dialog).getByTestId("quick-install-copy-bare-curl"),
-    );
-
-    await waitFor(() => {
-      expect(liveWriteText).toHaveBeenCalled();
-    });
-    // The bare-curl button writes exactly one payload — the one-liner.
-    const snippetCall = liveWriteText.mock.calls.find(
-      ([arg]) =>
-        typeof arg === "string" && /^curl -fsSL/.test(arg),
-    );
-    expect(snippetCall).toBeDefined();
-    const copied = snippetCall![0] as string;
-
-    // Per PR #1268 review feedback (Jeff Napper #6): the snippet is a clean
-    // single-line `curl … | bash`. No `export CAIPE_CATALOG_KEY=`, no key
-    // baked in — install.sh resolves the key from
-    // ~/.config/caipe/config.json (Step 1).
-    expect(copied).toMatch(/^curl -fsSL/);
-    expect(copied).not.toContain("export CAIPE_CATALOG_KEY");
-    expect(copied).not.toContain(FAKE_MINT_KEY);
-    expect(copied).toContain("/api/skills/install.sh?");
-    // ?agent= is omitted now -- the install is universal across
-    // Claude / Cursor / Codex / Gemini / opencode and the route
-    // defaults to claude. The UI no longer surfaces an agent picker
-    // in the Quick install modal.
-    expect(copied).not.toContain("agent=");
-    // Scope must still be in the URL (drives ~/.claude vs ./.claude).
-    expect(copied).toMatch(/scope=(user|project)/);
-    expect(copied).toMatch(/\| bash$/);
-    expect(copied).not.toContain("<your-catalog-api-key>");
-
-    // Button label flips to "Copied" briefly.
-    await within(dialog).findByRole("button", { name: /copied/i });
+    expect(within(dialog).queryByText(/Run this in your terminal/i)).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-bare-curl-snippet"),
+    ).toBeNull();
   });
 
   it("snippet is a clean curl one-liner regardless of mint state", async () => {
@@ -736,9 +697,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
 
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").toMatch(/\| bash$/);
-    expect(snippet.textContent || "").not.toContain("bash -s --");
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash$/);
+    expect(snippet).not.toContain("bash -s --");
   });
 
   it("overwrite-policy: ticking --upgrade rewrites snippet to use bash -s -- --upgrade", async () => {
@@ -749,10 +710,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(within(dialog).getByTestId("quick-install-upgrade"));
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").toMatch(
-      /\| bash -s -- --upgrade$/,
-    );
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash -s -- --upgrade$/);
   });
 
   it("overwrite-policy: ticking --force rewrites snippet to use bash -s -- --force", async () => {
@@ -763,8 +722,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(within(dialog).getByTestId("quick-install-force"));
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").toMatch(/\| bash -s -- --force$/);
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash -s -- --force$/);
   });
 
   // ---------------------------------------------------------------------
@@ -789,8 +748,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
 
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").toContain("mode=bulk-with-helpers");
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toContain("mode=bulk-with-helpers");
   });
 
   it("helpers checkbox: unticking removes &mode=bulk-with-helpers from the snippet", async () => {
@@ -801,12 +760,12 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(within(dialog).getByTestId("quick-install-helpers"));
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").not.toContain("mode=bulk-with-helpers");
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).not.toContain("mode=bulk-with-helpers");
     // The rest of the URL (scope, catalog_url) must still be there —
     // we're only stripping the mode override, not breaking the URL.
-    expect(snippet.textContent || "").toMatch(/scope=(user|project)/);
-    expect(snippet.textContent || "").toContain("catalog_url=");
+    expect(snippet).toMatch(/scope=(user|project)/);
+    expect(snippet).toContain("catalog_url=");
   });
 
   it("helpers checkbox: stacks with --force (both flags coexist on the same one-liner)", async () => {
@@ -818,8 +777,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(within(dialog).getByTestId("quick-install-force"));
     await mintQuickInstallKey(user);
 
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    const text = snippet.textContent || "";
+    const text = getBootstrapSnippetText(dialog);
     expect(text).toContain("mode=bulk-with-helpers");
     expect(text).toMatch(/\| bash -s -- --force$/);
   });
@@ -910,9 +868,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // chmod aborts the install.
     expect(text).toContain("chmod 600 ~/.config/caipe/config.json && \\");
 
-    // Step 4 — the snippet ends with the same install one-liner the
-    // bare-curl block shows. This guarantees that toggling Options
-    // A/B doesn't accidentally diverge the install URL between them.
+    // Step 4 — the snippet ends with the install one-liner.
     expect(text).toMatch(/\ncurl -fsSL '[^']+' \| bash$/);
     expect(text).toContain("/api/skills/install.sh?");
   });
@@ -970,7 +926,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(upgrade.checked).toBe(false);
     expect(force.checked).toBe(false);
     await mintQuickInstallKey(user);
-    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
-    expect(snippet.textContent || "").not.toContain("bash -s --");
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).not.toContain("bash -s --");
   });
 });
