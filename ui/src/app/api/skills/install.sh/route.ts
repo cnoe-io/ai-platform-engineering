@@ -1202,6 +1202,14 @@ settings_path, hook_path = sys.argv[1:]
 parent = os.path.dirname(settings_path) or "."
 os.makedirs(parent, exist_ok=True)
 
+def canonical_hook_path(value):
+    if not isinstance(value, str):
+        return None
+    expanded = os.path.expanduser(os.path.expandvars(value))
+    return os.path.normcase(os.path.abspath(os.path.normpath(expanded)))
+
+target_hook = canonical_hook_path(hook_path)
+
 data = {}
 if os.path.isfile(settings_path):
     try:
@@ -1230,7 +1238,7 @@ for entry in session_start:
     inner = entry.get("hooks") or []
     if not isinstance(inner, list): continue
     for h in inner:
-        if isinstance(h, dict) and h.get("command") == hook_path:
+        if isinstance(h, dict) and canonical_hook_path(h.get("command")) == target_hook:
             already_registered = True
             break
     if already_registered: break

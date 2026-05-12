@@ -551,26 +551,29 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await within(dialog).findByText(/API key minted/i);
     expect(within(dialog).queryByText(/API key required/i)).toBeNull();
 
-    // The raw key is rendered in its own copyable block with a one-time
-    // visibility warning — this is the only place the key is shown after
-    // mint, per Jeff Napper's review feedback.
-    expect(within(dialog).getByText(mintedKeyValue)).toBeInTheDocument();
+    // The full key should not be visible by default after mint. Users can
+    // copy it without revealing it, or explicitly reveal it if they need to
+    // inspect/paste manually.
+    expect(within(dialog).queryByText(mintedKeyValue)).toBeNull();
+    expect(within(dialog).getByText(/^FAKE-T\*+-USE$/)).toBeInTheDocument();
     expect(
       within(dialog).getByText(/cannot show it again/i),
     ).toBeInTheDocument();
 
-    // The key is shown in two places after mint:
-    //   * Option A — the bare key in its own CopyableBlock.
-    //   * Option B — embedded inside the bootstrap heredoc snippet
-    //     (so the `cat > config.json <<'EOF' … EOF` writes the right
-    //     value).
-    // Use getAllByText so this assertion is stable regardless of how
-    // many copies render — what we actually care about is "the key
-    // shows up somewhere" plus the *negative* assertion below that the
-    // bare-curl one-liner doesn't bake it in.
+    const copyApiKey = within(dialog).getByRole("button", {
+      name: /copy api key/i,
+    });
+    const liveWriteText = jest.spyOn(navigator.clipboard, "writeText");
+    await user.click(copyApiKey);
+    expect(liveWriteText).toHaveBeenLastCalledWith(mintedKeyValue);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /show api key/i }),
+    );
+    expect(within(dialog).getByText(mintedKeyValue)).toBeInTheDocument();
     expect(
-      within(dialog).getAllByText(new RegExp(mintedKeyValue)).length,
-    ).toBeGreaterThanOrEqual(1);
+      within(dialog).getByTestId("quick-install-bootstrap-snippet"),
+    ).toHaveTextContent(mintedKeyValue);
     expect(
       within(dialog).getByText(/Run this in your terminal/i),
     ).toBeInTheDocument();
@@ -896,11 +899,18 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(text).not.toContain("<<EOF");
     expect(text).not.toContain('<<"CAIPE_BOOTSTRAP_EOF"');
 
-    // The minted key is embedded inside a JSON string literal — both
-    // the key and the base_url are JSON.stringify'd on the React side
-    // so any future key character (including `"` and `\`) is safe.
-    expect(text).toContain(`"api_key": "${FAKE_MINT_KEY}"`);
+    // The minted key is embedded in the copied payload, but the visible
+    // snippet masks it by default to avoid shoulder-surfing/leaking it in
+    // screenshots.
+    expect(text).not.toContain(`"api_key": "${FAKE_MINT_KEY}"`);
+    expect(text).toContain('"api_key": "FAKE-T**************-USE"');
     expect(text).toMatch(/"base_url":\s*"[^"]+"/);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /show api key/i }),
+    );
+    const revealedText = pre!.textContent || "";
+    expect(revealedText).toContain(`"api_key": "${FAKE_MINT_KEY}"`);
 
     // Step 3 — chmod 600 must come immediately after the heredoc and
     // *before* the install runs. The `&& \` chain means a failed

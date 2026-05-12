@@ -1,7 +1,19 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Terminal, Loader2, AlertCircle, CheckCircle2, Search, Copy, Check, ChevronRight, Zap } from "lucide-react";
+import {
+  Terminal,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Search,
+  Copy,
+  Check,
+  ChevronRight,
+  Zap,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,6 +39,17 @@ import {
  */
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function maskSecret(value: string): string {
+  if (value.length <= 10) {
+    return "*".repeat(Math.max(value.length, 4));
+  }
+
+  const prefixLength = Math.min(6, Math.floor(value.length / 2));
+  const suffixLength = Math.min(4, value.length - prefixLength);
+  const maskedLength = Math.max(8, value.length - prefixLength - suffixLength);
+  return `${value.slice(0, prefixLength)}${"*".repeat(maskedLength)}${value.slice(-suffixLength)}`;
 }
 
 export function TrySkillsGateway() {
@@ -141,6 +164,7 @@ export function TrySkillsGateway() {
   const [agents, setAgents] = useState<AgentMeta[]>([]);
 
   const [mintedKey, setMintedKey] = useState<string | null>(null);
+  const [showMintedKey, setShowMintedKey] = useState(false);
   const [mintBusy, setMintBusy] = useState(false);
   // The "Active / past keys" list was removed per PR #1268 review feedback;
   // revocation/listing lives on the admin page now, so this component no
@@ -263,6 +287,7 @@ export function TrySkillsGateway() {
   const handleMint = async () => {
     setMintBusy(true);
     setMintedKey(null);
+    setShowMintedKey(false);
     try {
       const res = await fetch("/api/catalog-api-keys", {
         method: "POST",
@@ -273,7 +298,10 @@ export function TrySkillsGateway() {
         setMintedKey(null);
         return;
       }
-      if (typeof data.key === "string") setMintedKey(data.key);
+      if (typeof data.key === "string") {
+        setMintedKey(data.key);
+        setShowMintedKey(false);
+      }
     } finally {
       setMintBusy(false);
     }
@@ -1717,9 +1745,28 @@ export function TrySkillsGateway() {
                         when missing. */}
                     {mintedKey ? (
                       <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 space-y-2">
-                        <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          API key minted.
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            API key minted.
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1.5 px-2 text-[11px]"
+                            aria-label={
+                              showMintedKey ? "Hide API key" : "Show API key"
+                            }
+                            onClick={() => setShowMintedKey((value) => !value)}
+                          >
+                            {showMintedKey ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                            {showMintedKey ? "Hide key" : "Show key"}
+                          </Button>
                         </div>
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
                           ⚠ Copy it now — we cannot show it again. Two
@@ -1740,6 +1787,9 @@ export function TrySkillsGateway() {
                           <CopyableBlock
                             as="code"
                             text={mintedKey}
+                            displayText={
+                              showMintedKey ? mintedKey : maskSecret(mintedKey)
+                            }
                             ariaLabel="Copy API key"
                           />
                         </div>
@@ -1759,7 +1809,7 @@ export function TrySkillsGateway() {
                             unchanged below for repeat-installs that
                             don't need to re-seed config.json. */}
                         {(() => {
-                          const bootstrapSnippet = [
+                          const bootstrapLines = [
                             `mkdir -p ~/.config/caipe && \\`,
                             `cat > ~/.config/caipe/config.json <<'CAIPE_BOOTSTRAP_EOF'`,
                             `{`,
@@ -1769,6 +1819,12 @@ export function TrySkillsGateway() {
                             `CAIPE_BOOTSTRAP_EOF`,
                             `chmod 600 ~/.config/caipe/config.json && \\`,
                             oneLiner,
+                          ];
+                          const bootstrapSnippet = bootstrapLines.join("\n");
+                          const maskedBootstrapSnippet = [
+                            ...bootstrapLines.slice(0, 4),
+                            `  "api_key": ${JSON.stringify(maskSecret(mintedKey))}`,
+                            ...bootstrapLines.slice(5),
                           ].join("\n");
                           return (
                             <div
@@ -1785,6 +1841,11 @@ export function TrySkillsGateway() {
                               <CopyableBlock
                                 as="pre"
                                 text={bootstrapSnippet}
+                                displayText={
+                                  showMintedKey
+                                    ? bootstrapSnippet
+                                    : maskedBootstrapSnippet
+                                }
                                 ariaLabel="Copy bootstrap install snippet"
                                 className="break-all"
                               />
@@ -2050,11 +2111,13 @@ export function TrySkillsGateway() {
  */
 function CopyableBlock({
   text,
+  displayText,
   as = "pre",
   className = "",
   ariaLabel = "Copy to clipboard",
 }: {
   text: string;
+  displayText?: string;
   as?: "pre" | "code";
   className?: string;
   ariaLabel?: string;
@@ -2074,9 +2137,9 @@ function CopyableBlock({
   return (
     <div className="relative group">
       {as === "code" ? (
-        <code className={baseClasses}>{text}</code>
+        <code className={baseClasses}>{displayText ?? text}</code>
       ) : (
-        <pre className={baseClasses}>{text}</pre>
+        <pre className={baseClasses}>{displayText ?? text}</pre>
       )}
       <Button
         type="button"
