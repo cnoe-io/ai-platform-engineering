@@ -355,6 +355,26 @@ describe("TrySkillsGateway → Quick install modal", () => {
 
     expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
     expect(screen.getByText(/The install wrote one/i)).toBeInTheDocument();
+    expect(screen.getByText(/Restart or reopen your coding agent/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("run claude, then use /skills")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("Use /update-skills")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("/create-ci-pipeline")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/For Cursor, Codex CLI, Gemini CLI, and opencode/i)).toBeInTheDocument();
+    expect(screen.queryByText(/immediately discoverable/i)).toBeNull();
+    expect(screen.queryByText(/\$skill-name/i)).toBeNull();
+    expect(screen.queryByText(/\/skills list/i)).toBeNull();
     expect(
       await screen.findByText(/Detailed launch guide for Claude Code/i),
     ).toBeInTheDocument();

@@ -1505,8 +1505,8 @@ export function TrySkillsGateway() {
             Launch your coding agent and use it
           </CardTitle>
           <CardDescription>
-            Open your coding agent in a fresh shell after install. Skills are
-            discovered from the Claude tree and the vendor-neutral mirror.
+            Restart or reopen your coding agent after install so it reloads
+            the skill directories.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -1515,42 +1515,28 @@ export function TrySkillsGateway() {
             <code className="font-mono text-[12px]">SKILL.md</code> per skill
             into both the Claude tree and the vendor-neutral{" "}
             <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
-            mirror. Open any of these CLIs in a fresh shell and the skills are
-            immediately discoverable:
+            mirror, or the project-local equivalents if you selected
+            project-local install.
           </p>
           <ul className="text-foreground space-y-2 list-disc pl-5">
             <li>
               <strong>Claude Code</strong>: run{" "}
-              <code className="font-mono text-[12px]">claude</code> then type{" "}
+              <code className="font-mono text-[12px]">claude</code>, then use{" "}
               <code className="font-mono text-[12px]">/{safeCommandName}</code>{" "}
-              to browse the catalog. Skills are also auto-invoked by
-              description when you describe a matching task.
+              to browse or search the live catalog. Use{" "}
+              <code className="font-mono text-[12px]">/update-skills</code>{" "}
+              to refresh on-disk copies, or call an installed local skill
+              directly, for example{" "}
+              <code className="font-mono text-[12px]">/create-ci-pipeline</code>.
             </li>
             <li>
-              <strong>Cursor</strong>: open Cursor and type{" "}
-              <code className="font-mono text-[12px]">/</code> in the Agent
-              chat to search by name, or describe the task and let the model
-              pick the right skill.
-            </li>
-            <li>
-              <strong>Codex CLI</strong>: run{" "}
-              <code className="font-mono text-[12px]">codex</code> then type{" "}
-              <code className="font-mono text-[12px]">/skills</code> to list,
-              or use <code className="font-mono text-[12px]">$skill-name</code>{" "}
-              to invoke explicitly.
-            </li>
-            <li>
-              <strong>Gemini CLI</strong>: run{" "}
-              <code className="font-mono text-[12px]">gemini</code> and use{" "}
-              <code className="font-mono text-[12px]">/skills list</code> to
-              confirm discovery; Gemini auto-activates skills by description.
-            </li>
-            <li>
-              <strong>opencode</strong>: run{" "}
-              <code className="font-mono text-[12px]">opencode</code>; the
-              agent sees skills via the built-in{" "}
-              <code className="font-mono text-[12px]">skill</code> tool and
-              loads them on demand.
+              <strong>For Cursor, Codex CLI, Gemini CLI, and opencode</strong>:
+              restart or reopen the agent, then describe the task or ask it to
+              use a named installed skill such as{" "}
+              <code className="font-mono text-[12px]">create-ci-pipeline</code>.
+              These agents read matching{" "}
+              <code className="font-mono text-[12px]">SKILL.md</code> files
+              from the installed skill tree.
             </li>
           </ul>
           {launchGuide ? (
