@@ -235,18 +235,19 @@ async function renderAndOpenModal({
       expect.anything(),
     ),
   );
-  // After PR #1268 review feedback (Shubham Bakshi), "Quick install" is
-  // now both the primary CTA in Step 3 ("Install the live-skills skill") AND
-  // the inline button under the Query Builder's Preview button. Either one
-  // opens the same dialog, so we just pick the first match.
+  // The gateway page is quick-install first: a single primary CTA opens
+  // the dialog, while catalog filtering and manual install details live
+  // behind Advanced disclosures.
   await waitFor(() => {
-    const buttons = screen.getAllByRole("button", { name: /quick install/i });
-    expect(buttons.length).toBeGreaterThan(0);
+    const buttons = screen.getAllByRole("button", {
+      name: /^quick install skills$/i,
+    });
+    expect(buttons).toHaveLength(1);
     expect(buttons[0]).toBeEnabled();
   });
 
   await user.click(
-    screen.getAllByRole("button", { name: /quick install/i })[0],
+    screen.getByRole("button", { name: /^quick install skills$/i }),
   );
   await screen.findByRole("heading", { name: /quick install/i });
 
@@ -282,6 +283,115 @@ function getDialog() {
 // ----------------------------------------------------------------------------
 
 describe("TrySkillsGateway → Quick install modal", () => {
+  it("renders a quick-install-first page with advanced details collapsed", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/skills/live-skills"),
+        expect.anything(),
+      ),
+    );
+
+    expect(screen.getAllByText("Quick install skills").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: /^quick install skills$/i }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText(/works across claude code, cursor, codex cli, gemini cli, and opencode/i),
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText(/Step 2: Generate API Key/i)).toBeNull();
+    expect(screen.queryByText(/Step 3: Install skills/i)).toBeNull();
+    expect(screen.getByText(/Advanced install options/i)).toBeVisible();
+    expect(screen.getByText(/Choose specific skills or bulk install/i)).not.toBeVisible();
+    expect(screen.getByText(/Manual and custom install options/i)).not.toBeVisible();
+    expect(screen.queryByText(/Advanced:/i)).toBeNull();
+    expect(screen.queryByText(/^Advanced filters$/i)).toBeNull();
+    expect(
+      screen.queryByText(/Advanced — customize the skill/i),
+    ).toBeNull();
+  });
+
+  it("opens manual options inside the collapsed advanced install section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const user = userEvent.setup();
+    render(<TrySkillsGateway />);
+
+    expect(
+      screen.queryByText(/Advanced: manual and custom install options/i),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/Advanced — customize the skill/i),
+    ).toBeNull();
+    await user.click(screen.getByText(/Advanced install options/i));
+    expect(screen.getByText(/Customize or install manually/i)).toBeInTheDocument();
+    expect(screen.getByText(/Skill name/i)).toBeInTheDocument();
+    expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
+  });
+
+  it("renders launch instructions as a standalone visible section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
+    expect(screen.getByText(/The install wrote one/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Detailed launch guide for Claude Code/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("Run /skills inside Claude Code.")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/^2$/)).toBeNull();
+  });
+
+  it("opens catalog filters inside the collapsed advanced install section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const user = userEvent.setup();
+    render(<TrySkillsGateway />);
+
+    expect(
+      screen.queryByText(/Advanced: choose specific skills or bulk install/i),
+    );
+    await user.click(screen.getByText(/Advanced install options/i));
+    expect(screen.getByText(/Choose specific skills or bulk install/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Advanced filters$/i)).toBeNull();
+    expect(screen.getByText(/Tags \(comma-separated\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Visibility/i)).toBeInTheDocument();
+    expect(screen.getByText(/include_content/i)).toBeInTheDocument();
+  });
+
+  it("does not request or render page_size from the gateway flow", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/skills",
+        expect.anything(),
+      ),
+    );
+
+    const fetchedUrls = (global.fetch as jest.Mock).mock.calls
+      .map(([input]) => (typeof input === "string" ? input : input.toString()))
+      .filter((url: string) => url.includes("/api/skills"));
+    expect(fetchedUrls.some((url: string) => url.includes("page_size"))).toBe(false);
+    expect(screen.queryByText(/page_size/i)).toBeNull();
+  });
+
+  it("renders the default live URL without a trailing question mark", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    expect(
+      await screen.findByText("http://localhost/api/skills"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("http://localhost/api/skills?")).toBeNull();
+  });
+
   it("renders the dialog with summary chips for agent + install path", async () => {
     await renderAndOpenModal();
     const dialog = getDialog();
@@ -457,7 +567,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /close and jump to step 3/i }),
+      within(dialog).getByRole("button", { name: /close and view manual options/i }),
     );
 
     await waitFor(() => {
@@ -477,13 +587,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // return meta.total = 10. After it resolves, opening the modal should
     // surface the "10 skills" chip in place of the "skills from catalog"
     // fallback.
+    await user.click(screen.getByText(/Advanced install options/i));
     await user.click(screen.getByRole("button", { name: /^preview$/i }));
     await waitFor(() =>
       expect(screen.getByText(/10 skill(s)? found/i)).toBeInTheDocument(),
     );
 
     await user.click(
-      screen.getAllByRole("button", { name: /quick install/i })[0],
+      screen.getByRole("button", { name: /^quick install skills$/i }),
     );
     const dialog = await screen.findByRole("dialog");
 
