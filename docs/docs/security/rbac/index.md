@@ -25,7 +25,7 @@ Think of CAIPE like a **secure corporate office building**:
 - **Keycloak** is HR + the front desk. It issues ID badges, manages who works here, and verifies contractors through a partner agency (your enterprise IdP — typically **Okta** or **Duo SSO**).
 - **Every service** is a room with its own badge reader. You prove who you are once at the front desk, get a badge, and that badge is checked at every door — no calling HR again each time.
 - **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint calls **OpenFGA** for the remote PDP decision before applying its local per-tool CEL rulebook.
-- **Team Resources** and **OpenFGA ReBAC** in the Admin UI are the rich ReBAC authoring surfaces: admins assign agents and MCP tool prefixes to a team, preview effective OpenFGA access, visualize the policy graph, and inspect materialized tuples.
+- **Team Resources** and **OpenFGA ReBAC** in the Admin UI are the rich ReBAC authoring surfaces: admins assign agents and MCP tool prefixes to a team, preview effective OpenFGA access, inspect all relationships in a full-screen graph, edit relationships on a drag/drop graph canvas, and inspect materialized tuples.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 
 Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT bearer tokens** for stateless authorization across all service boundaries. There is one token issuer (Keycloak), and every service verifies tokens against Keycloak's published JWKS public keys — no shared secrets, no per-hop re-authentication.
@@ -73,7 +73,7 @@ Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT b
 | Delegation is auditable | OBO tokens carry `act.sub` (the delegating party) alongside `sub` (the real user) |
 | Policy enforcement is centralised | AgentGateway is the single PEP for all MCP tool calls; tools don't implement their own authz |
 | Remote PDP for relationships | AgentGateway `extAuthz` calls OpenFGA before proxying MCP traffic |
-| Admin-configured ReBAC | Team Resources saves write OpenFGA `team`/`agent`/`tool` tuples from the same source of truth as Keycloak roles; OpenFGA ReBAC provides guided tuple creation, checks, graph visualization, and tuple inspection |
+| Admin-configured ReBAC | Team Resources saves write OpenFGA `team`/`agent`/`tool` tuples from the same source of truth as Keycloak roles; OpenFGA ReBAC provides guided tuple creation, checks, full-screen all-relationship graph viewing, drag/drop graph editing, and tuple inspection |
 | Least privilege at tool layer | OpenFGA handles coarse ReBAC; CEL policies on AgentGateway still enforce per-tool, per-role access rules |
 | Tenant isolation | `tenant` claim in JWT scopes data visible to the MCP server |
 

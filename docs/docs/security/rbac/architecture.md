@@ -181,7 +181,7 @@ The UI is intentionally BFF-first:
 1. The browser loads a safe catalog from `/api/admin/openfga/catalog` (teams, dynamic agents, MCP tool prefixes, known KB IDs, and OpenFGA status).
 2. The **Relationship Builder** turns guided choices into validated OpenFGA tuples, for example `team:platform#member can_use agent:incident-agent`, and writes/revokes them through `/api/admin/openfga/relationship`.
 3. The **Effective Access** panel runs `/api/admin/openfga/check` for the same tuple shape so admins can preview whether OpenFGA would allow the relationship.
-4. The **Policy Graph** calls `/api/admin/openfga/graph` and renders tuple usersets as nodes and edges so the team → resource relationship is visible without reading raw tuple rows.
+4. The **Policy Graph** calls `/api/admin/openfga/graph` and renders tuple usersets as nodes and edges so the team → resource relationship is visible without reading raw tuple rows. Admins can switch between a single-team scope and an all-relationships system scope, open a full-screen graph workspace, drag catalog resources onto the canvas, connect valid nodes to stage grants, select existing edges to stage revokes, and save the reviewed tuple diff through `/api/admin/openfga/tuples`.
 5. The **Tuple Inspector** calls `/api/admin/openfga/tuples` for capped, filtered reads and admin-only deletes.
 
 Raw OpenFGA HTTP endpoints stay on the Docker/private service network. The browser never talks to OpenFGA directly, and the BFF only accepts tuple shapes that match the CAIPE model (`user:<sub> member team:<slug>`, `team:<slug>#member can_use/can_manage agent:<id>`, `team:<slug>#member can_call tool:<prefix>`, and KB relations).

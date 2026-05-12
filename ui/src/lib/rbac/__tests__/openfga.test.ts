@@ -1,6 +1,7 @@
 import {
   buildTeamResourceTupleDiff,
   isOpenFgaReconciliationEnabled,
+  readOpenFgaTuples,
   writeOpenFgaTupleDiff,
 } from "../openfga";
 
@@ -100,5 +101,28 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       "http://openfga:8080/stores/store-1/write",
       expect.anything()
     );
+  });
+
+  it("caps tuple reads at OpenFGA's maximum page size", async () => {
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tuples: [], continuation_token: "" }),
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await readOpenFgaTuples({ pageSize: 200 });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      page_size: 100,
+    });
   });
 });

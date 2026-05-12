@@ -55,7 +55,7 @@ export interface OpenFgaCheckResult {
 }
 
 const DEFAULT_STORE_NAME = "caipe-openfga";
-const MAX_READ_PAGE_SIZE = 200;
+const MAX_READ_PAGE_SIZE = 100;
 
 function openFgaHttpUrl(): string | null {
   const url = process.env.OPENFGA_HTTP?.trim();

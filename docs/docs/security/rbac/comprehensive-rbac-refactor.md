@@ -157,8 +157,9 @@ The Admin UI has two human-facing ReBAC surfaces:
   which agents and MCP tool prefixes a team can use, and the BFF materializes the
   change into Keycloak roles, OpenFGA tuples, and Mongo intent.
 - **OpenFGA ReBAC** is the relationship workbench. It provides a guided tuple
-  builder, effective-access preview, policy/resource graph, and advanced tuple
-  inspector without exposing OpenFGA directly to the browser.
+  builder, effective-access preview, full-screen all-relationship graph viewing,
+  drag/drop policy/resource graph editing, and advanced tuple inspector without
+  exposing OpenFGA directly to the browser.
 
 When an admin saves team resources:
 
@@ -179,7 +180,8 @@ Example: granting `platform-engineering` access to Jira writes both:
 - OpenFGA tuple: `team:platform-engineering#member can_call tool:jira_*`
 
 Most admins should use Team Resources. Platform admins can use OpenFGA ReBAC for
-one-off relationship creation, checks, visualization, and safe tuple cleanup.
+one-off relationship creation, graph-based staging/review, checks,
+visualization, and safe tuple cleanup.
 MongoDB keeps the UI-level intent, Keycloak gets JWT-compatible role
 materialization, and OpenFGA gets the relationship graph.
 
