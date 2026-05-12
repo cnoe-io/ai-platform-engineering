@@ -379,6 +379,16 @@ class AgentRuntime:
         # 7. Skills
         self._skills_files: dict[str, Any] = {}
         skills_middleware = None
+
+        # Always clear stale skill files from the shared filesystem when using
+        # StoreBackend.  This is critical for workflows where multiple agents
+        # share the same fs_namespace — without this, Agent B would inherit
+        # Agent A's skill files if Agent B has no skills of its own (because
+        # the seeding block below is skipped when self.config.skills is empty).
+        if self._resolve_backend_type() == BACKEND_STORE and self._store:
+            fs_ns = self._resolve_fs_namespace()
+            self._store.delete_by_key_prefix(fs_ns, "/skills/")
+
         if self.config.skills:
             try:
                 skills_data = load_skills(
@@ -406,9 +416,9 @@ class AgentRuntime:
 
                             # Seed skill files into GridFS so SkillsMiddleware and
                             # read_file can find them via StoreBackend.
+                            # Note: stale skills were already cleared above.
                             if self._store:
                                 namespace = fs_ns
-                                self._store.delete_by_key_prefix(namespace, "/skills/")
                                 for path, file_data in self._skills_files.items():
                                     self._store.put(namespace, path, file_data)
                                 logger.info(

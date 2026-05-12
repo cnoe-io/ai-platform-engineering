@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { Workflow } from "lucide-react";
-import { WorkflowEditor } from "@/components/workflows/WorkflowEditor";
+import { WorkflowCanvas } from "@/components/workflows/WorkflowCanvas";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";
 import type { WorkflowStep } from "@/types/workflow-config";
 
@@ -36,7 +36,7 @@ export default function WorkflowsPage() {
   if (editMode === "edit" && selectedConfig) {
     return (
       <div className="flex-1 overflow-hidden">
-        <WorkflowEditor existingConfig={selectedConfig} onBack={handleBack} />
+        <WorkflowCanvas key={selectedConfig._id} existingConfig={selectedConfig} onBack={handleBack} />
       </div>
     );
   }
@@ -44,7 +44,8 @@ export default function WorkflowsPage() {
   if (editMode === "clone") {
     return (
       <div className="flex-1 overflow-hidden">
-        <WorkflowEditor
+        <WorkflowCanvas
+          key={`clone-${selectedConfigId}`}
           {...cloneProps}
           onBack={handleBack}
         />
@@ -55,7 +56,7 @@ export default function WorkflowsPage() {
   if (editMode === "new") {
     return (
       <div className="flex-1 overflow-hidden">
-        <WorkflowEditor onBack={handleBack} />
+        <WorkflowCanvas key="new" onBack={handleBack} />
       </div>
     );
   }
