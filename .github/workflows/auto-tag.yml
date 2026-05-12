@@ -196,6 +196,7 @@ jobs:
           else
             # Stage version-related files
             git add pyproject.toml uv.lock || true
+            git add docs/docusaurus.config.ts docs/src/pages/index.tsx || true
             find charts -name "Chart.yaml" -type f -exec git add {} +
 
             git commit -m "chore: bump version to $TAG"
