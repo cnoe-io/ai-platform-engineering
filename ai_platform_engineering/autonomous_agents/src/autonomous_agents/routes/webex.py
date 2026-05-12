@@ -36,7 +36,6 @@ Failure-mode contract
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
 import httpx
@@ -44,12 +43,13 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.models import FollowUpContext
-from autonomous_agents.routes.webhooks import _fire_and_log
-from autonomous_agents.scheduler import get_run_store, get_webex_thread_map
-from autonomous_agents.services.mongo import get_mongo_service
+from autonomous_agents.services.task_runner import (
+    get_run_store,
+    get_webex_thread_map,
+)
 from autonomous_agents.services.trigger_instances import (
     DedupKey,
-    claim_trigger_instance,
+    _strip_signature_prefix,
 )
 from autonomous_agents.services.webex_inbound import (
     Verdict,
@@ -57,6 +57,8 @@ from autonomous_agents.services.webex_inbound import (
     dispatch_message_event,
 )
 from autonomous_agents.services.webhook_adapters import get_adapter
+from autonomous_agents.services.webhook_dispatch import dispatch_webhook_run
+from autonomous_agents.services.webhook_registry import get_webhook_task
 
 logger = logging.getLogger("autonomous_agents")
 router = APIRouter(tags=["webex"])
@@ -64,9 +66,9 @@ router = APIRouter(tags=["webex"])
 
 # ---------------------------------------------------------------------------
 # Module-level state, injected by the FastAPI lifespan in ``main.py``.
-# Matches the existing pattern used by :mod:`scheduler` (``set_run_store``,
-# ``set_webex_thread_map``, etc.) so unit tests can swap in fakes without
-# spinning up the whole lifespan.
+# Matches the existing pattern used by :mod:`services.task_runner`
+# (``set_run_store``, ``set_webex_thread_map``, etc.) so unit tests can
+# swap in fakes without spinning up the whole lifespan.
 # ---------------------------------------------------------------------------
 
 
@@ -125,16 +127,11 @@ async def receive_webex_event(
        field; treat as a no-op 200.
     4. **Dispatcher.** Fetches the message body via the Webex API and
        returns ``DROP_*`` or ``FORWARD``.
-    5. **Forward path:**
-       - Derive a dedup key from the verified ``X-Spark-Signature``
-         (Webex retries deliver the same signature, so signature-based
-         dedup is meaningful even without a delivery id header).
-       - Defensive check that the parent run actually belongs to the
-         resolved task (belt-and-suspenders against schema drift in
-         the thread map; the thread map itself is authoritative).
-       - Pre-allocate a ``run_id``, back-link it onto the dedup row,
-         schedule :func:`fire_webhook_task` as a tracked background
-         coroutine, return 202.
+    5. **Forward path:** derive the Webex-specific dedup key
+       (signature suffixed with ``:followup:{parent_run_id}``), check
+       the parent run actually belongs to the resolved task, and hand
+       off to :func:`dispatch_webhook_run` for the shared claim /
+       spawn / envelope tail.
     """
     settings = get_settings()
     if not settings.webex_enabled:
@@ -214,14 +211,15 @@ async def receive_webex_event(
     payload = dispatch.payload
 
     # ---- Resolve the task --------------------------------------------
-    # ``register_webhook_task`` registers tasks under
-    # ``/api/v1/hooks/{task_id}``. This fan-in route resolves the task
-    # at request time via the thread map. We pull the TaskDefinition
-    # from the same in-memory registry so a disabled task doesn't fire
-    # (the registry is the source of truth for "is this task active?").
-    from autonomous_agents.routes.webhooks import _webhook_tasks
-
-    task = _webhook_tasks.get(payload.task_id)
+    # ``register_webhook_task`` registers tasks in the in-memory
+    # ``services.webhook_registry`` keyed by id. This fan-in route
+    # resolves the task at request time via the thread map. We pull the
+    # TaskDefinition from the same registry so a disabled task doesn't
+    # fire (the registry is the source of truth for "is this task
+    # active?"). The previous version reached into
+    # ``routes/webhooks._webhook_tasks`` directly via a deferred import;
+    # the registry split lets both routes consume it as peers.
+    task = get_webhook_task(payload.task_id)
     if task is None:
         # Thread map pointed at a task that's been deleted/disabled
         # since it originally posted. 404 lets Webex stop retrying.
@@ -259,6 +257,10 @@ async def receive_webex_event(
     # parent_run_id so two distinct replies to the same parent (signed
     # with the same secret but distinct bodies -> distinct signatures)
     # remain disjoint deliveries.
+    #
+    # NOTE: dedup-key derivation lives here rather than in
+    # ``dispatch_webhook_run`` because each call site has its own
+    # rules; the shared helper consumes a pre-built key.
     if verified_signature is None:
         # Unsigned mode (dev). No dedup possible.
         dedup_key = DedupKey(key=None, strategy="none")
@@ -267,10 +269,6 @@ async def receive_webex_event(
         # suffix ":followup:{parent_run_id}" so this follow-up shares a
         # disjoint namespace with original-fire deliveries and other
         # replies to different parents.
-        from autonomous_agents.services.trigger_instances import (
-            _strip_signature_prefix,
-        )
-
         sig_token = _strip_signature_prefix(verified_signature)
         dedup_key = DedupKey(
             key=(
@@ -287,110 +285,56 @@ async def receive_webex_event(
         transport=payload.transport,
     )
 
-    if dedup_key.key is None:
-        # No dedup possible (unsigned). Fire without claiming a row.
-        run_id = str(uuid.uuid4())
-        background_tasks.add_task(
-            _fire_and_log,
-            task=task,
-            context={},
-            follow_up=follow_up,
-            run_id=run_id,
-            trigger_instance_id=None,
-        )
-        response.status_code = 202
-        logger.info(
-            "[%s] Webex follow-up run %s queued (parent=%s, no dedup)",
-            payload.task_id,
-            run_id,
-            payload.parent_run_id,
-        )
-        return {
-            "status": "accepted",
-            "run_id": run_id,
-            "task_id": payload.task_id,
-            "parent_run_id": payload.parent_run_id,
-            "dedup_strategy": dedup_key.strategy,
-        }
+    outcome = await dispatch_webhook_run(
+        task=task,
+        dedup_key=dedup_key,
+        body=body,
+        context={},
+        follow_up=follow_up,
+        background_tasks=background_tasks,
+    )
 
-    try:
-        claim = await claim_trigger_instance(
-            get_mongo_service(),
-            task_id=payload.task_id,
-            dedup_key=dedup_key,
-            body=body,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001 -- translated to 503
-        # Same contract as :func:`routes.webhooks._claim_or_log`: a
-        # Mongo blip translates to 503 so Webex retries rather than us
-        # silently double-firing.
-        logger.error(
-            "[%s] trigger_instances claim failed (key=%s): %s",
-            payload.task_id,
-            dedup_key.key,
-            exc,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Webhook deduplication store unavailable; retry later.",
-        ) from exc
+    response.status_code = outcome.status_code
 
-    if not claim.claimed:
+    if not outcome.claimed:
         logger.info(
             "[%s] Duplicate Webex follow-up deduped (key=%s "
             "existing_run_id=%s)",
             payload.task_id,
             dedup_key.key,
-            claim.existing_run_id,
+            outcome.run_id,
         )
         return {
             "status": "deduped",
-            "run_id": claim.existing_run_id,
+            "run_id": outcome.run_id,
             "task_id": payload.task_id,
             "parent_run_id": payload.parent_run_id,
-            "trigger_instance_id": claim.dedup_key,
-            "dedup_strategy": claim.strategy,
+            "trigger_instance_id": outcome.trigger_instance_id,
+            "dedup_strategy": outcome.dedup_strategy,
         }
 
-    run_id = str(uuid.uuid4())
-    try:
-        await get_mongo_service().attach_run_to_trigger_instance(
-            claim.dedup_key, run_id
-        )
-    except Exception as exc:  # noqa: BLE001 -- audit-only, never block
-        logger.warning(
-            "[%s] Failed to pre-attach Webex follow-up run_id=%s to "
-            "trigger_instance=%s: %s",
+    if outcome.trigger_instance_id is None:
+        logger.info(
+            "[%s] Webex follow-up run %s queued (parent=%s, no dedup)",
             payload.task_id,
-            run_id,
-            claim.dedup_key,
-            exc,
+            outcome.run_id,
+            payload.parent_run_id,
         )
-
-    background_tasks.add_task(
-        _fire_and_log,
-        task=task,
-        context={},
-        follow_up=follow_up,
-        run_id=run_id,
-        trigger_instance_id=claim.dedup_key,
-    )
-
-    response.status_code = 202
-    logger.info(
-        "[%s] Webex follow-up run %s queued (parent=%s, dedup=%s)",
-        payload.task_id,
-        run_id,
-        payload.parent_run_id,
-        claim.strategy,
-    )
-    return {
+    else:
+        logger.info(
+            "[%s] Webex follow-up run %s queued (parent=%s, dedup=%s)",
+            payload.task_id,
+            outcome.run_id,
+            payload.parent_run_id,
+            outcome.dedup_strategy,
+        )
+    envelope: dict[str, Any] = {
         "status": "accepted",
-        "run_id": run_id,
+        "run_id": outcome.run_id,
         "task_id": payload.task_id,
         "parent_run_id": payload.parent_run_id,
-        "trigger_instance_id": claim.dedup_key,
-        "dedup_strategy": claim.strategy,
+        "dedup_strategy": outcome.dedup_strategy,
     }
+    if outcome.trigger_instance_id is not None:
+        envelope["trigger_instance_id"] = outcome.trigger_instance_id
+    return envelope

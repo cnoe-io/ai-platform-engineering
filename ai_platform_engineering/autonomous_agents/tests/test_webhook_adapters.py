@@ -35,6 +35,11 @@ from autonomous_agents.routes.webhooks import register_webhook_task as _register
 from autonomous_agents.routes.webhooks import router as webhooks_router
 from autonomous_agents.services import webhook_adapters
 
+# After the dispatch-extraction split, ``fire_webhook_task`` is called
+# from ``webhook_dispatch._fire_and_log`` -- patch the live binding
+# there rather than the legacy attribute on the route module.
+from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
+
 
 def _make_task(
     task_id: str = "wh-1",
@@ -118,10 +123,10 @@ def client(monkeypatch) -> TestClient:
             trigger_instance_id=trigger_instance_id,
         )
 
-    monkeypatch.setattr(webhooks_route, "fire_webhook_task", _fake_fire)
+    monkeypatch.setattr(webhook_dispatch_module, "fire_webhook_task", _fake_fire)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webhooks_route, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
 
     with TestClient(app) as test_client:
         test_client.captured = captured  # type: ignore[attr-defined]

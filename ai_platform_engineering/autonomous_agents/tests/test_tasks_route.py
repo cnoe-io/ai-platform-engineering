@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -39,10 +40,12 @@ from autonomous_agents.routes.tasks import (
     set_task_store,
 )
 from autonomous_agents.scheduler import get_scheduler
+from autonomous_agents.services import task_lifecycle
 from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
+    TaskStore,
 )
 
 
@@ -172,7 +175,12 @@ def _ok_ack() -> Acknowledgement:
 def _reset_router_state():
     """Reset module-level singletons between tests so state doesn't bleed."""
     yield
-    tasks_route._task_store = None
+    # Reach into ``task_lifecycle`` (the owning module after PR3) rather
+    # than ``tasks_route``. Reassigning ``tasks_route._task_store`` would
+    # rebind only the re-export alias and leave production lookups via
+    # ``get_task_store()`` pointing at the original singleton -- same
+    # stale-binding hazard as ``scheduler._run_store`` in PR1.
+    task_lifecycle._task_store = None
 
 
 @pytest.fixture
@@ -202,8 +210,18 @@ def client():
     scheduler_mod._scheduler = BackgroundScheduler(timezone="UTC")
     scheduler_mod._scheduler.start(paused=True)
     scheduler_mod._run_store = None
-    tasks_route._task_store = _DictTaskStore()
-    webhooks_route._webhook_tasks = {}
+    # Install the in-file fake via the public accessor. The singleton
+    # lives on ``task_lifecycle`` after PR3; calling ``set_task_store``
+    # (rather than reassigning ``tasks_route._task_store``) goes through
+    # the owning module and avoids the same stale-binding hazard
+    # documented in ``_reset_router_state``.
+    set_task_store(_DictTaskStore())
+    # ``.clear()`` (not reassignment) — the registry now lives in
+    # ``services.webhook_registry`` and ``webhooks_route._webhook_tasks``
+    # is a live re-export alias. Reassigning ``= {}`` would rebind only
+    # the alias on this module and silently leave production lookups
+    # pointing at the stale dict.
+    webhooks_route._webhook_tasks.clear()
 
     app = FastAPI()
     app.include_router(tasks_route.router, prefix="/api/v1")
@@ -214,8 +232,9 @@ def client():
     if scheduler_mod._scheduler is not None and scheduler_mod._scheduler.running:
         scheduler_mod._scheduler.shutdown(wait=False)
     scheduler_mod._scheduler = None
-    tasks_route._task_store = None
-    webhooks_route._webhook_tasks = {}
+    # Same module-ownership rationale as ``_reset_router_state``.
+    task_lifecycle._task_store = None
+    webhooks_route._webhook_tasks.clear()
 
 
 class TestListAndGet:
@@ -451,7 +470,11 @@ class TestWebhookSecretPreservationOnPut:
         assert response.status_code == 200
         assert response.json()["trigger"]["has_secret"] is True
 
-        stored = tasks_route._task_store
+        # Reach into ``task_lifecycle`` (the owning module after PR3) rather
+        # than the legacy ``tasks_route`` alias. ``get_task_store()`` raises
+        # on None; reading the underscore singleton directly preserves the
+        # ``is not None`` typing guard the test uses below.
+        stored = task_lifecycle._task_store
         assert stored is not None
 
         task = asyncio.run(stored.get("hook1"))
@@ -466,7 +489,8 @@ class TestWebhookSecretPreservationOnPut:
         response = client.put("/api/v1/tasks/hook1", json=update)
         assert response.status_code == 200
 
-        stored = tasks_route._task_store
+        # Same module-ownership rationale as the sibling test above.
+        stored = task_lifecycle._task_store
         assert stored is not None
 
         task = asyncio.run(stored.get("hook1"))
@@ -587,9 +611,14 @@ class TestDynamicAgentRouting:
         da_preflight = AsyncMock(return_value=_ok_ack())
         sup_preflight = AsyncMock(return_value=_ok_ack())
 
+        # ``_run_preflight_and_persist`` lives in ``services.task_lifecycle``
+        # after PR3; that module owns the imports of ``preflight`` and
+        # ``preflight_dynamic_agent`` so the patch target follows the
+        # function. Patching ``routes.tasks.preflight*`` would be a dead
+        # patch (same lesson PR1 paid for with the supervisor invokers).
         with (
-            patch("autonomous_agents.routes.tasks.preflight_dynamic_agent", new=da_preflight),
-            patch("autonomous_agents.routes.tasks.preflight", new=sup_preflight),
+            patch("autonomous_agents.services.task_lifecycle.preflight_dynamic_agent", new=da_preflight),
+            patch("autonomous_agents.services.task_lifecycle.preflight", new=sup_preflight),
         ):
             await _run_preflight_and_persist("custom-task")
 
@@ -619,9 +648,10 @@ class TestDynamicAgentRouting:
         da_preflight = AsyncMock(return_value=_ok_ack())
         sup_preflight = AsyncMock(return_value=_ok_ack())
 
+        # Patch target follows the function -- see sibling test above.
         with (
-            patch("autonomous_agents.routes.tasks.preflight_dynamic_agent", new=da_preflight),
-            patch("autonomous_agents.routes.tasks.preflight", new=sup_preflight),
+            patch("autonomous_agents.services.task_lifecycle.preflight_dynamic_agent", new=da_preflight),
+            patch("autonomous_agents.services.task_lifecycle.preflight", new=sup_preflight),
         ):
             await _run_preflight_and_persist("supervisor-task")
 
@@ -653,3 +683,29 @@ class TestDynamicAgentRouting:
         serialized = _serialize_task(task, next_run_iso=None)
         assert serialized["dynamic_agent_id"] is None
         assert serialized["agent"] == "github"
+
+
+def test_task_store_singleton_alias_is_consistent() -> None:
+    """The transitional re-export must resolve the same TaskStore singleton.
+
+    Direct analogue of ``test_webhook_tasks_alias_is_live`` from PR2.
+    The case here is slightly stronger because correctness depends on
+    ``get_task_store()`` returning the same value whether called via
+    ``routes.tasks`` (re-export) or ``services.task_lifecycle`` (canonical
+    owner). A future "ruff fix" that collapses the re-export into a stale
+    copy -- or accidentally rebinds the underscore singleton on the
+    routes module instead of the service module -- would silently break
+    every CRUD handler at runtime. This test catches that loudly.
+
+    Save / restore the prior value so test ordering can't pollute state
+    if pytest reorders. ``cast(TaskStore, object())`` type-narrows the
+    sentinel for strict mypy.
+    """
+    prior = task_lifecycle._task_store
+    sentinel = cast(TaskStore, object())
+    task_lifecycle._task_store = sentinel
+    try:
+        assert tasks_route.get_task_store() is sentinel
+        assert task_lifecycle.get_task_store() is sentinel
+    finally:
+        task_lifecycle._task_store = prior

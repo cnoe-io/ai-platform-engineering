@@ -23,7 +23,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from autonomous_agents import scheduler as scheduler_module
 from autonomous_agents.config import Settings, get_settings
 from autonomous_agents.models import (
     TaskDefinition,
@@ -34,7 +33,19 @@ from autonomous_agents.models import (
 from autonomous_agents.routes import webex as webex_route
 from autonomous_agents.routes import webhooks as webhooks_route
 from autonomous_agents.routes.webhooks import register_webhook_task as _register
+
+# Run-store and Webex thread-map singletons live in services.task_runner
+# after the scheduler/runner split; monkey-patch on the owning module so
+# the rebind isn't lost to a stale re-export alias.
+from autonomous_agents.services import task_runner as task_runner_module
 from autonomous_agents.services import webhook_adapters
+
+# ``_fire_and_log`` and the ``get_mongo_service`` lookup both moved into
+# ``services.webhook_dispatch`` after the dispatch-extraction split.
+# Monkey-patching the route modules (``webex_route`` / ``webhooks_route``)
+# would attach a dead attribute -- the actual call paths go through
+# this module's name bindings.
+from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
 from autonomous_agents.services.webex_threads import (
     InMemoryWebexThreadMap,
     WebexThreadEntry,
@@ -157,16 +168,16 @@ def app_and_state(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(webex_route, "_fire_and_log", _fake_fire_and_log)
+    monkeypatch.setattr(webhook_dispatch_module, "_fire_and_log", _fake_fire_and_log)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webex_route, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
 
     fake_thread_map = InMemoryWebexThreadMap()
-    monkeypatch.setattr(scheduler_module, "_webex_thread_map", fake_thread_map)
+    monkeypatch.setattr(task_runner_module, "_webex_thread_map", fake_thread_map)
 
     fake_run_store = _FakeRunStore()
-    monkeypatch.setattr(scheduler_module, "_run_store", fake_run_store)
+    monkeypatch.setattr(task_runner_module, "_run_store", fake_run_store)
 
     fake_webex = _FakeWebexClient()
     webex_route.set_webex_client(fake_webex)  # type: ignore[arg-type]

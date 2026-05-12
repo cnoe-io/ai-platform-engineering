@@ -13,6 +13,14 @@ duplicate delivery (same dedup header value, or same HMAC signature)
 returns ``200 OK`` with the *original* run id rather than re-firing
 the task. See :mod:`autonomous_agents.services.trigger_instances` for
 the dedup-key precedence.
+
+This module now keeps only the HTTP-shaped concerns: verification
+(secret/adapter/signature/replay window), parsing, and the per-route
+response shape. The registry and the shared "claim -> spawn -> envelope"
+pipeline live in :mod:`services.webhook_registry` and
+:mod:`services.webhook_dispatch` respectively. Re-exports at the bottom
+of this module are transitional shims so older imports keep working --
+see the deletion-target comment on that block.
 """
 
 from __future__ import annotations
@@ -23,7 +31,6 @@ import json
 import logging
 import math
 import time
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
@@ -32,16 +39,12 @@ from autonomous_agents.config import get_settings
 from autonomous_agents.models import (
     FollowUpContext,
     TaskDefinition,
-    TriggerType,
     WebhookPayload,
     WebhookTrigger,
 )
-from autonomous_agents.scheduler import fire_webhook_task, get_run_store
-from autonomous_agents.services.mongo import get_mongo_service
+from autonomous_agents.services.task_runner import get_run_store
 from autonomous_agents.services.trigger_instances import (
     DedupKey,
-    TriggerClaim,
-    claim_trigger_instance,
     derive_dedup_key,
 )
 from autonomous_agents.services.webhook_adapters import (
@@ -49,75 +52,11 @@ from autonomous_agents.services.webhook_adapters import (
     WebhookAdapter,
     get_adapter,
 )
+from autonomous_agents.services.webhook_dispatch import dispatch_webhook_run
+from autonomous_agents.services.webhook_registry import get_webhook_task
 
 logger = logging.getLogger("autonomous_agents")
 router = APIRouter(tags=["webhooks"])
-
-_webhook_tasks: dict[str, TaskDefinition] = {}
-
-
-async def _fire_and_log(
-    *,
-    task: TaskDefinition,
-    context: dict[str, Any],
-    follow_up: FollowUpContext | None,
-    run_id: str,
-    trigger_instance_id: str | None,
-) -> None:
-    """Background-task wrapper that runs the task and never re-raises.
-
-    The webhook handler has already returned 202 to the sender by the
-    time this runs (FastAPI's ``BackgroundTasks`` schedules this after
-    the response has been sent). Any exception here is therefore
-    invisible to the caller; we log loudly and let
-    :func:`fire_webhook_task`'s own persistence path record the failed
-    run.
-    """
-    try:
-        await fire_webhook_task(
-            task,
-            context=context,
-            follow_up=follow_up,
-            run_id=run_id,
-            trigger_instance_id=trigger_instance_id,
-        )
-    except Exception as exc:  # noqa: BLE001 -- background task must not raise
-        logger.exception(
-            "[%s] Background webhook task crashed (run_id=%s): %s",
-            task.id,
-            run_id,
-            exc,
-        )
-
-
-def register_webhook_task(task: TaskDefinition) -> None:
-    """Index a single webhook task for fast lookup at request time.
-
-    Idempotent: re-registering the same id replaces the prior entry.
-    Non-webhook (and disabled) tasks are silently skipped so the CRUD
-    endpoints can call this unconditionally without first checking the
-    trigger type.
-    """
-    if task.trigger.type != TriggerType.WEBHOOK:
-        return
-
-    if not task.enabled:
-        # Ensure disabled webhook tasks cannot still be triggered.
-        _webhook_tasks.pop(task.id, None)
-        return
-
-    _webhook_tasks[task.id] = task
-    logger.info("Webhook task '%s' registered at POST /hooks/%s", task.id, task.id)
-
-
-def unregister_webhook_task(task_id: str) -> bool:
-    """Remove ``task_id`` from the webhook registry if present.
-
-    Returns ``True`` if an entry was removed, ``False`` otherwise. Same
-    no-raise contract as :func:`scheduler.unregister_task` so the CRUD
-    layer can call both unconditionally.
-    """
-    return _webhook_tasks.pop(task_id, None) is not None
 
 
 def _resolve_secret(task: TaskDefinition) -> tuple[str | None, str]:
@@ -219,214 +158,6 @@ def _parse_context(body: bytes) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def register_webhook_tasks(tasks: list[TaskDefinition]) -> None:
-    """Bulk-register webhook tasks (used by the FastAPI lifespan)."""
-    for task in tasks:
-        register_webhook_task(task)
-
-
-@router.post("/hooks/{task_id}")
-async def receive_webhook(
-    task_id: str,
-    request: Request,
-    response: Response,
-    background_tasks: BackgroundTasks,
-) -> dict:
-    """Accept an incoming webhook and dispatch the matching task asynchronously.
-
-    Flow:
-
-    1. Look up the webhook task; 404 on unknown ids.
-    2. Resolve the provider adapter (github / slack / pagerduty /
-       generic_hmac / operator-supplied) and verify HMAC + replay-window
-       per that adapter's contract when a secret is configured.
-    3. Short-circuit provider-recognised ping deliveries with HTTP 200
-       (no run, no row) — e.g. GitHub's ``X-GitHub-Event: ping``.
-    4. Derive a dedup key (per-task header > adapter default header >
-       verified signature > none) and try to claim a row in the
-       ``trigger_instances`` collection.
-    5. If the claim collided with an existing row -> the sender retried;
-       return HTTP 200 with the original ``run_id`` and *do not* run
-       the task again.
-    6. Otherwise pre-allocate a ``run_id``, kick off
-       :func:`fire_webhook_task` as a tracked background coroutine,
-       update the dedup row with the run id, and return HTTP 202 to
-       the sender. The task continues running after this response.
-    """
-    task = _webhook_tasks.get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail=f"No webhook task found for id '{task_id}'")
-    adapter = _resolve_adapter(task)
-
-    body = await request.body()
-
-    # Track the *verified* signature so the dedup helper can use it as
-    # a dedup key when no per-task header is configured. We only set
-    # this AFTER the adapter's compare_digest confirms the sender's
-    # value matches; using an unverified signature would let an attacker
-    # poison the dedup table.
-    secret, source = _resolve_secret(task)
-    settings = get_settings()
-    result: VerificationResult = adapter.verify(
-        secret=secret,
-        body=body,
-        headers=request.headers,
-        replay_window_seconds=settings.webhook_replay_window_seconds,
-    )
-    if secret:
-        logger.debug(
-            "Webhook signature OK for task '%s' (provider=%s, secret_source=%s)",
-            task_id,
-            adapter.provider_id,
-            source,
-        )
-    verified_signature = result.canonical_signature
-
-    if result.is_ping:
-        # Provider-recognised ping (e.g. GitHub's X-GitHub-Event: ping):
-        # never produce a run AND never create a dedup row -- it's a
-        # one-off configuration check, not a real event.
-        logger.info(
-            "Ignoring %s ping delivery for webhook task '%s'",
-            adapter.provider_id,
-            task_id,
-        )
-        return {
-            "status": "ignored",
-            "reason": f"{adapter.provider_id}_ping",
-            "task_id": task_id,
-        }
-
-    # ---- Dedup attempt -------------------------------------------------
-    dedup_key = derive_dedup_key(
-        task=task,
-        headers=request.headers,
-        verified_signature=verified_signature,
-        default_dedup_header=result.default_dedup_header,
-    )
-
-    context = _parse_context(body)
-    payload_dict = WebhookPayload(data=context).model_dump()
-
-    if dedup_key.key is None:
-        # No dedup is possible (no header configured/present, no
-        # signature). Fire the task without a trigger_instance row;
-        # ``derive_dedup_key`` already logged a warning. We still
-        # return 202 + a fresh run_id so the response shape matches
-        # the dedup'd path.
-        run_id = str(uuid.uuid4())
-        background_tasks.add_task(
-            _fire_and_log,
-            task=task,
-            context=payload_dict,
-            follow_up=None,
-            run_id=run_id,
-            trigger_instance_id=None,
-        )
-        response.status_code = 202
-        return {
-            "status": "accepted",
-            "run_id": run_id,
-            "task_id": task_id,
-            "dedup_strategy": dedup_key.strategy,
-        }
-
-    claim = await _claim_or_log(task_id=task_id, dedup_key=dedup_key, body=body)
-
-    if not claim.claimed:
-        # Duplicate delivery -- sender retried. Return the original
-        # run id so the sender (or anyone watching their logs) can
-        # correlate. Status 200 distinguishes "we accepted it
-        # already" from a fresh 202.
-        logger.info(
-            "[%s] Duplicate webhook delivery deduped (key=%s strategy=%s "
-            "existing_run_id=%s)",
-            task_id,
-            dedup_key.key,
-            dedup_key.strategy,
-            claim.existing_run_id,
-        )
-        return {
-            "status": "deduped",
-            "run_id": claim.existing_run_id,
-            "task_id": task_id,
-            "trigger_instance_id": claim.dedup_key,
-            "dedup_strategy": claim.strategy,
-        }
-
-    # New delivery: pre-allocate a run id (so we can return it in the
-    # 202 without waiting for the task to start) and back-link it onto
-    # the just-claimed row before spawning the background task.
-    run_id = str(uuid.uuid4())
-    try:
-        await get_mongo_service().attach_run_to_trigger_instance(
-            claim.dedup_key, run_id
-        )
-    except Exception as exc:  # noqa: BLE001 -- audit-only, never block
-        logger.warning(
-            "[%s] Failed to pre-attach run_id=%s to trigger_instance=%s: %s",
-            task_id,
-            run_id,
-            claim.dedup_key,
-            exc,
-        )
-
-    background_tasks.add_task(
-        _fire_and_log,
-        task=task,
-        context=payload_dict,
-        follow_up=None,
-        run_id=run_id,
-        trigger_instance_id=claim.dedup_key,
-    )
-
-    response.status_code = 202
-    return {
-        "status": "accepted",
-        "run_id": run_id,
-        "task_id": task_id,
-        "trigger_instance_id": claim.dedup_key,
-        "dedup_strategy": claim.strategy,
-    }
-
-
-async def _claim_or_log(
-    *,
-    task_id: str,
-    dedup_key: DedupKey,
-    body: bytes,
-) -> TriggerClaim:
-    """Wrap :func:`claim_trigger_instance` so a Mongo error becomes a 503.
-
-    The dedup table is the source of truth for "have we seen this
-    delivery?". If Mongo is unreachable we cannot safely answer that
-    question, so we surface a 503 to the sender rather than firing the
-    task and risking duplicate execution. Senders that retry on 5xx
-    will then re-deliver once Mongo recovers, at which point dedup
-    works again -- which is the failure mode we want.
-    """
-    try:
-        return await claim_trigger_instance(
-            get_mongo_service(),
-            task_id=task_id,
-            dedup_key=dedup_key,
-            body=body,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001 -- translated to 503
-        logger.error(
-            "[%s] trigger_instances claim failed (key=%s): %s",
-            task_id,
-            dedup_key.key,
-            exc,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Webhook deduplication store unavailable; retry later.",
-        ) from exc
-
-
 async def _verify_followup_signature(
     task: TaskDefinition,
     body: bytes,
@@ -486,6 +217,128 @@ async def _verify_followup_signature(
     return result.canonical_signature, result.default_dedup_header
 
 
+@router.post("/hooks/{task_id}")
+async def receive_webhook(
+    task_id: str,
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Accept an incoming webhook and dispatch the matching task asynchronously.
+
+    Flow:
+
+    1. Look up the webhook task; 404 on unknown ids.
+    2. Resolve the provider adapter (github / slack / pagerduty /
+       generic_hmac / operator-supplied) and verify HMAC + replay-window
+       per that adapter's contract when a secret is configured.
+    3. Short-circuit provider-recognised ping deliveries with HTTP 200
+       (no run, no row) — e.g. GitHub's ``X-GitHub-Event: ping``.
+    4. Derive a dedup key (per-task header > adapter default header >
+       verified signature > none) and hand off to
+       :func:`dispatch_webhook_run`, which owns the shared
+       claim / spawn / envelope tail.
+    """
+    task = get_webhook_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"No webhook task found for id '{task_id}'")
+    adapter = _resolve_adapter(task)
+
+    body = await request.body()
+
+    # Track the *verified* signature so the dedup helper can use it as
+    # a dedup key when no per-task header is configured. We only set
+    # this AFTER the adapter's compare_digest confirms the sender's
+    # value matches; using an unverified signature would let an attacker
+    # poison the dedup table.
+    secret, source = _resolve_secret(task)
+    settings = get_settings()
+    result: VerificationResult = adapter.verify(
+        secret=secret,
+        body=body,
+        headers=request.headers,
+        replay_window_seconds=settings.webhook_replay_window_seconds,
+    )
+    if secret:
+        logger.debug(
+            "Webhook signature OK for task '%s' (provider=%s, secret_source=%s)",
+            task_id,
+            adapter.provider_id,
+            source,
+        )
+    verified_signature = result.canonical_signature
+
+    if result.is_ping:
+        # Provider-recognised ping (e.g. GitHub's X-GitHub-Event: ping):
+        # never produce a run AND never create a dedup row -- it's a
+        # one-off configuration check, not a real event.
+        logger.info(
+            "Ignoring %s ping delivery for webhook task '%s'",
+            adapter.provider_id,
+            task_id,
+        )
+        return {
+            "status": "ignored",
+            "reason": f"{adapter.provider_id}_ping",
+            "task_id": task_id,
+        }
+
+    dedup_key = derive_dedup_key(
+        task=task,
+        headers=request.headers,
+        verified_signature=verified_signature,
+        default_dedup_header=result.default_dedup_header,
+    )
+
+    context = _parse_context(body)
+    payload_dict = WebhookPayload(data=context).model_dump()
+
+    outcome = await dispatch_webhook_run(
+        task=task,
+        dedup_key=dedup_key,
+        body=body,
+        context=payload_dict,
+        follow_up=None,
+        background_tasks=background_tasks,
+    )
+
+    response.status_code = outcome.status_code
+
+    if not outcome.claimed:
+        # Duplicate delivery -- sender retried. Return the original
+        # run id so the sender (or anyone watching their logs) can
+        # correlate.
+        logger.info(
+            "[%s] Duplicate webhook delivery deduped (key=%s strategy=%s "
+            "existing_run_id=%s)",
+            task_id,
+            dedup_key.key,
+            dedup_key.strategy,
+            outcome.run_id,
+        )
+        return {
+            "status": "deduped",
+            "run_id": outcome.run_id,
+            "task_id": task_id,
+            "trigger_instance_id": outcome.trigger_instance_id,
+            "dedup_strategy": outcome.dedup_strategy,
+        }
+
+    # Fresh fire (claim path or no-dedup path). The ``trigger_instance_id``
+    # is only included when a claim row actually exists; the no-dedup
+    # branch deliberately omits it from the response envelope (matching
+    # the legacy shape).
+    envelope: dict[str, Any] = {
+        "status": "accepted",
+        "run_id": outcome.run_id,
+        "task_id": task_id,
+        "dedup_strategy": outcome.dedup_strategy,
+    }
+    if outcome.trigger_instance_id is not None:
+        envelope["trigger_instance_id"] = outcome.trigger_instance_id
+    return envelope
+
+
 @router.post("/hooks/{task_id}/follow-up")
 async def receive_followup(
     task_id: str,
@@ -513,7 +366,7 @@ async def receive_followup(
     parent don't collide, but a retry of the same reply (same body,
     same signature) is rejected as a duplicate.
     """
-    task = _webhook_tasks.get(task_id)
+    task = get_webhook_task(task_id)
     if not task:
         raise HTTPException(
             status_code=404,
@@ -588,91 +441,91 @@ async def receive_followup(
         else base_dedup
     )
 
-    if dedup_key.key is None:
-        # No dedup possible -- spawn directly without claiming a row.
-        run_id = str(uuid.uuid4())
-        background_tasks.add_task(
-            _fire_and_log,
-            task=task,
-            context={},
-            follow_up=follow_up,
-            run_id=run_id,
-            trigger_instance_id=None,
-        )
-        response.status_code = 202
-        logger.info(
-            "[%s] Follow-up run %s queued (parent=%s, transport=%s, no dedup)",
-            task_id,
-            run_id,
-            follow_up.parent_run_id,
-            follow_up.transport or "unknown",
-        )
-        return {
-            "status": "accepted",
-            "run_id": run_id,
-            "task_id": task_id,
-            "parent_run_id": follow_up.parent_run_id,
-            "dedup_strategy": dedup_key.strategy,
-        }
+    outcome = await dispatch_webhook_run(
+        task=task,
+        dedup_key=dedup_key,
+        body=body,
+        context={},
+        follow_up=follow_up,
+        background_tasks=background_tasks,
+    )
 
-    claim = await _claim_or_log(task_id=task_id, dedup_key=dedup_key, body=body)
+    response.status_code = outcome.status_code
 
-    if not claim.claimed:
+    if not outcome.claimed:
         logger.info(
             "[%s] Duplicate follow-up deduped (key=%s strategy=%s "
             "existing_run_id=%s)",
             task_id,
             dedup_key.key,
             dedup_key.strategy,
-            claim.existing_run_id,
+            outcome.run_id,
         )
         return {
             "status": "deduped",
-            "run_id": claim.existing_run_id,
+            "run_id": outcome.run_id,
             "task_id": task_id,
             "parent_run_id": follow_up.parent_run_id,
-            "trigger_instance_id": claim.dedup_key,
-            "dedup_strategy": claim.strategy,
+            "trigger_instance_id": outcome.trigger_instance_id,
+            "dedup_strategy": outcome.dedup_strategy,
         }
 
-    run_id = str(uuid.uuid4())
-    try:
-        await get_mongo_service().attach_run_to_trigger_instance(
-            claim.dedup_key, run_id
-        )
-    except Exception as exc:  # noqa: BLE001 -- audit-only
-        logger.warning(
-            "[%s] Failed to pre-attach follow-up run_id=%s to "
-            "trigger_instance=%s: %s",
+    # Fresh follow-up fire.
+    if outcome.trigger_instance_id is None:
+        logger.info(
+            "[%s] Follow-up run %s queued (parent=%s, transport=%s, no dedup)",
             task_id,
-            run_id,
-            claim.dedup_key,
-            exc,
+            outcome.run_id,
+            follow_up.parent_run_id,
+            follow_up.transport or "unknown",
         )
-
-    background_tasks.add_task(
-        _fire_and_log,
-        task=task,
-        context={},
-        follow_up=follow_up,
-        run_id=run_id,
-        trigger_instance_id=claim.dedup_key,
-    )
-
-    logger.info(
-        "[%s] Follow-up run %s queued (parent=%s, transport=%s, dedup=%s)",
-        task_id,
-        run_id,
-        follow_up.parent_run_id,
-        follow_up.transport or "unknown",
-        dedup_key.strategy,
-    )
-    response.status_code = 202
-    return {
+    else:
+        logger.info(
+            "[%s] Follow-up run %s queued (parent=%s, transport=%s, dedup=%s)",
+            task_id,
+            outcome.run_id,
+            follow_up.parent_run_id,
+            follow_up.transport or "unknown",
+            outcome.dedup_strategy,
+        )
+    envelope: dict[str, Any] = {
         "status": "accepted",
-        "run_id": run_id,
+        "run_id": outcome.run_id,
         "task_id": task_id,
         "parent_run_id": follow_up.parent_run_id,
-        "trigger_instance_id": claim.dedup_key,
-        "dedup_strategy": claim.strategy,
+        "dedup_strategy": outcome.dedup_strategy,
     }
+    if outcome.trigger_instance_id is not None:
+        envelope["trigger_instance_id"] = outcome.trigger_instance_id
+    return envelope
+
+
+# ---- Transitional re-exports (deletion target: next minor release) ----
+# Production code should import these from their new owning modules
+# (``services.webhook_registry`` for the registry helpers,
+# ``services.webhook_dispatch`` for ``_fire_and_log`` / ``_claim_or_log``).
+# Kept here so existing tests and any external callers keep working
+# through one release cycle without churn; the deletion criterion is
+# the same as the scheduler/runner re-export block.
+#
+# Critical contract: ``_webhook_tasks`` is re-exported as a *live alias*
+# to the underlying dict in ``services.webhook_registry``. Python module
+# imports for mutable containers are by-reference, so ``.clear()`` /
+# ``.pop()`` / ``__setitem__`` against either binding mutate the same
+# dict. The pattern that BREAKS this contract is reassignment
+# (``webhooks_route._webhook_tasks = {}``), which rebinds the alias on
+# this module only and silently leaves production lookups pointing at
+# the original dict. ``tests/test_tasks_route.py`` was updated to use
+# ``.clear()`` in this PR; the invariant test in ``test_webhooks.py``
+# locks down the live-alias property so a future "tidy refactor" can't
+# turn the import into a copy without failing CI.
+from autonomous_agents.services.webhook_dispatch import (  # noqa: E402, F401
+    _claim_or_log,
+    _fire_and_log,
+)
+from autonomous_agents.services.webhook_registry import (  # noqa: E402, F401
+    _webhook_tasks,
+    register_webhook_task,
+    register_webhook_tasks,
+    unregister_webhook_task,
+)

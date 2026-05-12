@@ -39,6 +39,12 @@ from autonomous_agents.routes.webhooks import (
     router as webhooks_router,
 )
 
+# ``fire_webhook_task`` is called from ``webhook_dispatch._fire_and_log``
+# after the dispatch-extraction split. Monkey-patching on the
+# webhooks_route module (the legacy target) would attach a dead
+# attribute -- the real call goes through this module's name binding.
+from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
+
 
 def _make_task(
     task_id: str = "wh-1",
@@ -163,10 +169,10 @@ def client(monkeypatch) -> TestClient:
             trigger_instance_id=trigger_instance_id,
         )
 
-    monkeypatch.setattr(webhooks_route, "fire_webhook_task", _fake_fire)
+    monkeypatch.setattr(webhook_dispatch_module, "fire_webhook_task", _fake_fire)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webhooks_route, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
 
     runs = _FakeRunStore(
         [
@@ -203,6 +209,24 @@ def _set_settings(monkeypatch, **overrides: Any) -> Settings:
     settings = Settings(**overrides)
     monkeypatch.setattr(webhooks_route, "get_settings", lambda: settings)
     return settings
+
+
+def test_webhook_tasks_alias_is_live() -> None:
+    """``routes/webhooks._webhook_tasks`` is a live alias to the registry dict.
+
+    Locks down a contract the transitional re-export block in
+    ``routes/webhooks.py`` depends on: when production code (and the
+    rest of the test suite) does ``webhooks_route._webhook_tasks``, it
+    must see the *same* dict that ``services.webhook_registry`` owns,
+    not a copy. The hazard this guards against is a future "tidy
+    refactor" turning the ``from ... import _webhook_tasks`` into a
+    property, a copy via ``dict(...)``, or a typing-only re-export --
+    any of which would make ``.clear()`` /``.pop()`` /``__setitem__``
+    on the alias silently no-op against production lookups.
+    """
+    from autonomous_agents.services import webhook_registry
+
+    assert webhooks_route._webhook_tasks is webhook_registry._webhook_tasks
 
 
 class TestInitialFireSecrets:
@@ -667,7 +691,7 @@ class TestInitialFireDeduplication:
             async def attach_run_to_trigger_instance(self, *_):
                 return None
 
-        monkeypatch.setattr(webhooks_route, "get_mongo_service", lambda: _BrokenMongo())
+        monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: _BrokenMongo())
 
         body = b'{"x":1}'
         sig = _hex_sig("s", body)

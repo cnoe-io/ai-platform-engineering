@@ -51,15 +51,18 @@ class _DictRunStore:
 
 @pytest.fixture(autouse=True)
 def _reset_scheduler_singletons():
-    import autonomous_agents.scheduler as scheduler_mod
+    """The run-store and Webex thread-map singletons live in
+    ``services.task_runner`` after the scheduler/runner split; rebind
+    them there directly to avoid stale-binding through a re-export."""
+    import autonomous_agents.services.task_runner as runner_mod
 
-    original_runs = scheduler_mod._run_store
-    original_threads = scheduler_mod._webex_thread_map
-    scheduler_mod._run_store = None
-    scheduler_mod._webex_thread_map = None
+    original_runs = runner_mod._run_store
+    original_threads = runner_mod._webex_thread_map
+    runner_mod._run_store = None
+    runner_mod._webex_thread_map = None
     yield
-    scheduler_mod._run_store = original_runs
-    scheduler_mod._webex_thread_map = original_threads
+    runner_mod._run_store = original_runs
+    runner_mod._webex_thread_map = original_threads
 
 
 @pytest.fixture
@@ -260,7 +263,7 @@ class TestSchedulerPostRunHook:
         """Successful runs persist ``(messageId, roomId)`` pairs in the thread map."""
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)
@@ -280,7 +283,7 @@ class TestSchedulerPostRunHook:
     ):
         """A run that never calls Webex leaves the thread map untouched."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("done", [])),
         ):
             await execute_task(webhook_task)
@@ -295,7 +298,7 @@ class TestSchedulerPostRunHook:
     ):
         """FAILED runs must not record any thread entries."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(side_effect=RuntimeError("boom")),
         ):
             run = await execute_task(webhook_task)
@@ -313,7 +316,7 @@ class TestSchedulerPostRunHook:
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)
@@ -338,7 +341,7 @@ class TestSchedulerPostRunHook:
         events = _make_post_message_events(("MSG_42", "ROOM_X"))
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("acknowledged", events)),
         ):
             run = await execute_task(webhook_task)

@@ -118,16 +118,22 @@ class _FlakyPublisher:
 
 @pytest.fixture(autouse=True)
 def _reset_scheduler_globals():
-    """Restore module-level singletons (run_store, publisher) after each test."""
-    import autonomous_agents.scheduler as sched_mod
+    """Restore module-level singletons (run_store, publisher) after each test.
 
-    original_run = sched_mod._run_store
-    original_pub = sched_mod._chat_history_publisher
-    sched_mod._run_store = None
-    sched_mod._chat_history_publisher = None
+    The singletons now live in ``services.task_runner`` (extracted from
+    ``scheduler.py``); the fixture rebinds the underscore globals there
+    directly because reassigning a re-export on ``scheduler`` would be a
+    stale binding and silently no-op.
+    """
+    import autonomous_agents.services.task_runner as runner_mod
+
+    original_run = runner_mod._run_store
+    original_pub = runner_mod._chat_history_publisher
+    runner_mod._run_store = None
+    runner_mod._chat_history_publisher = None
     yield
-    sched_mod._run_store = original_run
-    sched_mod._chat_history_publisher = original_pub
+    runner_mod._run_store = original_run
+    runner_mod._chat_history_publisher = original_pub
 
 
 @pytest.fixture
@@ -182,6 +188,8 @@ class TestRunStoreWiring:
 
     def test_get_run_store_raises_when_uninjected(self):
         """No in-memory fallback; uninjected store surfaces a clear error."""
+        # TODO(deletion-target): repoint at services.task_runner when the
+        # scheduler re-export block is retired.
         from autonomous_agents.scheduler import get_run_store
 
         with pytest.raises(RuntimeError, match="RunStore not initialized"):
@@ -189,6 +197,8 @@ class TestRunStoreWiring:
 
     def test_set_run_store_replaces_active_store(self):
         """``set_run_store`` swaps the active RunStore singleton."""
+        # TODO(deletion-target): repoint at services.task_runner when the
+        # scheduler re-export block is retired.
         from autonomous_agents.scheduler import get_run_store
 
         first = _DictRunStore()
@@ -204,7 +214,7 @@ class TestRunStoreWiring:
     ):
         """Two record() calls (RUNNING + SUCCESS) upsert to one entry."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("hello world", [])),
         ):
             run = await execute_task(task)
@@ -223,7 +233,7 @@ class TestRunStoreWiring:
     ):
         """A2A failure persists as FAILED with the exception message."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(side_effect=RuntimeError("boom")),
         ):
             run = await execute_task(task)
@@ -251,7 +261,7 @@ class TestRunStoreWiring:
             return ("done", [])
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(side_effect=slow_agent),
         ):
             await execute_task(task)
@@ -276,8 +286,8 @@ class TestRunStoreWiring:
         invoke_supervisor = AsyncMock(return_value=("supervisor answer", []))
 
         with (
-            patch("autonomous_agents.scheduler.invoke_dynamic_agent_streaming", new=invoke_da),
-            patch("autonomous_agents.scheduler.invoke_agent_streaming", new=invoke_supervisor),
+            patch("autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming", new=invoke_da),
+            patch("autonomous_agents.services.task_runner.invoke_agent_streaming", new=invoke_supervisor),
         ):
             run = await execute_task(
                 da_task,
@@ -299,7 +309,7 @@ class TestRunStoreWiring:
     ):
         """Returned TaskRun is the same instance the store holds."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("x", [])),
         ):
             run = await execute_task(task)
@@ -312,7 +322,7 @@ class TestRunStoreWiring:
         set_run_store(_FlakyStore())
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(task)
@@ -328,7 +338,7 @@ class TestRunStoreWiring:
 
         with caplog.at_level("ERROR", logger="autonomous_agents"):
             with patch(
-                "autonomous_agents.scheduler.invoke_agent_streaming",
+                "autonomous_agents.services.task_runner.invoke_agent_streaming",
                 new=AsyncMock(return_value=("ok", [])),
             ):
                 await execute_task(task)
@@ -344,7 +354,7 @@ class TestRunStoreWiring:
         set_run_store(_FlakyStore())
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("hello", [])),
         ):
             run = await execute_task(task)
@@ -362,7 +372,7 @@ class TestChatHistoryPublisher:
     ):
         """SUCCESS terminal state publishes prompt, response, agent, and conversation_id."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("here are the PRs", [])),
         ):
             run = await execute_task(cron_task)
@@ -383,7 +393,7 @@ class TestChatHistoryPublisher:
     ):
         """FAILED terminal state publishes error message, no response."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(side_effect=RuntimeError("supervisor down")),
         ):
             run = await execute_task(cron_task)
@@ -400,7 +410,7 @@ class TestChatHistoryPublisher:
     ):
         """conversation_id is per-task; persisted run carries the same id the publisher saw."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(cron_task)
@@ -415,7 +425,7 @@ class TestChatHistoryPublisher:
     ):
         """By default, webhook payloads are redacted (only a marker is left)."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             await execute_task(cron_task, context={"event": "pull_request.opened", "pr": 42})
@@ -438,7 +448,7 @@ class TestChatHistoryPublisher:
         monkeypatch.setenv("CHAT_HISTORY_INCLUDE_CONTEXT", "true")
         try:
             with patch(
-                "autonomous_agents.scheduler.invoke_agent_streaming",
+                "autonomous_agents.services.task_runner.invoke_agent_streaming",
                 new=AsyncMock(return_value=("ok", [])),
             ):
                 await execute_task(
@@ -466,7 +476,7 @@ class TestChatHistoryPublisher:
         try:
             weird_context = {"sentinel": object()}
             with patch(
-                "autonomous_agents.scheduler.invoke_agent_streaming",
+                "autonomous_agents.services.task_runner.invoke_agent_streaming",
                 new=AsyncMock(return_value=("ok", [])),
             ):
                 run = await execute_task(cron_task, context=weird_context)
@@ -482,7 +492,7 @@ class TestChatHistoryPublisher:
         set_chat_history_publisher(flaky)
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(cron_task)
@@ -501,7 +511,7 @@ class TestChatHistoryPublisher:
 
         with caplog.at_level("ERROR", logger="autonomous_agents"):
             with patch(
-                "autonomous_agents.scheduler.invoke_agent_streaming",
+                "autonomous_agents.services.task_runner.invoke_agent_streaming",
                 new=AsyncMock(return_value=("ok", [])),
             ):
                 await execute_task(cron_task)
@@ -514,7 +524,7 @@ class TestChatHistoryPublisher:
     ):
         """Unset publisher falls back to a no-op so scheduler still works."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(cron_task)
@@ -564,7 +574,7 @@ class TestFollowUp:
         )
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(webhook_task, context={}, follow_up=follow_up)
@@ -592,7 +602,7 @@ class TestFollowUp:
             return ("ok", [])
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(side_effect=fake_streaming),
         ):
             await execute_task(webhook_task, context={}, follow_up=follow_up)
@@ -609,7 +619,7 @@ class TestFollowUp:
         follow_up = FollowUpContext(parent_run_id="r-original", user_text="hi")
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             await execute_task(webhook_task, context={}, follow_up=follow_up)
@@ -623,7 +633,7 @@ class TestFollowUp:
         follow_up = FollowUpContext(parent_run_id="r-original", user_text="x")
 
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await fire_webhook_task(
@@ -637,7 +647,7 @@ class TestFollowUp:
     ):
         """First-fire / cron / interval runs carry no parent."""
         with patch(
-            "autonomous_agents.scheduler.invoke_agent_streaming",
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(webhook_task)

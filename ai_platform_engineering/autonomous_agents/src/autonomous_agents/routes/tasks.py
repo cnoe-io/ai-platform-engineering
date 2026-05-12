@@ -8,6 +8,14 @@ fakes in tests) is the single source of truth for task definitions.
 Every mutation here goes through the store first, then immediately
 re-syncs the APScheduler job and the webhook registry via the
 hot-reload helpers so changes take effect without a service restart.
+
+After PR3, the definition-lifecycle orchestration (store singleton,
+runtime sync, pre-flight, chat-publish wrappers) lives in
+``services/task_lifecycle.py``. This module is purely the FastAPI
+handler layer + wire-shape rendering (``_serialize_task`` /
+``_serialize_trigger``). See the transitional re-export block at the
+bottom of this file for the deletion-target shim covering legacy test
+imports.
 """
 
 import asyncio
@@ -16,27 +24,25 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from autonomous_agents.models import TaskDefinition, TaskRun, WebhookTrigger
-from autonomous_agents.routes.webhooks import (
-    register_webhook_task,
-    unregister_webhook_task,
-)
-from autonomous_agents.scheduler import (
-    execute_task,
-    get_chat_history_publisher,
-    get_run_store,
-    get_scheduler,
-    register_task,
-    unregister_task,
-)
 from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.chat_history import _conversation_id_for_task
-from autonomous_agents.services.dynamic_agents_client import preflight_dynamic_agent
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
-    TaskStore,
 )
-from autonomous_agents.services.supervisor_preflight import preflight
+from autonomous_agents.services.task_lifecycle import (
+    _ack_relevant_changed,
+    _detach_task_from_runtime,
+    _next_run_iso_for,
+    _safe_publish_creation_intent,
+    _schedule_preflight,
+    _sync_task_to_runtime,
+    get_task_store,
+)
+from autonomous_agents.services.task_runner import (
+    execute_task,
+    get_run_store,
+)
 
 logger = logging.getLogger("autonomous_agents")
 
@@ -47,63 +53,6 @@ router = APIRouter(tags=["tasks"])
 # the bug fix in IMP-01; raise this if the UI ever needs deeper
 # history in a single round-trip.
 _MAX_TASK_RUNS = 500
-
-# Module-level TaskStore singleton. Injected by the FastAPI lifespan
-# in ``main.py`` once the MongoDB connection is established. Tests that
-# exercise the routes without running the lifespan MUST inject a tiny
-# in-file fake via :func:`set_task_store` before calling handlers --
-# we refuse to silently lazy-build a fallback so production
-# mis-configuration (MongoDB required) cannot hide behind a noop.
-_task_store: TaskStore | None = None
-
-
-def get_task_store() -> TaskStore:
-    """Return the active :class:`TaskStore`.
-
-    Raises :class:`RuntimeError` if no store has been injected yet.
-    The lifespan hook in ``main.py`` always runs first in production;
-    tests must call :func:`set_task_store` explicitly.
-    """
-    if _task_store is None:
-        raise RuntimeError(
-            "TaskStore not initialized -- call set_task_store(...) "
-            "(the FastAPI lifespan does this automatically after "
-            "connecting to MongoDB)"
-        )
-    return _task_store
-
-
-def set_task_store(store: TaskStore) -> None:
-    """Inject the active :class:`TaskStore` -- called from the FastAPI lifespan."""
-    global _task_store
-    _task_store = store
-
-
-async def _sync_task_to_runtime(task: TaskDefinition) -> None:
-    """Reflect a stored task into the live scheduler + webhook registry.
-
-    The CRUD handlers are the only place that should be calling the
-    hot-reload helpers, so centralising the dispatch here makes it
-    impossible for a future endpoint to update one and forget the
-    other. Both helpers are idempotent and skip non-matching trigger
-    types, so calling them unconditionally is safe and keeps
-    enable/disable toggles from leaving stale entries behind.
-    """
-    register_task(task)
-    register_webhook_task(task)
-
-
-def _detach_task_from_runtime(task_id: str) -> None:
-    """Drop a task from both the scheduler and webhook registry.
-
-    Mirrors :func:`_sync_task_to_runtime` for the delete path. Both
-    underlying helpers return a bool rather than raising on
-    ``not found``, so this is safe to call for a webhook-only or
-    disabled task whose id was never registered with one or the
-    other side.
-    """
-    unregister_task(task_id)
-    unregister_webhook_task(task_id)
 
 
 def _serialize_trigger(task: TaskDefinition) -> dict:
@@ -167,139 +116,6 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         # function only require changing this single seam.
         "chat_conversation_id": _conversation_id_for_task(task.id),
     }
-
-
-# ---------------------------------------------------------------------------
-# Pre-flight orchestration (spec #099, FR-001..005)
-# ---------------------------------------------------------------------------
-
-def _ack_relevant_changed(old: TaskDefinition | None, new: TaskDefinition) -> bool:
-    """Return True if a re-ack is warranted for a task update.
-
-    Re-ack on prompt / agent / dynamic_agent_id / llm_provider changes —
-    those affect what the supervisor (or the dynamic-agents service)
-    would do at run time, including the routing target itself.
-    Trigger / enabled / metadata changes don't change routing or tool
-    availability so we keep the existing ack to avoid an unnecessary
-    backend round-trip on every enable/disable toggle.
-    """
-    if old is None:
-        return True
-    return (
-        old.prompt != new.prompt
-        or old.agent != new.agent
-        or getattr(old, "dynamic_agent_id", None)
-        != getattr(new, "dynamic_agent_id", None)
-        or old.llm_provider != new.llm_provider
-    )
-
-
-async def _run_preflight_and_persist(task_id: str) -> None:
-    """Background coroutine: call preflight and persist the result on the task.
-
-    Runs after CREATE / qualifying UPDATE so the user gets a fast 2xx
-    response and the badge updates async (~ tens of ms locally,
-    seconds against a slow supervisor). Failures NEVER raise out of
-    this coroutine — preflight() returns an ``Acknowledgement`` even
-    for transport errors and we persist whatever we got.
-    """
-    store = get_task_store()
-    task = await store.get(task_id)
-    if task is None:
-        # User deleted the task between CREATE and the background tick.
-        # Nothing to persist; nothing to log loudly.
-        return
-    try:
-        if task.dynamic_agent_id:
-            # Custom (dynamic) agent path: probe the dynamic-agents
-            # service for agent reachability instead of asking the
-            # supervisor to look the id up in its MAS sub-agent
-            # registry (which would always return ack_status="failed"
-            # because the supervisor has zero awareness of dynamic
-            # agents).
-            ack = await preflight_dynamic_agent(
-                agent_id=task.dynamic_agent_id,
-            )
-        else:
-            ack = await preflight(
-                task_id=task.id,
-                prompt=task.prompt,
-                agent=task.agent,
-                llm_provider=task.llm_provider,
-            )
-    except Exception:
-        # Defensive: preflight() is contractually no-raise but if a future
-        # code change regresses that we still don't want to nuke the task.
-        logger.exception("[%s] Preflight raised unexpectedly", task_id)
-        return
-
-    refreshed = await store.get(task_id)
-    if refreshed is None:
-        return
-    # Mutating + re-saving keeps the in-memory and Mongo backends in
-    # sync; the TaskStore.update path is the same one the CRUD routes
-    # use so trigger registration is unaffected.
-    refreshed_with_ack = refreshed.model_copy(update={"last_ack": ack})
-    try:
-        await store.update(task_id, refreshed_with_ack)
-    except TaskNotFoundError:
-        # Race with delete; ignore.
-        return
-    logger.info(
-        "[%s] Preflight ack persisted: status=%s routed_to=%s",
-        task_id, ack.ack_status, ack.routed_to,
-    )
-
-    # Mirror the ack into the per-task chat thread so the operator sees
-    # the supervisor's confirmation alongside the creation_intent message.
-    await _safe_publish_preflight_ack(refreshed_with_ack, ack)
-
-
-def _schedule_preflight(task_id: str) -> None:
-    """Fire-and-forget the background preflight coroutine.
-
-    Wrapped here (instead of inline ``asyncio.create_task``) so the
-    test suite can patch a single seam if it wants to disable the
-    background work and assert the synchronous CRUD path independently.
-    """
-    asyncio.create_task(_run_preflight_and_persist(task_id))
-
-
-# ---------------------------------------------------------------------------
-# Chat-history publishing helpers (spec #099 FR-007 — creation_intent +
-# preflight_ack messages on the per-task chat thread)
-# ---------------------------------------------------------------------------
-
-async def _safe_publish_creation_intent(task: TaskDefinition) -> None:
-    """Best-effort publish of the creation_intent message. Never raises."""
-    try:
-        await get_chat_history_publisher().publish_creation_intent(task)
-    except Exception:
-        # Chat-history publishing is observability, not source of truth.
-        # Same contract as the scheduler's _publish_safely.
-        logger.exception("[%s] publish_creation_intent failed", task.id)
-
-
-async def _safe_publish_preflight_ack(task: TaskDefinition, ack: Acknowledgement) -> None:
-    """Best-effort publish of the preflight_ack message. Never raises."""
-    try:
-        await get_chat_history_publisher().publish_preflight_ack(
-            task, ack.model_dump(mode="json")
-        )
-    except Exception:
-        logger.exception("[%s] publish_preflight_ack failed", task.id)
-
-
-def _next_run_iso_for(task_id: str) -> str | None:
-    """Look up the next scheduled fire time for ``task_id``.
-
-    Returns ``None`` for webhook-only / disabled / unknown tasks so the
-    UI can render "no upcoming run" without a separate code path.
-    """
-    job = get_scheduler().get_job(task_id)
-    if job is None or job.next_run_time is None:
-        return None
-    return job.next_run_time.isoformat()
 
 
 @router.get("/tasks", response_model=list[dict])
@@ -515,3 +331,39 @@ async def trigger_task_manually(task_id: str) -> dict:
 async def list_all_runs() -> list[TaskRun]:
     """Return the full run history across all tasks."""
     return await get_run_store().list_all()
+
+
+# ---- Transitional re-exports (deletion target: next minor release) ----
+# Production code should import these from ``services.task_lifecycle``
+# directly. Kept here so the existing test file
+# (``tests/test_tasks_route.py``) keeps working through one release
+# cycle without churn. Same deletion criterion as the PR1/PR2 re-export
+# blocks at ``scheduler.py:152-170`` and ``routes/webhooks.py``.
+#
+# Concrete deletion blockers for each name:
+#
+# * ``set_task_store`` -- ``tests/test_tasks_route.py:33-40`` imports it
+#   from this module. ``main.py`` already imports it from
+#   ``services.task_lifecycle`` directly (PR3 production migration).
+# * ``_run_preflight_and_persist`` -- ``tests/test_tasks_route.py:35``
+#   imports it directly and ``lines 599 / 631`` call it as a unit-test
+#   seam (no FastAPI client involved). Repointing those two imports
+#   plus call sites at ``services.task_lifecycle`` is what unblocks
+#   deleting this re-export.
+# * ``_safe_publish_preflight_ack`` -- internal helper to
+#   ``_run_preflight_and_persist``; included here only so the re-export
+#   surface is symmetric with the helpers handlers do use. No current
+#   external caller; deletable as soon as we audit downstream forks.
+#
+# Note: ``_task_store`` (the underscore module global) is NOT
+# re-exported. Reassigning ``tasks_route._task_store`` would rebind
+# only the alias on this module and silently leave production lookups
+# pointing at the original ``task_lifecycle._task_store``. Same
+# stale-binding lesson as ``scheduler._run_store`` in PR1. Tests that
+# need to poke the singleton directly do so via the
+# ``task_lifecycle`` import path (the audit's "Hazard A.expanded").
+from autonomous_agents.services.task_lifecycle import (  # noqa: E402, F401
+    _run_preflight_and_persist,
+    _safe_publish_preflight_ack,
+    set_task_store,
+)

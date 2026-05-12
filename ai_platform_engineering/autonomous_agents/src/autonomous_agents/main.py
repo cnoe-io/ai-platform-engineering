@@ -14,15 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.routes import health, tasks, webex, webhooks
-from autonomous_agents.routes.tasks import set_task_store
 from autonomous_agents.routes.webex import set_bot_person_id, set_webex_client
-from autonomous_agents.routes.webhooks import register_webhook_tasks
 from autonomous_agents.scheduler import (
     get_scheduler,
     register_tasks,
-    set_chat_history_publisher,
-    set_run_store,
-    set_webex_thread_map,
 )
 from autonomous_agents.services.chat_history import NoopChatHistoryPublisher
 from autonomous_agents.services.mongo import (
@@ -33,11 +28,18 @@ from autonomous_agents.services.mongo import (
     get_mongo_service,
     reset_mongo_service,
 )
+from autonomous_agents.services.task_lifecycle import set_task_store
+from autonomous_agents.services.task_runner import (
+    set_chat_history_publisher,
+    set_run_store,
+    set_webex_thread_map,
+)
 from autonomous_agents.services.webex_inbound import (
     WebexClient,
     ensure_webhook_registered,
 )
 from autonomous_agents.services.webhook_adapters import load_adapters
+from autonomous_agents.services.webhook_registry import register_webhook_tasks
 
 
 def fatal_exit(message: str, exit_code: int = 1) -> None:
