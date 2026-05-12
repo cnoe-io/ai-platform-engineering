@@ -2,116 +2,127 @@
 sidebar_position: 3
 ---
 
-# Webex Bot
+# Webex Inbound Bridge
 
-:::caution Refactor in Progress
-This integration is being actively developed. Track progress in [PR #1038](https://github.com/cnoe-io/ai-platform-engineering/pull/1038). APIs and configuration may change before the final merge.
+Translate in-thread Webex replies into follow-up runs of an autonomous task.
+
+The Webex inbound bridge runs in-process inside the **autonomous-agents** service
+(port `8002`). It receives Webex `messages.created` webhook deliveries on
+`POST /api/v1/hooks/webex/events`, resolves the parent message to an autonomous
+task via the `webex_thread_map` MongoDB collection, and re-fires that task with
+the operator's reply as additional context.
+
+:::note
+Earlier prototypes ran the bridge as a separate `webex-bot` container on port
+`8003`. The standalone service has been removed; all routing lives in the
+autonomous-agents service now.
 :::
 
+## How it works
 
-The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) and forwards user messages to the CAIPE supervisor via the A2A protocol. Responses are streamed back with execution plan and tool progress updates.
+When an autonomous task posts a Webex message (e.g. "Build #1234 failed —
+here's the diff"), the autonomous-agents service records the resulting
+`messageId` in the `webex_thread_map` collection along with the `task_id` /
+`run_id`.
 
-## Features
+The bridge then:
 
-- **Real-time messaging** via WebSocket (no webhooks required)
-- **A2A protocol** streaming with execution plan and tool progress
-- **Adaptive Cards** for structured responses, HITL forms, and feedback
-- **Space authorization** with MongoDB-backed registry and TTL cache
-- **1:1 and group space** support with threading
-- **Feedback collection** via Langfuse integration
+1. Registers an idempotent Webex `messages.created` webhook on startup pointing
+   at `<WEBEX_BOT_PUBLIC_URL>/api/v1/hooks/webex/events`.
+2. On every incoming Webex event:
+   - Verifies `X-Spark-Signature` (HMAC-SHA1 of the raw body) when
+     `WEBEX_WEBHOOK_SECRET` is configured.
+   - Skips messages authored by the bot itself (loop guard).
+   - Skips top-level messages (no `parentId`).
+   - Looks up the `parentId` in `webex_thread_map`.
+   - On a hit, schedules a follow-up run of the original task with the
+     operator's reply injected as a `FollowUpContext`.
 
-## Setup
+## Endpoint
 
-### Prerequisites
+| Method | Path                              | Purpose                                    |
+| ------ | --------------------------------- | ------------------------------------------ |
+| `POST` | `/api/v1/hooks/webex/events`      | Webex webhook delivery target.             |
 
-1. Create a Webex Bot at [developer.webex.com](https://developer.webex.com/my-apps/new/bot)
-2. Copy the Bot Access Token
-3. A running CAIPE supervisor instance
+The route is statically mounted on the autonomous-agents app. When
+`WEBEX_BOT_TOKEN` is unset the route returns `503 Service Unavailable` with
+`Retry-After: 30` — the feature is fully dormant and no Webex API calls are
+made at startup.
 
-### Environment Variables
+## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `WEBEX_BOT_TOKEN` | Yes | — | Bot access token from developer.webex.com |
-| `CAIPE_URL` | No | `http://caipe-supervisor:8000` | CAIPE supervisor URL |
-| `WEBEX_INTEGRATION_ENABLE_AUTH` | No | `false` | Enable OAuth2 for A2A requests |
-| `WEBEX_INTEGRATION_AUTH_TOKEN_URL` | If auth enabled | — | OAuth2 token URL |
-| `WEBEX_INTEGRATION_AUTH_CLIENT_ID` | If auth enabled | — | OAuth2 client ID |
-| `WEBEX_INTEGRATION_AUTH_CLIENT_SECRET` | If auth enabled | — | OAuth2 client secret |
-| `WEBEX_INTEGRATION_AUTH_SCOPE` | No | — | OAuth2 scope |
-| `WEBEX_INTEGRATION_AUTH_AUDIENCE` | No | — | OAuth2 audience |
-| `MONGODB_URI` | No | — | MongoDB connection URI for persistent sessions |
-| `MONGODB_DATABASE` | No | `caipe` | MongoDB database name |
-| `CAIPE_UI_BASE_URL` | No | `http://localhost:3000` | CAIPE UI URL for auth links |
-| `LANGFUSE_SCORING_ENABLED` | No | `false` | Enable Langfuse feedback |
-| `LANGFUSE_PUBLIC_KEY` | If Langfuse enabled | — | Langfuse public key |
-| `LANGFUSE_SECRET_KEY` | If Langfuse enabled | — | Langfuse secret key |
-| `LANGFUSE_HOST` | If Langfuse enabled | — | Langfuse host URL |
-| `WEBEX_SPACE_AUTH_CACHE_TTL` | No | `300` | Space auth cache TTL (seconds) |
+All Webex settings are part of the **autonomous-agents** service configuration.
 
-### Running with Docker Compose
+### Required (to enable Webex inbound)
+
+| Variable               | Description                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `WEBEX_BOT_TOKEN`      | Bot access token from [developer.webex.com](https://developer.webex.com). Setting this enables the route. |
+| `WEBEX_BOT_PUBLIC_URL` | Externally-reachable base URL of the autonomous-agents service. Webex POSTs to `<public_url>/api/v1/hooks/webex/events`. In dev, an ngrok / cloudflared tunnel; in prod, the real hostname. Localhost does **not** work. |
+
+If `WEBEX_BOT_TOKEN` is set without `WEBEX_BOT_PUBLIC_URL`, startup fails fast
+with a clear error rather than registering a broken webhook.
+
+### Optional
+
+| Variable                                   | Default                    | Description                                                                                                          |
+| ------------------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `WEBEX_WEBHOOK_SECRET`                     | _none_                     | HMAC-SHA1 secret Webex signs every event with. Strongly recommended in production; an `INFO`-level warning is logged at startup if absent. |
+| `WEBEX_API_BASE`                           | `https://webexapis.com/v1` | Override for testing or future tenant migrations.                                                                    |
+| `WEBEX_HTTP_TIMEOUT_SECONDS`               | `15`                       | Timeout for outbound Webex API calls (`get_me`, `get_message`, webhook reconciliation).                              |
+| `MONGODB_WEBEX_THREAD_MAP_COLLECTION`      | `webex_thread_map`         | Collection name override.                                                                                            |
+
+## Running locally
+
+The bridge ships as part of the autonomous-agents service, so no extra profile
+is needed beyond `--profile autonomous-agents`.
 
 ```bash
-# Add WEBEX_BOT_TOKEN to your .env file
-echo "WEBEX_BOT_TOKEN=your-bot-token-here" >> .env
+# In .env
+WEBEX_BOT_TOKEN=...
+WEBEX_BOT_PUBLIC_URL=https://abcd.ngrok-free.app
+WEBEX_WEBHOOK_SECRET=$(openssl rand -hex 32)
 
-# Start the Webex bot
-docker compose --profile webex-bot up -d
+# Start the autonomous-agents service alongside the rest of the stack:
+docker compose -f docker-compose.dev.yaml \
+  --profile caipe-ui \
+  --profile autonomous-agents \
+  --profile caipe-supervisor \
+  --profile caipe-mongodb \
+  up --build
 ```
 
-### Running Locally
+In a separate shell, expose port 8002 to the public internet so Webex can
+deliver webhooks to your laptop:
 
 ```bash
-cd ai_platform_engineering/integrations/webex_bot
-pip install -r requirements.txt
-WEBEX_BOT_TOKEN=your-token CAIPE_URL=http://localhost:8000 python -m app
+docker run --rm -it \
+  -e NGROK_AUTHTOKEN=... \
+  -p 4040:4040 ngrok/ngrok:latest http host.docker.internal:8002
 ```
 
-## Space Authorization
+Set `WEBEX_BOT_PUBLIC_URL` in `.env` to the resulting `https://...ngrok-free.app`
+URL and restart the `autonomous-agents` service.
 
-Group spaces must be authorized before the bot responds. 1:1 direct messages are allowed by default.
+## Verifying end-to-end
 
-### Via Bot Command
+1. Create a webhook task in the Autonomous tab whose prompt produces a Webex
+   message (use the Webex agent and tell it to post into a known room).
+2. Trigger the task (`POST /api/v1/hooks/<task_id>`).
+3. Confirm the bot's message arrived in the Webex room.
+4. Reply in-thread (Webex client: hover over the bot's message and click
+   "Reply in thread").
+5. The autonomous-agents service logs a new run with `parent_run_id` set to
+   the original.
 
-1. Add the bot to a Webex space
-2. Send `@BotName authorize` in the space
-3. Click the "Connect to CAIPE" button in the Adaptive Card
-4. Authenticate via OIDC in the CAIPE UI
+## Failure-mode contract
 
-### Via Admin Dashboard
-
-1. Go to the CAIPE Admin Dashboard → Integrations tab
-2. Click "Add Space" and enter the Webex Room ID
-
-## Architecture
-
-```
-User (Webex) ──→ Webex Cloud ──→ WebSocket ──→ Webex Bot
-                                                   │
-                                            A2A Protocol (SSE)
-                                                   │
-                                                   ▼
-                                           CAIPE Supervisor
-```
-
-The bot uses the WDM (Web Device Management) pattern to establish a persistent WebSocket connection with Webex, avoiding the need for public endpoints or webhook servers.
-
-## Helm Deployment
-
-A Helm chart is included at `charts/ai-platform-engineering/charts/webex-bot`. Configure via `values.yaml`:
-
-```yaml
-webex-bot:
-  enabled: true
-  env:
-    WEBEX_BOT_TOKEN: ""
-    CAIPE_URL: "http://caipe-supervisor:8000"
-```
-
-## Troubleshooting
-
-| Symptom | Check |
-|---------|-------|
-| Bot not responding | Verify `WEBEX_BOT_TOKEN` is valid; check logs for WebSocket errors |
-| Space authorization denied | Verify space is authorized in admin dashboard; check MongoDB connectivity |
-| Rate limiting | Bot throttles updates to every 3 seconds; long responses split at 7000 chars |
+| Condition                                          | Response                                              |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `WEBEX_BOT_TOKEN` unset                            | `503` with `Retry-After: 30`                          |
+| Bad / missing `X-Spark-Signature` (when configured) | `401`                                                 |
+| Webex API error fetching message body               | `502` (Webex retries)                                 |
+| Mongo dedup store unreachable                       | `503` (Webex retries)                                 |
+| Loopguard / not-a-reply / no mapping                | `200 {"status": "ignored", "verdict": "..."}`         |
+| Duplicate delivery (same `X-Spark-Signature`)       | `200` with the original `run_id`                      |
+| Successful forward                                  | `202` after the background follow-up task is scheduled |

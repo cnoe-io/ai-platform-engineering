@@ -343,7 +343,7 @@ class TestPagerDutyAdapter:
 
 
 def _spark_sig(secret: str, body: bytes) -> str:
-    """Same shape as ``integrations/webex_bot/tests/test_dispatcher.py::_spark_sig``."""
+    """Build a Webex ``X-Spark-Signature`` value (HMAC-SHA1 hex of body)."""
     return hmac.new(secret.encode("utf-8"), body, hashlib.sha1).hexdigest()
 
 

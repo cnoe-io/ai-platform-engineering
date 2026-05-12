@@ -116,14 +116,13 @@ providers:
     dedup_header: X-Atlassian-Webhook-Identifier
 
   # ---------------------------------------------------------------------------
-  # Webex — fan-in inbound from the autonomous-agents service's own
-  # /api/v1/hooks/webex/events route (replaces the standalone webex_bot
-  # container that previously ran on port 8003). Webex signs the raw
-  # request body with HMAC-SHA1 and the secret configured at webhook
-  # creation, then sends the lowercase hex digest as ``X-Spark-Signature``
-  # with NO ``sha1=`` prefix. Hence ``prefix: ""`` -- the loader treats
-  # the empty string as "no prefix to strip" and the canonicaliser
-  # lowercases the bare hex so case-insensitive comparison is uniform.
+  # Webex — fan-in inbound from the /api/v1/hooks/webex/events route.
+  # Webex signs the raw request body with HMAC-SHA1 and the secret
+  # configured at webhook creation, then sends the lowercase hex digest
+  # as ``X-Spark-Signature`` with NO ``sha1=`` prefix. Hence ``prefix:
+  # ""`` -- the loader treats the empty string as "no prefix to strip"
+  # and the canonicaliser lowercases the bare hex so case-insensitive
+  # comparison is uniform.
   #
   # No timestamp: Webex does not sign a timestamp into the body and
   # provides no replay-window header, so we cannot enforce one here.

@@ -5,12 +5,6 @@ Webex ``messages.created`` deliveries, resolves the parent message to
 an autonomous task via the ``webex_thread_map`` collection, and re-fires
 that task with the operator's reply as :class:`FollowUpContext`.
 
-Replaces the standalone ``webex_bot`` service that previously ran on
-port 8003 and forwarded events here via a signed HTTP hop. The
-cross-process HMAC handshake (see legacy ``_verify_followup_signature``
-in :mod:`routes.webhooks`) is no longer required because the dispatcher
-runs in-process and trusts in-memory state directly.
-
 Failure-mode contract
 ---------------------
 
