@@ -82,7 +82,7 @@ describe("weather reference app template", () => {
     expect(serverSource).toContain("url.pathname === \"/embed\"");
     expect(serverSource).toContain("/api/ag-ui/weather-layout");
     expect(serverSource).toContain("/api/copilotkit/weather-agent");
-    expect(serverSource).toContain("/api/v1/chat/stream/start");
+    expect(serverSource).toContain("/api/v1/chat/invoke");
     expect(serverSource).toContain("WEATHER_AGENT_ID");
     expect(serverSource).toContain("agent_id: agentId");
     expect(serverSource).toContain("useCopilotAction");
@@ -146,7 +146,7 @@ describe("weather reference app template", () => {
     expect(serverSource).toContain("debugProgress");
     expect(serverSource).toContain("debugEventCount");
     expect(serverSource).toContain("setRunButtonBusy");
-    expect(serverSource).toContain("Structured weather output received from stream.");
+    expect(serverSource).toContain("Structured weather output received from invoke.");
     expect(serverSource).toContain("consumeAgentStream");
     expect(serverSource).toContain("handleStreamEvent");
     expect(serverSource).toContain("appendActivityEvent");

@@ -1048,6 +1048,14 @@ class AgentRuntime:
             self._record_turn(turn_start, "stream", "interrupted")
             return
 
+        structured_response = self.get_structured_response()
+        if structured_response is not None:
+            for frame in encoder.on_structured_output(
+                structured_response,
+                self.get_structured_response_schema_id(),
+            ):
+                yield frame
+
         # ── Core lifecycle: run finish ──
         logger.info(
             f"[stream] Completed stream for agent '{self.config.name}': "
@@ -1310,6 +1318,14 @@ class AgentRuntime:
                 yield frame
             self._record_turn(turn_start, "resume", "interrupted")
             return
+
+        structured_response = self.get_structured_response()
+        if structured_response is not None:
+            for frame in encoder.on_structured_output(
+                structured_response,
+                self.get_structured_response_schema_id(),
+            ):
+                yield frame
 
         # ── Core lifecycle: run finish ──
         logger.info(

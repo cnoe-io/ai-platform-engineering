@@ -448,15 +448,14 @@ function renderDashboard({ compact }) {
           "Do not invent issue IDs, PRs, or owners. If agent data is unavailable, explain what configuration is missing."
         ].join(" ");
         try {
-          updateAgentProgress("Opening live CAIPE stream", "GitHub: " + githubAgentId + " • Repo: " + repo);
-          const response = await fetch("/api/v1/chat/stream/start", {
+          updateAgentProgress("Running CAIPE structured invoke", "GitHub: " + githubAgentId + " • Repo: " + repo);
+          const response = await fetch("/api/v1/chat/invoke", {
             method: "POST",
-            headers: { "content-type": "application/json", accept: "text/event-stream" },
+            headers: { "content-type": "application/json", accept: "application/json" },
             body: JSON.stringify({
               agent_id: githubAgentId,
               message: prompt,
               conversation_id: "oss-repo-management-" + Date.now(),
-              protocol: "custom",
               client_context: {
                 source: "agentic-app",
                 appId: "oss-repo-management",
@@ -467,14 +466,19 @@ function renderDashboard({ compact }) {
               },
             }),
           });
-          if (!response.ok || !response.body) throw new Error("stream unavailable");
-          const streamed = await consumeAgentStream(response);
-          if (streamed.structuredOutput) {
-            applyDashboard(normalizeDashboard(streamed.structuredOutput, repo));
-            copilotMessage.textContent = streamed.text || "Repository agent finished.";
+          if (!response.ok) throw new Error("invoke unavailable");
+          const invoked = await response.json();
+          if (invoked.success === false) {
+            throw new Error(invoked.error || "GitHub agent invoke failed.");
+          }
+          appendStreamContent(invoked.content || "");
+          if (invoked.structured_output) {
+            appendActivityEvent("Received oss_repo_management.dashboard.v1", invoked.structured_output_schema_id || "Schema id not provided.", "done");
+            applyDashboard(normalizeDashboard(invoked.structured_output, repo));
+            copilotMessage.textContent = invoked.content || "Repository agent finished.";
             setRunStatus("done", "Complete");
           } else {
-            updateAgentProgress("No structured output", "The GitHub agent stream completed without oss_repo_management.dashboard.v1.", "error");
+            updateAgentProgress("No structured output", "The GitHub agent invoke completed without oss_repo_management.dashboard.v1.", "error");
             const local = await fetch(appUrl("/api/copilotkit/repo-agent"), {
               method: "POST",
               headers: { "content-type": "application/json", accept: "application/json" },
@@ -486,7 +490,7 @@ function renderDashboard({ compact }) {
             setRunStatus("error", "Agent output missing");
           }
         } catch (error) {
-          updateAgentProgress("GitHub agent stream unavailable", error instanceof Error ? error.message : "Stream unavailable", "error");
+          updateAgentProgress("GitHub agent invoke unavailable", error instanceof Error ? error.message : "Invoke unavailable", "error");
           const local = await fetch(appUrl("/api/copilotkit/repo-agent"), {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },

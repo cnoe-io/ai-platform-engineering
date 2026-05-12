@@ -83,7 +83,7 @@ function buildFinOpsAgentPlan() {
     agentId: defaultAgentId,
     lookbackDays: defaultLookbackDays,
     dashboardKind: defaultDashboardKind,
-    endpoint: "/api/v1/chat/stream/start",
+    endpoint: "/api/v1/chat/invoke",
     prompt: buildCostExplorerPrompt(defaultLookbackDays, defaultDashboardKind),
     responseFormat: buildFinOpsDashboardResponseFormat(),
     expectedJsonShape: {
@@ -926,15 +926,14 @@ function renderDashboard({ compact }) {
         document.getElementById("agentTranscript").textContent = "Running cost analysis agent " + agentId + "...";
 
         try {
-          updateAgentProgress("agent", "Opening live CAIPE stream", "Agent: " + agentId);
-          const response = await fetch("/api/v1/chat/stream/start", {
+          updateAgentProgress("agent", "Running CAIPE structured invoke", "Agent: " + agentId);
+          const response = await fetch("/api/v1/chat/invoke", {
             method: "POST",
-            headers: { "content-type": "application/json", accept: "text/event-stream" },
+            headers: { "content-type": "application/json", accept: "application/json" },
             body: JSON.stringify({
               agent_id: agentId,
               message: prompt,
               conversation_id: "finops-command-center-" + Date.now(),
-              protocol: "custom",
               client_context: {
                 appId: "finops",
                 source: "agentic-app",
@@ -952,20 +951,25 @@ function renderDashboard({ compact }) {
             publishAssistantContext("agent-error");
             return;
           }
-          const streamState = await consumeAgentStream(response);
-          updateAgentProgress("shape", "Shaping dashboard output", streamState.structuredOutput ? "Structured output received from stream." : "No finops.dashboard.v1 structured output received.");
-          const content = streamState.content || "No streamed explanation was returned.";
+          const invokeResult = await response.json();
+          if (invokeResult.success === false) {
+            throw new Error(invokeResult.error || "Cost analysis invoke failed.");
+          }
+          const structuredOutput = invokeResult.structured_output || null;
+          updateAgentProgress("shape", "Shaping dashboard output", structuredOutput ? "Structured output received from invoke." : "No finops.dashboard.v1 structured output received.");
+          const content = invokeResult.content || "No explanation was returned.";
+          appendStreamContent(content);
           state.lastAgentMessage = content;
-          if (!streamState.structuredOutput || typeof streamState.structuredOutput !== "object") {
+          if (!structuredOutput || typeof structuredOutput !== "object") {
             throw new Error("No finops.dashboard.v1 structured output received");
           }
-          state.analysis = normalizeCostExplorerPayload(streamState.structuredOutput);
+          state.analysis = normalizeCostExplorerPayload(structuredOutput);
           renderAnalysis(state.analysis, content);
           if (state.analysis.status === "structured") {
             updateAgentProgress("save", "Saving run history", "Captured " + state.analysis.services.length + " services, " + state.analysis.trend.length + " trend points, " + state.analysis.rawCost.length + " raw rows.");
             await saveCachedDashboard(agentId, dashboardKind, days, state.analysis, content);
           }
-          updateAgentProgress("done", "Run complete", "Dashboard updated from live agent stream.");
+          updateAgentProgress("done", "Run complete", "Dashboard updated from structured agent invoke.");
           setDashboardStatus(
             "done",
             "Updated " + new Date().toLocaleTimeString(),

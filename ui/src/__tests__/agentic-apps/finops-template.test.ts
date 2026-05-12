@@ -22,7 +22,7 @@ describe("finops reference app template", () => {
     );
     expect(serverSource).toContain("url.pathname === \"/embed\"");
     expect(serverSource).toContain("/api/summary");
-    expect(serverSource).toContain("/api/v1/chat/stream/start");
+    expect(serverSource).toContain("/api/v1/chat/invoke");
     expect(serverSource).toContain("AWS Cost Explorer");
     expect(serverSource).toContain("\"agent-aws-cost-explorer\"");
     expect(serverSource).toContain("dashboardKind");
@@ -31,7 +31,7 @@ describe("finops reference app template", () => {
     expect(serverSource).toContain("response_format");
     expect(serverSource).toContain("finops.dashboard.v1");
     expect(serverSource).toContain("structured_output");
-    expect(serverSource).toContain("Structured output received from stream.");
+    expect(serverSource).toContain("Structured output received from invoke.");
     expect(serverSource).toContain("No finops.dashboard.v1 structured output received");
     expect(serverSource).not.toContain("parseCostExplorerPayload(content)");
     expect(serverSource).toContain("handleStreamEvent");

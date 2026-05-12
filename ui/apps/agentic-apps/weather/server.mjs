@@ -981,15 +981,14 @@ function renderDashboard({ compact }) {
 
         let result;
         try {
-          updateAgentProgress("agent", "Opening live CAIPE stream", "Agent: " + agentId);
-          const response = await fetch("/api/v1/chat/stream/start", {
+          updateAgentProgress("agent", "Running CAIPE structured invoke", "Agent: " + agentId);
+          const response = await fetch("/api/v1/chat/invoke", {
             method: "POST",
-            headers: { "content-type": "application/json", accept: "text/event-stream" },
+            headers: { "content-type": "application/json", accept: "application/json" },
             body: JSON.stringify({
               agent_id: agentId,
               message: prompt,
               conversation_id: "weather-dashboard-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now()),
-              protocol: "custom",
               client_context: {
                 source: "agentic-app",
                 appId: "weather",
@@ -1002,13 +1001,17 @@ function renderDashboard({ compact }) {
             }),
           });
           if (!response.ok) {
-            throw new Error(await response.text().catch(() => "Weather Agent stream failed."));
+            throw new Error(await response.text().catch(() => "Weather Agent invoke failed."));
           }
-          const streamState = await consumeAgentStream(response);
-          updateAgentProgress("shape", "Shaping weather dashboard output", streamState.structuredOutput ? "Structured weather output received from stream." : "No weather.dashboard.v1 structured output received.");
+          const invokeResult = await response.json();
+          if (invokeResult.success === false) {
+            throw new Error(invokeResult.error || "Weather Agent invoke failed.");
+          }
+          updateAgentProgress("shape", "Shaping weather dashboard output", invokeResult.structured_output ? "Structured weather output received from invoke." : "No weather.dashboard.v1 structured output received.");
+          appendStreamContent(invokeResult.content || "");
           result = {
-            content: streamState.content,
-            structured_output: streamState.structuredOutput,
+            content: invokeResult.content || "",
+            structured_output: invokeResult.structured_output || null,
           };
           if (!result.structured_output) {
             throw new Error("No Weather structured output received from the CAIPE Weather agent");
@@ -1043,7 +1046,7 @@ function renderDashboard({ compact }) {
         if (result.structured_output) {
           updateAgentProgress("save", "Saving run history", "Captured " + state.forecast.daily.length + " daily rows, " + state.forecast.hourly.length + " hourly points, and " + (state.forecast.nationalWeatherAlerts?.alerts?.length || 0) + " alerts.");
           await saveCachedWeather(agentId, city, intent, state.unit, state.forecast, content);
-          updateAgentProgress("done", "Run complete", "Dashboard updated from live Weather Agent stream.");
+          updateAgentProgress("done", "Run complete", "Dashboard updated from structured Weather Agent invoke.");
           setDashboardStatus("done", "Updated " + new Date().toLocaleTimeString(), dashboardStatusDetail(state.forecast));
         }
         const message = insight?.summary || content;

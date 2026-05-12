@@ -21,7 +21,7 @@ describe("Jira project dashboard reference app template", () => {
       "node apps/agentic-apps/jira-project-dashboard/server.mjs",
     );
     expect(serverSource).toContain("url.pathname === \"/embed\"");
-    expect(serverSource).toContain("/api/v1/chat/stream/start");
+    expect(serverSource).toContain("/api/v1/chat/invoke");
     expect(serverSource).toContain("agent-jira-agent");
     expect(serverSource).toContain("jiraProjectInput");
     expect(serverSource).toContain('value="SRE"');

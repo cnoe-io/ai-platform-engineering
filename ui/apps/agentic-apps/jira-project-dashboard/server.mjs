@@ -449,19 +449,18 @@ function renderDashboard({ compact }) {
           "Do not invent Jira issue IDs or owners. If agent data is unavailable, explain what configuration is missing."
         ].join(" ");
         try {
-          updateAgentProgress("Opening live CAIPE stream", "Jira: " + jiraAgentId + " • Project: " + project);
+          updateAgentProgress("Running CAIPE structured invoke", "Jira: " + jiraAgentId + " • Project: " + project);
           const agentReadiness = await ensureStructuredResponseAgent(jiraAgentId, "jira_project.dashboard.v1");
           if (!agentReadiness.ok) {
             throw new Error(agentReadiness.message);
           }
-          const response = await fetch("/api/v1/chat/stream/start", {
+          const response = await fetch("/api/v1/chat/invoke", {
             method: "POST",
-            headers: { "content-type": "application/json", accept: "text/event-stream" },
+            headers: { "content-type": "application/json", accept: "application/json" },
             body: JSON.stringify({
               agent_id: jiraAgentId,
               message: prompt,
               conversation_id: "jira-project-dashboard-" + Date.now(),
-              protocol: "custom",
               client_context: {
                 source: "agentic-app",
                 appId: "jira-project-dashboard",
@@ -472,14 +471,19 @@ function renderDashboard({ compact }) {
               },
             }),
           });
-          if (!response.ok || !response.body) throw new Error("stream unavailable");
-          const streamed = await consumeAgentStream(response);
-          if (streamed.structuredOutput) {
-            applyDashboard(normalizeDashboard(streamed.structuredOutput, project));
-            copilotMessage.textContent = streamed.text || "Jira agent finished.";
+          if (!response.ok) throw new Error("invoke unavailable");
+          const invoked = await response.json();
+          if (invoked.success === false) {
+            throw new Error(invoked.error || "Jira agent invoke failed.");
+          }
+          appendStreamContent(invoked.content || "");
+          if (invoked.structured_output) {
+            appendActivityEvent("Received jira_project.dashboard.v1", invoked.structured_output_schema_id || "Schema id not provided.", "done");
+            applyDashboard(normalizeDashboard(invoked.structured_output, project));
+            copilotMessage.textContent = invoked.content || "Jira agent finished.";
             setRunStatus("done", "Complete");
           } else {
-            updateAgentProgress("No structured output", "The Jira agent stream completed without jira_project.dashboard.v1.", "error");
+            updateAgentProgress("No structured output", "The Jira agent invoke completed without jira_project.dashboard.v1.", "error");
             const local = await fetch(appUrl("/api/copilotkit/jira-agent"), {
               method: "POST",
               headers: { "content-type": "application/json", accept: "application/json" },
@@ -491,7 +495,7 @@ function renderDashboard({ compact }) {
             setRunStatus("error", "Agent output missing");
           }
         } catch (error) {
-          updateAgentProgress("Jira agent stream unavailable", error instanceof Error ? error.message : "Stream unavailable", "error");
+          updateAgentProgress("Jira agent invoke unavailable", error instanceof Error ? error.message : "Invoke unavailable", "error");
           const local = await fetch(appUrl("/api/copilotkit/jira-agent"), {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },

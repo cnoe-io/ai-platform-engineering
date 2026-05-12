@@ -261,3 +261,56 @@ def test_custom_sse_encoder_emits_structured_output_event():
     assert "event: structured_output" in frames[0]
     assert '"schema_id": "finops.dashboard.v1"' in frames[0]
     assert '"totalCost": 12.34' in frames[0]
+
+
+def test_runtime_stream_emits_captured_structured_output_before_done():
+    async def empty_stream(*_args, **_kwargs):
+        if False:
+            yield None
+
+    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime.config = DynamicAgentConfig(
+        _id="agent-finops",
+        name="finops",
+        description="FinOps agent",
+        system_prompt="Analyze cloud cost.",
+        allowed_tools={},
+        model=ModelConfig(id="model", provider="test"),
+        owner_id="sri@example.local",
+    )
+    runtime._initialized = True
+    runtime._cancelled = False
+    runtime._failed_servers = []
+    runtime._failed_skills = []
+    runtime._failed_skills_error = None
+    runtime._skills_files = {}
+    runtime._client_context = None
+    runtime._user = UserContext(email="sri@example.local")
+    runtime._structured_response = {"currency": "USD", "totalCost": 12.34}
+    runtime._structured_response_schema_id = "finops.dashboard.v1"
+    runtime._graph = MagicMock()
+    runtime._graph.astream = empty_stream
+    runtime._build_stream_config = MagicMock(return_value={})
+    runtime.has_pending_interrupt = AsyncMock(return_value=None)
+    runtime._record_turn = MagicMock()
+
+    frames = asyncio.run(
+        collect_async(
+            runtime.stream(
+                "Build dashboard",
+                "conv-1",
+                "sri@example.local",
+                encoder=CustomStreamEncoder(),
+            )
+        )
+    )
+
+    structured_index = next(i for i, frame in enumerate(frames) if "event: structured_output" in frame)
+    done_index = next(i for i, frame in enumerate(frames) if "event: done" in frame)
+    assert structured_index < done_index
+    assert '"schema_id": "finops.dashboard.v1"' in frames[structured_index]
+    assert '"totalCost": 12.34' in frames[structured_index]
+
+
+async def collect_async(stream):
+    return [item async for item in stream]

@@ -21,7 +21,7 @@ describe("OSS repo management reference app template", () => {
       "node apps/agentic-apps/oss-repo-management/server.mjs",
     );
     expect(serverSource).toContain("url.pathname === \"/embed\"");
-    expect(serverSource).toContain("/api/v1/chat/stream/start");
+    expect(serverSource).toContain("/api/v1/chat/invoke");
     expect(serverSource).toContain("agent-github-agent");
     expect(serverSource).toContain("repoInput");
     expect(serverSource).toContain("owner/repo");
