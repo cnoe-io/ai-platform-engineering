@@ -440,37 +440,26 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(screen.queryByText("http://localhost/api/skills?")).toBeNull();
   });
 
-  it("renders the dialog with summary chips for agent + install path", async () => {
+  it("does not render the redundant catalog, agent, and path summary row", async () => {
     await renderAndOpenModal();
     const dialog = getDialog();
 
-    // Agent chip: default selected agent is "claude" → label "Claude Code".
-    // The chip appears alongside the live-skills target path. We use
-    // `getAllByText` because the agent label also appears in the picker
-    // <select>.
-    expect(within(dialog).getAllByText(/Claude Code/).length).toBeGreaterThan(0);
-
-    // Default scope after renderAndOpenModal picks project-local, so the
-    // chip row should explain both universal target paths instead of
-    // concatenating the raw array into one unreadable string.
+    expect(within(dialog).queryByText(/skills from catalog/i)).toBeNull();
+    expect(within(dialog).queryByText(/^10 skills$/i)).toBeNull();
     expect(
-      within(dialog).getAllByText((_, node) =>
+      within(dialog).queryByText((_, node) =>
         Boolean(
           node?.textContent?.includes(
             "paths ./.claude/skills/skills/SKILL.md and ./.agents/skills/skills/SKILL.md",
           ),
         ),
-      ).length,
-    ).toBeGreaterThan(0);
+      ),
+    ).toBeNull();
     expect(
       within(dialog).queryByText(
         "./.claude/skills/skills/SKILL.md./.agents/skills/skills/SKILL.md",
       ),
     ).toBeNull();
-
-    // The "skills from catalog" fallback chip appears until a Preview is run
-    // — previewData is null here so we expect that label, not "N skills".
-    expect(within(dialog).getByText(/skills from catalog/i)).toBeInTheDocument();
   });
 
   it("shows the API-key gate with the Generate button first when no key is present", async () => {
@@ -661,7 +650,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     });
   });
 
-  it("shows skill count chip after a Preview populates `previewData`", async () => {
+  it("keeps the quick install dialog free of preview-count summary chips", async () => {
     const user = await renderAndOpenModal();
 
     // Close the modal so we can hit the Preview button in the underlying
@@ -670,9 +659,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     // Trigger Preview: this hits /api/skills which is mocked above to
-    // return meta.total = 10. After it resolves, opening the modal should
-    // surface the "10 skills" chip in place of the "skills from catalog"
-    // fallback.
+    // return meta.total = 10. Quick install should still avoid the
+    // redundant summary chip row.
     await user.click(screen.getByText(/Advanced install options/i));
     await user.click(screen.getByRole("button", { name: /^preview$/i }));
     await waitFor(() =>
@@ -684,7 +672,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
     );
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getByText(/^10 skills$/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/^10 skills$/i)).toBeNull();
     expect(within(dialog).queryByText(/skills from catalog/i)).toBeNull();
   });
 

@@ -1708,14 +1708,6 @@ export function TrySkillsGateway() {
                   `?scope=${encodeURIComponent(selectedScope)}` +
                   `&catalog_url=${encodeURIComponent(catalogUrl)}` +
                   (quickInstallHelpers ? `&mode=bulk-with-helpers` : "");
-                const targetPathsRaw =
-                  liveSkills?.install_paths?.[selectedScope] ?? null;
-                const targetPaths: string[] = Array.isArray(targetPathsRaw)
-                  ? [...targetPathsRaw]
-                  : targetPathsRaw
-                    ? [targetPathsRaw as string]
-                    : [];
-                const skillCount = previewData?.meta?.total ?? null;
                 // Single-line install snippet. install.sh reads the API key
                 // from ~/.config/caipe/config.json (Step 1), so we don't
                 // bake the key into the curl. This keeps the snippet short,
@@ -1740,31 +1732,6 @@ export function TrySkillsGateway() {
                   : `curl -fsSL ${shellQuote(installShUrl)} | bash`;
                 return (
                   <div className="space-y-3">
-                    {/* Summary chips: tell the user *what* will happen
-                        before they read the curl. Each chip is a tiny
-                        rounded badge with a label + value, separated by
-                        bullets. */}
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2 py-0.5 font-medium">
-                        {skillCount != null
-                          ? `${skillCount} skill${skillCount !== 1 ? "s" : ""}`
-                          : "skills from catalog"}
-                      </span>
-                      <span className="text-muted-foreground">→</span>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-foreground">
-                        {agentLabel}
-                      </span>
-                      {targetPaths.length > 0 ? (
-                        <>
-                          <code className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-foreground">
-                            {targetPaths.length > 1
-                              ? `paths ${targetPaths.join(" and ")}`
-                              : `at ${targetPaths[0]}`}
-                          </code>
-                        </>
-                      ) : null}
-                    </div>
-
                     {/* API-key status row: clear gate above the snippet.
                         Green when ready, amber + inline Generate button
                         when missing. */}
