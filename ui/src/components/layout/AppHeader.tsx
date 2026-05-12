@@ -72,6 +72,7 @@ function formatInterval(seconds: number): string {
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/task-builder",
+  "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
 ];
@@ -86,6 +87,7 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
+  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -223,6 +225,7 @@ export function AppHeader() {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
@@ -329,6 +332,19 @@ export function AppHeader() {
           >
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
+          </GuardedLink>
+          <GuardedLink
+            href="/workflows"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              activeTab === "workflows"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Workflow className="h-3.5 w-3.5 shrink-0" />
+            Workflows
           </GuardedLink>
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
