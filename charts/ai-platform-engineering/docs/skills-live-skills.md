@@ -6,7 +6,7 @@ Gateway** live-skills skill. The packaged template itself lives at
 explains how the chart wires it up and which Helm values override it.
 
 `live-skills.md` is the default markdown body of the `/skills` slash command
-that the Skills API Gateway UI page renders for users to copy into their
+that the Skills Gateway UI page renders for users to copy into their
 coding agent (Claude Code, Cursor, Spec Kit, etc.).
 
 The chart packages it into the `skills-live-skills` ConfigMap, which is mounted

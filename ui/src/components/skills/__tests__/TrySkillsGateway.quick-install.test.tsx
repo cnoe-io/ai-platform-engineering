@@ -291,6 +291,16 @@ async function openModalAdvancedOptions(user: ReturnType<typeof userEvent.setup>
   await user.click(within(dialog).getByText(/^Advanced install options$/i));
 }
 
+async function mintQuickInstallKey(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = getDialog();
+  await user.click(
+    within(dialog).getByRole("button", {
+      name: /generate install command with api key/i,
+    }),
+  );
+  await within(dialog).findByText(/API key minted/i);
+}
+
 function getDialog() {
   // shadcn/ui Dialog renders with role="dialog".
   return screen.getByRole("dialog");
@@ -327,8 +337,12 @@ describe("TrySkillsGateway → Quick install modal", () => {
       screen.getByRole("button", { name: /^quick install skills$/i }),
     ).toBeEnabled();
     expect(
-      screen.getByText(/works across claude code, cursor, codex cli, gemini cli, and opencode/i),
+      screen.getByText(
+        /Install skills into your local coding agent\. Works with popular coding agents that use the ~\/\.agents\/skills convention/i,
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/One guided flow generates/i)).toBeNull();
+    expect(screen.queryByText(/Choose the default user-wide install/i)).toBeNull();
 
     expect(screen.queryByText(/Step 2: Generate API Key/i)).toBeNull();
     expect(screen.queryByText(/Step 3: Install skills/i)).toBeNull();
@@ -364,16 +378,23 @@ describe("TrySkillsGateway → Quick install modal", () => {
     render(<TrySkillsGateway />);
 
     expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
-    expect(screen.getByText(/The install wrote one/i)).toBeInTheDocument();
+    expect(screen.getByText(/Installed one/i)).toBeInTheDocument();
     expect(screen.getByText(/Restart or reopen your coding agent/i)).toBeInTheDocument();
     expect(
+      screen.getByText(/Open your coding agent \(Claude, Cursor, Codex, Gemini, Opencode\)/i),
+    ).toBeInTheDocument();
+    expect(
       screen.getAllByText((_, node) =>
-        Boolean(node?.textContent?.includes("run claude, then use /skills")),
+        Boolean(
+          node?.textContent?.includes(
+            "/skills to browse/search or run an installed skill directly",
+          ),
+        ),
       ).length,
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText((_, node) =>
-        Boolean(node?.textContent?.includes("Use /update-skills")),
+        Boolean(node?.textContent?.includes("/update-skills")),
       ).length,
     ).toBeGreaterThan(0);
     expect(
@@ -381,18 +402,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
         Boolean(node?.textContent?.includes("/create-ci-pipeline")),
       ).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText(/For Cursor, Codex CLI, Gemini CLI, and opencode/i)).toBeInTheDocument();
+    expect(screen.queryByText(/For Cursor, Codex CLI, Gemini CLI, and opencode/i)).toBeNull();
+    expect(screen.queryByText(/Claude Code: use/i)).toBeNull();
     expect(screen.queryByText(/immediately discoverable/i)).toBeNull();
     expect(screen.queryByText(/\$skill-name/i)).toBeNull();
     expect(screen.queryByText(/\/skills list/i)).toBeNull();
-    expect(
-      await screen.findByText(/Detailed launch guide for Claude Code/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByText((_, node) =>
-        Boolean(node?.textContent?.includes("Run /skills inside Claude Code.")),
-      ).length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/Detailed launch guide/i)).toBeNull();
+    expect(screen.queryByText(/Install Claude Code/i)).toBeNull();
+    expect(screen.queryByText(/npm install -g @anthropic-ai\/claude-code/i)).toBeNull();
     expect(screen.queryByText(/^2$/)).toBeNull();
   });
 
@@ -471,13 +488,15 @@ describe("TrySkillsGateway → Quick install modal", () => {
 
     const apiKeyGate = within(dialog).getByTestId("quick-install-api-key-gate");
     const generateButton = within(apiKeyGate).getByRole("button", {
-      name: /generate api key/i,
+      name: /generate install command with api key/i,
     });
     expect(generateButton).toBeEnabled();
     expect(
       within(apiKeyGate).getByText(/Generate an API key first to install skills/i),
     ).toBeInTheDocument();
-    expect(apiKeyGate.textContent?.indexOf("Generate API key")).toBeLessThan(
+    expect(
+      apiKeyGate.textContent?.indexOf("Generate Install Command with API Key"),
+    ).toBeLessThan(
       apiKeyGate.textContent?.indexOf("Generate an API key first") ?? 0,
     );
 
@@ -489,6 +508,10 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // either.
     expect(
       within(dialog).queryByText(/<your-catalog-api-key>/),
+    ).toBeNull();
+    expect(within(dialog).queryByText(/Run this in your terminal/i)).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
     ).toBeNull();
   });
 
@@ -513,7 +536,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
 
     await waitFor(() => expect(mintCallCount).toBeGreaterThanOrEqual(1));
@@ -546,6 +571,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(
       within(dialog).getAllByText(new RegExp(mintedKeyValue)).length,
     ).toBeGreaterThanOrEqual(1);
+    expect(
+      within(dialog).getByText(/Run this in your terminal/i),
+    ).toBeInTheDocument();
     // But never as `export CAIPE_CATALOG_KEY=…` — install.sh reads the
     // key from ~/.config/caipe/config.json, not the env. (See the
     // separate clipboard test below for the bare-curl one-liner.)
@@ -561,7 +589,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // ~/.config/caipe/config.json). Mint anyway so we can verify the key
     // is *not* leaking into the copy payload.
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
@@ -637,17 +667,18 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(within(dialog).getAllByText(/--upgrade/).length).toBeGreaterThan(0);
   });
 
-  it("footer action closes the dialog", async () => {
-    const user = await renderAndOpenModal();
+  it("does not show a manual-options footer in the dialog", async () => {
+    await renderAndOpenModal();
     const dialog = getDialog();
 
-    await user.click(
-      within(dialog).getByRole("button", { name: /close and view manual options/i }),
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
+    expect(
+      within(dialog).queryByText(/Want the manual heredoc/i),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", {
+        name: /close and view manual options/i,
+      }),
+    ).toBeNull();
   });
 
   it("keeps the quick install dialog free of preview-count summary chips", async () => {
@@ -707,11 +738,11 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(upgrade.checked).toBe(false);
     expect(force.checked).toBe(false);
 
-    // The snippet block is the only `<pre>` in the dialog.
-    const snippet = dialog.querySelector("pre");
-    expect(snippet).not.toBeNull();
-    expect(snippet!.textContent || "").toMatch(/\| bash$/);
-    expect(snippet!.textContent || "").not.toContain("bash -s --");
+    await mintQuickInstallKey(user);
+
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").toMatch(/\| bash$/);
+    expect(snippet.textContent || "").not.toContain("bash -s --");
   });
 
   it("overwrite-policy: ticking --upgrade rewrites snippet to use bash -s -- --upgrade", async () => {
@@ -720,9 +751,10 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-upgrade"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toMatch(
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").toMatch(
       /\| bash -s -- --upgrade$/,
     );
   });
@@ -733,9 +765,10 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-force"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toMatch(/\| bash -s -- --force$/);
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").toMatch(/\| bash -s -- --force$/);
   });
 
   // ---------------------------------------------------------------------
@@ -758,8 +791,10 @@ describe("TrySkillsGateway → Quick install modal", () => {
     ) as HTMLInputElement;
     expect(helpers.checked).toBe(true);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toContain("mode=bulk-with-helpers");
+    await mintQuickInstallKey(user);
+
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").toContain("mode=bulk-with-helpers");
   });
 
   it("helpers checkbox: unticking removes &mode=bulk-with-helpers from the snippet", async () => {
@@ -768,13 +803,14 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-helpers"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").not.toContain("mode=bulk-with-helpers");
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").not.toContain("mode=bulk-with-helpers");
     // The rest of the URL (scope, catalog_url) must still be there —
     // we're only stripping the mode override, not breaking the URL.
-    expect(snippet!.textContent || "").toMatch(/scope=(user|project)/);
-    expect(snippet!.textContent || "").toContain("catalog_url=");
+    expect(snippet.textContent || "").toMatch(/scope=(user|project)/);
+    expect(snippet.textContent || "").toContain("catalog_url=");
   });
 
   it("helpers checkbox: stacks with --force (both flags coexist on the same one-liner)", async () => {
@@ -784,9 +820,10 @@ describe("TrySkillsGateway → Quick install modal", () => {
 
     // Default state already has helpers=on; layer --force on top.
     await user.click(within(dialog).getByTestId("quick-install-force"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    const text = snippet!.textContent || "";
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    const text = snippet.textContent || "";
     expect(text).toContain("mode=bulk-with-helpers");
     expect(text).toMatch(/\| bash -s -- --force$/);
   });
@@ -829,7 +866,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
@@ -880,7 +919,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
@@ -925,7 +966,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(force);
     expect(upgrade.checked).toBe(false);
     expect(force.checked).toBe(false);
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").not.toContain("bash -s --");
+    await mintQuickInstallKey(user);
+    const snippet = within(dialog).getByTestId("quick-install-bare-curl-snippet");
+    expect(snippet.textContent || "").not.toContain("bash -s --");
   });
 });

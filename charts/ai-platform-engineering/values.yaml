@@ -217,7 +217,7 @@ ragPromptConfig: ""           # Custom RAG prompt config (overrides default if s
 
 # ---------------------------------------------------------------------------
 # Live-skills command template (rendered as the `/skills` slash command
-# in the "Skills API Gateway" UI page). Customizable per-deployment.
+# in the "Skills Gateway" UI page). Customizable per-deployment.
 #
 # Resolution order (mirrors promptConfig):
 #   1. .Values.skillsLiveSkills          - inline multi-line string (highest)

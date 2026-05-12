@@ -19,7 +19,7 @@ export default function SkillsPage() {
     router.push("/skills/workspace/new");
   };
 
-  // Note: the Skills Gallery / Skills API Gateway segmented toggle
+  // Note: the Skills Gallery / Skills Gateway segmented toggle
   // is rendered inline inside `SkillsGallery`'s header toolbar (next
   // to "Scan history") rather than as a full-width row above the
   // gallery. That earlier full-width row was eating ~50px of

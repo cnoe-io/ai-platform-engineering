@@ -317,9 +317,7 @@ export function TrySkillsGateway() {
   // Kept as a const for any leftover branches that conditionally render
   // fragment-only copy.
   const isFragment = false;
-  const launchGuide = liveSkills?.launch_guide ?? "";
   const agentLabel = liveSkills?.label ?? "Claude Code";
-  const agentDocsUrl = liveSkills?.docs_url;
   const scopesAvailable: InstallScope[] =
     liveSkills?.scopes_available ?? ["user", "project"];
 
@@ -418,7 +416,7 @@ export function TrySkillsGateway() {
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          Skills API Gateway
+          Skills Gateway
         </h1>
         <p className="text-sm text-muted-foreground">
           Install the catalog once, then use skills from your coding agent.
@@ -433,9 +431,8 @@ export function TrySkillsGateway() {
             Quick install skills
           </CardTitle>
           <CardDescription>
-            One guided flow generates a catalog API key, writes the local config,
-            and installs skills. Works across Claude Code, Cursor, Codex CLI,
-            Gemini CLI, and opencode.
+            Install skills into your local coding agent. Works with popular
+            coding agents that use the ~/.agents/skills convention.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
@@ -449,10 +446,6 @@ export function TrySkillsGateway() {
             <Zap className="h-4 w-4" />
             Quick install skills
           </Button>
-          <p className="text-xs text-muted-foreground">
-            Choose the default user-wide install, or use the sections below for
-            project-local, upgrade, force, manual, and uninstall commands.
-          </p>
         </CardContent>
       </Card>
 
@@ -1505,48 +1498,35 @@ export function TrySkillsGateway() {
             Launch your coding agent and use it
           </CardTitle>
           <CardDescription>
-            Restart or reopen your coding agent after install so it reloads
-            the skill directories.
+            Restart or reopen your coding agent after install.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4 text-sm">
+        <CardContent className="space-y-3 text-sm">
           <p className="text-foreground">
-            The install wrote one{" "}
+            Installed one{" "}
             <code className="font-mono text-[12px]">SKILL.md</code> per skill
-            into both the Claude tree and the vendor-neutral{" "}
+            in both <code className="font-mono text-[12px]">~/.claude/skills/</code>{" "}
+            and{" "}
             <code className="font-mono text-[12px]">~/.agents/skills/</code>{" "}
-            mirror, or the project-local equivalents if you selected
-            project-local install.
+            or the project-local equivalents.
+          </p>
+          <p className="text-foreground">
+            Open your coding agent (Claude, Cursor, Codex, Gemini, Opencode).
           </p>
           <ul className="text-foreground space-y-2 list-disc pl-5">
             <li>
-              <strong>Claude Code</strong>: run{" "}
-              <code className="font-mono text-[12px]">claude</code>, then use{" "}
               <code className="font-mono text-[12px]">/{safeCommandName}</code>{" "}
-              to browse or search the live catalog. Use{" "}
-              <code className="font-mono text-[12px]">/update-skills</code>{" "}
-              to refresh on-disk copies, or call an installed local skill
-              directly, for example{" "}
-              <code className="font-mono text-[12px]">/create-ci-pipeline</code>.
+              to browse/search or run an installed skill directly.
             </li>
             <li>
-              <strong>For Cursor, Codex CLI, Gemini CLI, and opencode</strong>:
-              restart or reopen the agent, then describe the task or ask it to
-              use a named installed skill such as{" "}
-              <code className="font-mono text-[12px]">create-ci-pipeline</code>.
-              These agents read matching{" "}
-              <code className="font-mono text-[12px]">SKILL.md</code> files
-              from the installed skill tree.
+              <code className="font-mono text-[12px]">/update-skills</code>{" "}
+              to refresh.
+            </li>
+            <li>
+              Invoke a locally cached skill{" "}
+              <code className="font-mono text-[12px]">/create-ci-pipeline</code>.
             </li>
           </ul>
-          {launchGuide ? (
-            <div className="border-t border-border pt-4">
-              <p className="text-sm font-semibold text-foreground mb-3">
-                Detailed launch guide for {agentLabel}
-              </p>
-              <LaunchGuide markdown={launchGuide} commandName={safeCommandName} />
-            </div>
-          ) : null}
         </CardContent>
       </Card>
 
@@ -1842,7 +1822,7 @@ export function TrySkillsGateway() {
                           {mintBusy ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : null}
-                          Generate API key
+                          Generate Install Command with API Key
                         </Button>
                         <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
                           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -1978,94 +1958,79 @@ export function TrySkillsGateway() {
                       </div>
                     </details>
 
-                    {/* The actual one-liner. Multi-line + monospace so the
-                        long install.sh URL is readable. Big, full-width
-                        copy button so it's the primary action. */}
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-medium text-foreground">
-                          Run this in your terminal
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 gap-1.5 text-xs"
-                          data-testid="quick-install-copy-bare-curl"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(oneLiner);
-                            setCopiedQuickInstall(true);
-                            setTimeout(
-                              () => setCopiedQuickInstall(false),
-                              2000,
-                            );
-                          }}
+                    {mintedKey ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-foreground">
+                            Run this in your terminal
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs"
+                            data-testid="quick-install-copy-bare-curl"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(oneLiner);
+                              setCopiedQuickInstall(true);
+                              setTimeout(
+                                () => setCopiedQuickInstall(false),
+                                2000,
+                              );
+                            }}
+                          >
+                            {copiedQuickInstall ? (
+                              <>
+                                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                Copied
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="h-3.5 w-3.5" />
+                                Copy
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        <pre
+                          className="rounded-md bg-muted p-3 text-xs leading-relaxed font-mono whitespace-pre-wrap break-all"
+                          data-testid="quick-install-bare-curl-snippet"
                         >
-                          {copiedQuickInstall ? (
+                          {oneLiner}
+                        </pre>
+                        <p className="text-[11px] text-muted-foreground">
+                          {quickInstallMode === "force" ? (
                             <>
-                              <Check className="h-3.5 w-3.5 text-emerald-600" />
-                              Copied
+                              <code className="font-mono">--force</code>{" "}
+                              mode: every target file at the install paths
+                              will be overwritten, including files this
+                              installer didn&rsquo;t create.
+                            </>
+                          ) : quickInstallMode === "upgrade" ? (
+                            <>
+                              <code className="font-mono">--upgrade</code>{" "}
+                              mode: only files this installer previously
+                              wrote (tracked in the manifest) will be
+                              refreshed. Other files are left alone.
                             </>
                           ) : (
                             <>
-                              <Copy className="h-3.5 w-3.5" />
-                              Copy
+                              Idempotent and safe to re-run. Existing skill
+                              files are skipped — toggle{" "}
+                              <code className="font-mono">--upgrade</code>{" "}
+                              or{" "}
+                              <code className="font-mono">--force</code>{" "}
+                              above to overwrite.
                             </>
                           )}
-                        </Button>
+                        </p>
                       </div>
-                      {/* `whitespace-pre-wrap` preserves the newlines
-                          between the export/curl steps, while `break-all`
-                          wraps the long install.sh URL at any character so
-                          it stays inside the dialog instead of forcing
-                          horizontal scroll. */}
-                      <pre className="rounded-md bg-muted p-3 text-xs leading-relaxed font-mono whitespace-pre-wrap break-all">
-                        {oneLiner}
-                      </pre>
-                      <p className="text-[11px] text-muted-foreground">
-                        {quickInstallMode === "force" ? (
-                          <>
-                            <code className="font-mono">--force</code>{" "}
-                            mode: every target file at the install paths
-                            will be overwritten, including files this
-                            installer didn&rsquo;t create.
-                          </>
-                        ) : quickInstallMode === "upgrade" ? (
-                          <>
-                            <code className="font-mono">--upgrade</code>{" "}
-                            mode: only files this installer previously
-                            wrote (tracked in the manifest) will be
-                            refreshed. Other files are left alone.
-                          </>
-                        ) : (
-                          <>
-                            Idempotent and safe to re-run. Existing skill
-                            files are skipped — toggle{" "}
-                            <code className="font-mono">--upgrade</code>{" "}
-                            or{" "}
-                            <code className="font-mono">--force</code>{" "}
-                            above to overwrite.
-                          </>
-                        )}
-                      </p>
-                    </div>
+                    ) : null}
                   </div>
                 );
               })()}
             </div>
 
-            <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-              Want the manual heredoc, the{" "}
-              <code className="font-mono">--upgrade</code> variant, or
-              per-agent docs?{" "}
-              <button
-                type="button"
-                className="text-primary font-medium hover:underline"
-                onClick={() => setQuickInstallOpen(false)}
-              >
-                Close and view manual options →
-              </button>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2131,187 +2096,3 @@ function CopyableBlock({
   );
 }
 
-/**
- * Minimal Markdown renderer for the per-agent launch guide returned by
- * /api/skills/live-skills. Supports the subset our agent registry uses:
- *   - fenced code blocks (```...```)
- *   - blank-line separated paragraphs
- *   - **bold** and `inline code`
- *   - [link text](url) — opens in a new tab with rel="noreferrer"
- *   - {name} substituted with the slash-command name
- *
- * We intentionally avoid a full MD library to keep bundle size small and to
- * sidestep dangerouslySetInnerHTML (server controls the input, but defense
- * in depth — we never inject raw HTML). Unknown markdown is rendered as
- * plain text.
- */
-function LaunchGuide({
-  markdown,
-  commandName,
-}: {
-  markdown: string;
-  commandName: string;
-}) {
-  if (!markdown) {
-    return (
-      <p className="text-xs text-muted-foreground italic">
-        Launch instructions will appear here once the live-skills template loads.
-      </p>
-    );
-  }
-
-  const text = markdown.replace(/\{name\}/g, commandName);
-
-  // Split by fenced code blocks, preserving them as separate segments.
-  const segments: { type: "code" | "prose"; content: string; lang?: string }[] =
-    [];
-  const fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = fenceRe.exec(text)) !== null) {
-    if (m.index > lastIndex) {
-      segments.push({ type: "prose", content: text.slice(lastIndex, m.index) });
-    }
-    segments.push({ type: "code", content: m[2], lang: m[1] || undefined });
-    lastIndex = m.index + m[0].length;
-  }
-  if (lastIndex < text.length) {
-    segments.push({ type: "prose", content: text.slice(lastIndex) });
-  }
-
-  return (
-    <div className="space-y-4 text-sm">
-      {segments.map((seg, idx) => {
-        if (seg.type === "code") {
-          return (
-            <CopyableBlock
-              key={idx}
-              className="p-4"
-              ariaLabel="Copy code block"
-              text={seg.content.replace(/\n+$/, "")}
-            />
-          );
-        }
-        // Render prose: split on blank lines into paragraphs/list groups.
-        const blocks = seg.content
-          .split(/\n{2,}/)
-          .map((b) => b.trim())
-          .filter(Boolean);
-        return (
-          <div key={idx} className="space-y-3 text-sm text-foreground">
-            {blocks.map((block, bIdx) => {
-              const lines = block.split("\n");
-              // Find the first list-line; everything before it is a heading
-              // paragraph, everything from there on is the list. This handles
-              // the common "**Use the command**:\n- foo\n- bar" pattern that
-              // doesn't have a blank line between the header and the list.
-              const firstListIdx = lines.findIndex(
-                (l) => l.startsWith("- ") || l.startsWith("* "),
-              );
-              const allList =
-                firstListIdx === 0 &&
-                lines.every(
-                  (l) => l.startsWith("- ") || l.startsWith("* "),
-                );
-              const headerThenList =
-                firstListIdx > 0 &&
-                lines
-                  .slice(firstListIdx)
-                  .every(
-                    (l) => l.startsWith("- ") || l.startsWith("* "),
-                  );
-
-              if (allList || headerThenList) {
-                const headerLines = headerThenList
-                  ? lines.slice(0, firstListIdx)
-                  : [];
-                const listLines = headerThenList
-                  ? lines.slice(firstListIdx)
-                  : lines;
-                return (
-                  <div key={bIdx} className="space-y-2">
-                    {headerLines.length > 0 ? (
-                      <p className="text-sm text-foreground leading-relaxed">
-                        {renderInline(headerLines.join(" "))}
-                      </p>
-                    ) : null}
-                    <ul className="list-disc pl-5 space-y-1.5 text-sm text-foreground leading-relaxed">
-                      {listLines.map((l, lIdx) => (
-                        <li key={lIdx}>
-                          {renderInline(l.replace(/^[-*]\s+/, ""))}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              }
-              return (
-                <p key={bIdx} className="text-sm text-foreground leading-relaxed">
-                  {renderInline(block.replace(/\n/g, " "))}
-                </p>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * Render inline markdown — bold, inline code, and links — into React nodes.
- * Anything not matched is rendered as plain text. Links are opened in a new
- * tab with `rel="noreferrer"`. We never inject raw HTML.
- */
-function renderInline(text: string): React.ReactNode[] {
-  const out: React.ReactNode[] = [];
-  // Combined regex: link, bold, code (in that priority order).
-  const re = /\[([^\]]+)\]\(([^)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) {
-      out.push(text.slice(last, m.index));
-    }
-    if (m[1] && m[2]) {
-      // Validate the URL: only allow http(s) targets, no javascript: etc.
-      let safe = false;
-      try {
-        const u = new URL(m[2]);
-        safe = u.protocol === "http:" || u.protocol === "https:";
-      } catch {
-        safe = false;
-      }
-      if (safe) {
-        out.push(
-          <a
-            key={`l${key++}`}
-            href={m[2]}
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary underline"
-          >
-            {m[1]}
-          </a>,
-        );
-      } else {
-        out.push(m[1]);
-      }
-    } else if (m[3]) {
-      out.push(<strong key={`b${key++}`}>{m[3]}</strong>);
-    } else if (m[4]) {
-      out.push(
-        <code
-          key={`c${key++}`}
-          className="rounded bg-muted px-1 py-0.5 text-[0.85em]"
-        >
-          {m[4]}
-        </code>,
-      );
-    }
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}

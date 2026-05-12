@@ -1039,7 +1039,7 @@ export function SkillsGallery({
                 <ScrollText className="h-4 w-4 opacity-90" strokeWidth={2.25} />
                 <span className="hidden md:inline">Scan history</span>
               </Button>
-              {/* "Skills API Gateway" launcher — original prominent
+              {/* "Skills Gateway" launcher — original prominent
                   gradient pill that opens the dedicated Gateway page
                   (`/skills/gateway`). We tried a Gallery / Gateway
                   segmented toggle here briefly, but the launcher
@@ -1049,8 +1049,8 @@ export function SkillsGallery({
                 type="button"
                 size="sm"
                 onClick={() => router.push("/skills/gateway")}
-                aria-label="Open Skills API Gateway — OpenAPI, auth, and agent integration"
-                title="Skills API Gateway: OpenAPI, API keys, and coding-agent setup"
+                aria-label="Open Skills Gateway — OpenAPI, auth, and agent integration"
+                title="Skills Gateway: OpenAPI, API keys, and coding-agent setup"
                 className={cn(
                   "gap-2 h-9 text-sm px-4 font-medium border border-sky-500/20",
                   "text-sky-50/95 shadow-md shadow-black/25",
@@ -1061,8 +1061,8 @@ export function SkillsGallery({
                 )}
               >
                 <Waypoints className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
-                <span className="hidden sm:inline">Skills API Gateway</span>
-                <span className="sm:hidden font-semibold">API Gateway</span>
+                <span className="hidden sm:inline">Skills Gateway</span>
+                <span className="sm:hidden font-semibold">Gateway</span>
               </Button>
               {isAdmin && (
                 <Button

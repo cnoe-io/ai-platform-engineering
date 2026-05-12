@@ -2,7 +2,7 @@
  * GET /api/skills/live-skills
  *
  * Returns the live-skills slash command template (per-agent rendered) used
- * by the Skills API Gateway UI to install the `/skills` "live escape hatch"
+ * by the Skills Gateway UI to install the `/skills` "live escape hatch"
  * slash command.
  *
  * This is the route the legacy `/api/skills/bootstrap` endpoint was

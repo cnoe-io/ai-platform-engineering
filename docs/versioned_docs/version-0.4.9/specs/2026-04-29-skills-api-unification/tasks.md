@@ -24,7 +24,7 @@ description: "Task list for Unified Skills API, Gateway, Template Import, and Sk
 
 - [X] T001 Extend `docs/docs/specs/2026-04-29-skills-api-unification/contracts/rest-api.md` with planned HTTP surfaces for scan re-run, hub scan job start, job status polling, and optional quarantine policy admin read/write (stub sections OK until implemented)
 - [X] T002 [P] Update `docs/docs/specs/2026-04-29-skills-api-unification/data-model.md` with **Scan job** and **Quarantine policy** entities and their relationship to `agent_skills` / 097 `skill_scan_findings`
-- [X] T003 [P] Add a **route matrix** subsection (in-product UI vs Skills API Gateway / agent catalog vs config CRUD) to `docs/docs/specs/2026-04-29-skills-api-unification/implementation-plan.md` per FR-016; reference `GET /api/skills` behavior for quarantined rows
+- [X] T003 [P] Add a **route matrix** subsection (in-product UI vs Skills Gateway / agent catalog vs config CRUD) to `docs/docs/specs/2026-04-29-skills-api-unification/implementation-plan.md` per FR-016; reference `GET /api/skills` behavior for quarantined rows
 - [X] T004 Cross-check finding severities and field names in `docs/docs/specs/097-skills-middleware-integration/data-model.md` against FR-015 mapping notes in `implementation-plan.md`
 
 ---

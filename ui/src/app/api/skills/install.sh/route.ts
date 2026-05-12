@@ -143,7 +143,7 @@ function sanitizeBaseUrl(raw: string | null): string | null {
 }
 
 /**
- * Sanitize an optional ?catalog_url=… coming from the Skills API Gateway
+ * Sanitize an optional ?catalog_url=… coming from the Skills Gateway
  * UI Query Builder. Same constraints as before the overhaul:
  *   - http:// or https:// only
  *   - no userinfo
@@ -1826,7 +1826,7 @@ export async function GET(request: Request) {
     sanitizeBaseUrl(url.searchParams.get("base_url")) ??
     getRequestOrigin(request);
 
-  // Optional catalog-query bulk mode driven by the Skills API Gateway
+  // Optional catalog-query bulk mode driven by the Skills Gateway
   // "Pick your skills" Query Builder. When present this wins over the
   // default mode — the user has explicitly composed a query.
   const catalogUrlRaw = url.searchParams.get("catalog_url");
