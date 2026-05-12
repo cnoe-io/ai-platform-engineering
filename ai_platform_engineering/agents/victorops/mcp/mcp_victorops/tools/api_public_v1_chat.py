@@ -4,8 +4,9 @@
 
 """Tools for /api-public/v1/chat operations"""
 
+import json
 import logging
-from typing import Dict, Any, List,Optional
+from typing import List, Optional
 from ..api.client import make_api_request, assemble_nested_body
 
 # Configure logging
@@ -21,7 +22,7 @@ async def post_api_public_v1_chat(
     body_incidentId: Optional[float] = None,
     body_tags: Optional[List[str]] = None,
     org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
     Send a chat message into VictorOps
 
@@ -44,7 +45,7 @@ async def post_api_public_v1_chat(
 
 
     Returns:
-        Dict[str, Any]: The JSON response from the API call.
+        str: Pretty-printed JSON response from the API call.
 
     Raises:
         Exception: If the API request fails or returns an error.
@@ -73,5 +74,5 @@ async def post_api_public_v1_chat(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)

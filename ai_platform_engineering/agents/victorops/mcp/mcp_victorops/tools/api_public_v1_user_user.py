@@ -4,53 +4,14 @@
 
 """Tools for /api-public/v1/user/{user} operations"""
 
+import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Optional
 from ..api.client import make_api_request, assemble_nested_body
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_tools")
-
-
-async def get_api_public_v1_user_user(path_user: str, org_slug: Optional[str] = None) -> Dict[str, Any]:
-    """
-        Retrieve information for a user
-
-        OpenAPI Description:
-            Get the information for the specified user
-
-    This API may be called a maximum of 2 times per second.
-
-
-        Args:
-
-            path_user (str): The VictorOps user to fetch
-
-            org_slug (str): VictorOps organization slug. Required when multiple orgs are configured.
-
-        Returns:
-            Dict[str, Any]: The JSON response from the API call.
-
-        Raises:
-            Exception: If the API request fails or returns an error.
-    """
-    logger.debug("Making GET request to /api-public/v1/user/{user}")
-
-    params = {}
-    data = {}
-
-    flat_body = {}
-    data = assemble_nested_body(flat_body)
-
-    success, response = await make_api_request(
-        f"/api-public/v1/user/{path_user}", method="GET", org_slug=org_slug, params=params, data=data
-    )
-
-    if not success:
-        logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
 
 
 async def put_api_public_v1_user_user(
@@ -62,7 +23,7 @@ async def put_api_public_v1_user_user(
     body_admin: bool = None,
     body_expirationHours: float = None,
     org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
         Update a user
 
@@ -90,7 +51,7 @@ async def put_api_public_v1_user_user(
 
 
         Returns:
-            Dict[str, Any]: The JSON response from the API call.
+            str: Pretty-printed JSON response from the API call.
 
         Raises:
             Exception: If the API request fails or returns an error.
@@ -121,13 +82,13 @@ async def put_api_public_v1_user_user(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)
 
 
 async def delete_api_public_v1_user_user(
     path_user: str, body_replacement: str = None, body_replacementStrategy: str = None, org_slug: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> str:
     """
         Remove a user
 
@@ -163,7 +124,7 @@ async def delete_api_public_v1_user_user(
 
 
         Returns:
-            Dict[str, Any]: The JSON response from the API call.
+            str: Pretty-printed JSON response from the API call.
 
         Raises:
             Exception: If the API request fails or returns an error.
@@ -186,5 +147,5 @@ async def delete_api_public_v1_user_user(
 
     if not success:
         logger.error(f"Request failed: {response.get('error')}")
-        return {"error": response.get("error", "Request failed")}
-    return response
+        return json.dumps({"error": response.get("error", "Request failed")}, indent=2)
+    return json.dumps(response, indent=2, default=str)
