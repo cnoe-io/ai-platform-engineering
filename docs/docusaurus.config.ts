@@ -238,7 +238,7 @@ const config: Config = {
             },
             {
               label: 'Meeting Recordings',
-              href: 'https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings',
+              href: 'https://www.youtube.com/@cnoe-community',
             },
             {
               label: 'CNOE Agentic AI SIG Governance',
