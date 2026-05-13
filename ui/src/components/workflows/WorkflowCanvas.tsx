@@ -13,6 +13,7 @@ import {
   type Edge,
   type NodeMouseHandler,
 } from "@xyflow/react";
+import YAML from "yaml";
 import "@xyflow/react/dist/style.css";
 import {
   WorkflowStepNode,
@@ -498,7 +499,7 @@ function WorkflowCanvasInner({
   }, [existingConfig, deleteConfig, setUnsaved, closeEditor, loadConfigs]);
 
   // -----------------------------------------------------------------------
-  // Export / Import workflow JSON
+  // Export / Import workflow YAML
   // -----------------------------------------------------------------------
 
   const handleExport = useCallback(() => {
@@ -507,11 +508,11 @@ function WorkflowCanvasInner({
       description: description || undefined,
       steps,
     };
-    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+    const blob = new Blob([YAML.stringify(config)], { type: "application/x-yaml" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${name || "workflow"}.json`;
+    a.download = `${name || "workflow"}.yaml`;
     a.click();
     URL.revokeObjectURL(url);
   }, [name, description, steps]);

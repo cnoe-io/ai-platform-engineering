@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef } from "react";
+import YAML from "yaml";
 import { ArrowLeft, Save, Play, Trash2, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,10 +49,12 @@ export function WorkflowToolbar({
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const parsed = JSON.parse(ev.target?.result as string);
+        const text = ev.target?.result as string;
+        // Try YAML first (also handles JSON since JSON is valid YAML)
+        const parsed = YAML.parse(text);
         onImport(parsed);
       } catch {
-        console.error("Invalid JSON file");
+        console.error("Invalid YAML/JSON file");
       }
     };
     reader.readAsText(file);
@@ -112,7 +115,7 @@ export function WorkflowToolbar({
               size="sm"
               onClick={onExport}
               className="gap-1.5 h-8 text-xs px-3"
-              title="Download workflow as JSON"
+              title="Download workflow as YAML"
             >
               <Upload className="h-3.5 w-3.5" />
               Export
@@ -125,7 +128,7 @@ export function WorkflowToolbar({
                 size="sm"
                 onClick={handleImportClick}
                 className="gap-1.5 h-8 text-xs px-3"
-                title="Upload workflow JSON"
+                title="Upload workflow YAML"
               >
                 <Download className="h-3.5 w-3.5" />
                 Import
@@ -133,7 +136,7 @@ export function WorkflowToolbar({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".json"
+                accept=".yaml,.yml,.json"
                 className="hidden"
                 onChange={handleFileChange}
               />
