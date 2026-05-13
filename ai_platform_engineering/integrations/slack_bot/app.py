@@ -760,9 +760,7 @@ def handle_message_events(body, say, client):
 
   channel_config = config.channels[channel_id]
 
-  # Skip all thread replies — root messages are the trigger, thread history is
-  # fetched as context when processing. Responding to each reply causes duplicate
-  # invocations when a bot posts multiple follow-ups in its own thread.
+  # Skip thread replies; only root messages trigger the agent.
   is_thread = event.get("thread_ts") is not None
   if is_thread:
     return
