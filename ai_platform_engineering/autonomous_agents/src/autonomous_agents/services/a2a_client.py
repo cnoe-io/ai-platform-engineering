@@ -1,17 +1,29 @@
 """A2A client — sends tasks to the CAIPE supervisor agent.
 
-Transport reliability
----------------------
-The supervisor is just another HTTP service: it can be restarted, fall over
-behind a load balancer, or briefly hit OOM. We retry on the failure modes
-that are *transient* (5xx + connection/transport errors) and never on the
-ones that are caller-fault (4xx). 4xx means the request itself is bad —
-auth, validation, missing route — and replaying it would only burn quota
-without changing the outcome.
+Public entry point: :func:`invoke_agent_streaming`. It opens a Server-Sent
+Events stream against the supervisor's ``message/stream`` endpoint, captures
+every raw A2A event, and returns ``(final_text, captured_events)``. The chat
+UI synthesizer replays ``captured_events`` so past scheduled runs render with
+the same rich plan / tools / timeline UI that a typed message gets.
 
-The retry policy is configurable via ``Settings.a2a_max_retries`` and
-``Settings.a2a_timeout_seconds``, with optional per-call overrides supplied
-by the scheduler (``TaskDefinition.max_retries`` / ``timeout_seconds``).
+Reliability
+-----------
+The supervisor is just another HTTP service: it can be restarted, fall over
+behind a load balancer, or briefly hit OOM. We protect against a *sustained*
+outage with a per-URL circuit breaker (see ``services/circuit_breaker.py``).
+There is intentionally **no retry layer**:
+
+* SSE streams aren't safely resumable mid-flight, so a mid-stream break is
+  surfaced immediately and the next scheduled fire is a fresh attempt.
+* Pre-stream transient errors (TLS reset, brief 503, DNS hiccup) consume one
+  breaker failure each. With ``CIRCUIT_BREAKER_FAILURE_THRESHOLD=5``
+  (default) the breaker absorbs occasional flakes; sustained failures trip
+  it after 5 in a row.
+
+5xx and ``httpx.TransportError`` count as supervisor-sick (record_failure).
+4xx is caller-fault (release_trial without tripping). In-band JSON-RPC
+errors over a successful HTTP stream are application-level (release_trial)
+since HTTP succeeded → supervisor connectivity is healthy.
 
 Agent routing hint
 ------------------
@@ -43,14 +55,6 @@ import uuid
 from typing import Any
 
 import httpx
-from tenacity import (
-    AsyncRetrying,
-    RetryError,
-    before_sleep_log,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
 
 from autonomous_agents.config import get_settings
 from autonomous_agents.services.circuit_breaker import (
@@ -61,7 +65,6 @@ from autonomous_agents.services.circuit_breaker import (
 logger = logging.getLogger("autonomous_agents")
 
 __all__ = [
-    "invoke_agent",
     "invoke_agent_streaming",
     "CircuitBreakerOpenError",
     "build_prompt_with_routing",
@@ -91,9 +94,9 @@ def _normalize_agent_hint(agent: str | None) -> str:
 
     Single source of truth for "what counts as a usable agent hint":
     ``build_prompt_with_routing`` calls this for the directive AND
-    ``invoke_agent`` calls it for ``message.metadata.agent`` so the two
-    can never disagree (Copilot review on PR #13). The empty-string
-    return value is the unambiguous "no hint" signal.
+    ``invoke_agent_streaming`` calls it for ``message.metadata.agent`` so
+    the two can never disagree (Copilot review on PR #13). The empty-
+    string return value is the unambiguous "no hint" signal.
 
     Steps:
         1. ``None`` or non-str -> ``""``.
@@ -198,259 +201,6 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     return False
 
 
-async def _post_once(
-    *,
-    client: httpx.AsyncClient,
-    url: str,
-    payload: dict[str, Any],
-) -> httpx.Response:
-    """Single HTTP attempt — separated so tenacity can retry it cleanly.
-
-    The ``client`` is owned by the caller (``invoke_agent``) so that the
-    same HTTP connection pool is reused across retry attempts within a
-    single ``invoke_agent`` call. Otherwise every retry would pay TCP
-    handshake + TLS setup for a brand-new socket, defeating httpx's
-    keep-alive entirely.
-    """
-    response = await client.post(url, json=payload)
-    # raise_for_status inside the retry boundary so 5xx triggers a retry
-    # via the HTTPStatusError branch in _is_retryable_exception.
-    response.raise_for_status()
-    return response
-
-
-async def invoke_agent(
-    prompt: str,
-    task_id: str,
-    agent: str | None = None,
-    llm_provider: str | None = None,
-    context: dict[str, Any] | None = None,
-    timeout_seconds: float | None = None,
-    max_retries: int | None = None,
-) -> str:
-    """Send a prompt to the CAIPE supervisor via the A2A protocol.
-
-    Returns the agent's text response, or raises on failure.
-
-    The A2A message format follows the Google A2A spec:
-    https://google.github.io/A2A/
-
-    Parameters
-    ----------
-    timeout_seconds:
-        Overrides ``Settings.a2a_timeout_seconds`` for this single call.
-        Useful when the scheduler knows a particular task is long-running.
-    max_retries:
-        Overrides ``Settings.a2a_max_retries`` for this single call. Set
-        to 0 to force a single attempt with no retries.
-    """
-    settings = get_settings()
-    message_id = str(uuid.uuid4())
-
-    effective_timeout = timeout_seconds if timeout_seconds is not None else settings.a2a_timeout_seconds
-    effective_max_retries = max_retries if max_retries is not None else settings.a2a_max_retries
-
-    # Prepend the in-band routing directive when an agent hint was
-    # supplied, then append any context block. See
-    # ``build_prompt_with_routing`` for the rationale -- short version:
-    # the supervisor LLM router does not read ``message.metadata.agent``,
-    # so without this directive the UI's agent-picker is cosmetic.
-    full_prompt = build_prompt_with_routing(prompt, agent=agent, context=context)
-
-    # Normalise once and reuse for metadata so the directive (above)
-    # and the structured metadata (below) cannot disagree on what the
-    # operator asked for. Whitespace-only or all-junk agent values
-    # produce an empty hint, in which case we omit ``metadata.agent``
-    # entirely rather than send a misleading whitespace value
-    # (Copilot review on PR #13).
-    agent_hint = _normalize_agent_hint(agent)
-
-    # We still attach the structured metadata. The supervisor ignores
-    # ``agent`` / ``llm_provider`` keys today (only ``user_id`` /
-    # ``user_email`` are honoured) but sending them costs nothing and
-    # keeps us forward-compat with a future supervisor change that
-    # adds structured fast-path routing.
-    metadata: dict[str, Any] = {}
-    if agent_hint:
-        metadata["agent"] = agent_hint
-    effective_llm = llm_provider or settings.llm_provider
-    if effective_llm:
-        metadata["llm_provider"] = effective_llm
-
-    # Supervisor (a2a-sdk >=0.3) requires contextId to be a valid UUID. Derive
-    # a deterministic UUIDv5 per task so the supervisor's checkpointer keeps
-    # one conversation thread per autonomous task across runs while still
-    # validating as a proper UUID.
-    context_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"autonomous-task:{task_id}"))
-    message: dict[str, Any] = {
-        "role": "user",
-        "parts": [{"kind": "text", "text": full_prompt}],
-        "messageId": message_id,
-        "contextId": context_uuid,
-    }
-    if metadata:
-        message["metadata"] = metadata
-
-    payload = {
-        "jsonrpc": "2.0",
-        "id": str(uuid.uuid4()),
-        "method": "message/send",
-        "params": {
-            "message": message,
-            "configuration": {
-                "blocking": True,
-                "acceptedOutputModes": ["text"],
-            },
-        },
-    }
-
-    logger.info(
-        f"Invoking supervisor at {settings.supervisor_url} for task '{task_id}' "
-        f"(agent_hint={agent_hint!r}, raw_agent={agent!r}, "
-        f"llm_provider={effective_llm!r}, "
-        f"timeout={effective_timeout}s, max_retries={effective_max_retries})"
-    )
-
-    # tenacity stop_after_attempt counts the *initial* attempt, so total
-    # attempts = 1 + max_retries.
-    retrying = AsyncRetrying(
-        stop=stop_after_attempt(1 + effective_max_retries),
-        wait=wait_exponential_jitter(
-            initial=settings.a2a_retry_backoff_initial_seconds,
-            max=settings.a2a_retry_backoff_max_seconds,
-        ),
-        retry=retry_if_exception(_is_retryable_exception),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
-    )
-
-    # IMP-16: gate the call through the circuit breaker. If the breaker
-    # is OPEN we short-circuit *before* opening a connection, which is
-    # the whole point -- a broken supervisor must not see traffic from
-    # every scheduled run multiplied by the retry budget. CircuitBreakerOpenError
-    # propagates to the scheduler and is recorded as the run failure
-    # reason, which is much more actionable than a generic timeout.
-    breaker = await get_circuit_breaker()
-    await breaker.before_call(settings.supervisor_url)
-
-    # One client per invoke_agent call, reused across retries. The
-    # per-attempt timeout lives on the client (so each retry honours it)
-    # and the pool is torn down once the call completes.
-    try:
-        async with httpx.AsyncClient(timeout=effective_timeout) as client:
-            async for attempt in retrying:
-                with attempt:
-                    response = await _post_once(
-                        client=client,
-                        url=settings.supervisor_url,
-                        payload=payload,
-                    )
-    except RetryError as exc:
-        # reraise=True normally surfaces the underlying exception, but keep
-        # this branch defensively for older tenacity behaviour.
-        underlying = exc.last_attempt.exception()
-        if _is_retryable_exception(underlying):
-            await breaker.record_failure(settings.supervisor_url)
-        else:
-            # Non-retryable underlying error (e.g. wrapped 4xx). Don't
-            # count it as supervisor-sick, but DO release the HALF_OPEN
-            # trial slot so the next legitimate caller isn't blocked
-            # behind a phantom trial.
-            await breaker.release_trial(settings.supervisor_url)
-        raise underlying from exc  # pragma: no cover
-    except (httpx.TransportError, httpx.HTTPStatusError) as exc:
-        # Retries exhausted (or first attempt with retries=0). Count one
-        # failure against the breaker -- *not* one per attempt -- so a
-        # request that succeeds on retry leaves the breaker at zero.
-        # Only "supervisor-is-sick" failures count: 4xx is caller-fault
-        # (auth/validation/missing route) and would self-DoS the breaker
-        # on a misconfigured task. We piggy-back on the same retryable-
-        # classification used above so the two policies stay in sync.
-        if _is_retryable_exception(exc):
-            await breaker.record_failure(settings.supervisor_url)
-        else:
-            # 4xx -- release the HALF_OPEN trial slot (if any) without
-            # tripping the breaker. See the RetryError branch above.
-            await breaker.release_trial(settings.supervisor_url)
-        raise exc
-
-    # Transport call succeeded -- close the breaker if it was tripped.
-    # We treat HTTP success as supervisor-is-healthy even if the JSON-RPC
-    # ``error`` branch fires below, because that's an application-level
-    # error, not a connectivity / availability problem.
-    await breaker.record_success(settings.supervisor_url)
-
-    result = response.json()
-
-    if "error" in result:
-        raise RuntimeError(f"A2A error from supervisor: {result['error']}")
-
-    # Extract text from A2A response using the same 3-step fallback as
-    # utils/a2a_common/a2a_remote_agent_connect.py:
-    #   1. artifacts[].parts — most agents return results here
-    #   2. status.message.parts — used by some agents for final replies
-    #   3. history[] last agent message — fallback when neither above is populated
-    try:
-        task_result = result["result"]
-
-        # 1. Artifacts
-        for artifact in task_result.get("artifacts", []):
-            texts = [p["text"] for p in artifact.get("parts", []) if p.get("kind") == "text" and p.get("text")]
-            if texts:
-                return " ".join(texts).strip()
-
-        # 2. Status message parts
-        status_parts = task_result.get("status", {}).get("message", {}).get("parts", [])
-        texts = [p["text"] for p in status_parts if p.get("kind") == "text" and p.get("text")]
-        if texts:
-            return " ".join(texts).strip()
-
-        # 3. History — last agent message (skip tool-status emoji lines)
-        for message in reversed(task_result.get("history", [])):
-            if message.get("role") != "agent":
-                continue
-            texts = [
-                p["text"]
-                for p in message.get("parts", [])
-                if p.get("kind") == "text"
-                and p.get("text")
-                and not p["text"].startswith(("🔧", "✅"))
-            ]
-            if texts:
-                return " ".join(texts).strip()
-
-    except (KeyError, TypeError):
-        pass
-
-    logger.warning(f"Unexpected A2A response shape: {result}")
-    raise RuntimeError(f"Could not extract text from A2A response: {result}")
-
-
-# ---------------------------------------------------------------------------
-# Streaming variant (Phase B — spec #099 Story 2)
-# ---------------------------------------------------------------------------
-#
-# The blocking ``invoke_agent`` above gives us only the final text. The chat
-# UI's regular flow consumes the supervisor's *streaming* events (artifacts:
-# execution_plan_update, tool_notification_*, streaming_result, final_result)
-# and turns them into the rich plan / tools / timeline a typed-message reply
-# renders with. Until now scheduled fires went through the blocking path and
-# the chat thread showed only a 500-char preview — a one-line tombstone of
-# what was actually a multi-step workflow.
-#
-# ``invoke_agent_streaming`` switches the wire call to ``message/stream``
-# (Server-Sent Events) and:
-#   1. captures every raw A2A event the supervisor emits, AND
-#   2. accumulates the final plain-text response from ``final_result`` /
-#      ``partial_result`` artifacts so the existing run_store + chat
-#      publisher contract (which expects a single string response) keeps
-#      working without a schema change for non-streaming callers.
-#
-# Captured events are returned as a list of plain dicts (already JSON-safe
-# because they came in as JSON over SSE). The scheduler persists them on
-# the TaskRun; the UI synthesizer replays them so past scheduled runs
-# render with the same rich UI a typed message gets.
-
 
 def _extract_text_from_artifact(artifact: dict[str, Any]) -> str:
     """Pull the text body out of an A2A artifact's parts. Empty string if none."""
@@ -487,18 +237,30 @@ async def invoke_agent_streaming(
     artifact text bodies, so existing single-string consumers (run_store,
     chat publisher, response_preview) keep working without churn.
 
-    Differences vs. ``invoke_agent``:
-
-    * No tenacity retry loop. SSE streams aren't safely resumable
-      mid-flight; if the connection breaks we surface that immediately
-      and the caller marks the run failed. The next scheduled fire is
-      a fresh attempt.
-    * No circuit breaker. The breaker exists to protect against fan-out
-      against a sick supervisor; a single scheduled run isn't fan-out.
-      We don't want the breaker to also gate streaming.
-    * Same contextId derivation (UUIDv5 per task) so the supervisor's
-      checkpointer keeps a single thread across typed and scheduled
-      messages.
+    Reliability semantics
+    ---------------------
+    * **No mid-stream retry.** SSE isn't safely resumable mid-flight; if
+      the connection breaks we surface that immediately and the caller
+      marks the run failed. The next scheduled fire is a fresh attempt.
+    * **No pre-stream retry either.** A single transient pre-stream error
+      (TLS reset, brief 503, DNS hiccup) consumes one breaker failure
+      directly. With ``circuit_breaker_failure_threshold=5`` (default),
+      occasional flakes are absorbed; sustained failures trip the breaker
+      after 5 consecutive ones, which is the intended behaviour.
+    * **Circuit breaker is gated on every call.** 5xx and transport
+      errors count toward the breaker threshold (recorded via
+      ``record_failure``); 4xx releases the HALF_OPEN trial slot
+      without tripping (caller-fault, not supervisor-sick). In-band
+      JSON-RPC errors arriving over an otherwise-successful HTTP
+      stream are treated as application-level errors -- HTTP succeeded
+      so supervisor connectivity is healthy -- so they release the
+      trial slot rather than count as failures. The leak-guard window
+      for HALF_OPEN trials is auto-tuned to the streaming timeout in
+      :func:`get_circuit_breaker` so a long-but-healthy trial doesn't
+      get its slot reclaimed mid-flight.
+    * Same contextId derivation (UUIDv5 per task) as the legacy blocking
+      path, so the supervisor's checkpointer keeps a single thread
+      across typed and scheduled messages.
     """
     settings = get_settings()
     message_id = str(uuid.uuid4())
@@ -539,6 +301,14 @@ async def invoke_agent_streaming(
 
     captured_events: list[dict[str, Any]] = []
     accumulated_text = ""
+
+    # Gate the call through the circuit breaker before opening any
+    # connection. ``CircuitBreakerOpenError`` propagates to
+    # ``task_runner.execute_task`` which records it as the run's
+    # ``error`` field -- a much more actionable signal than a generic
+    # timeout would be.
+    breaker = await get_circuit_breaker()
+    await breaker.before_call(settings.supervisor_url)
 
     # SSE consumption: each event is `data: {jsonrpc envelope}\n\n`. We
     # parse line-by-line because httpx's aiter_lines already handles the
@@ -588,9 +358,33 @@ async def invoke_agent_streaming(
                                 # semantics — treat the latest as truth.
                                 accumulated_text = text
     except httpx.HTTPStatusError as exc:
+        # Reuse the same classifier the (legacy) blocking path uses so the
+        # two policies can't drift on what counts as supervisor-sick vs
+        # caller-fault. 5xx -> count toward the breaker threshold; 4xx ->
+        # release the HALF_OPEN trial slot without tripping (caller-fault
+        # would otherwise self-DoS the breaker on a misconfigured task).
+        if _is_retryable_exception(exc):
+            await breaker.record_failure(settings.supervisor_url)
+        else:
+            await breaker.release_trial(settings.supervisor_url)
         raise RuntimeError(f"Supervisor returned HTTP {exc.response.status_code}") from exc
     except httpx.TransportError as exc:
+        # Connection/transport failure -- supervisor is unreachable.
+        await breaker.record_failure(settings.supervisor_url)
         raise RuntimeError(f"Supervisor unreachable: {exc}") from exc
+    except RuntimeError:
+        # In-band JSON-RPC error envelope arriving over an otherwise-
+        # successful HTTP stream. HTTP succeeded so supervisor connectivity
+        # is fine -- this is an application-level failure. Release the
+        # HALF_OPEN trial slot without tripping the breaker. (Same
+        # decision the blocking path makes; documented here so it's not
+        # an undocumented invariant.)
+        await breaker.release_trial(settings.supervisor_url)
+        raise
+
+    # Stream completed cleanly -- supervisor is healthy from a transport
+    # / availability perspective. Close the breaker if it was tripped.
+    await breaker.record_success(settings.supervisor_url)
 
     if not accumulated_text:
         # Stream completed without yielding a final/partial result. Fall

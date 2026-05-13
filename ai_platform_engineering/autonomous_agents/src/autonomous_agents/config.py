@@ -56,42 +56,26 @@ class Settings(BaseSettings):
         default=10.0, gt=0
     )
 
-    # A2A call timeout (seconds) for the per-attempt HTTP request to the
-    # supervisor. The previous implementation hard-coded this to 300; it is
-    # now overridable per environment and per task (see TaskDefinition).
+    # A2A streaming call timeout (seconds) for the supervisor request.
+    # Streaming calls can run for the full timeout; the circuit breaker's
+    # stale-trial leak guard auto-derives from this so a healthy-but-slow
+    # call isn't reclaimed mid-flight (see ``services/circuit_breaker.py``
+    # ``get_circuit_breaker``). Overridable per task via ``timeout_seconds``.
     a2a_timeout_seconds: float = Field(default=300.0, gt=0)
-
-    # Maximum *additional* retry attempts after the initial request when the
-    # supervisor returns a 5xx status or the transport fails. 0 disables
-    # retries (single attempt). 4xx responses are never retried — those
-    # signal a client-side error that retrying cannot fix.
-    a2a_max_retries: int = Field(default=3, ge=0)
-
-    # Initial backoff (seconds) for the first retry. Exposed mainly so
-    # tests can drive the retry loop without sleeping for real seconds;
-    # production tuning should usually leave this at 1.
-    a2a_retry_backoff_initial_seconds: float = Field(default=1.0, ge=0)
-
-    # Maximum backoff (seconds) between retry attempts. Backoff is
-    # exponential with jitter starting at ``a2a_retry_backoff_initial_seconds``;
-    # this caps the upper bound so a long-degraded supervisor cannot
-    # stall a run for arbitrarily long.
-    a2a_retry_backoff_max_seconds: float = Field(default=30.0, gt=0)
 
     @field_validator(
         "a2a_timeout_seconds",
-        "a2a_retry_backoff_initial_seconds",
-        "a2a_retry_backoff_max_seconds",
         "dynamic_agents_timeout_seconds",
         "dynamic_agents_preflight_timeout_seconds",
     )
     @classmethod
     def _reject_nonfinite(cls, v: float) -> float:
         # Pydantic happily accepts inf/nan from env vars cast to float;
-        # both would silently break httpx (timeout) or tenacity (wait).
-        # Sign / non-negative bounds are enforced separately by the
-        # per-field ``gt=0`` / ``ge=0`` constraints — this validator is
-        # *only* responsible for the finiteness check.
+        # both would silently break httpx (timeout) -- inf disables it,
+        # nan compares false against everything. Sign / non-negative
+        # bounds are enforced separately by the per-field ``gt=0`` /
+        # ``ge=0`` constraints — this validator is *only* responsible
+        # for the finiteness check.
         if v != v or v in (float("inf"), float("-inf")):
             raise ValueError("must be a finite number")
         return v
@@ -215,11 +199,11 @@ class Settings(BaseSettings):
     # ``CIRCUIT_BREAKER_ENABLED=0`` if they ever need to.
     circuit_breaker_enabled: bool = True
 
-    # How many *consecutive* post-retry failures trip the breaker.
-    # Counted only after ``a2a_max_retries`` is exhausted, so a flaky
-    # request that succeeds on retry leaves the breaker untouched.
-    # Default of 5 trades a little extra failure-tolerance for fewer
-    # false-positive trips on brief supervisor restarts.
+    # How many *consecutive* failed supervisor calls trip the breaker.
+    # The streaming A2A path has no retry layer, so each transient blip
+    # counts as one failure directly. Default of 5 trades a little extra
+    # failure-tolerance for fewer false-positive trips on brief
+    # supervisor restarts.
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
 
     # How long the breaker stays OPEN before letting a single trial
@@ -228,12 +212,36 @@ class Settings(BaseSettings):
     # transient outage doesn't wedge scheduled runs for minutes.
     circuit_breaker_cooldown_seconds: float = Field(default=30.0, gt=0)
 
-    @field_validator("circuit_breaker_cooldown_seconds")
+    # Leak-guard threshold for HALF_OPEN trials. If a trial caller
+    # never reports back (crashed mid-call, killed, etc.) the breaker
+    # reclaims the slot after this many seconds so a healthy caller
+    # can probe.
+    #
+    # When ``None`` the factory in ``services/circuit_breaker.py``
+    # auto-derives it as ``max(2 * cooldown, a2a_timeout * 1.5)``.
+    # Auto-derivation matters for the streaming A2A path: streaming
+    # calls can legitimately run for minutes (default
+    # ``a2a_timeout_seconds=300``), and a hardcoded ``2 * cooldown``
+    # bound would reclaim a still-healthy trial mid-flight, defeating
+    # the breaker's single-flight invariant during recovery.
+    # Operators only set this explicitly to override the default
+    # (e.g. running a much shorter timeout and wanting the leak guard
+    # tightened to match).
+    circuit_breaker_stale_trial_seconds: float | None = Field(default=None, gt=0)
+
+    @field_validator(
+        "circuit_breaker_cooldown_seconds",
+        "circuit_breaker_stale_trial_seconds",
+    )
     @classmethod
-    def _reject_nonfinite_cb_cooldown(cls, v: float) -> float:
+    def _reject_nonfinite_cb_cooldown(cls, v: float | None) -> float | None:
         # Same hardening as ``a2a_*`` knobs: ``inf`` would wedge the
         # breaker permanently OPEN, ``nan`` would compare false against
-        # everything and silently disable the cooldown gate.
+        # everything and silently disable the cooldown gate. ``None``
+        # is allowed for ``stale_trial_seconds`` (factory derives a
+        # default) so explicitly skip the check when unset.
+        if v is None:
+            return v
         if v != v or v in (float("inf"), float("-inf")):
             raise ValueError("must be a finite number")
         return v

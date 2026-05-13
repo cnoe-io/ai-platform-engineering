@@ -139,7 +139,6 @@ tasks:
                                      # agent hint" below).
     enabled: true
     timeout_seconds: 600             # optional: override A2A_TIMEOUT_SECONDS for this task
-    max_retries: 5                   # optional: override A2A_MAX_RETRIES for this task (0 disables retries)
 ```
 
 #### Routing the agent hint
@@ -173,13 +172,11 @@ Notes:
 | `PORT` | `8002` | Server port |
 | `WEBHOOK_SECRET` | `None` | Global HMAC secret for webhook validation |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `A2A_TIMEOUT_SECONDS` | `300` | Per-attempt timeout for the supervisor call. Overridable per task via `timeout_seconds`. See *Supervisor call reliability*. |
-| `A2A_MAX_RETRIES` | `3` | Max **additional** retries on transient failures (5xx + transport). 0 disables retries. Overridable per task via `max_retries`. |
-| `A2A_RETRY_BACKOFF_INITIAL_SECONDS` | `1.0` | Initial backoff between retries. Mostly a knob for tests; leave at 1.0 in prod. |
-| `A2A_RETRY_BACKOFF_MAX_SECONDS` | `30.0` | Upper cap on the exponential backoff. |
+| `A2A_TIMEOUT_SECONDS` | `300` | Per-call timeout for the supervisor SSE stream. Overridable per task via `timeout_seconds`. See *Supervisor call reliability*. |
 | `CIRCUIT_BREAKER_ENABLED` | `True` | Master kill-switch for the supervisor circuit breaker. See *Supervisor circuit breaker*. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive **post-retry** failures that trip the breaker per supervisor URL. |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive failures that trip the breaker per supervisor URL. The streaming path has no retries, so each transient blip counts as one failure. |
 | `CIRCUIT_BREAKER_COOLDOWN_SECONDS` | `30` | Seconds the breaker stays OPEN before transitioning to HALF_OPEN; only one trial caller is allowed through at a time. |
+| `CIRCUIT_BREAKER_STALE_TRIAL_SECONDS` | *auto* | Leak-guard window for HALF_OPEN trials. When unset, auto-derived as `max(2 × cooldown, A2A_TIMEOUT_SECONDS × 1.5)` so a long-but-healthy streaming trial isn't reclaimed mid-flight. Override only if you've shortened `A2A_TIMEOUT_SECONDS` and want a tighter bound. |
 | `MONGODB_URI` | `None` | Optional. Enables MongoDB-backed run history. See *Run History Persistence*. |
 | `MONGODB_DATABASE` | `None` | Optional. MongoDB database name. Required together with `MONGODB_URI`. |
 | `MONGODB_COLLECTION` | `autonomous_runs` | MongoDB collection name for run history. |
@@ -290,40 +287,40 @@ no-op implementation, so the rest of the service is unaffected:
 
 ## Supervisor call reliability
 
-Each task run makes a single A2A call to the supervisor. That call is
-treated as a normal HTTP dependency: it can be slow, restart, or briefly
-fall over behind a load balancer. The client therefore applies a
-**per-attempt timeout** and a **bounded retry policy** with exponential
-backoff:
+Each task run makes a single A2A *streaming* call to the supervisor. That
+call is treated as a normal HTTP dependency: it can be slow, restart, or
+briefly fall over behind a load balancer. The streaming endpoint is
+deliberately **not** retried -- SSE isn't safely resumable mid-flight,
+and pre-stream retries against an unhealthy supervisor would just
+multiply load. Sustained outages are caught by the *Supervisor circuit
+breaker* (next section); single transient blips fail the run cleanly and
+the next scheduled fire is a fresh attempt.
 
-| Failure mode | Retried? | Why |
+How the streaming caller classifies failures (mirrored in the breaker --
+see next section):
+
+| Failure mode | Outcome | Why |
 |---|---|---|
-| `httpx.TransportError` (connect refused, DNS, read timeout) | Yes | Supervisor never produced a response — likely transient. |
-| HTTP 5xx | Yes | Supervisor responded but is unhealthy. |
-| HTTP 4xx | **No** | Caller-fault (auth, validation, unknown route). Replaying it is wasted work and wasted LLM quota. |
-| Anything else (e.g. `ValueError`) | No | Real bugs surface immediately rather than being masked by retry. |
+| `httpx.TransportError` (connect refused, DNS, read timeout) | Failure → counts toward breaker | Supervisor never produced a response. |
+| HTTP 5xx | Failure → counts toward breaker | Supervisor responded but is unhealthy. |
+| HTTP 4xx | Failure → released (no count) | Caller-fault (auth, validation, unknown route). Counting it would let a misconfigured task self-DoS its own URL. |
+| In-band JSON-RPC error over a successful HTTP stream | Failure → released (no count) | HTTP succeeded → supervisor connectivity is healthy; the failure is application-level. |
+| Anything else (e.g. `ValueError`) | Surfaces immediately | Real bugs aren't masked. |
 
-Total attempts per run = `1 + max_retries`. With the defaults
-(`A2A_MAX_RETRIES=3`) a single supervisor restart that takes < ~7 seconds
-is invisible to the task; a longer outage fails the run with the final
-exception preserved. Each retry is logged at `WARNING` so retries are
-observable in operator logs.
-
-Per-task overrides on `TaskDefinition` win over the global settings:
+The single per-task override on `TaskDefinition`:
 
 - `timeout_seconds`: raise it for known long-running synthesis prompts.
-- `max_retries`: set to `0` for "best-effort, do not burn quota" tasks
-  where a single attempt is the whole point.
 
 ### Supervisor circuit breaker
 
-Retries handle a single flaky request. They are the wrong tool for a
-*broken* supervisor: every scheduled task spends its full retry budget
-hammering a downstream that can't recover, multiplying load and turning
-a localised outage into a self-DoS.
+The autonomous-agents subsystem fires N scheduled tasks per cycle into a
+single supervisor URL. When that supervisor is unhealthy, every scheduled
+fire piles on the same broken target — turning a localised outage into a
+self-inflicted DoS from the scheduler. A circuit breaker exists to short-
+circuit those calls during a sustained outage.
 
-A small per-URL circuit breaker sits between `invoke_agent` and the
-network for exactly this case. The state machine is the canonical one:
+The breaker sits in front of `invoke_agent_streaming` (the production
+A2A call path). The state machine is the canonical one:
 
 ```
 CLOSED ── N consecutive failures ──► OPEN
@@ -335,28 +332,43 @@ CLOSED ── N consecutive failures ──► OPEN
 
 Key contracts:
 
-- **Counted only after retries are exhausted.** A request that 5xx's
-  once and then succeeds on retry leaves the breaker untouched. The
-  breaker tracks `invoke_agent`-level outcomes, not individual HTTP
-  attempts.
+- **No retry layer in front of the breaker.** The streaming path is not
+  safely resumable mid-flight (SSE), and pre-stream retries are a
+  deliberate non-feature: a single transient pre-stream error (TLS
+  reset, brief 503, DNS hiccup) consumes one breaker failure directly.
+  With the default `CIRCUIT_BREAKER_FAILURE_THRESHOLD=5` the breaker
+  absorbs occasional flakes; sustained failures trip it after 5 in a
+  row, which is the intended behaviour.
+- **5xx and transport errors count toward the threshold.** These are
+  the supervisor-sick signals.
 - **4xx never trips the breaker.** Caller-fault responses (bad payload,
   bad auth, unknown route) are not a sign that the supervisor is
-  unhealthy, so a misconfigured task can't self-DoS its own URL.
+  unhealthy, so a misconfigured task can't self-DoS its own URL. The
+  HALF_OPEN trial slot is released without a state change.
+- **In-band JSON-RPC errors over a successful HTTP stream don't trip
+  either.** HTTP succeeded → supervisor connectivity is fine; the
+  failure is application-level. Same release-trial treatment as 4xx.
 - **Per-URL.** Tracked separately for each `SUPERVISOR_URL`, so one
   bad URL never poisons the breaker entry for another.
 - **OPEN short-circuits without a connection.** A blocked call raises
   `CircuitBreakerOpenError` immediately, carries the URL and the
   remaining cooldown, and is recorded as a normal failed run with a
-  diagnostic message -- much more actionable than a generic timeout.
+  diagnostic message — much more actionable than a generic timeout.
 - **Single-flight HALF_OPEN trial.** When the cooldown expires the
-  *first* caller flips OPEN -> HALF_OPEN and is the trial; concurrent
+  *first* caller flips OPEN → HALF_OPEN and is the trial; concurrent
   callers see HALF_OPEN-with-trial-in-flight and are blocked until
   that trial resolves. Without this, the instant cooldown expires we
   would fan a real outage's worth of concurrent traffic at the
-  recovering supervisor -- exactly what the breaker is meant to
-  prevent. (A leak guard reclaims the trial slot if the original
-  caller never reports back, so a crashed worker can't wedge the
-  breaker.)
+  recovering supervisor — exactly what the breaker is meant to
+  prevent.
+- **Stale-trial leak guard.** If a trial caller dies without reporting
+  back (process killed, network unplugged), the trial slot is
+  reclaimed after `CIRCUIT_BREAKER_STALE_TRIAL_SECONDS` so a healthy
+  caller can probe. The default auto-derives to
+  `max(2 × cooldown, A2A_TIMEOUT_SECONDS × 1.5)` so a long-but-
+  healthy streaming call (which can run for the full
+  `A2A_TIMEOUT_SECONDS`, default 300s) isn't reclaimed mid-flight.
+  Override only if you've shortened the streaming timeout.
 - **Emergency bypass / kill-switch.** The breaker is enabled by
   default. Set `CIRCUIT_BREAKER_ENABLED=0` to bypass the feature
   entirely (every method becomes a no-op) only as a temporary

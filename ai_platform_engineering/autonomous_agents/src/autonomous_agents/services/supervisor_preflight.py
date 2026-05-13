@@ -20,7 +20,7 @@ Why this is its own module rather than living in ``a2a_client``:
 
 * It expects a specific response shape (``preflight_ack`` artifact with a
   structured DataPart) that the run-time path doesn't care about. Keeping
-  the parser local avoids polluting ``a2a_client.invoke_agent``.
+  the parser local avoids polluting ``a2a_client.invoke_agent_streaming``.
 
 The payload contract MUST stay in lockstep with ``_build_preflight_ack``
 in the supervisor's ``agent_executor_single.py``.
@@ -107,7 +107,7 @@ async def preflight(
                 "role": "user",
                 # Supervisor echoes this prompt in the dry_run_summary; it
                 # is NOT executed. We intentionally skip the in-band
-                # routing directive used by ``invoke_agent`` since the
+                # routing directive used by ``invoke_agent_streaming`` since the
                 # preflight code path doesn't run the LLM router.
                 "parts": [{"kind": "text", "text": prompt or ""}],
                 "messageId": message_id,
@@ -126,9 +126,10 @@ async def preflight(
         task_id, agent, effective_llm, timeout_seconds,
     )
 
-    # No tenacity, no circuit breaker: preflight is a one-shot.
-    # If it fails the user gets an ack_status='pending' badge and can
-    # re-trigger via "Re-ack" in the UI.
+    # No circuit breaker: preflight is a one-shot user-driven action,
+    # not a scheduled fan-out, so it doesn't need the breaker's
+    # protection. If it fails the user gets an ack_status='pending'
+    # badge and can re-trigger via "Re-ack" in the UI.
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             resp = await client.post(settings.supervisor_url, json=payload)

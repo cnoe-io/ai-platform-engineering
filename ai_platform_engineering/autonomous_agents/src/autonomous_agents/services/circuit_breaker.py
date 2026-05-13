@@ -2,12 +2,13 @@
 
 Why
 ---
-``invoke_agent`` already retries transient supervisor failures (5xx +
-transport errors) via tenacity. That's the right behaviour for a single
-flaky request, but it hurts when the supervisor is *broken*: every
-scheduled task spends its full retry budget hammering a downstream that
-can't recover, multiplying load and turning a localised outage into a
-self-DoS.
+The supervisor is just another HTTP service: it can be restarted, fall
+over behind a load balancer, or briefly hit OOM. The streaming A2A
+caller (``invoke_agent_streaming``) has no retry layer, but the
+autonomous-agents subsystem fans out N scheduled tasks per cycle into
+the same supervisor URL -- so when that supervisor is broken, every
+scheduled fire piles on the same broken target, multiplying load and
+turning a localised outage into a self-DoS.
 
 A circuit breaker fixes this by tracking *consecutive* failures across
 calls and short-circuiting once a threshold is reached:
@@ -28,10 +29,11 @@ Design notes
 * **Per-URL keying.** A single autonomous-agents process can talk to
   multiple supervisor URLs (rare today but supported by config + tests),
   and one bad URL must not poison the others.
-* **Counts only after retries are exhausted.** ``invoke_agent`` is the
-  one that calls ``record_failure`` -- *not* tenacity's per-attempt
-  hook. A request that succeeds on its second attempt should leave the
-  breaker untouched, because the supervisor is plainly working.
+* **Each pre-stream blip counts.** ``invoke_agent_streaming`` has no
+  retry layer (SSE can't be safely resumed mid-flight), so a single
+  transient pre-stream error consumes one breaker failure directly.
+  With the default ``failure_threshold=5`` the breaker absorbs
+  occasional flakes; sustained failures trip it after 5 in a row.
 * **Thread-safe via ``asyncio.Lock``.** All mutating operations take
   the lock so concurrent tasks can't race the state machine.
 * **Single-flight HALF_OPEN.** Once one caller flips OPEN -> HALF_OPEN,
@@ -114,7 +116,7 @@ class CircuitBreaker:
     Parameters
     ----------
     failure_threshold:
-        How many *consecutive* failed ``invoke_agent`` calls trip the
+        How many *consecutive* failed supervisor calls trip the
         breaker. A single failure followed by a success resets the
         counter to zero.
     cooldown_seconds:
@@ -122,6 +124,16 @@ class CircuitBreaker:
         trial. Should be long enough that the downstream has a real
         chance to recover (default 30s) but short enough that we don't
         wedge a healthy supervisor for an unnecessary outage window.
+    stale_trial_seconds:
+        Leak-guard threshold for HALF_OPEN trials. If a trial has been
+        in flight for longer than this, ``before_call`` reclaims the
+        trial slot for a new caller (the original is presumed dead).
+        Defaults to ``2 * cooldown_seconds`` to preserve historical
+        behaviour, but production deployments wired through
+        :func:`get_circuit_breaker` auto-tune this to cover long
+        streaming calls -- otherwise a healthy-but-slow stream during
+        recovery would have its trial reclaimed mid-flight, defeating
+        the single-flight invariant.
     enabled:
         Master kill-switch. ``False`` disables every method on this
         instance; ``before_call`` becomes a no-op and
@@ -136,6 +148,7 @@ class CircuitBreaker:
         *,
         failure_threshold: int = 5,
         cooldown_seconds: float = 30.0,
+        stale_trial_seconds: float | None = None,
         enabled: bool = True,
         clock=time.monotonic,
     ) -> None:
@@ -143,8 +156,19 @@ class CircuitBreaker:
             raise ValueError("failure_threshold must be >= 1")
         if cooldown_seconds <= 0:
             raise ValueError("cooldown_seconds must be > 0")
+        if stale_trial_seconds is not None and stale_trial_seconds <= 0:
+            raise ValueError("stale_trial_seconds must be > 0")
         self._threshold = failure_threshold
         self._cooldown = cooldown_seconds
+        # Default preserves historical behaviour (2x cooldown). Callers
+        # that know their max call duration -- e.g. streaming with a
+        # multi-minute timeout -- override this so the leak guard
+        # doesn't fire on a still-healthy trial.
+        self._stale_trial = (
+            stale_trial_seconds
+            if stale_trial_seconds is not None
+            else cooldown_seconds * 2
+        )
         self._enabled = enabled
         self._clock = clock
         self._stats: dict[str, _BreakerStats] = {}
@@ -218,16 +242,18 @@ class CircuitBreaker:
                 # absurdly long the original caller almost certainly
                 # died without reporting back. Reclaim the trial
                 # rather than wedging the breaker forever. The bound
-                # of 2x cooldown is generous enough to cover even
-                # very long-running A2A calls but short enough to
-                # self-heal within minutes.
+                # is configurable via ``stale_trial_seconds``; default
+                # is 2x cooldown which is fine for short blocking
+                # calls but production wiring overrides it for the
+                # streaming path (calls can run for minutes) so a
+                # healthy-but-slow trial isn't reclaimed mid-flight.
                 started = stats.trial_started_at
-                if started is not None and self._clock() - started > self._cooldown * 2:
+                if started is not None and self._clock() - started > self._stale_trial:
                     logger.warning(
                         "Circuit breaker for %s: stale HALF_OPEN trial "
                         "(>%0.1fs) -- reclaiming for new caller",
                         url,
-                        self._cooldown * 2,
+                        self._stale_trial,
                     )
                     stats.trial_started_at = self._clock()
                     return
@@ -309,8 +335,9 @@ class CircuitBreaker:
     async def release_trial(self, url: str) -> None:
         """Clear the in-flight trial flag without changing breaker state.
 
-        Used by callers (``invoke_agent``) on terminal exceptions that
-        are *not* supervisor-sick signals (e.g. 4xx caller-fault). The
+        Used by callers (``invoke_agent_streaming``) on terminal exceptions
+        that are *not* supervisor-sick signals (e.g. 4xx caller-fault, or
+        an in-band JSON-RPC error over a successful HTTP stream). The
         trial happened, it didn't tell us anything about supervisor
         health, and we don't want to leave the breaker wedged in
         HALF_OPEN with a phantom trial blocking real callers.
@@ -364,6 +391,19 @@ async def get_circuit_breaker() -> CircuitBreaker:
     overrides applied in tests via ``monkeypatch.setattr`` are picked
     up. Once built it is reused for the lifetime of the process; tests
     can call :func:`reset_circuit_breaker` to force a rebuild.
+
+    ``stale_trial_seconds`` auto-derivation
+    ---------------------------------------
+    When the operator hasn't pinned ``CIRCUIT_BREAKER_STALE_TRIAL_SECONDS``,
+    we pick ``max(2 * cooldown, a2a_timeout * 1.5)``. Both halves matter:
+
+    * ``2 * cooldown`` preserves the legacy default for callers with
+      short timeouts -- equivalent to the hardcoded behaviour pre-#PR.
+    * ``a2a_timeout * 1.5`` covers the streaming path. Streaming calls
+      can run for the full ``a2a_timeout_seconds`` (default 300s); a
+      hardcoded 60s leak guard would otherwise reclaim a healthy-but-
+      slow trial mid-flight, defeating the breaker's single-flight
+      invariant during recovery from an outage.
     """
     global _breaker_singleton
     if _breaker_singleton is not None:
@@ -371,9 +411,16 @@ async def get_circuit_breaker() -> CircuitBreaker:
     async with _singleton_lock:
         if _breaker_singleton is None:
             settings = get_settings()
+            stale = settings.circuit_breaker_stale_trial_seconds
+            if stale is None:
+                stale = max(
+                    2.0 * settings.circuit_breaker_cooldown_seconds,
+                    settings.a2a_timeout_seconds * 1.5,
+                )
             _breaker_singleton = CircuitBreaker(
                 failure_threshold=settings.circuit_breaker_failure_threshold,
                 cooldown_seconds=settings.circuit_breaker_cooldown_seconds,
+                stale_trial_seconds=stale,
                 enabled=settings.circuit_breaker_enabled,
             )
     return _breaker_singleton

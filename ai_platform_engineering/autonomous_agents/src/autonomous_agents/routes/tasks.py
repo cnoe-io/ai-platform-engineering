@@ -95,7 +95,6 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "trigger": _serialize_trigger(task),
         "enabled": task.enabled,
         "timeout_seconds": task.timeout_seconds,
-        "max_retries": task.max_retries,
         "next_run": next_run_iso,
         "last_ack": ack_dump,
         # Spec #099 FR-006 / AD-002: stable per-task chat conversation

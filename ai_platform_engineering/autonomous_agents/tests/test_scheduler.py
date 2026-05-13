@@ -245,7 +245,7 @@ class TestRunStoreWiring:
     async def test_running_state_is_visible_before_completion(
         self, store: _DictRunStore, task: TaskDefinition
     ):
-        """RUNNING entry is queryable while invoke_agent is in flight."""
+        """RUNNING entry is queryable while invoke_agent_streaming is in flight."""
         snapshot: list[TaskStatus] = []
 
         async def slow_agent(*args, **kwargs):

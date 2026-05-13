@@ -97,10 +97,10 @@ class TestTaskStatus:
 
 
 class TestPerTaskA2AOverrides:
-    """Per-task ``timeout_seconds`` / ``max_retries`` overrides."""
+    """Per-task ``timeout_seconds`` override."""
 
     def test_task_definition_a2a_overrides_default_to_none(self):
-        """Without overrides both fields are None so the scheduler uses Settings."""
+        """Without an override the field is None so the scheduler uses Settings."""
         task = TaskDefinition(
             id="test",
             name="Test",
@@ -109,10 +109,9 @@ class TestPerTaskA2AOverrides:
             trigger=CronTrigger(schedule="* * * * *"),
         )
         assert task.timeout_seconds is None
-        assert task.max_retries is None
 
     def test_task_definition_accepts_per_task_overrides(self):
-        """Explicit overrides are stored verbatim."""
+        """Explicit override is stored verbatim."""
         task = TaskDefinition(
             id="test",
             name="Test",
@@ -120,22 +119,8 @@ class TestPerTaskA2AOverrides:
             prompt="x",
             trigger=CronTrigger(schedule="* * * * *"),
             timeout_seconds=42.5,
-            max_retries=5,
         )
         assert task.timeout_seconds == 42.5
-        assert task.max_retries == 5
-
-    def test_task_definition_max_retries_zero_is_valid(self):
-        """``max_retries=0`` means ``best effort, do not retry``."""
-        task = TaskDefinition(
-            id="test",
-            name="Test",
-            agent="github",
-            prompt="x",
-            trigger=CronTrigger(schedule="* * * * *"),
-            max_retries=0,
-        )
-        assert task.max_retries == 0
 
     def test_task_definition_rejects_non_positive_timeout(self):
         """``timeout_seconds`` must be strictly positive."""
@@ -149,18 +134,6 @@ class TestPerTaskA2AOverrides:
                     trigger=CronTrigger(schedule="* * * * *"),
                     timeout_seconds=bad,
                 )
-
-    def test_task_definition_rejects_negative_max_retries(self):
-        """Negative ``max_retries`` is rejected."""
-        with pytest.raises(pydantic.ValidationError):
-            TaskDefinition(
-                id="test",
-                name="Test",
-                agent="github",
-                prompt="x",
-                trigger=CronTrigger(schedule="* * * * *"),
-                max_retries=-1,
-            )
 
     def test_task_definition_rejects_inf_and_nan_timeout(self):
         """``inf`` / ``-inf`` / ``nan`` timeouts are rejected at construction."""

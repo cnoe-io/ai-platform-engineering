@@ -1,7 +1,7 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for ``Settings`` validation (A2A retry/timeout + CORS safety)."""
+"""Tests for ``Settings`` validation (A2A timeout + CORS safety)."""
 
 import pydantic
 import pytest
@@ -10,15 +10,12 @@ from autonomous_agents.config import Settings
 
 
 class TestA2ASettings:
-    """Defaults and bounds for the A2A retry/timeout fields."""
+    """Defaults and bounds for the A2A timeout field."""
 
     def test_a2a_settings_have_sensible_defaults(self):
         """Defaults match the documented production values."""
         s = Settings()
         assert s.a2a_timeout_seconds == 300.0
-        assert s.a2a_max_retries == 3
-        assert s.a2a_retry_backoff_initial_seconds == 1.0
-        assert s.a2a_retry_backoff_max_seconds == 30.0
 
     def test_a2a_timeout_must_be_positive(self):
         """``a2a_timeout_seconds`` must be strictly positive."""
@@ -26,25 +23,11 @@ class TestA2ASettings:
             with pytest.raises(pydantic.ValidationError):
                 Settings(a2a_timeout_seconds=bad)
 
-    def test_a2a_max_retries_must_be_non_negative(self):
-        """``a2a_max_retries`` rejects negatives but accepts 0."""
-        with pytest.raises(pydantic.ValidationError):
-            Settings(a2a_max_retries=-1)
-        assert Settings(a2a_max_retries=0).a2a_max_retries == 0
-
-    def test_a2a_backoff_max_must_be_positive(self):
-        """``a2a_retry_backoff_max_seconds`` must be strictly positive."""
-        for bad in (0, -1):
-            with pytest.raises(pydantic.ValidationError):
-                Settings(a2a_retry_backoff_max_seconds=bad)
-
     def test_a2a_settings_reject_inf_and_nan(self):
-        """``inf`` / ``-inf`` / ``nan`` are rejected on timeout and backoff_max."""
+        """``inf`` / ``-inf`` / ``nan`` are rejected on the timeout."""
         for bad in (float("inf"), float("-inf"), float("nan")):
             with pytest.raises(pydantic.ValidationError):
                 Settings(a2a_timeout_seconds=bad)
-            with pytest.raises(pydantic.ValidationError):
-                Settings(a2a_retry_backoff_max_seconds=bad)
 
 
 class TestCorsOrigins:

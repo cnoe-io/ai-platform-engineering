@@ -461,7 +461,7 @@ def _prompt_for_publish(
 ) -> str:
     """Reconstruct the user-visible prompt for chat-history publishing.
 
-    Mirrors the augmentation that ``services.a2a_client.invoke_agent``
+    Mirrors the augmentation that ``services.a2a_client.invoke_agent_streaming``
     applies before sending to the supervisor: when a webhook supplies
     a context payload, the actual prompt the agent saw is
     ``f"{prompt}\n\nContext:\n{json}"``. Showing the same string in

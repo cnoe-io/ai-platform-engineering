@@ -217,20 +217,14 @@ class TaskDefinition(BaseModel):
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    # Optional per-task overrides for the supervisor A2A call. When None,
-    # the service-wide defaults from Settings (A2A_TIMEOUT_SECONDS /
-    # A2A_MAX_RETRIES) apply. Useful for slow-running synthesis prompts
-    # (raise the timeout) or for "best-effort, don't burn quota" tasks
-    # (force max_retries=0).
+    # Optional per-task override for the supervisor A2A call timeout.
+    # When None, the service-wide ``A2A_TIMEOUT_SECONDS`` from Settings
+    # applies. Useful for slow-running synthesis prompts that need a
+    # longer per-call budget than the default.
     timeout_seconds: float | None = Field(
         default=None,
         gt=0,
         description="Override A2A_TIMEOUT_SECONDS for this task (seconds, > 0).",
-    )
-    max_retries: int | None = Field(
-        default=None,
-        ge=0,
-        description="Override A2A_MAX_RETRIES for this task (>= 0; 0 disables retries).",
     )
 
     @field_validator("timeout_seconds")

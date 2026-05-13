@@ -260,7 +260,7 @@ class TestCreate:
         assert body["name"] == "Task cron-1"
         assert body["trigger"]["type"] == "cron"
         assert body["enabled"] is True
-        for required in ("agent", "prompt", "llm_provider", "timeout_seconds", "max_retries"):
+        for required in ("agent", "prompt", "llm_provider", "timeout_seconds"):
             assert required in body
 
     def test_registers_with_scheduler(self, client: TestClient):
