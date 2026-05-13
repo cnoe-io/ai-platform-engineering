@@ -1,0 +1,15 @@
+{{- if .Values.litellmMcp.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ai-platform-engineering.litellmMcp.fullname" . }}
+  labels:
+    {{- include "ai-platform-engineering.litellmMcp.labels" . | nindent 4 }}
+data:
+  MCP_MODE: "http"
+  MCP_HOST: "0.0.0.0"
+  MCP_PORT: {{ .Values.litellmMcp.service.port | quote }}
+  {{- range $key, $value := .Values.litellmMcp.config }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

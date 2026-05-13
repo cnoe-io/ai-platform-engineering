@@ -340,7 +340,12 @@ class AgentRuntime:
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
         # 5. Instantiate LLM
+        logger.info(
+            f"[llm] Instantiating LLM for agent '{self.config.name}': "
+            f"provider={self.config.model.provider}, model={self.config.model.id}"
+        )
         llm = get_llm(self.config.model.provider, self.config.model.id)
+        logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # ─────────────────────────────────────────────────────────────────
         # Extensions
@@ -530,6 +535,7 @@ class AgentRuntime:
             gradient_theme = config.ui.gradient_theme if config.ui else None
             tools.append(
                 create_self_identity_tool(
+                    agent_id=config.id,
                     name=config.name,
                     description=config.description,
                     model_id=config.model.id,

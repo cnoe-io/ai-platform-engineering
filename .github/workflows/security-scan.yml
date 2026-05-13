@@ -124,6 +124,7 @@ jobs:
           - mcp-github
           - mcp-jira
           - mcp-komodor
+          - mcp-litellm
           - mcp-netutils
           - mcp-pagerduty
           - mcp-splunk
