@@ -53,7 +53,7 @@ The rules (enforced by `isValidTeamSlug` and `deriveSlug` in `ui/src/app/api/adm
 
 We use slugs (not display names) inside Keycloak and JWT claims for three reasons:
 
-1. **Stable identifier.** A team can be renamed in MongoDB without breaking every JWT in flight or every CEL rule in AgentGateway.
+1. **Stable identifier.** A team can be renamed in MongoDB without breaking every JWT in flight or every OpenFGA relationship tuple.
 2. **Safe in URLs, headers, and identifiers.** Keycloak client scope names, role names, and JWT claim values shouldn't contain spaces or Unicode.
 3. **One canonical form.** No ambiguity between "Platform Eng" / "platform-eng" / "platform engineering" — the slug is the only string the system actually uses for matching.
 
@@ -210,14 +210,13 @@ The two pieces of information have different lifetimes and different semantics:
 | `team_member:<slug>` realm roles | "Keycloak's record of which teams this user belongs to" | Only when an admin adds/removes the user from a team | **N — one per team the user is in** |
 | `active_team` claim | "Which team this single request is on behalf of" | On every token-exchange (every Slack message, potentially) | **1 — exactly one value** |
 
-The CEL rule at AgentGateway is what reduces N memberships to a single allow/deny decision:
+The OpenFGA relationship check at AgentGateway is what reduces N memberships to a single allow/deny decision:
 
-```cel
-jwt.realm_access.roles.contains("tool_user:" + tool) &&
-jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+```text
+check(user:<sub>, can_call, tool:<tool>)
 ```
 
-That `+ jwt.active_team` is the key bit. CEL doesn't ask "is the user a member of any team?" — it asks "is the user a member of *this specific* team that the JWT claims to be acting as right now?" The `active_team` claim selects which of the user's memberships is being exercised; the role list is the universe of what the user *could* exercise.
+The selected team context is the key bit. OpenFGA doesn't ask "is the user a member of any team?" — it asks whether the user, through the current team/resource relationship graph, can call *this specific* tool. The `active_team` claim selects which of the user's memberships is being exercised; the relationship tuples are the universe of what the user *could* exercise.
 
 ### Implications
 
@@ -263,20 +262,17 @@ Client scopes are **not** permissions. They are per-team claim injectors that de
 
 ### How they combine — the actual gate at AgentGateway
 
-A typical CEL rule for a tool call:
+A typical relationship check for a tool call:
 
-```cel
-jwt.realm_access.roles.contains("admin_user") ||
-(jwt.active_team == "__personal__" && jwt.realm_access.roles.contains("tool_user:" + tool)) ||
-(jwt.realm_access.roles.contains("tool_user:" + tool) &&
- jwt.realm_access.roles.contains("team_member:" + jwt.active_team))
+```text
+check(user:<sub>, can_call, tool:<name>)
 ```
 
 A request is allowed only if **all three line up**:
 
-1. **Role** says you're permitted to use this specific tool (`tool_user:<name>`).
-2. **Role** says you're a member of the team you claim to be acting as (`team_member:<slug>`).
-3. **Scope** caused the JWT to carry `active_team=<slug>` matching that team.
+1. **Identity facts** say who the caller is (`sub`, email, realm roles).
+2. **OpenFGA tuples** say the caller is related to the team/resource being used.
+3. **Scope** caused the JWT to carry `active_team=<slug>` when a team context is required.
 
 If a user belongs to teams A and B, the Slack bot picks the team via OBO — `obo_exchange.impersonate_user(active_team=...)` adds `scope=openid team-<slug>` to the exchange — and then **verifies** the returned JWT's `active_team` claim matches. Mismatch raises `OboExchangeError` (load-bearing security invariant).
 
@@ -371,7 +367,7 @@ This is the security crux and the only "redundancy" in the model worth keeping. 
 |---|---|---|
 | Keycloak (the IdP itself) | It owns every other entity above; drawing it as a node adds clutter without information. | Implicit. Mentioned in [Component 1](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | JWKS / signing keys | Cryptographic plumbing — concerns key rotation, not data shape. | [Workflows — JWT validation](./workflows.md). |
-| CEL rules / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, and `deploy/agentgateway/config.yaml`. |
+| AgentGateway ext_authz / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, `deploy/agentgateway/config.yaml`, and `deploy/openfga-experiment/bridge/main.py`. |
 | OIDC clients (`caipe-platform`, `caipe-slack-bot`, `agentgateway`) | The client mostly affects audience and which scopes are bound by default, not the per-request decision shape. | [Component 1 — OIDC clients table](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | `ROLE_ASSIGNMENT` / `TEAM_MEMBERSHIP` join tables | These are mechanical M:N joins that the ER notation already represents with the relationship line. | n/a. |
 
@@ -386,20 +382,21 @@ flowchart LR
     JWT[/"JWT<br/>realm_access.roles<br/>active_team"/] --> AGW
     JWT --> DA
 
-    subgraph PEP_PDP_today["PEP + PDP today (decisions are inline)"]
-      AGW["AgentGateway<br/>CEL on jwt + mcp.tool"]
+    subgraph PEP_PDP_today["PEP + PDP today"]
+      AGW["AgentGateway<br/>jwtAuth + ext_authz"]
+      FGA["OpenFGA bridge<br/>relationship checks"]
       DA["Dynamic Agents<br/>per-agent auth on jwt + agent_id"]
     end
 
-    AGW -->|allow| MCP["MCP tool"]
+    AGW --> FGA
+    FGA -->|allow| MCP["MCP tool"]
+    FGA -->|deny| AGW_403["403"]
     AGW -->|deny| AGW_403["403"]
     DA -->|allow| AGT["Agent runtime"]
     DA -->|deny| DA_403["403"]
 ```
 
-Two PEPs (Policy Enforcement Points), each evaluating its rules inline against the JWT — there is no separate PDP service in the architecture today. AGW evaluates ~5 CEL rules; Dynamic Agents evaluate per-agent role assignments. Both are fast (no extra network hops) and both depend on the JWT being trustworthy (signed by Keycloak, verified against JWKS).
-
-If we ever introduce a **remote PDP** (e.g. OpenFGA, OPA, Cedar — see [`feasibility-pdp-options.md`](./feasibility-pdp-options.md)), the picture above gains one box: AGW would call the PDP via Envoy ext_authz instead of evaluating CEL inline. The data model above doesn't have to change for that to happen — only the role/team facts would also be projected as PDP-native records (e.g. OpenFGA tuples).
+AgentGateway is the MCP PEP: it validates the Keycloak JWT locally and then calls the OpenFGA bridge through Envoy-compatible `ext_authz`. Dynamic Agents still enforce per-agent route checks before forwarding user tokens downstream. Both depend on the JWT being trustworthy (signed by Keycloak, verified against JWKS), but gateway tool authorization is now relationship-backed rather than CEL-authored.
 
 ---
 
@@ -427,26 +424,26 @@ sequenceDiagram
     Note right of KC: caipe-platform has no team scope
 
     User->>UI: Click "Use Jira search issues"
-    UI->>UI: CEL gate (cel-js) checks current user
-    alt CEL allows
+    UI->>UI: BFF checks route permission / ReBAC access
+    alt BFF allows
         UI->>SUP: HTTPS + Bearer JWT
         SUP->>AGW: Forward Bearer JWT
         AGW->>AGW: jwtAuth verifies signature against JWKS
-        AGW->>AGW: Evaluate CEL allow rules
+        AGW->>AGW: ext_authz calls OpenFGA bridge
         Note over AGW: Web UI tokens have no active_team claim
-        Note over AGW: Only admin_user or a team-less tool rule passes
-        alt CEL allows
+        Note over AGW: OpenFGA relationship tuples determine access
+        alt OpenFGA allows
             AGW->>MCP: Forward request
             MCP-->>User: Result
-        else CEL denies
+        else OpenFGA denies
             AGW-->>User: 403 Forbidden
         end
-    else CEL denies
+    else BFF denies
         UI-->>User: UI hides action or 403
     end
 ```
 
-**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs ship **without** an `active_team` claim. Web UI callers therefore rely on the `admin_user` bypass or on tool rules that don't require team context. Team-scoped tool invocation from the Web UI is on the Spec 104 follow-up list (active-team picker → optional scope on `caipe-platform`).
+**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs usually ship **without** an `active_team` claim. Web UI authorization is therefore mediated by BFF route gates and OpenFGA relationship checks rather than by editing AgentGateway rules.
 
 ### 2. Slack user posting in a channel
 
@@ -478,18 +475,17 @@ sequenceDiagram
 
     Bot->>SUP: A2A call + Bearer JWT
     SUP->>AGW: Forward Bearer JWT (per-request)
-    AGW->>AGW: jwtAuth verifies, CEL evaluates
-    Note over AGW: CEL requires tool_user for the tool
-    Note over AGW: AND team_member for jwt.active_team
-    alt User has both roles
+    AGW->>AGW: jwtAuth verifies, ext_authz calls OpenFGA
+    Note over AGW: OpenFGA checks user/team/resource tuples
+    alt Relationship graph allows
         AGW->>MCP: Forward request
         MCP-->>SlackUser: Result (via bot)
-    else Missing tool_user OR not in team
+    else Missing team/resource relationship
         AGW-->>SlackUser: 403 (bot surfaces structured error)
     end
 ```
 
-**Key point about Slack channels:** the channel ID determines the team via MongoDB (`channel_team_resolver`), and the bot trusts Keycloak to enforce that the user actually belongs to that team. If the user isn't in the team, OBO still succeeds (because the user *can* request `scope=team-platform-eng`), but AGW denies because the user lacks `team_member:platform-eng`.
+**Key point about Slack channels:** the channel ID determines the team via MongoDB (`channel_team_resolver`), and the bot pre-checks team membership before OBO. AgentGateway then checks the OpenFGA tuple graph for the resulting user/team/resource relationship.
 
 ### 3. Slack user in a DM (1:1 with the bot)
 
@@ -522,19 +518,18 @@ sequenceDiagram
 
     Bot->>SUP: A2A call + Bearer JWT
     SUP->>AGW: Forward Bearer JWT
-    AGW->>AGW: jwtAuth, then CEL evaluation
-    Note over AGW: Personal sentinel triggers short-circuit
-    Note over AGW: Only the per-tool tool_user role is required
-    Note over AGW: No team_member check on personal context
-    alt User has tool_user role
+    AGW->>AGW: jwtAuth, then ext_authz calls OpenFGA
+    Note over AGW: Personal sentinel maps to user-scoped relationships
+    Note over AGW: No channel team membership is required
+    alt User has the required tool relationship
         AGW->>MCP: Forward request
         MCP-->>SlackUser: Result
-    else No tool_user role
+    else No matching relationship
         AGW-->>SlackUser: 403
     end
 ```
 
-**Key point about DMs:** the `__personal__` sentinel says "no team — this user is acting as themselves." CEL has an explicit short-circuit for `active_team == "__personal__"` that requires only the per-tool role, no `team_member` check. This is what lets a user invoke tools in a DM without first being added to a team.
+**Key point about DMs:** the `__personal__` sentinel says "no channel team — this user is acting as themselves." AgentGateway still delegates the decision to OpenFGA, but the bridge evaluates user-scoped relationships instead of requiring a channel team membership.
 
 ---
 
@@ -542,7 +537,7 @@ sequenceDiagram
 
 | Caller | `active_team` claim | Required roles to invoke `tool_user:<X>` | Source of team context |
 |---|---|---|---|
-| **Web UI user (non-admin)** | ❌ absent | `admin_user`, **or** the tool's CEL rule must allow team-less tokens | (no team context today; Spec 104 follow-up) |
+| **Web UI user (non-admin)** | ❌ absent | Matching OpenFGA relationship, usually via BFF-mediated resource access | (no team context today; Spec 104 follow-up) |
 | **Web UI user (admin)** | ❌ absent | `admin_user` (bypasses everything) | n/a — global admin |
 | **Slack channel user** | ✅ `<team-slug>` | `tool_user:<X>` **AND** `team_member:<team-slug>` | MongoDB `channel_team_resolver` (channel ID → team slug) |
 | **Slack DM user** | ✅ `__personal__` | `tool_user:<X>` only | sentinel `__personal__` (no team) |

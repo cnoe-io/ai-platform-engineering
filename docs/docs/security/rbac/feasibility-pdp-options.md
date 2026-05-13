@@ -1,6 +1,9 @@
 # Feasibility — Remote PDP options for CAIPE
 
-**Status:** Discussion artifact, not a commitment. Captures the analysis behind a *future* decision to (or not to) introduce a remote Policy Decision Point.
+**Status:** Historical decision note. The current implementation has adopted
+OpenFGA behind AgentGateway `ext_authz`; this page remains useful as rationale
+for why OpenFGA was selected over Keycloak UMA, OPA, Cedar, and keeping inline
+AgentGateway rules as the long-term policy surface.
 
 **Audience:** Anyone evaluating PDP choices (OpenFGA, OPA, Cedar, Cerbos, …) for CAIPE's authorization layer. Read [`roles-scopes-comparison.md`](./roles-scopes-comparison.md) first for the current model.
 
@@ -8,11 +11,10 @@
 
 ## TL;DR
 
-1. **CAIPE is already a two-PDP system today.** AGW evaluates CEL inline on the data plane (`deploy/agentgateway/config.yaml`); Keycloak Authorization Services (UMA 2.0) handles management-plane checks via `require_rbac_permission()` (`ai_platform_engineering/utils/auth/keycloak_authz.py` and friends). No CEL is involved on the Keycloak side — it's role/group/aggregated policies and (deprecated) JS.
+1. **CAIPE is a two-PDP system today.** AgentGateway delegates data-plane MCP authorization to OpenFGA through `ext_authz`; Keycloak Authorization Services (UMA 2.0) handles management-plane checks via `require_rbac_permission()` (`ai_platform_engineering/utils/auth/keycloak_authz.py` and friends). No CEL is involved on the Keycloak side — it's role/group/aggregated policies and (deprecated) JS.
 2. **AgentGateway already supports remote PDPs** out of the box — both gRPC ext_authz (Envoy-compatible, the same API OPA/OpenFGA/Cedar agents speak) and HTTP ext_authz, with `failureMode: FailOpen | FailClosed` (default closed). A remote PDP is a **config change**, not a code change in AGW. (See [AGW external authz docs](https://agentgateway.dev/docs/configuration/security/external-authz/).)
 3. **CAIPE's data is genuinely relationship-shaped** — the simplified entity diagram in [roles-scopes-comparison.md](./roles-scopes-comparison.md#entity-diagram--how-roles-scopes-jwts-and-resources-relate) shows USER → TEAM → TOOL relationships that today are encoded by string-concatenating role names. ReBAC engines (OpenFGA, SpiceDB) express this natively.
-4. **You don't need a *new* PDP today.** The 5 CEL rules in `deploy/agentgateway/config.yaml` work fine. The recent slug-vs-ObjectId class of bug was an admin-API consistency problem, *not* a CEL/PDP problem — solving Phase A (centralized identity-service) addresses it without touching the PDP layer at all.
-5. **If you do introduce one, OpenFGA is the best fit** for CAIPE specifically. OPA is the safer/more general choice if you're planning to layer many other policy domains (data, network, K8s admission). Cedar is intellectually elegant but smaller community. Keycloak's own PDP can be extended to the AGW hot path via ext_authz too — see the explicit "why not just use Keycloak" section below for the tradeoffs.
+4. **OpenFGA is the selected AGW data-plane PDP** for CAIPE specifically. OPA is the safer/more general choice if you're planning to layer many other policy domains (data, network, K8s admission). Cedar is intellectually elegant but smaller community. Keycloak's own PDP can be extended to the AGW hot path via ext_authz too — see the explicit "why not just use Keycloak" section below for the tradeoffs.
 
 ---
 
@@ -22,7 +24,7 @@
 |---|---|
 | The slug-vs-ObjectId bug (`team_member:<oid>` vs `team_member:<slug>`) | ❌ No. That was an admin-API consistency bug. Phase A (`identity-service`) is the fix. |
 | 5 services duplicating Keycloak Admin API calls | ❌ No. Same as above — `identity-service` problem. |
-| CEL rules getting hard to maintain as we add resources | 🟡 Maybe. Today's 5 rules are fine. Watch for >15 distinct rules or rules with conditional logic. |
+| Gateway policy rules getting hard to maintain as we add resources | ✅ Yes. ReBAC moved these relationship-shaped decisions into OpenFGA tuples instead of a growing inline rule set. |
 | Want "who has access to X?" reverse queries (e.g. "show me everyone who can invoke jira_search") | ✅ Yes. ReBAC engines do this in ms; doing it against Keycloak today requires walking every user's roles. |
 | Want hierarchical/delegated permissions ("team A admin can grant access to team A's resources") | ✅ Yes. ReBAC models this natively. |
 | Want to swap Keycloak for another IdP later | 🟡 Partial. PDP separation makes the IdP-switch cleaner because the IdP no longer owns policy. But the PDP is not itself an IdP abstraction. |
@@ -75,19 +77,19 @@ Evaluate **policies as code** against arbitrary input documents. Far more flexib
 
 | Approach | Notable for |
 |---|---|
-| **Keep CEL on AGW only** | Your 5 CEL rules work today. The recent bug wasn't a CEL problem. Solve `identity-service` first; revisit only when CEL rules cross ~15 or grow conditional logic. |
+| **Keep inline rules on AGW only** | Rejected for the current branch. Relationship-shaped grants now live in OpenFGA so the Admin UI can answer and explain "who has access to X?". |
 | **Use Keycloak Authorization Services (UMA) more** | Already in production for management-plane checks (BFF, supervisor, MCP middleware, slack bot — see `ai_platform_engineering/utils/auth/keycloak_authz.py`). Could be extended to AGW via ext_authz at the cost of latency and Keycloak-on-hot-path coupling. See [Why we don't use Keycloak's PDP for AGW today](#why-we-dont-use-keycloaks-pdp-for-agw-today) below. |
 | **Roll your own** | The "small RBAC service we'll build in 2 weeks" is the most-rewritten artifact in the industry. Don't. |
 
 ### Why we don't use Keycloak's PDP for AGW today
 
-Keycloak ships its own PDP (Keycloak Authorization Services, UMA 2.0). It's already on the management plane: `require_rbac_permission()` in `ai_platform_engineering/utils/auth/keycloak_authz.py` calls Keycloak's `/realms/<r>/protocol/openid-connect/token` endpoint with `grant_type=urn:ietf:params:oauth:grant-type:uma-ticket` for every BFF/supervisor/MCP-middleware permission check. So we are *already* a two-PDP system — AGW CEL on the data plane, Keycloak UMA on the management plane.
+Keycloak ships its own PDP (Keycloak Authorization Services, UMA 2.0). It's already on the management plane: `require_rbac_permission()` in `ai_platform_engineering/utils/auth/keycloak_authz.py` calls Keycloak's `/realms/<r>/protocol/openid-connect/token` endpoint with `grant_type=urn:ietf:params:oauth:grant-type:uma-ticket` for every BFF/supervisor/MCP-middleware permission check. The data plane now uses OpenFGA behind AgentGateway `ext_authz`; Keycloak UMA remains off the hot path.
 
 We **don't** put Keycloak's PDP on AGW's data plane for three reasons:
 
-1. **Latency.** Every tool call would add a Keycloak RPC (~5-30ms). AGW CEL inline is ~0ms. CAIPE issues many tool calls per chat turn.
-2. **Policy expressiveness.** AGW CEL references `mcp.tool.name` and per-request `jwt.active_team` — AGW-injected variables. To replicate in Keycloak you'd pre-mint a resource per (tool × team), or use Keycloak's deprecated JS policies. Both are awkward.
-3. **Operational coupling.** Putting Keycloak on the per-request decision path means every tool call hard-depends on Keycloak liveness. With CEL inline, AGW only depends on Keycloak for JWT *signature* validation (JWKS, cached) — not for decisions.
+1. **Latency.** Every tool call would add a Keycloak RPC (~5-30ms). CAIPE issues many tool calls per chat turn.
+2. **Policy expressiveness.** Gateway authorization references MCP resource names and per-request team context. To replicate this in Keycloak you'd pre-mint a resource per (tool × team), or use Keycloak's deprecated JS policies. Both are awkward.
+3. **Operational coupling.** Putting Keycloak on the per-request decision path means every tool call hard-depends on Keycloak liveness. With OpenFGA, AGW only depends on Keycloak for JWT *signature* validation (JWKS, cached), while relationship decisions use the OpenFGA bridge.
 
 These are the same reasons people picking **OpenFGA / OPA / Cedar** at scale don't pick Keycloak's PDP: those engines are purpose-built for low-latency decision RPCs with caching, sharding, and decision-keyed replication patterns Keycloak's UMA wasn't optimized for.
 
@@ -95,7 +97,7 @@ These are the same reasons people picking **OpenFGA / OPA / Cedar** at scale don
 
 ## Comparison matrix
 
-| Dimension | OpenFGA | OPA | Cedar | Cerbos | Keycloak AuthZ (UMA) | Keep CEL |
+| Dimension | OpenFGA | OPA | Cedar | Cerbos | Keycloak AuthZ (UMA) | Keep inline AGW rules |
 |---|---|---|---|---|---|---|
 | Relationship-shaped data fit | ✅ excellent | 🟡 you build it | 🟡 you build it | ❌ stateless model | 🟡 role/group only | 🟡 string roles work |
 | Policy authoring complexity | DSL — moderate | Rego — high | Cedar — moderate | YAML — low | UI / JSON — low | CEL — low |
@@ -103,7 +105,7 @@ These are the same reasons people picking **OpenFGA / OPA / Cedar** at scale don
 | "Who has access to X?" reverse queries | ✅ excellent | ❌ not really | 🟡 limited | ❌ no | 🟡 via Admin API | ❌ no |
 | Per-request variables (e.g. `mcp.tool.name`) | ✅ via tuples or context | ✅ via input doc | ✅ via context | ✅ via input doc | ❌ requires pre-minting per-resource | ✅ native |
 | Operational overhead | New service + DB | New service + bundles | New service | New sidecar | None — already deployed | None |
-| Latency added per check | ~2-5ms | ~1-3ms | ~1-3ms | <1ms (sidecar) | ~5-30ms (JVM, JWT minting) | 0 |
+| Latency added per check | ~2-5ms | ~1-3ms | ~1-3ms | less than 1ms (sidecar) | ~5-30ms (JVM, JWT minting) | 0 |
 | Maturity / community | High (CNCF Sandbox) | Highest (CNCF Graduated) | Medium | Medium | High (Red Hat) | n/a |
 | Vendor lock | None | None | None | None (open core) | None | n/a |
 | Multi-tenancy story | Good | DIY | DIY | Good | Per-realm isolation | DIY |
@@ -149,9 +151,13 @@ check(user:alice, can_use, tool:jira_search)
 
 Pick **OPA**. The investment in Rego pays off across many policy domains beyond just RBAC.
 
-### If you want to be done in 1 week, not 1 quarter
+### Current decision
 
-**Don't introduce a *new* PDP yet.** You already have two: AGW CEL on the data plane and Keycloak Authorization Services (UMA) on the management plane. Solve Phase A (`identity-service`) first. Re-evaluate once that's shipped and the CEL rule count or complexity has actually grown.
+OpenFGA is now the selected data-plane PDP for AgentGateway. Keycloak
+Authorization Services remains the management-plane PDP for BFF, supervisor,
+MCP middleware, and Slack bot checks. Do not reintroduce a separate AG MCP
+policy CRUD surface; model gateway access as OpenFGA tuples and let AG call the
+bridge through `ext_authz`.
 
 ### Why not just lean harder on Keycloak's PDP and skip OpenFGA/OPA entirely?
 
@@ -163,7 +169,7 @@ The argument for OpenFGA/OPA over Keycloak as a *PDP* (separate from "as an IdP"
 - Decision-shaped sharding/replication patterns built for hot-path PDP work.
 - Per-request variables (like `mcp.tool.name`) without pre-minting a Keycloak resource per tool.
 
-If those don't matter for CAIPE's expected scale and policy complexity, **stick with Keycloak's PDP for management-plane checks and CEL for the AGW hot path**. That's a perfectly reasonable terminal state.
+If those don't matter for CAIPE's expected scale and policy complexity, Keycloak's PDP for management-plane checks plus a simpler gateway policy can still be defensible. This branch chose OpenFGA because the team/resource graph and access explanation UI are now first-class requirements.
 
 ---
 
@@ -183,20 +189,16 @@ For CAIPE, option 2 with a small staleness budget (≤2s) is the natural fit —
 
 ### 2. AGW fast-path / slow-path
 
-Don't send every decision to the remote PDP. Keep simple bypasses in AGW CEL:
+Don't overcomplicate the gateway hot path. Keep AgentGateway focused on JWT validation and one `ext_authz` decision:
 
 ```yaml
-# Fast path — local CEL, no PDP call
-- 'jwt.realm_access.roles.contains("admin_user")'
-
-# Slow path — anything else, delegate to PDP
-- name: ext_authz
-  http:
-    host: pdp.svc:8080
-    failureMode: FailClosed
+extAuthz:
+  host: openfga-authz-bridge:9100
+  failureMode:
+    denyWithStatus: 403
 ```
 
-Trivial decisions never hit the network. Remote PDP only sees decisions where it actually adds value (resource-scoped, team-scoped, complex).
+Admin bypasses and resource relationships should be modeled in OpenFGA, not in a second policy surface inside AgentGateway.
 
 ### 3. Decision caching
 
@@ -206,11 +208,10 @@ PDP decisions are deterministic given the same inputs. Cache `(sub, active_team,
 
 Recommended order — each step independently shippable:
 
-1. Ship `identity-service` (Phase A from [`feasibility-authz-service.md`](#) — TODO: write that doc) — fixes the duplicate-admin-API class of bug.
-2. Add OpenFGA as a **shadow PDP** — `identity-service` writes tuples but no one reads them. Run for 2 weeks; verify tuples are correct by comparing to Keycloak roles.
-3. Add ext_authz to AGW pointing at OpenFGA in **shadow mode** — AGW evaluates both CEL and the remote PDP, logs disagreements, but enforces only CEL. Run until disagreements drop to zero.
-4. Flip AGW to enforce the PDP decision instead of CEL.
-5. Delete the resource-scoped CEL rules; keep only the `admin_user` fast-path.
+1. Add OpenFGA and tuple writers.
+2. Add AgentGateway `ext_authz` pointing at the OpenFGA bridge.
+3. Flip AGW to enforce the OpenFGA decision.
+4. Delete the AG MCP policy CRUD surface and the Mongo-backed config bridge.
 
 This staging means you can abort at any point and roll back without data loss.
 

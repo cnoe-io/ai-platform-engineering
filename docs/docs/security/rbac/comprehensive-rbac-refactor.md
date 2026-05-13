@@ -10,16 +10,18 @@ Comprehensive RBAC makes **Keycloak the identity and role issuer**,
 **AgentGateway the MCP policy enforcement point**, and **OpenFGA the relationship
 policy engine**.
 
-Today, enforcement is hybrid:
+Today, enforcement is split by responsibility:
 
-- **Keycloak JWT roles** still drive most fine-grained decisions.
-- **AgentGateway** validates JWTs, calls **OpenFGA** first, then runs CEL rules
-  per MCP tool.
-- **Admin UI Team Resources** writes both Keycloak roles and OpenFGA tuples from
-  one place.
-- **OpenFGA currently gates MCP access coarsely** with
-  `user:<sub> can_call document:mcp`; richer team, agent, tool, and KB tuples are
-  modeled and written so they can become authoritative per-resource checks.
+- **Keycloak JWT roles** still provide signed identity facts and management-plane
+  fallback checks.
+- **AgentGateway** validates JWTs and delegates MCP authorization to **OpenFGA**
+  through `ext_authz`.
+- **Admin UI Team Resources** writes Keycloak roles for transition compatibility
+  and OpenFGA tuples for relationship decisions.
+- **OpenFGA** owns the relationship graph for user/team/tool, agent, and KB
+  access. The current AgentGateway bridge uses OpenFGA for the gateway decision
+  and defaults to the configured coarse MCP object unless deployed with a more
+  specific relation/object mapping.
 
 ## Big Picture
 
@@ -41,9 +43,8 @@ flowchart TD
   ExtAuthz --> Bridge[openfga-authz-bridge]
   Bridge --> FGA[OpenFGA PDP]
 
-  JWTAuth --> CEL[AgentGateway CEL<br/>tool_user, team_member, admin_user]
   FGA --> AGW
-  CEL --> MCP[MCP Servers<br/>Jira, RAG, GitHub, ArgoCD]
+  AGW --> MCP[MCP Servers<br/>Jira, RAG, GitHub, ArgoCD]
 
   Admin[Admin UI<br/>Teams / Resources] --> Mongo[(MongoDB<br/>teams, resources)]
   Admin --> KCRoles[Keycloak Admin API<br/>materialize realm roles]
@@ -61,8 +62,7 @@ flowchart TD
 4. Dynamic Agents forwards the user JWT to AgentGateway when calling MCP tools.
 5. AgentGateway verifies the JWT with Keycloak JWKS.
 6. AgentGateway calls OpenFGA through gRPC `extAuthz`.
-7. If OpenFGA allows, AgentGateway evaluates CEL tool rules.
-8. If CEL allows, the MCP request reaches Jira, RAG, GitHub, ArgoCD, or another
+7. If OpenFGA allows, the MCP request reaches Jira, RAG, GitHub, ArgoCD, or another
    backend MCP server.
 
 ```mermaid
@@ -77,7 +77,6 @@ sequenceDiagram
   AGW->>KC: Validate JWT signature, issuer, audience, expiry
   AGW->>FGA: gRPC extAuthz Check with jwt.sub
   FGA-->>AGW: allow / deny
-  AGW->>AGW: Evaluate CEL mcpAuthorization rules
   AGW->>MCP: Forward allowed request
 ```
 
@@ -85,7 +84,6 @@ Failure behavior:
 
 - JWT validation fails: AgentGateway returns `401`.
 - OpenFGA denies or is unavailable: AgentGateway returns `403`.
-- CEL denies: the request never reaches the MCP server.
 
 ## Keycloak Role Model
 
@@ -112,7 +110,7 @@ the request. Team slugs, not Mongo ObjectIds, are used in team-scoped roles.
 
 AgentGateway is the central policy enforcement point for MCP traffic. It is not
 the identity store and it does not mint tokens. It validates Keycloak-issued
-JWTs, delegates relationship checks to OpenFGA, then applies local CEL rules.
+JWTs, then delegates relationship checks to OpenFGA.
 
 AgentGateway policy order:
 
@@ -120,9 +118,7 @@ AgentGateway policy order:
    and JWKS signature.
 2. `extAuthz`: gRPC call to `openfga-authz-bridge`, passing verified `jwt.sub`
    metadata.
-3. `authorization` and `mcpAuthorization`: CEL checks over JWT claims and MCP
-   tool context.
-4. MCP proxy: forwards the request to the configured backend server only after
+3. MCP proxy: forwards the request to the configured backend server only after
    all policy layers allow.
 
 ## OpenFGA Rules
@@ -211,7 +207,7 @@ user/team context as the web UI path.
 | Keycloak | Identity, JWT signing, realm roles, OBO token exchange | MCP proxying, OpenFGA relationships |
 | Admin UI | Human policy authoring, team resources, Mongo source of intent | JWT validation for MCP traffic |
 | Dynamic Agents | Agent runtime, tool loading, forwarding user JWT to MCP path | Final MCP authorization |
-| AgentGateway | JWT validation, OpenFGA `extAuthz`, CEL, MCP proxying | User database, token minting |
+| AgentGateway | JWT validation, OpenFGA `extAuthz`, MCP proxying | User database, token minting, policy storage |
 | OpenFGA | Relationship graph and PDP decisions | JWT validation, traffic proxying |
 | MCP servers | Domain APIs such as Jira, RAG, GitHub, ArgoCD | Primary centralized authorization |
 

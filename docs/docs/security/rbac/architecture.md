@@ -344,7 +344,7 @@ That package lives under `ai_platform_engineering/agents/common/mcp-auth/` and i
 | **OpenFGA** | Remote PDP | Relationship decisions such as `user:<sub> can_call document:mcp` and team resource tuples (`team:<slug>#member can_use agent:<id>`) | JWT validation, token minting, proxying traffic |
 | **AgentGateway (PEP)** | Policy Enforcement Point | `jwtAuth`, `extAuthz`, local JWT verification against cached JWKS | Identity store, role store, token minting, CEL policy storage |
 
-Keycloak **brokers** the upstream IdP — Duo SSO doesn't issue the JWT that AG sees. Duo authenticates the user, returns an OIDC authorization code to Keycloak, and Keycloak then mints the CAIPE JWT with the realm roles that CEL evaluates. From AG's perspective, **Keycloak is the only issuer it trusts** (`iss = http://localhost:7080/realms/caipe`); the existence of Duo is invisible to AG. This is the standard OIDC/OAuth 2.0 resource-server pattern applied to an MCP-aware proxy.
+Keycloak **brokers** the upstream IdP — Duo SSO doesn't issue the JWT that AG sees. Duo authenticates the user, returns an OIDC authorization code to Keycloak, and Keycloak then mints the CAIPE JWT whose identity claims feed the OpenFGA `extAuthz` check. From AG's perspective, **Keycloak is the only issuer it trusts** (`iss = http://localhost:7080/realms/caipe`); the existence of Duo is invisible to AG. This is the standard OIDC/OAuth 2.0 resource-server pattern applied to an MCP-aware proxy.
 
 ### Identity Provenance: Duo SSO → Keycloak → JWT → AG → MCP
 

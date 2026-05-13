@@ -2,10 +2,11 @@
 
 **Audience:** Junior engineers getting oriented + security architects reviewing the design.
 
-This is the canonical reference for how authentication and authorization work in CAIPE. It is split into four focused docs (plus this index) so you don't have to read end-to-end to find what you need:
+This is the canonical reference for how authentication and authorization work in CAIPE. Start with the feature guide if you need one linear explanation, then use the focused docs for deeper reference:
 
 | If you want to… | Read |
 |---|---|
+| Explain the feature front to back to CAIPE users, admins, operators, or security reviewers | [Enterprise RBAC and ReBAC Feature Guide](./feature-guide.md) |
 | Understand each component (Keycloak, UI, Supervisor, AgentGateway, Dynamic Agents) and how they're wired | [Architecture](./architecture.md) |
 | Get the short end-to-end summary of the Comprehensive RBAC refactor, including Keycloak roles, AgentGateway, and OpenFGA | [Comprehensive RBAC Refactor](./comprehensive-rbac-refactor.md) |
 | Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |

@@ -177,8 +177,8 @@ sequenceDiagram
     note over SUP: LangGraph selects RAG tool
     SUP->>AG: POST /rag/v1/query  Authorization: Bearer OBO_JWT
 
-    note over AG: CEL policy evaluation
-    AG->>AG: roles.exists(r, r=="chat_user") → ALLOW
+    note over AG: ext_authz / OpenFGA authorization
+    AG->>AG: Check user/team/resource tuple graph → ALLOW
 
     AG->>MCP: POST /v1/query  Authorization: Bearer OBO_JWT
     note over MCP: JWKS validation
