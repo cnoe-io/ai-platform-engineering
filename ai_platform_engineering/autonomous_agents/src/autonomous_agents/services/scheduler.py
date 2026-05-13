@@ -1,4 +1,4 @@
-"""APScheduler wiring — registers cron and interval tasks at startup.
+"""APScheduler runtime for cron and interval tasks.
 
 Also exposes single-task ``register_task`` / ``unregister_task`` helpers so
 the CRUD endpoints can hot-reload the scheduler without bouncing the
@@ -23,7 +23,7 @@ from autonomous_agents.models import (
 # default ``MemoryJobStore`` stores callables by reference, so moving the
 # function across modules is transparent at runtime. A persistent
 # job store (none in use today) would serialise the target as
-# "module:qualname" — switching would require this import path to
+# "module:qualname" -- switching would require this import path to
 # stay stable, hence this comment to deter casual refactors of the
 # import line.
 from autonomous_agents.services.task_runner import execute_task
@@ -49,11 +49,11 @@ def register_task(task: TaskDefinition) -> None:
     the prior job and any in-flight run completes against the new
     definition only on its *next* trigger fire.
 
-    Webhook-only tasks are no-ops here — webhooks have their own
-    router-side registry. Disabled tasks are *actively unscheduled*
-    here so flipping ``enabled=false`` from the UI on an existing
-    cron/interval task immediately stops it firing instead of leaving
-    a zombie job until the next service restart (PR #5 review,
+    Webhook-only tasks are no-ops here -- webhooks have their own
+    router-side runtime registry. Disabled tasks are *actively
+    unscheduled* here so flipping ``enabled=false`` from the UI on an
+    existing cron/interval task immediately stops it firing instead of
+    leaving a zombie job until the next service restart (PR #5 review,
     Copilot+Codex P1).
     """
     if not task.enabled:
@@ -61,7 +61,7 @@ def register_task(task: TaskDefinition) -> None:
         # is safe for tasks that were never scheduled in the first
         # place (newly-created disabled tasks, webhook tasks, etc.).
         unregister_task(task.id)
-        logger.info(f"[{task.id}] Disabled — not scheduling (any prior job removed)")
+        logger.info(f"[{task.id}] Disabled -- not scheduling (any prior job removed)")
         return
 
     trigger = task.trigger
@@ -71,19 +71,19 @@ def register_task(task: TaskDefinition) -> None:
         # old APScheduler job. Same idempotent contract as the
         # disabled-task branch above.
         unregister_task(task.id)
-        logger.info(f"[{task.id}] Webhook task — handled by /hooks router, not APScheduler")
+        logger.info(f"[{task.id}] Webhook task -- handled by /hooks router, not APScheduler")
         return
 
     if trigger.type == TriggerType.CRON:
         if not isinstance(trigger, CronTrigger):
-            logger.warning(f"[{task.id}] Expected CronTrigger, got {type(trigger).__name__} — skipping")
+            logger.warning(f"[{task.id}] Expected CronTrigger, got {type(trigger).__name__} -- skipping")
             return
         aps_trigger = APSCronTrigger.from_crontab(trigger.schedule, timezone="UTC")
         logger.info(f"[{task.id}] Scheduling cron: {trigger.schedule}")
 
     elif trigger.type == TriggerType.INTERVAL:
         if not isinstance(trigger, IntervalTrigger):
-            logger.warning(f"[{task.id}] Expected IntervalTrigger, got {type(trigger).__name__} — skipping")
+            logger.warning(f"[{task.id}] Expected IntervalTrigger, got {type(trigger).__name__} -- skipping")
             return
         aps_trigger = APSIntervalTrigger(
             seconds=trigger.seconds or 0,
@@ -93,7 +93,7 @@ def register_task(task: TaskDefinition) -> None:
         logger.info(f"[{task.id}] Scheduling interval: {trigger.seconds}s / {trigger.minutes}m / {trigger.hours}h")
 
     else:
-        logger.warning(f"[{task.id}] Unknown trigger type '{trigger.type}' — skipping")
+        logger.warning(f"[{task.id}] Unknown trigger type '{trigger.type}' -- skipping")
         return
 
     get_scheduler().add_job(

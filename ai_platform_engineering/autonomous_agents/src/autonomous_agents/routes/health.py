@@ -3,7 +3,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import APIRouter
 
-from autonomous_agents.scheduler import get_scheduler
+from autonomous_agents.services.scheduler import get_scheduler
 
 router = APIRouter()
 

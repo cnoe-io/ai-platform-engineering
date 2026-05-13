@@ -12,7 +12,7 @@ updated / deleted" orchestration that used to live mixed into
   (``_serialize_task`` / ``_serialize_trigger``).
 * ``services/task_lifecycle.py`` (this module) owns the
   :class:`~autonomous_agents.services.mongo.TaskStore` singleton, the
-  scheduler / webhook-registry hot-reload coordinators, the
+  scheduler / webhook-runtime hot-reload coordinators, the
   pre-flight orchestration (spec #099 FR-001..005), and the
   best-effort chat-publish wrappers (FR-007).
 * ``services/task_runner.py`` (PR1) owns the per-run execution
@@ -28,21 +28,20 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from autonomous_agents.models import TaskDefinition
-from autonomous_agents.scheduler import (
-    get_scheduler,
-    register_task,
-    unregister_task,
-)
-from autonomous_agents.services.acknowledgement import Acknowledgement
+from autonomous_agents.models import Acknowledgement, TaskDefinition
 from autonomous_agents.services.dynamic_agents_client import preflight_dynamic_agent
 from autonomous_agents.services.mongo import (
     TaskNotFoundError,
     TaskStore,
 )
+from autonomous_agents.services.scheduler import (
+    get_scheduler,
+    register_task,
+    unregister_task,
+)
 from autonomous_agents.services.supervisor_preflight import preflight
 from autonomous_agents.services.task_runner import get_chat_history_publisher
-from autonomous_agents.services.webhook_registry import (
+from autonomous_agents.services.webhook_runtime import (
     register_webhook_task,
     unregister_webhook_task,
 )
@@ -82,7 +81,7 @@ def set_task_store(store: TaskStore) -> None:
 
 
 async def _sync_task_to_runtime(task: TaskDefinition) -> None:
-    """Reflect a stored task into the live scheduler + webhook registry.
+    """Reflect a stored task into the live scheduler + webhook runtime.
 
     The CRUD handlers are the only place that should be calling the
     hot-reload helpers, so centralising the dispatch here makes it
@@ -96,7 +95,7 @@ async def _sync_task_to_runtime(task: TaskDefinition) -> None:
 
 
 def _detach_task_from_runtime(task_id: str) -> None:
-    """Drop a task from both the scheduler and webhook registry.
+    """Drop a task from both the scheduler and webhook runtime.
 
     Mirrors :func:`_sync_task_to_runtime` for the delete path. Both
     underlying helpers return a bool rather than raising on

@@ -1,19 +1,10 @@
-"""Shared *tail* of the webhook dispatch pipeline.
+"""Webhook runtime registry and shared dispatch pipeline.
 
-Previously the same "no-dedup -> claim -> 503-translate -> pre-allocate
-run_id -> back-link -> spawn -> envelope" sequence was duplicated three
-times: in :func:`routes.webhooks.receive_webhook`,
-:func:`routes.webhooks.receive_followup`, and
-:func:`routes.webex.receive_webex_event`. Behaviour was already drifting
-between them (the Webex route reimplemented ``_claim_or_log`` inline).
-
-This module owns the shared mechanics. Dedup-key *derivation* is NOT
-done here -- each call site has its own rules (signature precedence on
-the initial fire, ``:followup:{parent}`` suffix on follow-ups, Webex
-builds its own directly). The helper consumes a pre-built
-:class:`DedupKey` and reports the outcome via
-:class:`DispatchOutcome` so each caller can build its own response
-envelope and contextual log line.
+This module owns the live in-memory index of enabled webhook-triggered
+tasks and the shared "claim -> run id -> background fire -> outcome"
+tail used by the webhook routes. MongoDB remains the durable task
+definition store; this module is the runtime view used by request
+handlers.
 """
 
 from __future__ import annotations
@@ -25,7 +16,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, HTTPException
 
-from autonomous_agents.models import FollowUpContext, TaskDefinition
+from autonomous_agents.models import FollowUpContext, TaskDefinition, TriggerType
 from autonomous_agents.services.mongo import get_mongo_service
 from autonomous_agents.services.task_runner import fire_webhook_task
 from autonomous_agents.services.trigger_instances import (
@@ -35,6 +26,51 @@ from autonomous_agents.services.trigger_instances import (
 )
 
 logger = logging.getLogger("autonomous_agents")
+
+# Tests and compatibility shims intentionally mutate this same object.
+# Do not reassign ``_webhook_tasks = {}``.
+_webhook_tasks: dict[str, TaskDefinition] = {}
+
+
+def get_webhook_task(task_id: str) -> TaskDefinition | None:
+    """Look up a webhook task by id; returns ``None`` if not registered."""
+    return _webhook_tasks.get(task_id)
+
+
+def register_webhook_task(task: TaskDefinition) -> None:
+    """Index a single webhook task for fast lookup at request time.
+
+    Idempotent: re-registering the same id replaces the prior entry.
+    Non-webhook (and disabled) tasks are silently skipped so the CRUD
+    endpoints can call this unconditionally without first checking the
+    trigger type.
+    """
+    if task.trigger.type != TriggerType.WEBHOOK:
+        return
+
+    if not task.enabled:
+        # Ensure disabled webhook tasks cannot still be triggered.
+        _webhook_tasks.pop(task.id, None)
+        return
+
+    _webhook_tasks[task.id] = task
+    logger.info("Webhook task '%s' registered at POST /hooks/%s", task.id, task.id)
+
+
+def unregister_webhook_task(task_id: str) -> bool:
+    """Remove ``task_id`` from the webhook runtime registry if present.
+
+    Returns ``True`` if an entry was removed, ``False`` otherwise. Same
+    no-raise contract as :func:`services.scheduler.unregister_task` so
+    the CRUD layer can call both unconditionally.
+    """
+    return _webhook_tasks.pop(task_id, None) is not None
+
+
+def register_webhook_tasks(tasks: list[TaskDefinition]) -> None:
+    """Bulk-register webhook tasks (used by the FastAPI lifespan)."""
+    for task in tasks:
+        register_webhook_task(task)
 
 
 @dataclass(frozen=True)
@@ -58,7 +94,7 @@ class DispatchOutcome:
             the delivery deduped to an existing run.
         trigger_instance_id: The ``trigger_instances`` row id (the
             dedup key). ``None`` only when the caller opted out of
-            dedup by passing ``DedupKey(key=None, …)``.
+            dedup by passing ``DedupKey(key=None, ...)``.
         dedup_strategy: Strategy label carried through from the
             :class:`DedupKey` for log/observability purposes.
     """
@@ -88,9 +124,9 @@ async def _fire_and_log(
     run.
 
     Note for tests: this is the call-time seam. Monkey-patch
-    ``webhook_dispatch._fire_and_log`` to observe what would have been
+    ``webhook_runtime._fire_and_log`` to observe what would have been
     fired without actually running the task, or replace
-    ``webhook_dispatch.fire_webhook_task`` to stub the firing primitive
+    ``webhook_runtime.fire_webhook_task`` to stub the firing primitive
     one frame deeper.
     """
     try:

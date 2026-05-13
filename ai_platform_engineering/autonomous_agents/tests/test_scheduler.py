@@ -1,7 +1,7 @@
 # Copyright CNOE Contributors (https://cnoe.io)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for ``autonomous_agents.scheduler``.
+"""Tests for ``autonomous_agents.services.scheduler``.
 
 Covers RunStore wiring, the ChatHistoryPublisher fan-out, follow-up
 prompt augmentation and ``parent_run_id`` linking, and the
@@ -24,13 +24,13 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.scheduler import (
+from autonomous_agents.services.chat_history import _conversation_id_for_task
+from autonomous_agents.services.scheduler import (
     get_scheduler,
     register_task,
     register_tasks,
     unregister_task,
 )
-from autonomous_agents.services.chat_history import _conversation_id_for_task
 from autonomous_agents.services.task_runner import (
     _augment_prompt_for_followup,
     execute_task,
@@ -575,9 +575,13 @@ class TestFollowUp:
 
         assert run.status == TaskStatus.SUCCESS
         assert run.parent_run_id == "r-original"
+        assert run.request_prompt is not None
+        assert "please retry verbosely" in run.request_prompt
 
         persisted = (await store.list_all())[0]
         assert persisted.parent_run_id == "r-original"
+        assert persisted.request_prompt is not None
+        assert "please retry verbosely" in persisted.request_prompt
 
     async def test_execute_task_followup_passes_augmented_prompt_to_a2a(
         self, store: _DictRunStore, webhook_task: TaskDefinition
@@ -604,6 +608,30 @@ class TestFollowUp:
         assert captured["prompt"].startswith("Triage the inbound issue.")
         assert "Operator follow-up" in captured["prompt"]
         assert "extra context: it's a 500 not a 404" in captured["prompt"]
+
+    async def test_execute_task_followup_publishes_augmented_prompt_to_chat(
+        self,
+        store: _DictRunStore,
+        publisher: _RecordingPublisher,
+        webhook_task: TaskDefinition,
+    ):
+        """Chat history shows the Webex reply as a concise user-side prompt."""
+        follow_up = FollowUpContext(
+            parent_run_id="r-original",
+            user_text="webex says this is still failing",
+            user_ref="alice@example.com",
+            transport="webex",
+        )
+
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_agent_streaming",
+            new=AsyncMock(return_value=("ok", [])),
+        ):
+            await execute_task(webhook_task, context={}, follow_up=follow_up)
+
+        assert len(publisher.calls) == 1
+        published_prompt = publisher.calls[0]["prompt"]
+        assert published_prompt == "Webex Follow-up: webex says this is still failing"
 
     async def test_execute_task_followup_does_not_mutate_task_definition(
         self, store: _DictRunStore, webhook_task: TaskDefinition
@@ -668,7 +696,7 @@ def _job_task(
 @pytest.fixture
 async def _fresh_scheduler():
     """Reset the module-level APScheduler singleton, started paused."""
-    import autonomous_agents.scheduler as scheduler_mod
+    import autonomous_agents.services.scheduler as scheduler_mod
 
     scheduler_mod._scheduler = None
     sched = scheduler_mod.get_scheduler()

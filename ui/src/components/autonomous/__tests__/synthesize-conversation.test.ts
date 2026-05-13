@@ -12,7 +12,7 @@
 
 import { synthesizeConversationForTask } from "../synthesize-conversation";
 import { getAgentId } from "@/types/a2a";
-import type { AutonomousTask } from "../types";
+import type { AutonomousTask, TaskRun } from "../types";
 
 function baseTask(overrides: Partial<AutonomousTask> = {}): AutonomousTask {
   return {
@@ -26,6 +26,21 @@ function baseTask(overrides: Partial<AutonomousTask> = {}): AutonomousTask {
     enabled: true,
     timeout_seconds: null,
     max_retries: null,
+    ...overrides,
+  };
+}
+
+function baseRun(overrides: Partial<TaskRun> = {}): TaskRun {
+  return {
+    run_id: "run-1",
+    task_id: "t1",
+    task_name: "My scheduled thing",
+    status: "success",
+    started_at: "2026-05-13T10:00:00.000Z",
+    finished_at: "2026-05-13T10:01:00.000Z",
+    response_preview: "done",
+    response_full: "done",
+    events: [],
     ...overrides,
   };
 }
@@ -65,5 +80,31 @@ describe("synthesizeConversationForTask", () => {
     );
 
     expect(getAgentId(conv)).toBeUndefined();
+  });
+
+  it("renders follow-up runs as a concise user-facing prompt", () => {
+    const conv = synthesizeConversationForTask(
+      baseTask({ prompt: "base task prompt" }),
+      [
+        baseRun({
+          parent_run_id: "run-original",
+          request_prompt:
+            "base task prompt\n\nOperator follow-up (webex, from alice@example.com, in reply to run run-original):\nstill failing",
+        }),
+      ],
+    );
+
+    const request = conv.messages.find((m) => m.id === "run:run-1:request");
+    expect(request?.content).toBe("Webex Follow-up: still failing");
+  });
+
+  it("falls back to the task prompt for legacy runs without request_prompt", () => {
+    const conv = synthesizeConversationForTask(
+      baseTask({ prompt: "base task prompt" }),
+      [baseRun()],
+    );
+
+    const request = conv.messages.find((m) => m.id === "run:run-1:request");
+    expect(request?.content).toBe("base task prompt");
   });
 });

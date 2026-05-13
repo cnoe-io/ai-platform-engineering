@@ -36,19 +36,17 @@ from autonomous_agents.routes import webhooks as webhooks_route
 # Run-store and Webex thread-map singletons live in services.task_runner
 # after the scheduler/runner split; monkey-patch on the owning module.
 from autonomous_agents.services import task_runner as task_runner_module
-from autonomous_agents.services import webhook_adapters, webhook_registry
+from autonomous_agents.services import webhook_adapters, webhook_runtime
 
-# ``_fire_and_log`` and the ``get_mongo_service`` lookup both moved into
-# ``services.webhook_dispatch`` after the dispatch-extraction split.
-# Monkey-patching the route modules (``webex_route`` / ``webhooks_route``)
+# ``_fire_and_log`` and the ``get_mongo_service`` lookup live in
+# ``services.webhook_runtime``. Monkey-patching the route modules
 # would attach a dead attribute -- the actual call paths go through
 # this module's name bindings.
-from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
 from autonomous_agents.services.webex_threads import (
     InMemoryWebexThreadMap,
     WebexThreadEntry,
 )
-from autonomous_agents.services.webhook_registry import (
+from autonomous_agents.services.webhook_runtime import (
     register_webhook_task as _register,
 )
 
@@ -148,7 +146,7 @@ def app_and_state(monkeypatch):
     app.include_router(webex_route.router, prefix="/api/v1")
     app.include_router(webhooks_route.router, prefix="/api/v1")
 
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -169,10 +167,10 @@ def app_and_state(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(webhook_dispatch_module, "_fire_and_log", _fake_fire_and_log)
+    monkeypatch.setattr(webhook_runtime, "_fire_and_log", _fake_fire_and_log)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_runtime, "get_mongo_service", lambda: fake_mongo)
 
     fake_thread_map = InMemoryWebexThreadMap()
     monkeypatch.setattr(task_runner_module, "_webex_thread_map", fake_thread_map)
@@ -199,7 +197,7 @@ def app_and_state(monkeypatch):
         state["client"] = client
         yield state
 
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
     webex_route.set_webex_client(None)
     webex_route.set_bot_person_id(None)
     get_settings.cache_clear()
@@ -497,7 +495,7 @@ class TestForwardPath:
         """Thread map pointing at a deleted task returns 404."""
         state = app_and_state
         payload = _seed_forward(state)
-        webhook_registry._webhook_tasks.clear()
+        webhook_runtime._webhook_tasks.clear()
 
         resp = state["client"].post(
             "/api/v1/hooks/webex/events",

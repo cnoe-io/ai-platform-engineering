@@ -36,13 +36,11 @@ from autonomous_agents.routes.webhooks import (
     router as webhooks_router,
 )
 
-# ``fire_webhook_task`` is called from ``webhook_dispatch._fire_and_log``
-# after the dispatch-extraction split. Monkey-patching on the
-# webhooks_route module (the legacy target) would attach a dead
+# ``fire_webhook_task`` is called from ``webhook_runtime._fire_and_log``.
+# Monkey-patching on the webhooks route module would attach a dead
 # attribute -- the real call goes through this module's name binding.
-from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
-from autonomous_agents.services import webhook_registry
-from autonomous_agents.services.webhook_registry import (
+from autonomous_agents.services import webhook_runtime
+from autonomous_agents.services.webhook_runtime import (
     register_webhook_task as _register,
 )
 
@@ -139,7 +137,7 @@ def client(monkeypatch) -> TestClient:
     app = FastAPI()
     app.include_router(webhooks_router, prefix="/api/v1")
 
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -170,10 +168,10 @@ def client(monkeypatch) -> TestClient:
             trigger_instance_id=trigger_instance_id,
         )
 
-    monkeypatch.setattr(webhook_dispatch_module, "fire_webhook_task", _fake_fire)
+    monkeypatch.setattr(webhook_runtime, "fire_webhook_task", _fake_fire)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_runtime, "get_mongo_service", lambda: fake_mongo)
 
     runs = _FakeRunStore(
         [
@@ -199,7 +197,7 @@ def client(monkeypatch) -> TestClient:
         test_client.mongo = fake_mongo  # type: ignore[attr-defined]
         yield test_client
 
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
     get_settings.cache_clear()
 
 
@@ -212,13 +210,13 @@ def _set_settings(monkeypatch, **overrides: Any) -> Settings:
     return settings
 
 
-def test_webhook_registry_registers_into_lookup_table() -> None:
+def test_webhook_runtime_registers_into_lookup_table() -> None:
     """The webhook route resolves tasks from the service-owned registry."""
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
     task = _make_task()
     _register(task)
 
-    assert webhook_registry.get_webhook_task(task.id) is task
+    assert webhook_runtime.get_webhook_task(task.id) is task
 
 
 class TestInitialFireSecrets:
@@ -683,7 +681,7 @@ class TestInitialFireDeduplication:
             async def attach_run_to_trigger_instance(self, *_):
                 return None
 
-        monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: _BrokenMongo())
+        monkeypatch.setattr(webhook_runtime, "get_mongo_service", lambda: _BrokenMongo())
 
         body = b'{"x":1}'
         sig = _hex_sig("s", body)

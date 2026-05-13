@@ -136,6 +136,13 @@ export interface TaskRun {
    */
   parent_run_id?: string | null;
   /**
+   * Prompt materialised for this specific run. Follow-up runs include
+   * the inbound operator reply appended by the autonomous-agents
+   * service; legacy runs may omit this and should fall back to the
+   * task's current prompt.
+   */
+  request_prompt?: string | null;
+  /**
    * Deterministic UUID derived from ``run_id`` by the autonomous
    * service when chat-history publishing is enabled (IMP-13). Lets
    * the run-row UI deep-link straight to ``/chat/<conversation_id>``.

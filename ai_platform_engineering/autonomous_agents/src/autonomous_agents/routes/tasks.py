@@ -1,12 +1,9 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Task management endpoints -- CRUD, run history, manual trigger.
 
 The :class:`TaskStore` (MongoDB-backed in production, small in-file
 fakes in tests) is the single source of truth for task definitions.
 Every mutation here goes through the store first, then immediately
-re-syncs the APScheduler job and the webhook registry via the
+re-syncs the APScheduler job and the webhook runtime via the
 hot-reload helpers so changes take effect without a service restart.
 """
 
@@ -15,8 +12,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, status
 
-from autonomous_agents.models import TaskDefinition, TaskRun, WebhookTrigger
-from autonomous_agents.services.acknowledgement import Acknowledgement
+from autonomous_agents.models import Acknowledgement, TaskDefinition, TaskRun, WebhookTrigger
 from autonomous_agents.services.chat_history import _conversation_id_for_task
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
@@ -131,7 +127,7 @@ async def create_task(task: TaskDefinition) -> dict:
     """Create a new task definition.
 
     On success the task is immediately wired into the scheduler /
-    webhook registry. A 409 is returned for duplicate ids rather than
+    webhook runtime. A 409 is returned for duplicate ids rather than
     silently overwriting -- update goes through PUT.
 
     Runtime-sync errors (e.g. malformed cron expression that gets

@@ -44,8 +44,10 @@ from autonomous_agents.services.webhook_adapters import (
     WebhookAdapter,
     get_adapter,
 )
-from autonomous_agents.services.webhook_dispatch import dispatch_webhook_run
-from autonomous_agents.services.webhook_registry import get_webhook_task
+from autonomous_agents.services.webhook_runtime import (
+    dispatch_webhook_run,
+    get_webhook_task,
+)
 
 logger = logging.getLogger("autonomous_agents")
 router = APIRouter(tags=["webhooks"])

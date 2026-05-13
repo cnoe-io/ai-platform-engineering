@@ -192,6 +192,26 @@ function eventsForRun(run: TaskRun): A2AEvent[] {
   return out;
 }
 
+function requestContentForRun(task: AutonomousTask, run: TaskRun): string {
+  const prompt = run.request_prompt || task.prompt;
+  if (!run.parent_run_id || !run.request_prompt) return prompt;
+
+  const match = run.request_prompt.match(
+    /\n\nOperator follow-up \(([^,\n)]+)[^\n)]*\):\n([\s\S]*)$/,
+  );
+  if (!match) return prompt;
+
+  const transport = match[1] || "follow-up";
+  const message = (match[2] || "").trim();
+  if (!message) return prompt;
+
+  const label =
+    transport.length > 0
+      ? `${transport.charAt(0).toUpperCase()}${transport.slice(1)}`
+      : "Follow-up";
+  return `${label} Follow-up: ${message}`;
+}
+
 /**
  * Build the (run_request, run_response|run_error) pair for a single run.
  * Earliest run first.
@@ -207,7 +227,7 @@ function messagesForRun(task: AutonomousTask, run: TaskRun): ChatMessage[] {
   out.push({
     id: `run:${run.run_id}:request`,
     role: "user",
-    content: task.prompt,
+    content: requestContentForRun(task, run),
     timestamp: isoToDate(run.started_at),
     events: [],
     isFinal: true,

@@ -35,7 +35,7 @@ from typing import Any, Optional
 import httpx
 
 from autonomous_agents.config import get_settings
-from autonomous_agents.services.acknowledgement import Acknowledgement
+from autonomous_agents.models import Acknowledgement
 
 logger = logging.getLogger("autonomous_agents")
 

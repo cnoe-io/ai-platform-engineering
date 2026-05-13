@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from autonomous_agents.models import (
+    Acknowledgement,
     CronTrigger,
     TaskDefinition,
     TaskRun,
@@ -36,14 +37,13 @@ from autonomous_agents.routes.tasks import (
     get_task_runs,
     list_all_runs,
 )
-from autonomous_agents.scheduler import get_scheduler
-from autonomous_agents.services import task_lifecycle, webhook_registry
-from autonomous_agents.services.acknowledgement import Acknowledgement
+from autonomous_agents.services import task_lifecycle, webhook_runtime
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
     TaskStore,
 )
+from autonomous_agents.services.scheduler import get_scheduler
 from autonomous_agents.services.task_lifecycle import (
     _run_preflight_and_persist,
     set_task_store,
@@ -203,7 +203,7 @@ async def _seed_tasks(tasks: list[TaskDefinition]) -> None:
 @pytest.fixture
 def client():
     """FastAPI app with only the /tasks router and an in-file fake store + paused BackgroundScheduler."""
-    import autonomous_agents.scheduler as scheduler_mod
+    import autonomous_agents.services.scheduler as scheduler_mod
 
     scheduler_mod._scheduler = BackgroundScheduler(timezone="UTC")
     scheduler_mod._scheduler.start(paused=True)
@@ -216,7 +216,7 @@ def client():
     set_task_store(_DictTaskStore())
     # ``.clear()`` (not reassignment) preserves any references held by
     # route modules while emptying the service-owned registry.
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
 
     app = FastAPI()
     app.include_router(tasks_route.router, prefix="/api/v1")
@@ -229,7 +229,7 @@ def client():
     scheduler_mod._scheduler = None
     # Same module-ownership rationale as ``_reset_router_state``.
     task_lifecycle._task_store = None
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
 
 
 class TestListAndGet:
@@ -274,7 +274,7 @@ class TestCreate:
         """Webhook tasks land in the webhook registry, not in APScheduler."""
         client.post("/api/v1/tasks", json=_webhook_task("hook1"))
 
-        assert "hook1" in webhook_registry._webhook_tasks
+        assert "hook1" in webhook_runtime._webhook_tasks
         assert get_scheduler().get_jobs() == []
 
     def test_with_disabled_flag_skips_scheduler(self, client: TestClient):
@@ -364,18 +364,18 @@ class TestUpdate:
         assert response.status_code == 200
 
         assert get_scheduler().get_jobs() == []
-        assert "t1" in webhook_registry._webhook_tasks
+        assert "t1" in webhook_runtime._webhook_tasks
 
     def test_swap_from_webhook_to_cron_detaches_webhook(self, client: TestClient):
         """Webhook => cron swap removes the prior webhook registration."""
         client.post("/api/v1/tasks", json=_webhook_task("t1"))
-        assert "t1" in webhook_registry._webhook_tasks
+        assert "t1" in webhook_runtime._webhook_tasks
 
         swap = _cron_task("t1")
         response = client.put("/api/v1/tasks/t1", json=swap)
         assert response.status_code == 200
 
-        assert "t1" not in webhook_registry._webhook_tasks
+        assert "t1" not in webhook_runtime._webhook_tasks
         assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
 
     def test_404_for_unknown_id(self, client: TestClient):
@@ -507,11 +507,11 @@ class TestDelete:
     def test_removes_webhook_registration(self, client: TestClient):
         """DELETE removes the webhook registry entry."""
         client.post("/api/v1/tasks", json=_webhook_task("hook1"))
-        assert "hook1" in webhook_registry._webhook_tasks
+        assert "hook1" in webhook_runtime._webhook_tasks
 
         response = client.delete("/api/v1/tasks/hook1")
         assert response.status_code == 204
-        assert "hook1" not in webhook_registry._webhook_tasks
+        assert "hook1" not in webhook_runtime._webhook_tasks
 
     def test_404_for_unknown_id(self, client: TestClient):
         """DELETE on unknown id returns 404."""

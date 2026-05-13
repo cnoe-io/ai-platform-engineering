@@ -36,8 +36,8 @@ from typing import Any
 import httpx
 
 from autonomous_agents.config import get_settings
+from autonomous_agents.models import Acknowledgement
 from autonomous_agents.services.a2a_client import build_prompt_with_routing
-from autonomous_agents.services.acknowledgement import Acknowledgement
 
 logger = logging.getLogger("autonomous_agents")
 

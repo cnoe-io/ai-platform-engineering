@@ -15,6 +15,7 @@ imports.
 """
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -40,6 +41,10 @@ from autonomous_agents.services.webex_threads import (
 )
 
 logger = logging.getLogger("autonomous_agents")
+
+_FOLLOW_UP_PROMPT_RE = re.compile(
+    r"\n\nOperator follow-up \((?P<transport>[^,\n)]+)[^\n)]*\):\n(?P<message>[\s\S]*)$"
+)
 
 _run_store: RunStore | None = None
 _chat_history_publisher: ChatHistoryPublisher | None = None
@@ -291,6 +296,17 @@ async def execute_task(
     # as the run appears, even before the terminal state is recorded.
     # Spec #099 FR-006 / AD-002: one chat thread per task, not per run.
     conversation_id = _conversation_id_for_task(task.id)
+    # Materialise the prompt the agent will actually see. For follow-up
+    # runs we splice the operator reply into a clearly-labelled section
+    # so the LLM treats it as new instructions rather than confusing it
+    # with the original webhook payload context. The original task
+    # definition is left untouched (we work off a model_copy) so this
+    # has no persistence side-effects.
+    effective_task = (
+        task.model_copy(update={"prompt": _augment_prompt_for_followup(task.prompt, follow_up)})
+        if follow_up is not None
+        else task
+    )
     run = TaskRun(
         run_id=run_id,
         task_id=task.id,
@@ -298,6 +314,7 @@ async def execute_task(
         status=TaskStatus.RUNNING,
         conversation_id=conversation_id,
         parent_run_id=follow_up.parent_run_id if follow_up else None,
+        request_prompt=effective_task.prompt,
         trigger_instance_id=trigger_instance_id,
     )
 
@@ -315,17 +332,6 @@ async def execute_task(
     )
     response_text: str | None = None
     error_text: str | None = None
-    # Materialise the prompt the agent will actually see. For follow-up
-    # runs we splice the operator reply into a clearly-labelled section
-    # so the LLM treats it as new instructions rather than confusing it
-    # with the original webhook payload context. The original task
-    # definition is left untouched (we work off a model_copy) so this
-    # has no persistence side-effects.
-    effective_task = (
-        task.model_copy(update={"prompt": _augment_prompt_for_followup(task.prompt, follow_up)})
-        if follow_up is not None
-        else task
-    )
     try:
         if effective_task.dynamic_agent_id:
             # Custom (dynamic) agent path: invoke the dynamic-agents
@@ -393,7 +399,7 @@ async def execute_task(
         await _publish_safely(
             get_chat_history_publisher(),
             run,
-            task,
+            effective_task,
             context,
             response=response_text,
             error=error_text,
@@ -473,15 +479,17 @@ def _prompt_for_publish(
     when the operator explicitly opts in via
     ``CHAT_HISTORY_INCLUDE_CONTEXT=true``.
     """
+    display_prompt = _display_prompt_for_chat(task.prompt)
+
     if not context:
-        return task.prompt
+        return display_prompt
 
     # Deferred import keeps task_runner.py importable in unit tests
     # that never wire up Settings. Do NOT hoist to module top.
     from autonomous_agents.config import get_settings
 
     if not get_settings().chat_history_include_context:
-        return f"{task.prompt}\n\nContext: <redacted {len(context)} keys>"
+        return f"{display_prompt}\n\nContext: <redacted {len(context)} keys>"
 
     import json as _json
 
@@ -489,7 +497,22 @@ def _prompt_for_publish(
         rendered = _json.dumps(context, indent=2, default=str)
     except (TypeError, ValueError):
         rendered = f"<unserialisable context: {len(context)} keys>"
-    return f"{task.prompt}\n\nContext:\n{rendered}"
+    return f"{display_prompt}\n\nContext:\n{rendered}"
+
+
+def _display_prompt_for_chat(prompt: str) -> str:
+    """Render follow-up prompts tersely for the user-side chat bubble."""
+    match = _FOLLOW_UP_PROMPT_RE.search(prompt)
+    if match is None:
+        return prompt
+
+    transport = match.group("transport") or "follow-up"
+    message = (match.group("message") or "").strip()
+    if not message:
+        return prompt
+
+    label = f"{transport[:1].upper()}{transport[1:]}" if transport else "Follow-up"
+    return f"{label} Follow-up: {message}"
 
 
 async def fire_webhook_task(
@@ -512,7 +535,7 @@ async def fire_webhook_task(
 
     .. deprecated::
         After the PR2 webhook-dispatch extraction, ``_fire_and_log`` in
-        ``services.webhook_dispatch`` calls :func:`execute_task` directly
+        ``services.webhook_runtime`` calls :func:`execute_task` directly
         and this wrapper exists only for backwards-compat with the
         ``test_scheduler.py`` import. Slated for removal in a follow-up
         once that test is updated.

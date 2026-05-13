@@ -51,8 +51,10 @@ from autonomous_agents.services.webex_inbound import (
     dispatch_message_event,
 )
 from autonomous_agents.services.webhook_adapters import get_adapter
-from autonomous_agents.services.webhook_dispatch import dispatch_webhook_run
-from autonomous_agents.services.webhook_registry import get_webhook_task
+from autonomous_agents.services.webhook_runtime import (
+    dispatch_webhook_run,
+    get_webhook_task,
+)
 
 logger = logging.getLogger("autonomous_agents")
 router = APIRouter(tags=["webex"])
@@ -206,7 +208,7 @@ async def receive_webex_event(
 
     # ---- Resolve the task --------------------------------------------
     # ``register_webhook_task`` registers tasks in the in-memory
-    # ``services.webhook_registry`` keyed by id. This fan-in route
+    # ``services.webhook_runtime`` keyed by id. This fan-in route
     # resolves the task at request time via the thread map. We pull the
     # TaskDefinition from the same registry so a disabled task doesn't
     # fire (the registry is the source of truth for "is this task

@@ -17,8 +17,8 @@ import httpx
 import pytest
 
 from autonomous_agents.config import Settings, get_settings
+from autonomous_agents.models import Acknowledgement
 from autonomous_agents.services import supervisor_preflight as pf_mod
-from autonomous_agents.services.acknowledgement import Acknowledgement
 from autonomous_agents.services.supervisor_preflight import (
     PREFLIGHT_TIMEOUT_SECONDS_DEFAULT,
     _extract_ack_payload,

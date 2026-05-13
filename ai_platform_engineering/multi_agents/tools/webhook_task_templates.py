@@ -25,7 +25,7 @@ Design principles:
 * Each template explicitly tells the LLM-at-task-runtime which
   webhook payload fields to read (issue.number, issue.title, etc.)
   so the prompt works with ``Context:`` as appended by
-  :func:`autonomous_agents.scheduler._prompt_for_publish`.
+  :func:`autonomous_agents.services.task_runner._prompt_for_publish`.
 * Templates are ordered: tell the user something FIRST (fast feedback
   on Webex), investigate SECOND (can take time), report THIRD. This
   is the actual UX feedback from the spec #099 pilot round.

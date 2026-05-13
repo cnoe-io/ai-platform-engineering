@@ -32,13 +32,11 @@ from autonomous_agents.models import (
 )
 from autonomous_agents.routes import webhooks as webhooks_route
 from autonomous_agents.routes.webhooks import router as webhooks_router
-from autonomous_agents.services import webhook_adapters, webhook_registry
+from autonomous_agents.services import webhook_adapters, webhook_runtime
 
-# After the dispatch-extraction split, ``fire_webhook_task`` is called
-# from ``webhook_dispatch._fire_and_log`` -- patch the live binding
-# there rather than the legacy attribute on the route module.
-from autonomous_agents.services import webhook_dispatch as webhook_dispatch_module
-from autonomous_agents.services.webhook_registry import (
+# ``fire_webhook_task`` is called from ``webhook_runtime._fire_and_log``;
+# patch the live binding there rather than the route module.
+from autonomous_agents.services.webhook_runtime import (
     register_webhook_task as _register,
 )
 
@@ -96,7 +94,7 @@ def client(monkeypatch) -> TestClient:
 
     app = FastAPI()
     app.include_router(webhooks_router, prefix="/api/v1")
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
 
     captured: dict[str, Any] = {"calls": []}
 
@@ -125,17 +123,17 @@ def client(monkeypatch) -> TestClient:
             trigger_instance_id=trigger_instance_id,
         )
 
-    monkeypatch.setattr(webhook_dispatch_module, "fire_webhook_task", _fake_fire)
+    monkeypatch.setattr(webhook_runtime, "fire_webhook_task", _fake_fire)
 
     fake_mongo = _FakeMongoService()
-    monkeypatch.setattr(webhook_dispatch_module, "get_mongo_service", lambda: fake_mongo)
+    monkeypatch.setattr(webhook_runtime, "get_mongo_service", lambda: fake_mongo)
 
     with TestClient(app) as test_client:
         test_client.captured = captured  # type: ignore[attr-defined]
         test_client.mongo = fake_mongo  # type: ignore[attr-defined]
         yield test_client
 
-    webhook_registry._webhook_tasks.clear()
+    webhook_runtime._webhook_tasks.clear()
     get_settings.cache_clear()
 
 
