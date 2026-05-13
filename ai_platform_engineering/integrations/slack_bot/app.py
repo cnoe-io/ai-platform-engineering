@@ -760,9 +760,11 @@ def handle_message_events(body, say, client):
 
   channel_config = config.channels[channel_id]
 
-  # Skip threaded user replies (handled by @mention); bots can post in threads
+  # Skip all thread replies — root messages are the trigger, thread history is
+  # fetched as context when processing. Responding to each reply causes duplicate
+  # invocations when a bot posts multiple follow-ups in its own thread.
   is_thread = event.get("thread_ts") is not None
-  if is_thread and not is_bot:
+  if is_thread:
     return
 
   # Skip @mentions — handled by handle_mention
