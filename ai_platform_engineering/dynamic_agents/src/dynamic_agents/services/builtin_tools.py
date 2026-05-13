@@ -6,6 +6,8 @@ configured per-agent with access controls (e.g., domain restrictions).
 
 import json
 import logging
+import shlex
+import subprocess
 from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
@@ -40,6 +42,32 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                         "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
                     ),
                     default="*",
+                    required=False,
+                ),
+            ],
+        ),
+        BuiltinToolDefinition(
+            id="curl",
+            name="Curl",
+            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs. WARNING: enabling this tool allows the agent to make write requests (PUT/PATCH/DELETE) that may modify or delete data.",
+            enabled_by_default=False,
+            config_fields=[
+                BuiltinToolConfigField(
+                    name="allowed_domains",
+                    type="string",
+                    label="Allowed Domains",
+                    description=(
+                        "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
+                    ),
+                    default="*",
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="https_only",
+                    type="boolean",
+                    label="HTTPS Only",
+                    description="If enabled (default), reject non-https:// URLs.",
+                    default=True,
                     required=False,
                 ),
             ],
@@ -239,6 +267,138 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
         return _fetch_url_content(url, format, timeout)
 
     return fetch_url
+
+
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
+    """Create a curl tool with domain restrictions.
+
+    Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
+    when agents need to call write APIs that fetch_url cannot handle.
+
+    Args:
+        allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
+        https_only: If True (default), reject non-https URLs.
+
+    Returns:
+        A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
+    """
+    CURL_TIMEOUT = 300
+
+    @tool
+    def curl(
+        command: str,
+        thought: str = "",
+        timeout: int = CURL_TIMEOUT,
+        strip_html: bool = False,
+    ) -> str:
+        """Execute an HTTP request via curl (https:// only).
+
+        Use this for all HTTP operations that require a method other than GET,
+        or when you need fine-grained control over headers and request body:
+        POST, PUT, PATCH, DELETE, and file downloads.
+
+        Args:
+            command: Curl command to run (e.g., "curl -s -X PUT https://api.example.com/resource -d '{}'")
+            thought: Brief reasoning for why you're making this request
+            timeout: Command timeout in seconds (default: 300)
+            strip_html: If True, strip HTML tags and return plain text
+
+        Returns:
+            Command output as string, or "ERROR: <message>" on failure.
+
+        Examples:
+            # PUT request with JSON body
+            curl("curl -s -X PUT https://api.example.com/resource -H 'Content-Type: application/json' -d '{\"status\":\"done\"}'")
+
+            # POST with auth header
+            curl("curl -s -X POST https://api.example.com/items -H 'Authorization: Bearer TOKEN' -d '{\"name\":\"test\"}'")
+
+            # GET request (alternative to fetch_url)
+            curl("curl -s https://api.example.com/data")
+        """
+        try:
+            args = shlex.split(command)
+        except ValueError as e:
+            return f"ERROR: Failed to parse command: {e}"
+
+        if not args or args[0] != "curl":
+            args = ["curl"] + args
+
+        # Enforce https-only (configurable)
+        if https_only:
+            for token in args[1:]:
+                if "://" in token and not token.startswith("https://"):
+                    scheme = token.split("://")[0] + "://"
+                    msg = (
+                        f"The URL scheme '{scheme}' is not supported.\n\n"
+                        "**Only `https://` URLs are allowed.**\n\n"
+                        f"Please use an `https://` endpoint instead of `{token.split('?')[0]}`."
+                    )
+                    logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
+                    return msg
+
+        # Check domain ACL (same logic as fetch_url)
+        for token in args[1:]:
+            if token.startswith("https://"):
+                try:
+                    parsed = urlparse(token)
+                    domain = parsed.netloc.lower()
+                    if ":" in domain:
+                        domain = domain.split(":")[0]
+                    is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
+                    if not is_allowed:
+                        logger.warning(f"curl domain blocked: {domain} (patterns: {allowed_domains})")
+                        return f"ERROR: {error_msg}"
+                except Exception as e:
+                    return f"ERROR: Failed to parse URL: {e}"
+                break
+
+        # Detect write method for post-execution warning
+        write_method = None
+        args_upper = [a.upper() for a in args]
+        for flag in ("-X", "--request"):
+            if flag.upper() in args_upper:
+                idx = args_upper.index(flag.upper())
+                if idx + 1 < len(args_upper):
+                    method = args_upper[idx + 1]
+                    if method in ("PUT", "PATCH", "DELETE"):
+                        write_method = method
+                        break
+
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+            output = result.stdout
+            if result.stderr:
+                output = (output + "\n" + result.stderr) if output else result.stderr
+            if result.returncode != 0:
+                return f"ERROR: {output}" if output else "ERROR: Command failed"
+            if not output:
+                output = "Success (no output)"
+            if write_method:
+                output = (
+                    f"⚠️ WARNING: This request used {write_method}, which may have modified or deleted server-side data. "
+                    "Verify the result carefully before proceeding.\n\n"
+                ) + output
+            if strip_html:
+                try:
+                    soup = BeautifulSoup(output, "html.parser")
+                    for tag in soup(["script", "style"]):
+                        tag.decompose()
+                    return soup.get_text(separator="\n", strip=True)
+                except Exception:
+                    pass
+            return output
+        except subprocess.TimeoutExpired:
+            logger.warning(f"curl timed out after {timeout}s: {command[:100]}")
+            return f"ERROR: Command timed out after {timeout} seconds"
+        except FileNotFoundError:
+            logger.error("curl binary not found — ensure curl is installed in the container")
+            return "ERROR: curl command not found — ensure curl is installed"
+        except Exception as e:
+            logger.error(f"curl unexpected error: {e}")
+            return f"ERROR: {e}"
+
+    return curl
 
 
 def create_current_datetime_tool():
@@ -635,6 +795,7 @@ def create_format_file_tool(store, namespace_factory):
 
 __all__ = [
     "create_fetch_url_tool",
+    "create_curl_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",
     "create_wait_tool",
