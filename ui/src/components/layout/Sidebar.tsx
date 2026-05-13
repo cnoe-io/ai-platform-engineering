@@ -47,6 +47,16 @@ interface SidebarProps {
   onUseCaseSaved?: () => void;
 }
 
+function getScheduleId(conv: Conversation): string | null {
+  const scheduleId = conv.metadata?.schedule_id;
+  if (typeof scheduleId === "string" && scheduleId.trim()) {
+    return scheduleId.trim();
+  }
+
+  const legacyMatch = conv.id.match(/sched_[a-z0-9]+/i);
+  return legacyMatch?.[0] ?? null;
+}
+
 export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
   const router = useRouter();
   const {
@@ -191,6 +201,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           streamEvents: [], // Stream events for Dynamic Agents
           a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
+          metadata: conversation.metadata,
         };
 
         // Update store and wait for it to propagate
@@ -366,6 +377,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
+                  const scheduleId = getScheduleId(conv);
 
                   return (
                   <div
@@ -452,6 +464,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
+                            {scheduleId && (
+                              <span
+                                className="shrink-0 max-w-[132px] truncate rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-cyan-700 dark:text-cyan-300"
+                                title={`Scheduled run ${scheduleId}`}
+                              >
+                                {truncateText(scheduleId, sidebarWidth > 350 ? 24 : 18)}
+                              </span>
+                            )}
                             {isShared && (
                               <TooltipProvider>
                                 <Tooltip>

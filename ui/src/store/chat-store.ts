@@ -937,6 +937,7 @@ const storeImplementation = (set: any, get: any) => ({
               participants: conv.participants || [],
               owner_id: conv.owner_id,
               sharing: conv.sharing,
+              metadata: conv.metadata,
             };
           });
 

@@ -6,16 +6,17 @@
  * caller is.  DA never validates JWTs directly — the Next.js gateway is
  * the auth boundary.
  *
- * Auth methods (tried in order):
- *   1. Bearer token — validated against OIDC JWKS (service clients).
- *   2. Session cookie — resolved via NextAuth (browser UI).
- *   3. Anonymous fallback — only when SSO is disabled (local dev).
+ * Auth methods:
+ *   1. Browser UI requests use the NextAuth session cookie first, even if
+ *      the browser also sent an OIDC access token.
+ *   2. Service/non-browser callers use Bearer token auth when present.
+ *   3. Anonymous fallback is only allowed when SSO is disabled (local dev).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { getServerConfig } from "@/lib/config";
-import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { getAuthenticatedUser, getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -96,7 +97,7 @@ export async function authenticateRequest(
   const path = request.nextUrl.pathname;
   const clientSource = request.headers.get("X-Client-Source") ?? "browser";
   const hasBearer = request.headers.has("Authorization");
-  const authMethod = hasBearer ? "bearer" : "session";
+  let authMethod = hasBearer ? "bearer" : "session";
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? request.headers.get("x-real-ip")
     ?? "unknown";
@@ -106,7 +107,25 @@ export async function authenticateRequest(
   if (schedulerAuth) return schedulerAuth;
 
   try {
-    const { user, session } = await getAuthFromBearerOrSession(request);
+    let auth = null as Awaited<ReturnType<typeof getAuthFromBearerOrSession>> | null;
+
+    if (clientSource === "browser") {
+      try {
+        auth = await getAuthenticatedUser(request, {
+          allowAnonymous: !getServerConfig().ssoEnabled,
+        });
+        authMethod = "session";
+      } catch {
+        auth = null;
+      }
+    }
+
+    if (!auth) {
+      auth = await getAuthFromBearerOrSession(request);
+      authMethod = hasBearer ? "bearer" : "session";
+    }
+
+    const { user, session } = auth;
 
     console.log(
       `[gateway] ${method} ${path} — auth=${authMethod} user=${user.email} role=${user.role} client=${clientSource} ip=${ip} ua=${ua}`,

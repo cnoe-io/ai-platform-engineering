@@ -203,6 +203,9 @@ export function ChatContainer() {
               streamEvents: [],
               a2aEvents: [],
               participants: conv.participants || [],
+              owner_id: conv.owner_id,
+              sharing: conv.sharing,
+              metadata: conv.metadata,
             };
 
             useChatStore.setState((state) => ({

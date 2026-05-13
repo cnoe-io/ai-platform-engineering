@@ -9,6 +9,7 @@ daemon; it exits after a single attempt.
 SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
                 ──▶ exit 0 without chat if schedule.enabled is false
                 ──▶ POST <CAIPE_API_URL><CAIPE_CHAT_PATH>  (as schedule.owner_user_id)
+                    gateway creates a Web UI conversation for History
                 ──▶ POST scheduler-svc/v1/schedules/<id>/runs  (status report)
 ```
 
@@ -27,10 +28,17 @@ SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
 
 ## Chat API contract
 
-The runner POSTs `{ agent_id, message, conversation_id, owner_user_id, pod_id? }`
-with `Authorization: Bearer <CAIPE_API_TOKEN>`, `X-Scheduler-Token:
-<SCHEDULER_SERVICE_TOKEN>`, and `X-CAIPE-User: <owner_user_id>`.
+The runner POSTs `{ agent_id, message, conversation_id, owner_user_id, trace_id,
+client_context, pod_id? }` with `Authorization: Bearer <CAIPE_API_TOKEN>`,
+`X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`, and `X-CAIPE-User:
+<owner_user_id>`.
 
 The Next.js gateway only trusts `X-CAIPE-User` when `X-Scheduler-Token`
 matches its configured `SCHEDULER_SERVICE_TOKEN`; it then injects the
 gateway-trusted `X-User-Context` header for Dynamic Agents.
+
+For scheduler-authenticated requests, the gateway rewrites the generated
+`scheduled-...` runner conversation id to a server UUID, upserts a normal
+Web UI conversation owned by `owner_user_id`, persists the user/assistant
+messages returned by invoke, and stores `client_context.schedule_id` in
+conversation metadata so the UI History list can label the run.
