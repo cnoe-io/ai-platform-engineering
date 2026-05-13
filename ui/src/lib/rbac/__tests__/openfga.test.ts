@@ -1,8 +1,11 @@
 import {
   buildTeamResourceTupleDiff,
+  buildUniversalRebacTupleDiff,
+  checkUniversalRebacRelationship,
   isOpenFgaReconciliationEnabled,
   readOpenFgaTuples,
   writeOpenFgaTupleDiff,
+  writeUniversalRebacTupleDiff,
 } from "../openfga";
 
 describe("OpenFGA team resource tuple reconciliation", () => {
@@ -123,6 +126,99 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
       page_size: 100,
+    });
+  });
+
+  it("builds universal relationship tuple diffs without changing the wire format", () => {
+    expect(
+      buildUniversalRebacTupleDiff({
+        writes: [
+          {
+            subject: { type: "team", id: "platform", relation: "member" },
+            action: "call",
+            resource: { type: "tool", id: "argocd" },
+          },
+        ],
+        deletes: [
+          {
+            subject: { type: "team", id: "platform", relation: "member" },
+            action: "use",
+            resource: { type: "agent", id: "legacy-agent" },
+          },
+        ],
+      })
+    ).toEqual({
+      writes: [{ user: "team:platform#member", relation: "can_call", object: "tool:argocd" }],
+      deletes: [{ user: "team:platform#member", relation: "can_use", object: "agent:legacy-agent" }],
+    });
+  });
+
+  it("checks universal relationships through the OpenFGA check endpoint", async () => {
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ allowed: true }) });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      checkUniversalRebacRelationship({
+        subject: { type: "user", id: "alice-sub" },
+        action: "read",
+        resource: { type: "knowledge_base", id: "platform-runbooks" },
+      })
+    ).resolves.toEqual({ allowed: true });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      tuple_key: {
+        user: "user:alice-sub",
+        relation: "can_read",
+        object: "knowledge_base:platform-runbooks",
+      },
+    });
+  });
+
+  it("writes universal relationship tuple diffs through reconciliation", async () => {
+    process.env.OPENFGA_RECONCILE_ENABLED = "true";
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ allowed: false }) })
+      .mockResolvedValueOnce({ ok: true, text: async () => "" });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      writeUniversalRebacTupleDiff({
+        writes: [
+          {
+            subject: { type: "team", id: "platform", relation: "member" },
+            action: "use",
+            resource: { type: "agent", id: "platform-engineer" },
+          },
+        ],
+        deletes: [],
+      })
+    ).resolves.toEqual({ enabled: true, writes: 1, deletes: 0 });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      writes: {
+        tuple_keys: [
+          {
+            user: "team:platform#member",
+            relation: "can_use",
+            object: "agent:platform-engineer",
+          },
+        ],
+      },
     });
   });
 });

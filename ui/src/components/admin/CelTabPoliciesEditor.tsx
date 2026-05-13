@@ -39,7 +39,6 @@ const TAB_LABELS: Record<string, string> = {
   audit_logs: "Audit Logs",
   action_audit: "Action Audit",
   policy: "Policy",
-  ag_policies: "AG MCP Policies",
   openfga: "OpenFGA ReBAC",
 };
 

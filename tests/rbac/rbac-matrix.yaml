@@ -75,6 +75,217 @@ routes:
       frank_service_account:
         status: 403
         reason: DENY_NO_CAPABILITY
+
+  # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
+  # added as pending until the corresponding user-story endpoints land.
+  - id: ui-bff-get-api-admin-identity-group-sync-providers
+    surface: ui_bff
+    method: GET
+    path: /api/admin/identity-group-sync/providers
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for identity provider health/list.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-identity-group-sync-apply
+    surface: ui_bff
+    method: POST
+    path: /api/admin/identity-group-sync/apply
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate; dry-run/review gates are enforced by route logic.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-catalog
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/catalog
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Universal ReBAC resource catalog endpoint for policy authoring.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-enforcement-status
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/enforcement-status
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Universal ReBAC enforcement-status endpoint for transition visibility.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-rebac-change-sets
+    surface: ui_bff
+    method: POST
+    path: /api/admin/rebac/change-sets
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for staged ReBAC policy change-set creation.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-slack-channels
+    surface: ui_bff
+    method: GET
+    path: /api/admin/slack/channels
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel ReBAC listing.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-slack-channels-resources
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/slack/channels/[workspaceId]/[channelId]/resources
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel multi-resource grants.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-rbac-enforcement-comparison
+    surface: ui_bff
+    method: POST
+    path: /api/rbac/enforcement-comparison
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Compares transitional Keycloak realm role decisions against ReBAC decisions.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
 # >>> generated by scripts/generate-rbac-matrix-us1.py — DO NOT EDIT
   - id: ui-bff-get-api-admin-users-stats
     surface: ui_bff
@@ -83,7 +294,7 @@ routes:
     resource: admin_ui
     scope: view
     migration_status: migrated
-    notes: Already migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -134,8 +345,8 @@ routes:
     path: /api/admin/stats/skills
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -160,8 +371,8 @@ routes:
     path: /api/admin/stats/checkpoints
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -186,8 +397,8 @@ routes:
     path: /api/admin/users
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -212,8 +423,8 @@ routes:
     path: /api/admin/users/[id]
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -238,8 +449,8 @@ routes:
     path: /api/admin/users/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -264,8 +475,8 @@ routes:
     path: /api/admin/users/[id]/teams
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -290,8 +501,8 @@ routes:
     path: /api/admin/users/[id]/teams
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -316,8 +527,8 @@ routes:
     path: /api/admin/users/[id]/roles
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -342,8 +553,8 @@ routes:
     path: /api/admin/users/[id]/roles
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -369,7 +580,7 @@ routes:
     resource: admin_ui
     scope: admin
     migration_status: migrated
-    notes: Legacy Mongo role; TODO migrate
+    notes: Legacy Mongo role; dual-auth admin_ui#admin PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -420,8 +631,8 @@ routes:
     path: /api/admin/teams/[id]
     resource: team
     scope: view
-    migration_status: pending
-    notes: Migrate to team#view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for team detail
     expectations:
       alice_admin:
         status: 200
@@ -446,8 +657,8 @@ routes:
     path: /api/admin/teams/[id]
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team updates
     expectations:
       alice_admin:
         status: 200
@@ -472,8 +683,8 @@ routes:
     path: /api/admin/teams/[id]
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team deletion
     expectations:
       alice_admin:
         status: 200
@@ -498,8 +709,8 @@ routes:
     path: /api/admin/teams/[id]/roles
     resource: team
     scope: view
-    migration_status: pending
-    notes: Migrate to team#view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for team role listing
     expectations:
       alice_admin:
         status: 200
@@ -524,8 +735,8 @@ routes:
     path: /api/admin/teams/[id]/roles
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team role assignment
     expectations:
       alice_admin:
         status: 200
@@ -550,8 +761,8 @@ routes:
     path: /api/admin/teams/[id]/members
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team member addition
     expectations:
       alice_admin:
         status: 200
@@ -576,8 +787,8 @@ routes:
     path: /api/admin/teams/[id]/members
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for team member removal
     expectations:
       alice_admin:
         status: 200
@@ -602,8 +813,8 @@ routes:
     path: /api/admin/teams/[id]/kb-assignments
     resource: team
     scope: view
-    migration_status: pending
-    notes: Migrate to team#view
+    migration_status: migrated
+    notes: dual-auth team#view PDP gate for KB assignment reads
     expectations:
       alice_admin:
         status: 200
@@ -628,8 +839,8 @@ routes:
     path: /api/admin/teams/[id]/kb-assignments
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for KB assignment updates
     expectations:
       alice_admin:
         status: 200
@@ -654,8 +865,8 @@ routes:
     path: /api/admin/teams/[id]/kb-assignments
     resource: team
     scope: manage
-    migration_status: pending
-    notes: Migrate to team#manage
+    migration_status: migrated
+    notes: dual-auth team#manage PDP gate for KB assignment deletion
     expectations:
       alice_admin:
         status: 200
@@ -680,8 +891,8 @@ routes:
     path: /api/admin/slack/users
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit log listing
     expectations:
       alice_admin:
         status: 200
@@ -706,8 +917,8 @@ routes:
     path: /api/admin/slack/users/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit owner search
     expectations:
       alice_admin:
         status: 200
@@ -732,8 +943,8 @@ routes:
     path: /api/admin/slack/users/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit CSV export
     expectations:
       alice_admin:
         status: 200
@@ -758,8 +969,8 @@ routes:
     path: /api/admin/slack/channel-mappings
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#audit.view PDP gate for audit conversation messages
     expectations:
       alice_admin:
         status: 200
@@ -784,8 +995,8 @@ routes:
     path: /api/admin/slack/channel-mappings
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack linked user administration
     expectations:
       alice_admin:
         status: 200
@@ -810,8 +1021,8 @@ routes:
     path: /api/admin/slack/channel-mappings
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack user relink URL generation
     expectations:
       alice_admin:
         status: 200
@@ -836,8 +1047,8 @@ routes:
     path: /api/admin/roles
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack user unlink
     expectations:
       alice_admin:
         status: 200
@@ -862,8 +1073,8 @@ routes:
     path: /api/admin/roles
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Slack channel mapping listing
     expectations:
       alice_admin:
         status: 200
@@ -888,8 +1099,8 @@ routes:
     path: /api/admin/roles/[name]
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel mapping creation
     expectations:
       alice_admin:
         status: 200
@@ -914,8 +1125,8 @@ routes:
     path: /api/admin/roles/[name]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Slack channel mapping deactivation
     expectations:
       alice_admin:
         status: 200
@@ -940,8 +1151,8 @@ routes:
     path: /api/admin/role-mappings
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Keycloak realm role listing
     expectations:
       alice_admin:
         status: 200
@@ -966,8 +1177,8 @@ routes:
     path: /api/admin/role-mappings
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Keycloak realm role creation
     expectations:
       alice_admin:
         status: 200
@@ -992,8 +1203,8 @@ routes:
     path: /api/admin/role-mappings/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for Keycloak realm role detail
     expectations:
       alice_admin:
         status: 200
@@ -1070,8 +1281,8 @@ routes:
     path: /api/admin/audit-logs
     resource: admin_ui
     scope: audit.view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for Keycloak realm role deletion
     expectations:
       alice_admin:
         status: 200
@@ -1096,8 +1307,8 @@ routes:
     path: /api/admin/audit-logs/owners
     resource: admin_ui
     scope: audit.view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for IdP role mapping listing
     expectations:
       alice_admin:
         status: 200
@@ -1122,8 +1333,8 @@ routes:
     path: /api/admin/audit-logs/export
     resource: admin_ui
     scope: audit.view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for IdP role mapping creation
     expectations:
       alice_admin:
         status: 200
@@ -1148,8 +1359,8 @@ routes:
     path: /api/admin/audit-logs/[id]/messages
     resource: admin_ui
     scope: audit.view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for IdP role mapping deletion
     expectations:
       alice_admin:
         status: 200
@@ -1174,8 +1385,8 @@ routes:
     path: /api/admin/nps
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate (currently withAuth)
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for NPS analytics
     expectations:
       alice_admin:
         status: 200
@@ -1200,8 +1411,8 @@ routes:
     path: /api/admin/nps/campaigns
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for NPS campaign listing
     expectations:
       alice_admin:
         status: 200
@@ -1226,8 +1437,8 @@ routes:
     path: /api/admin/nps/campaigns
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for NPS campaign creation
     expectations:
       alice_admin:
         status: 200
@@ -1252,8 +1463,8 @@ routes:
     path: /api/admin/nps/campaigns
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for NPS campaign stop/update
     expectations:
       alice_admin:
         status: 200
@@ -1304,8 +1515,8 @@ routes:
     path: /api/admin/metrics
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate (admin only — comment but no guard)
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate
     expectations:
       alice_admin:
         status: 200
@@ -1330,8 +1541,8 @@ routes:
     path: /api/admin/metrics
     resource: admin_ui
     scope: view
-    migration_status: pending
-    notes: TODO migrate (batch PromQL)
+    migration_status: migrated
+    notes: dual-auth admin_ui#view PDP gate for batch PromQL
     expectations:
       alice_admin:
         status: 200
@@ -1356,8 +1567,8 @@ routes:
     path: /api/admin/migrate-conversations
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for localStorage conversation migration
     expectations:
       alice_admin:
         status: 200
@@ -1382,8 +1593,8 @@ routes:
     path: /api/dynamic-agents
     resource: dynamic_agent
     scope: view
-    migration_status: pending
-    notes: TODO migrate (currently visibility-only)
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for dynamic agent listing
     expectations:
       alice_admin:
         status: 200
@@ -1405,8 +1616,8 @@ routes:
     path: /api/dynamic-agents
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent creation
     expectations:
       alice_admin:
         status: 200
@@ -1431,8 +1642,8 @@ routes:
     path: /api/dynamic-agents
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent updates
     expectations:
       alice_admin:
         status: 200
@@ -1457,8 +1668,8 @@ routes:
     path: /api/dynamic-agents
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent deletion
     expectations:
       alice_admin:
         status: 200
@@ -1483,8 +1694,8 @@ routes:
     path: /api/dynamic-agents/conversations
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate (admin list)
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for dynamic agent conversation admin listing
     expectations:
       alice_admin:
         status: 200
@@ -1509,8 +1720,8 @@ routes:
     path: /api/dynamic-agents/conversations/[id]/interrupt-state
     resource: dynamic_agent
     scope: invoke
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for interrupt-state proxy
     expectations:
       alice_admin:
         status: 200
@@ -1532,8 +1743,8 @@ routes:
     path: /api/dynamic-agents/conversations/[id]/files/list
     resource: dynamic_agent
     scope: invoke
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file listing
     expectations:
       alice_admin:
         status: 200
@@ -1555,8 +1766,8 @@ routes:
     path: /api/dynamic-agents/conversations/[id]/files/content
     resource: dynamic_agent
     scope: invoke
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file content reads
     expectations:
       alice_admin:
         status: 200
@@ -1578,8 +1789,8 @@ routes:
     path: /api/dynamic-agents/conversations/[id]/files/content
     resource: dynamic_agent
     scope: invoke
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for conversation file deletion
     expectations:
       alice_admin:
         status: 200
@@ -1601,8 +1812,8 @@ routes:
     path: /api/dynamic-agents/conversations/[id]/clear
     resource: dynamic_agent
     scope: invoke
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#invoke PDP gate for checkpoint clear proxy
     expectations:
       alice_admin:
         status: 200
@@ -1624,8 +1835,8 @@ routes:
     path: /api/dynamic-agents/assistant/suggest
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate (assistant)
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for assistant suggestions
     expectations:
       alice_admin:
         status: 200
@@ -1650,8 +1861,8 @@ routes:
     path: /api/dynamic-agents/models
     resource: dynamic_agent
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for model listing
     expectations:
       alice_admin:
         status: 200
@@ -1673,8 +1884,8 @@ routes:
     path: /api/dynamic-agents/chat/restart-runtime
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate (admin op)
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for runtime restart
     expectations:
       alice_admin:
         status: 200
@@ -1699,8 +1910,8 @@ routes:
     path: /api/dynamic-agents/available
     resource: dynamic_agent
     scope: view
-    migration_status: pending
-    notes: TODO migrate (chat picker)
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for available agent listing
     expectations:
       alice_admin:
         status: 200
@@ -1722,8 +1933,8 @@ routes:
     path: /api/dynamic-agents/teams
     resource: dynamic_agent
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for team selector listing
     expectations:
       alice_admin:
         status: 200
@@ -1745,8 +1956,8 @@ routes:
     path: /api/dynamic-agents/available-subagents
     resource: dynamic_agent
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#manage PDP gate for available subagent listing
     expectations:
       alice_admin:
         status: 200
@@ -1771,8 +1982,8 @@ routes:
     path: /api/dynamic-agents/agents/[id]
     resource: dynamic_agent
     scope: view
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth dynamic_agent#view PDP gate for dynamic agent detail
     expectations:
       alice_admin:
         status: 200
@@ -1794,8 +2005,8 @@ routes:
     path: /api/mcp-servers
     resource: mcp_server
     scope: read
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth mcp_server#read PDP gate for MCP server listing
     expectations:
       alice_admin:
         status: 200
@@ -1817,8 +2028,8 @@ routes:
     path: /api/mcp-servers
     resource: mcp_server
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server creation
     expectations:
       alice_admin:
         status: 200
@@ -1843,8 +2054,8 @@ routes:
     path: /api/mcp-servers
     resource: mcp_server
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server updates
     expectations:
       alice_admin:
         status: 200
@@ -1869,8 +2080,8 @@ routes:
     path: /api/mcp-servers
     resource: mcp_server
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server deletion
     expectations:
       alice_admin:
         status: 200
@@ -1895,8 +2106,8 @@ routes:
     path: /api/mcp-servers/probe
     resource: mcp_server
     scope: manage
-    migration_status: pending
-    notes: TODO migrate
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for MCP server probe
     expectations:
       alice_admin:
         status: 200
@@ -1921,8 +2132,8 @@ routes:
     path: /api/agents/tools
     resource: mcp_server
     scope: read
-    migration_status: pending
-    notes: TODO migrate (chat picker)
+    migration_status: migrated
+    notes: dual-auth mcp_server#read PDP gate for chat tool picker proxy
     expectations:
       alice_admin:
         status: 200
@@ -1946,8 +2157,8 @@ routes:
     path: /api/agent-skills/import-github
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (catalog admin)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for legacy GitHub skill import
     expectations:
       alice_admin:
         status: 200
@@ -1972,8 +2183,8 @@ routes:
     path: /api/llm-models
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (LLM provider config)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider creation
     expectations:
       alice_admin:
         status: 200
@@ -1998,8 +2209,8 @@ routes:
     path: /api/llm-models
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (LLM provider config)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider updates
     expectations:
       alice_admin:
         status: 200
@@ -2024,8 +2235,8 @@ routes:
     path: /api/llm-models
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (LLM provider config)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for LLM provider deletion
     expectations:
       alice_admin:
         status: 200
@@ -2050,8 +2261,8 @@ routes:
     path: /api/policies
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (policy authoring)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy reset
     expectations:
       alice_admin:
         status: 200
@@ -2076,8 +2287,8 @@ routes:
     path: /api/policies
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (policy authoring)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy updates
     expectations:
       alice_admin:
         status: 200
@@ -2102,8 +2313,8 @@ routes:
     path: /api/policies
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (policy authoring)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for policy delete/reset operation
     expectations:
       alice_admin:
         status: 200
@@ -2128,8 +2339,8 @@ routes:
     path: /api/skill-hubs
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (skill-hub catalog)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub creation
     expectations:
       alice_admin:
         status: 200
@@ -2154,8 +2365,8 @@ routes:
     path: /api/skill-hubs/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (skill-hub catalog)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub updates
     expectations:
       alice_admin:
         status: 200
@@ -2180,8 +2391,8 @@ routes:
     path: /api/skill-hubs/[id]
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (skill-hub catalog)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub deletion
     expectations:
       alice_admin:
         status: 200
@@ -2206,8 +2417,8 @@ routes:
     path: /api/skill-hubs/crawl
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (skill-hub crawler)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for skill hub crawl preview
     expectations:
       alice_admin:
         status: 200
@@ -2232,8 +2443,8 @@ routes:
     path: /api/skills/refresh
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (skill cache refresh)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for supervisor skill cache refresh
     expectations:
       alice_admin:
         status: 200
@@ -2258,8 +2469,8 @@ routes:
     path: /api/task-configs/seed
     resource: admin_ui
     scope: admin
-    migration_status: pending
-    notes: Legacy requireAdmin gate; TODO migrate (task-config seeding)
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate for task config seeding
     expectations:
       alice_admin:
         status: 200

@@ -8,6 +8,7 @@ const EMPTY_GATES: AdminTabGatesMap = {
   users: false,
   teams: false,
   roles: false,
+  identity_group_sync: false,
   slack: false,
   skills: false,
   feedback: false,
@@ -18,7 +19,6 @@ const EMPTY_GATES: AdminTabGatesMap = {
   audit_logs: false,
   action_audit: false,
   policy: false,
-  ag_policies: false,
   openfga: false,
 };
 

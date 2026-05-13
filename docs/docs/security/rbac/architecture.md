@@ -17,7 +17,7 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 
 | Role | Default? | Purpose |
 |------|----------|---------|
-| `chat_user` | Yes — all authenticated users | Grants access to supervisor, Slack bot, RAG tools via AgentGateway CEL |
+| `chat_user` | Yes — all authenticated users | Grants baseline chat/supervisor access and first-run OpenFGA bootstrap paths |
 | `admin` | No — explicit assignment | Full CAIPE admin UI: user management, team CRUD, role assignment, Keycloak Admin API proxy |
 | `kb_admin` | No | Knowledge base management: upload documents, configure RAG pipelines |
 | `team_member` | No | Legacy team marker — superseded by `team_member:<slug>` (spec 104) |
@@ -26,16 +26,16 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 
 #### Resource-scoped roles (spec 104 — team-scoped RBAC)
 
-Spec 104 introduces a second tier of realm roles that bind *resources* (tools, agents, teams) to *callers*. They use a `<category>:<id>` naming convention with `:` as the separator. AgentGateway CEL rules and Dynamic Agents auth check for these roles in `jwt.realm_access.roles`.
+Spec 104 introduced a second tier of realm roles that bind *resources* (tools, agents, teams) to *callers*. They use a `<category>:<id>` naming convention with `:` as the separator. Dynamic Agents still read these roles from `jwt.realm_access.roles`; the AgentGateway path is moving the authoritative decision to OpenFGA through `ext_authz`.
 
 | Pattern | Example | Meaning |
 |---------|---------|---------|
 | `tool_user:<tool_name>` | `tool_user:jira_search_issues` | Caller may invoke this MCP tool. The tool name is the LangChain-prefixed `<server_id>_<tool>` produced by Dynamic Agents. |
 | `tool_user:*` | `tool_user:*` | Wildcard — caller may invoke any MCP tool (admin convenience). |
-| `tool_user:<server>_*` | `tool_user:jira_*` | All tools from one MCP server (seeded by `init-idp.sh`; AG CEL match is exact today, glob support tracked). |
+| `tool_user:<server>_*` | `tool_user:jira_*` | All tools from one MCP server (seeded by `init-idp.sh`; also projected to OpenFGA tuples by Team Resources). |
 | `agent_user:<agent_id>` | `agent_user:test-april-2025` | Caller may chat with this dynamic agent (enforced in DA, not AG). |
 | `agent_admin:<agent_id>` | `agent_admin:test-april-2025` | Caller may modify the agent's config. Implies `agent_user:<agent_id>`. |
-| `team_member:<slug>` | `team_member:demo-team` | Caller belongs to the team. AG CEL rules already use this prefix for team-scoped resources. **The role name is keyed on the team `slug`, not the Mongo ObjectId** — AGW evaluates `team_member:<jwt.active_team>` and `active_team` carries the slug. The BFF's `members/route.ts` and the reconcile script both write slug-keyed roles; an earlier ObjectId-keyed implementation existed and is migrated by `scripts/reconcile-keycloak-from-mongo.sh` on first run. |
+| `team_member:<slug>` | `team_member:demo-team` | Caller belongs to the team. **The role name is keyed on the team `slug`, not the Mongo ObjectId**. The BFF's `members/route.ts` and the reconcile script both write slug-keyed roles and OpenFGA team-member tuples; an earlier ObjectId-keyed implementation existed and is migrated by `scripts/reconcile-keycloak-from-mongo.sh` on first run. |
 | `team_admin:<slug>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
 | `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
 
@@ -55,11 +55,11 @@ Roles are created and assigned by:
 Keycloak realm roles are **not created for every possible resource upfront**. We create them when they become part of policy:
 
 - **Bootstrap roles** (`admin`, `chat_user`, `admin_user`, `tool_user:*`, demo `team_member:<slug>`, demo agent/tool roles) are seeded by `init-idp.sh` so a fresh dev/RBAC stack works immediately.
-- **Team membership roles** (`team_member:<slug>`) are created on demand when a team is created or member reconciliation runs. They back Slack active-team checks and AgentGateway CEL rules.
+- **Team membership roles** (`team_member:<slug>`) are created on demand when a team is created or member reconciliation runs. They back Slack active-team checks and are mirrored into OpenFGA team-member tuples.
 - **Team resource roles** (`agent_user:<id>`, `agent_admin:<id>`, `tool_user:<prefix>`) are created on demand when an admin saves Team Resources. The BFF calls `ensureRealmRole` for the roles in the diff before assigning/removing them from team members.
 - **Catch-all/custom roles** are created from the Team Roles or Roles admin surfaces when an admin explicitly adds them.
 
-Rule of thumb: **Keycloak owns coarse roles that must appear in JWTs and CEL rules; OpenFGA owns relationship tuples for who is related to which team/resource.** Keycloak does not need a realm role for every OpenFGA tuple, and OpenFGA does not mint JWT claims.
+Rule of thumb: **Keycloak owns identity and JWT role claims; OpenFGA owns relationship tuples for who is related to which team/resource.** Keycloak does not need a realm role for every OpenFGA tuple, and OpenFGA does not mint JWT claims.
 
 ### External IdP Brokering (Duo SSO, Okta, or any OIDC provider)
 
@@ -153,24 +153,34 @@ The full sequence (including HMAC URL shape, TTL enforcement, JIT request body, 
 
 ```typescript
 // Every protected API route:
-await requireRbacPermission(request, {
-  resource: 'rag',
-  action: 'read',
-  user: session.user,
-  accessToken: session.accessToken,
-  sub: session.sub,
-  org: session.org,
-})
+const { user, session } = await getAuthFromBearerOrSession(request);
+await requireRbacPermission(session, "rag", "kb.query");
 ```
 
 Two authorization paths:
 
-1. **Role-based (JWT claim):** `hasRoleFallback()` checks `realm_access.roles` from the session JWT against the required role for the resource+action pair.
-2. **Bootstrap admin bypass:** `isBootstrapAdmin(email)` checks the email against `BOOTSTRAP_ADMIN_EMAILS`. This bypasses **all** resource/action checks. It exists for the chicken-and-egg problem: the first admin must be able to log in before Keycloak roles are properly configured. **Remove this env var once roles are working.**
+1. **Primary PDP:** `requireRbacPermission()` calls Keycloak Authorization Services with the caller's bearer/session access token and the requested `resource#scope`.
+2. **Role-based fallback:** `hasRoleFallback()` checks `realm_access.roles` from the session JWT when the PDP is unavailable or not configured.
+3. **Bootstrap admin bypass:** `isBootstrapAdmin(email)` checks the email against `BOOTSTRAP_ADMIN_EMAILS`. This exists for the chicken-and-egg problem: the first admin must be able to log in before Keycloak roles are properly configured. **Remove this env var once roles are working.**
+
+Routes that have not yet been rewritten inline no longer remain session-only: the deprecated `withAuth()` compatibility wrapper now uses `getAuthFromBearerOrSession()`, resolves the route family to a least-privilege RBAC policy, and calls `requireRbacPermission()` before invoking the handler.
 
 ### Token Refresh
 
 NextAuth holds the refresh token and silently refreshes the access token before it expires. If the refresh fails (revoked session, Keycloak down), the user is redirected to login. The access token in the session is always the current live token — it's what gets forwarded to backend services.
+
+### Identity Group Sync Hybrid Source Model
+
+Identity Group Sync deliberately has two upstream sources:
+
+1. **OIDC `memberOf` / `groups` claims on login** — Keycloak imports the upstream IdP `groups` claim into the `idp_groups` user attribute and emits it to the `caipe-ui` client as a multivalued `groups` claim in ID token/userinfo responses. When `IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=true`, `auth-config.ts` extracts the signed-in user's group claims and runs a best-effort reconciliation for only that user. This is additive and fast: it refreshes the user's managed `team_membership_sources` and OpenFGA `user:<sub> member team:<slug>` tuples without storing the full group list in the session cookie. Login is not failed if reconciliation cannot run.
+2. **Direct Okta directory API for admin dry-runs** — `/api/admin/identity-group-sync/dry-run` can fetch full group inventory from Okta using server-side IdP credentials when `fetch_from_provider=true` and `provider_id` is an Okta provider. This path is the authoritative source for scheduled/admin sync because it can see users who are not actively logging in, detect removals, produce drift findings, and surface users that still need identity linking before tuples can be written.
+
+The claim path is not a replacement for direct directory querying. It improves freshness for the current user while the directory connector remains responsible for complete inventory and removals.
+
+Identity Group Sync admin APIs use the shared `getAuthFromBearerOrSession` path before `requireRbacPermission`, so browser sessions and validated first-party bearer tokens both reach the same `admin_ui#view` / `admin_ui#admin` PDP checks. Keycloak identity and user administration APIs follow the same pattern: list/detail/stats require `admin_ui#view`, while per-user profile updates, team membership edits, realm role edits, and legacy Mongo role edits require `admin_ui#admin`. Admin observability APIs, including instant/batch PromQL, skill statistics, and checkpoint persistence statistics, require `admin_ui#view` before reaching Prometheus or MongoDB-backed metrics. This keeps Playwright persona tests and future service-triggered sync previews aligned with the UI BFF authorization path.
+
+Manual team management is also provenance-aware. Teams created through `/api/admin/teams` are stamped with `source=manual`, `status=active`, and creator/updater metadata. Manual membership edits create or remove non-managed `team_membership_sources` rows (`source_type=manual`, `managed=false`) so automated Okta/AD/OIDC sync can prune only managed sources. The Team Details members tab reads `/api/admin/identity-group-sync/teams/[teamId]/membership-sources` and displays each member's manual/synced/stale/pending source labels. Team-level admins can edit membership only for teams where they are `owner` or `admin`; unrelated team edits remain denied unless the caller has platform admin permission.
 
 ### OpenFGA ReBAC Admin UI
 
@@ -186,6 +196,16 @@ The UI is intentionally BFF-first:
 
 Raw OpenFGA HTTP endpoints stay on the Docker/private service network. The browser never talks to OpenFGA directly, and the BFF only accepts tuple shapes that match the CAIPE model (`user:<sub> member team:<slug>`, `team:<slug>#member can_use/can_manage agent:<id>`, `team:<slug>#member can_call tool:<prefix>`, and KB relations).
 
+The universal ReBAC catalog lives behind `/api/admin/rebac/catalog`. It returns the complete protected resource vocabulary, per-type action map, and discovered resource instances from teams, users, dynamic agents, MCP servers/tools, KB ownership, Slack mappings, conversations, and built-in admin/system resources. `/api/admin/rebac/enforcement-status` reports transition state for every resource type (`not_gated`, `role_gated`, `rebac_shadowed`, `rebac_enforced`, or `deprecated`) by merging defaults with `rebac_enforcement_status` overrides. The older OpenFGA admin endpoints use the same session-or-bearer authentication path, and `/api/admin/openfga/catalog` now embeds these universal resources while preserving its legacy `agents`, `tools`, and `knowledge_bases` picker shape.
+
+Policy authoring is staged through `policy_change_sets` instead of direct browser-to-tuple writes. The BFF creates a draft change set, validates every requested grant/revocation against the universal action vocabulary, delegated-scope guardrails, circular-grant checks, and last-admin risk, then applies the validated diff to OpenFGA and records provenance in `rebac_relationships`. The OpenFGA admin tab uses this create/validate/apply sequence for guided builder edits, graph edits, and tuple revocations so administrators see the staged diff before the write is committed.
+
+Graph and access explanation APIs read OpenFGA tuples and join them with `rebac_relationships` provenance. `/api/admin/rebac/graph` supports all-relationship views and scoped filters for team, subject, resource, and Slack channel, returning source metadata with each edge. `/api/admin/rebac/check` runs the same universal relationship check and explains allow outcomes with the recorded source path or deny outcomes with the missing OpenFGA prerequisite. The legacy `/api/admin/openfga/graph` endpoint delegates to the universal graph service so older UI code gets the same source-aware graph.
+
+Slack channel ReBAC is managed through `/api/admin/slack/channels` and the per-channel resources/access-check routes under `/api/admin/slack/channels/[workspaceId]/[channelId]`. A channel can now hold many active grants in `slack_channel_grants`, each writing OpenFGA tuples such as `slack_channel:<workspace>--<channel> can_use agent:<id>`. The OpenFGA ReBAC tab includes a Slack Channels panel for adding channel resource grants without replacing the older team channel binding panel. At runtime, the Slack bot carries the channel's workspace id from `channel_agent_mappings`, mints the user's team-scoped OBO token, then calls the Slack channel ReBAC evaluator before dispatching to the mapped agent. The request is denied unless both the channel grant and the user's team/resource relationship allow the selected resource.
+
+Keycloak realm roles remain supported as migration compatibility signals, but `/api/rbac/enforcement-comparison` now compares legacy role decisions with ReBAC decisions for a selected subject/action/resource. `keycloak-transition.ts` classifies bootstrap, system, team, and resource-specific roles and ignores stale per-resource roles for resource types marked `rebac_enforced`. Task/skill role helpers and Keycloak resource sync honor the same enforcement status so new permanent Keycloak resources are not created once ReBAC is authoritative.
+
 ### Key Environment Variables
 
 | Variable | Purpose | Security note |
@@ -193,6 +213,12 @@ Raw OpenFGA HTTP endpoints stay on the Docker/private service network. The brows
 | `OPENFGA_RECONCILE_ENABLED` | Enables Team Resources → OpenFGA tuple reconciliation in the BFF | Defaults to `false` so non-RBAC local UI runs do not require OpenFGA; enable only when the OpenFGA profile is healthy. |
 | `OPENFGA_HTTP` | Docker-internal OpenFGA HTTP API URL used by the BFF tuple writer | Keep this on the private service network; do not point browser clients at OpenFGA. |
 | `OPENFGA_STORE_NAME` / `OPENFGA_STORE_ID` | Selects the OpenFGA store for tuple writes | Prefer `OPENFGA_STORE_ID` in locked-down deployments to avoid discovery ambiguity. |
+| `OIDC_ACCEPTED_AUDIENCES` | Additional bearer JWT audiences accepted by the UI BFF | The dev compose stack defaults this to `caipe-platform` so RBAC persona tokens minted by the Keycloak resource-server client can exercise BFF routes; production deployments should set the narrow audience list they actually issue. |
+| `IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED` | Enables best-effort login-time reconciliation from OIDC group claims | Defaults off; do not make login availability depend on directory sync health. |
+| `IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID` | Provider id used to select mapping rules for claim-derived sync | Defaults to `oidc-claims`; keep separate from direct Okta providers so provenance stays clear. |
+| `IDENTITY_SYNC_OKTA_ORG_URL` / `IDENTITY_SYNC_OKTA_API_TOKEN` | Server-side Okta Management API connector for full inventory dry-runs | Store the token in runtime secrets only; never expose it to the browser or commit it. |
+
+The `deploy/keycloak/init-idp.sh` bootstrap keeps the IdP group importer on per-mapper `syncMode=FORCE`, so the `idp_groups` attribute is refreshed on login without resetting unrelated user attributes such as Slack links. The same idempotent init job seeds the RBAC test personas and assigns their realm roles before e2e runs. The `caipe-ui` mapper intentionally leaves `access.token.claim=false` to avoid sending large group arrays through every downstream bearer-token path.
 
 ---
 
@@ -255,9 +281,9 @@ User JWT  →  Supervisor  →  (same JWT)  →  AgentGateway  →  MCP Server
 
 ## Component 4: AgentGateway — The Security Checkpoint
 
-> **Badge analogy:** The armed security checkpoint at the entrance to the server room. Everyone must badge in — no exceptions, no tailgating. The checkpoint first calls a central relationship desk (OpenFGA) to ask whether this person is allowed to approach the server room at all, then checks its physical rulebook (CEL policies) for exactly which rack (MCP tool) the badge can access. If either desk says no, you're turned away at the door.
+> **Badge analogy:** The armed security checkpoint at the entrance to the server room. Everyone must badge in — no exceptions, no tailgating. The checkpoint verifies the badge locally, then calls the central relationship desk (OpenFGA) to ask whether this person is allowed through.
 
-**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers, validates the Keycloak JWT, calls OpenFGA through `extAuthz` for the remote PDP decision, and then evaluates local CEL (Common Expression Language) rules against the JWT claims before allowing each request through. OpenFGA is the remote PDP for coarse relationship checks; CEL remains the in-gateway tool/team policy while we model the full ReBAC graph. MCP servers still mount a shared custom middleware package for **authentication defense-in-depth** (JWT/shared-key validation, token passthrough context, and an optional local-dev localhost bypass). For embedded/local MCP servers that do not sit behind AgentGateway, the same package can also perform an **optional Keycloak PDP scope check** (for example `mcp_jira#invoke`) so they still have a real authz gate.
+**Technically:** AgentGateway is the single **Policy Enforcement Point (PEP)** for all MCP tool calls. It proxies HTTP/SSE requests to registered MCP backend servers, validates the Keycloak JWT, and calls OpenFGA through `extAuthz` for the PDP decision before allowing each request through. MCP servers still mount a shared custom middleware package for **authentication defense-in-depth** (JWT/shared-key validation, token passthrough context, and an optional local-dev localhost bypass). For embedded/local MCP servers that do not sit behind AgentGateway, the same package can also perform an **optional Keycloak PDP scope check** (for example `mcp_jira#invoke`) so they still have a real authz gate.
 
 ### Request Flow
 
@@ -271,13 +297,8 @@ Supervisor POST /rag/v1/query
   │  1. Extract JWT from Authorization header  │
   │  2. Validate signature against JWKS        │
   │  3. ext_authz → OpenFGA Check              │
-  │  4. Evaluate CEL policy against claims:    │
-  │                                            │
-  │     jwt.claims.realm_access.roles          │
-  │       .exists(r, r == "chat_user")         │
-  │                                            │
-  │  5a. Any DENY    →  403 Forbidden          │
-  │  5b. All ALLOW   →  proxy to MCP server    │
+  │  4a. OpenFGA DENY → 403 Forbidden          │
+  │  4b. OpenFGA ALLOW → proxy to MCP server   │
   └────────────────────────────────────────────┘
          │ ALLOW
          ▼
@@ -285,25 +306,12 @@ Supervisor POST /rag/v1/query
   (receives same JWT for its own validation)
 ```
 
-### CEL Policy Examples
+### Authorization Model
 
-CEL is a lightweight expression language. Policies are evaluated per-route and per-method.
-
-```cel
-# Basic access: must have chat_user role
-jwt.claims.realm_access.roles.contains("chat_user")
-
-# Elevated access: admin or kb_admin
-jwt.claims.realm_access.roles.contains("admin") ||
-jwt.claims.realm_access.roles.contains("kb_admin")
-
-# Tenant-scoped: user can only query their own tenant's data
-jwt.claims.tenant == resource.tenant
-
-# Combine role and tenant
-jwt.claims.realm_access.roles.contains("chat_user")
-  && jwt.claims.tenant != ""
-```
+AgentGateway uses `jwtAuth` for authentication and `extAuthz` for authorization.
+The `openfga-authz-bridge` adapts Envoy's gRPC authorization check into an
+OpenFGA `Check`, so gateway authorization is maintained through ReBAC tuples
+rather than CEL policy authoring.
 
 ### Why This Is the Right Architecture for a PEP
 
@@ -325,16 +333,16 @@ That package lives under `ai_platform_engineering/agents/common/mcp-auth/` and i
 
 ## AgentGateway + OIDC + Keycloak — The Integrated Picture
 
-> **Badge analogy:** **Duo SSO is the national ID office** — it issues the underlying identity. **Keycloak is HR** — it takes that national ID, prints a CAIPE-branded employee badge with your roles stamped on it, and publishes a **public fingerprint scanner** (JWKS) in the lobby so anyone can verify a badge is really HR-issued. **AgentGateway is the armed checkpoint** at the server room door. The checkpoint has a photocopy of the scanner taped to its desk so it can verify badges instantly without calling HR (or Duo). The checkpoint's rulebook (CEL) is kept up to date by a small courier (`ag-config-bridge`) that walks between the head office (MongoDB) and the checkpoint every few seconds with the latest rule updates.
+> **Badge analogy:** **Duo SSO is the national ID office** — it issues the underlying identity. **Keycloak is HR** — it takes that national ID, prints a CAIPE-branded employee badge with your roles stamped on it, and publishes a **public fingerprint scanner** (JWKS) in the lobby so anyone can verify a badge is really HR-issued. **AgentGateway is the armed checkpoint** at the server room door. The checkpoint verifies the badge locally, then calls the OpenFGA authorization desk through `ext_authz` before opening the door.
 
-**Technically:** Keycloak, OpenFGA, and AgentGateway cooperate to put a verified, relationship-checked, role-carrying JWT in front of every MCP request. AG itself is the **Policy Enforcement Point (PEP)** — it doesn't authenticate users, it doesn't store roles, and it never talks to Duo. It verifies that the JWT in the request was signed by Keycloak (using a cached copy of Keycloak's JWKS), calls OpenFGA through `extAuthz` for the remote PDP decision, and then checks that the claims inside satisfy the CEL policy for the target MCP tool.
+**Technically:** Keycloak, OpenFGA, and AgentGateway cooperate to put a verified, relationship-checked, role-carrying JWT in front of every MCP request. AG itself is the **Policy Enforcement Point (PEP)** — it doesn't authenticate users, it doesn't store roles, and it never talks to Duo. It verifies that the JWT in the request was signed by Keycloak (using a cached copy of Keycloak's JWKS), then calls OpenFGA through `extAuthz` for the authorization decision.
 
 | Layer | Role | What it owns | What it does NOT own |
 |-------|------|--------------|----------------------|
 | **Upstream IdP** (e.g. Duo SSO, Okta, Azure AD) | Identity provider | User authentication (password, MFA, device trust), email ownership | Application roles, per-tool access rules |
 | **Keycloak** | OIDC AS + IdP broker | Realm roles (`chat_user`, `admin`), JWT issuance, JWKS publication, OBO token exchange (RFC 8693) | Tool-level decisions, user password (delegated to Duo) |
 | **OpenFGA** | Remote PDP | Relationship decisions such as `user:<sub> can_call document:mcp` and team resource tuples (`team:<slug>#member can_use agent:<id>`) | JWT validation, token minting, proxying traffic |
-| **AgentGateway (PEP)** | Policy Enforcement Point | `jwtAuth`, `extAuthz`, per-route CEL rules, per-tool `mcpAuthorization` rules, local JWT verification against cached JWKS | Identity store, role store, token minting |
+| **AgentGateway (PEP)** | Policy Enforcement Point | `jwtAuth`, `extAuthz`, local JWT verification against cached JWKS | Identity store, role store, token minting, CEL policy storage |
 
 Keycloak **brokers** the upstream IdP — Duo SSO doesn't issue the JWT that AG sees. Duo authenticates the user, returns an OIDC authorization code to Keycloak, and Keycloak then mints the CAIPE JWT with the realm roles that CEL evaluates. From AG's perspective, **Keycloak is the only issuer it trusts** (`iss = http://localhost:7080/realms/caipe`); the existence of Duo is invisible to AG. This is the standard OIDC/OAuth 2.0 resource-server pattern applied to an MCP-aware proxy.
 
@@ -366,7 +374,7 @@ flowchart LR
     DA["Dynamic Agents<br/>(forwards user JWT)"]
   end
 
-  AG["AgentGateway :4000<br/><b>PEP</b><br/>jwtAuth + ext_authz + CEL"]
+  AG["AgentGateway :4000<br/><b>PEP</b><br/>jwtAuth + ext_authz"]
   FGA["OpenFGA<br/>remote PDP<br/>Check(user, relation, object)"]
   MCP["Backend MCP servers<br/>rag_server, github-mcp, …"]
 
@@ -389,9 +397,9 @@ flowchart LR
 1. **Duo SSO authenticates the human.** It doesn't know about CAIPE roles. It only proves "this really is `alice@example.com` with working MFA" and hands an OIDC authorization code to Keycloak. Duo's issuer (`IDP_ISSUER`) is configured in Keycloak as `IDP_ALIAS=duo-sso`; this is the only direct contact between CAIPE and Duo.
 2. **Keycloak brokers and rebrands the identity.** It validates the Duo code, runs its IdP mappers (e.g. `firstname` → `given_name` to handle Duo's non-standard claim), assigns realm roles (`chat_user` via the default role composite, plus `admin` if explicitly granted), and signs a **fresh JWT** with its own RS256 key. This is the only token CAIPE services ever see. Duo's identity token is discarded at the Keycloak boundary.
 3. **Every CAIPE caller holds the same JWT.** The Slack Bot additionally does an RFC 8693 token-exchange to produce an **OBO (On-Behalf-Of) JWT** that pins `sub=alice` and `act.sub=caipe-slack-bot` — but it's still a Keycloak-signed JWT with `iss = http://localhost:7080/realms/caipe`. From AG's perspective there's no difference between a UI JWT and an OBO JWT; both pass `jwtAuth` as long as they're signed by a key in AG's JWKS cache.
-4. **AG verifies locally, calls OpenFGA, evaluates CEL locally, forwards unchanged.** The JWT reaches the MCP server with Alice's identity intact, so MCP-level defense-in-depth checks (e.g. the RAG server's per-tenant document ACLs) see the real user — not the supervisor's service account and not the Slack bot.
+4. **AG verifies locally, calls OpenFGA, forwards unchanged.** The JWT reaches the MCP server with Alice's identity intact, so MCP-level defense-in-depth checks (e.g. the RAG server's per-tenant document ACLs) see the real user — not the supervisor's service account and not the Slack bot.
 
-The practical consequence: **to switch CAIPE from Duo SSO to Okta or Azure AD you don't touch AgentGateway at all.** You change `IDP_ISSUER`, `IDP_CLIENT_ID`, `IDP_CLIENT_SECRET`, `IDP_ALIAS`, and maybe a mapper in Keycloak, and every component downstream — including the CEL rules on AG — keeps working without modification. This is the whole point of making Keycloak the IdP broker instead of having each service integrate directly with the upstream IdP.
+The practical consequence: **to switch CAIPE from Duo SSO to Okta or Azure AD you don't touch AgentGateway at all.** You change `IDP_ISSUER`, `IDP_CLIENT_ID`, `IDP_CLIENT_SECRET`, `IDP_ALIAS`, and maybe a mapper in Keycloak, and every component downstream continues to trust Keycloak-issued JWTs. This is the whole point of making Keycloak the IdP broker instead of having each service integrate directly with the upstream IdP.
 
 ### How AG Is Wired to Keycloak and OpenFGA (at boot and at steady state)
 
@@ -404,26 +412,15 @@ flowchart LR
     KC_TOK["Token endpoint<br/>/protocol/openid-connect/token"]
   end
 
-  subgraph Bridge["ag-config-bridge (sidecar)"]
-    direction TB
-    MDB[("MongoDB<br/>ag_mcp_policies<br/>ag_mcp_backends")]
-    TPL["config.yaml.j2"]
-    REND["Renderer<br/>(polls every 5s)"]
-    MDB -->|read policies & backends| REND
-    TPL -->|template| REND
-  end
-
   subgraph AG["AgentGateway :4000"]
     direction TB
-    CFG["/etc/agentgateway/config.yaml<br/>(hot-reload on file change)"]
+    CFG["/etc/agentgateway/config.yaml<br/>(static ext_authz config)"]
     JWKS_CACHE[("In-memory JWKS cache<br/>TTL from Cache-Control")]
     JWT_VAL["jwtAuth:<br/>• mode: strict<br/>• issuer, audiences<br/>• jwks.url"]
     EXT["extAuthz:<br/>gRPC openfga-authz-bridge:9100"]
-    CEL["CEL mcpAuthorization<br/>rules per route/backend"]
     PROXY["MCP proxy<br/>mcp.targets"]
     CFG --> JWT_VAL
     CFG --> EXT
-    CFG --> CEL
     CFG --> PROXY
     JWT_VAL --> JWKS_CACHE
   end
@@ -435,13 +432,11 @@ flowchart LR
   end
 
   KC_JWKS -.->|1. fetch at startup + TTL refresh| JWKS_CACHE
-  REND -->|2. write rendered config atomically| CFG
-  Client["Caller<br/>(Supervisor / Slack Bot / Dynamic Agent)"] -->|3. Bearer JWT| JWT_VAL
+  Client["Caller<br/>(Supervisor / Slack Bot / Dynamic Agent)"] -->|2. Bearer JWT| JWT_VAL
   JWT_VAL --> EXT
-  EXT -->|4. Check user:<sub> can_call document:mcp| BRIDGE
+  EXT -->|3. Check user:<sub> can_call document:mcp| BRIDGE
   BRIDGE -->|allow / deny| EXT
-  EXT --> CEL
-  CEL --> PROXY
+  EXT --> PROXY
   PROXY --> MCP["Backend MCP servers<br/>(rag_server, github-mcp, …)"]
   KC_TOK -.->|token issuance| Client
 ```
@@ -451,9 +446,8 @@ flowchart LR
 | # | Channel | Direction | Purpose | Cadence |
 |---|---------|-----------|---------|---------|
 | 1 | JWKS | AG → Keycloak | Fetch public keys to verify JWT signatures | On startup; on unknown `kid`; on Cache-Control TTL expiry |
-| 2 | CEL policy rendering | `ag-config-bridge` → AG (file) | Keep `config.yaml` in sync with admin-editable policies in MongoDB | Every 5s poll; hot-reload on file change |
-| 3 | Token issuance | Client → Keycloak → Client | Users/bots obtain JWTs to present to AG; AG **never** mints tokens | On login / OBO exchange |
-| 4 | Relationship decision | AG → `openfga-authz-bridge` → OpenFGA | Remote PDP check before CEL/tool proxying | Every MCP request |
+| 2 | Token issuance | Client → Keycloak → Client | Users/bots obtain JWTs to present to AG; AG **never** mints tokens | On login / OBO exchange |
+| 3 | Relationship decision | AG → `openfga-authz-bridge` → OpenFGA | Remote PDP check before MCP proxying | Every MCP request |
 
 There is **no direct API call from AG to Keycloak per request**. JWKS fetching is a pure cache-refresh operation, not a live auth check.
 
@@ -491,7 +485,7 @@ What `mode: strict` means in practice:
 - **Signature verified against JWKS** — `kid` in the JWT header must match a cached key.
 - **Unknown `kid` triggers one forced JWKS refresh** — handles Keycloak key rotation without manual intervention.
 
-Only after `jwtAuth` passes does AG call `extAuthz`, and only after that PDP check passes does it evaluate the `authorization` and `mcpAuthorization` CEL rules. AG sends an Envoy `CheckRequest` over gRPC with `caipe.auth.sub` metadata derived from `jwt.sub`; the OpenFGA bridge maps that subject to `user:<sub>` and calls OpenFGA `Check`. The route-level bridge still checks the coarse `document:mcp` object, while the Team Resources UI now writes the richer `team`/`agent`/`tool` tuples that can become the authoritative per-resource PDP checks when AGW exposes MCP tool context to `extAuthz`. If `jwtAuth` fails, the request never reaches policy evaluation; if OpenFGA/bridge is unavailable or denies, AG returns 403 because `failureMode.denyWithStatus=403`.
+Only after `jwtAuth` passes does AG call `extAuthz`. AG sends an Envoy `CheckRequest` over gRPC with `caipe.auth.sub` metadata derived from `jwt.sub`; the OpenFGA bridge maps that subject to `user:<sub>` and calls OpenFGA `Check`. The route-level bridge still checks the coarse `document:mcp` object, while the Team Resources UI now writes the richer `team`/`agent`/`tool` tuples that can become the authoritative per-resource PDP checks when AGW exposes MCP tool context to `extAuthz`. If `jwtAuth` fails, the request never reaches policy evaluation; if OpenFGA/bridge is unavailable or denies, AG returns 403 because `failureMode.denyWithStatus=403`.
 
 ### OpenFGA ReBAC Model
 
@@ -507,62 +501,17 @@ The dev PDP model keeps the coarse AgentGateway gate and adds admin-configured t
 
 The BFF tuple writer is idempotent: it checks tuples before writes/deletes to avoid duplicate-write failures and to tolerate missing tuples during removals.
 
-### Policy Storage: Two Surfaces, One Source of Truth
+### AgentGateway Policy Model
 
-AG's CEL rules can be authored two ways — they end up in the same MongoDB collection:
+AgentGateway no longer maintains a Mongo-backed CEL policy surface for MCP
+authorization. The checked-in `deploy/agentgateway/config.yaml` is intentionally
+static: it authenticates with `jwtAuth`, delegates authorization to the OpenFGA
+bridge through `extAuthz`, and then proxies to the configured MCP targets.
 
-| Surface | Use case | Path |
-|---------|----------|------|
-| **Admin UI** (dynamic) | Change policy without a redeploy; audit trail per edit | `CAIPE UI → Admin → AG MCP Policies` → `ui/src/app/api/rbac/ag-policies/route.ts` → MongoDB `ag_mcp_policies` |
-| **Static bootstrap** | First-run seed in environments that start from empty MongoDB | `deploy/agentgateway/config-bridge.py` → `SEED_POLICIES` (upserts once if collection empty) |
-
-In both cases the **only consumer** is `ag-config-bridge`, which renders to `config.yaml.j2` and writes the final `config.yaml` that AG reads. There is no other path by which a CEL rule can reach AG.
-
-### CEL Cheat Sheet — JWT Claims Available in Rules
-
-AG evaluates CEL expressions against a context object that includes the **verified** JWT payload. The most useful fields:
-
-```cel
-# Realm roles (set in realm-config.json + init-idp.sh composites)
-jwt.realm_access.roles.contains("chat_user")
-jwt.realm_access.roles.contains("admin")
-
-# Client-level roles (rare — most roles live at the realm level in CAIPE)
-"resource_access" in jwt && "caipe-ui" in jwt.resource_access
-
-# User identity
-jwt.sub             // opaque Keycloak user UUID
-jwt.email           // human-readable
-jwt.preferred_username
-
-# Delegation (OBO tokens only — set by Slack bot's token-exchange)
-has(jwt.act) && jwt.act.sub == "caipe-slack-bot"
-
-# Multi-tenant scoping
-jwt.org == request.headers.x_tenant_id
-
-# MCP tool introspection (only inside mcpAuthorization, not on route-level authorization)
-mcp.tool.name.startsWith("admin_")
-```
-
-### AGW CEL Runtime Caveat
-
-The current AgentGateway CEL runtime in this repo does **not** behave like stock CEL for some JWT-backed dynamic fields:
-
-- `has(jwt.sub)` and `has(jwt.realm_access.roles)` can return `false` even when the field is present.
-- `"role" in jwt.realm_access.roles` returns `false` for list membership checks.
-- `jwt.realm_access.roles.exists(...)` can panic the gateway with `Dynamic(Array ...)`.
-
-The runtime-safe pattern is:
-
-```cel
-jwt.realm_access.roles.contains("admin_user")
-jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
-```
-
-That is why the checked-in `deploy/agentgateway/config.yaml` uses direct field access plus `.contains(...)` for all role checks and avoids `has(...)`, `in`, and `.exists(...)` against JWT role arrays.
-
-The existing production ruleset in `deploy/agentgateway/config.yaml` shows the common patterns: admin-only prefixes (`admin_*`, `supervisor_config`), role-gated prefixes (`rag_query`, `rag_ingest`, `rag_tool`, `team_*`, `dynamic_agent_*`, `github_*`), and a catch-all for non-admin, non-ingest tools.
+The Admin UI's former "AG MCP Policies" tab, `/api/rbac/ag-policies`,
+`/api/rbac/ag-sync-status`, `ag_mcp_policies`, `ag_mcp_backends`, and
+`ag_sync_state` are retired. Relationship changes should be modeled as OpenFGA
+tuples through the ReBAC admin surfaces instead of editing AgentGateway CEL.
 
 ### Operational Guarantees
 
@@ -570,9 +519,9 @@ The existing production ruleset in `deploy/agentgateway/config.yaml` shows the c
 |-----------|-----------|
 | AG restart does not invalidate user sessions | User JWTs are self-contained; AG just re-fetches JWKS on startup |
 | Keycloak key rotation is zero-downtime | Unknown `kid` triggers one forced JWKS refresh; cached keys remain valid until `exp` |
-| Policy update is zero-downtime | Atomic `os.replace()` write in `ag-config-bridge` + AG file watcher = no dropped requests |
-| Admin UI edit audit trail | Every policy write to `ag_mcp_policies` records `updated_by` and `updated_at` |
-| MongoDB outage doesn't take AG down | AG keeps running against the last-rendered `config.yaml`; `ag-config-bridge` logs `bridge_error` but doesn't crash AG |
+| Policy update is zero-downtime | OpenFGA tuple writes are independent of AG process restarts; AG keeps using `extAuthz` |
+| Admin UI edit audit trail | ReBAC relationship/policy surfaces write audit events through the BFF |
+| MongoDB outage doesn't take AG down | AG uses static config plus OpenFGA; it does not depend on Mongo-rendered CEL rules |
 | Keycloak outage doesn't take AG down for already-issued tokens | JWKS is cached; new logins fail at Keycloak, not at AG |
 
 > The end-to-end per-request sequence diagram (and the demo walkthrough that proves all three outcomes — 200, 403, 401) lives in [Workflows › Per-request authorization](./workflows.md#per-request-authorization-end-to-end). Use that to demo the system live.
@@ -736,7 +685,7 @@ The realm seeder already provisions `caipe-platform` with all of those, so the d
 | Slack bot set `X-Team-Id: <slug>` on outbound A2A / RAG / AGW calls | Slack bot mints the OBO token with a Keycloak client scope (`team-<slug>` or `team-personal`) so the resulting JWT carries a signed `active_team` claim |
 | Header could be dropped, swapped, or forged at any hop between bot → caipe-ui → DA → AGW | Claim is signed by Keycloak; tampering invalidates the JWT signature |
 | `dynamic-agents` outbound MCP traffic ran with the slack-bot service-account JWT (`chat_user` only) → AGW returned 0 tools | DA forwards the user's OBO token unchanged via `current_user_token`; SA fallback is gone, mismatch is logged loudly |
-| AGW CEL: any `chat_user` could invoke any non-admin tool | AGW CEL: per-tool `tool_user:<name>` AND `team_member:<jwt.active_team>` (group); `__personal__` short-circuits the team check; `admin_user` bypasses both |
+| AGW inline role rules could allow broad `chat_user` tool access | AGW delegates to OpenFGA `ext_authz`; team/resource grants are represented as tuples written by the BFF |
 
 ### Components touched
 
@@ -762,7 +711,7 @@ The realm seeder already provisions `caipe-platform` with all of those, so the d
 
 5. **AgentGateway**
    - Listener `audiences: [caipe-platform, agentgateway]`.
-   - `mcpAuthorization` rules require either `admin_user`, OR `__personal__` + per-tool role, OR group-scope: `tool_user:<tool>` AND `team_member:<jwt.active_team>` simultaneously. The legacy broad `chat_user` allow rules were removed in this big-bang switch.
+   - Authorization is delegated through `extAuthz` to the OpenFGA bridge; the Mongo-backed CEL config bridge and `mcpAuthorization` rules are retired.
 
 6. **RAG server**
    - `UserContext.active_team: Optional[str]` populated from the JWT claim by `extract_active_team_from_claims`.

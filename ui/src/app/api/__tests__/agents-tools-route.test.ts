@@ -12,7 +12,7 @@
  * - Supervisor returns non-2xx → 502 with { success: false, error }
  * - Fetch throws (network error / timeout) → 502 with { success: false, error }
  * - Auth forwarding: accessToken from session is sent as Bearer header
- * - No auth: request proceeds without Authorization header when session is null
+ * - No auth: request is rejected before proxying
  * - getInternalA2AUrl() is used (not getServerConfig().caipeUrl)
  * - Supervisor response missing `tools` key defaults to {}
  */
@@ -28,6 +28,9 @@ const mockNextResponseJson = jest.fn(
     status: init?.status ?? 200,
   }),
 );
+const mockCheckPermission = jest.fn();
+const mockValidateBearerJWT = jest.fn();
+const mockValidateLocalSkillsJWT = jest.fn();
 
 jest.mock("next/server", () => ({
   NextRequest: Request,
@@ -39,11 +42,26 @@ const mockGetServerSession =
   jest.requireMock<{ getServerSession: jest.Mock }>("next-auth")
     .getServerSession;
 
-jest.mock("@/lib/auth-config", () => ({ authOptions: {} }));
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: "",
+}));
+jest.mock("@/lib/jwt-validation", () => ({
+  validateBearerJWT: (...args: unknown[]) => mockValidateBearerJWT(...args),
+  validateLocalSkillsJWT: (...args: unknown[]) => mockValidateLocalSkillsJWT(...args),
+}));
+jest.mock("@/lib/rbac/keycloak-authz", () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+jest.mock("@/lib/rbac/audit", () => ({
+  logAuthzDecision: jest.fn(),
+}));
 
 const mockGetInternalA2AUrl = jest.fn().mockReturnValue("http://test-supervisor:8000");
 jest.mock("@/lib/config", () => ({
   getInternalA2AUrl: (...args: unknown[]) => mockGetInternalA2AUrl(...args),
+  getConfig: (key: string) => key === "ssoEnabled",
 }));
 
 jest.spyOn(console, "error").mockImplementation(() => {});
@@ -66,6 +84,10 @@ function makeFetchResponse(opts: {
   });
 }
 
+function makeRequest(init: RequestInit = {}) {
+  return new Request("http://localhost:3000/api/agents/tools", init);
+}
+
 // ============================================================================
 // Subject under test
 // ============================================================================
@@ -80,7 +102,19 @@ describe("GET /api/agents/tools", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetInternalA2AUrl.mockReturnValue("http://test-supervisor:8000");
-    mockGetServerSession.mockResolvedValue(null);
+    mockGetServerSession.mockResolvedValue({
+      user: { email: "admin@example.com", name: "Admin" },
+      role: "admin",
+      accessToken: "tok-admin",
+    });
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+    mockValidateBearerJWT.mockResolvedValue({
+      email: "bob@example.com",
+      name: "Bob",
+      sub: "bob-sub",
+      org: "default",
+    });
+    mockValidateLocalSkillsJWT.mockResolvedValue(null);
     (global.fetch as jest.Mock).mockImplementation(() =>
       makeFetchResponse({ ok: true, status: 200, body: { tools: {} } }),
     );
@@ -89,13 +123,13 @@ describe("GET /api/agents/tools", () => {
   // ── URL construction ──────────────────────────────────────────────────────
 
   it("calls getInternalA2AUrl() to build the supervisor URL", async () => {
-    await GET();
+    await GET(makeRequest());
     expect(mockGetInternalA2AUrl).toHaveBeenCalledTimes(1);
   });
 
   it("fetches from <internalUrl>/tools", async () => {
     mockGetInternalA2AUrl.mockReturnValue("http://internal-svc:9000");
-    await GET();
+    await GET(makeRequest());
     expect(global.fetch).toHaveBeenCalledWith(
       "http://internal-svc:9000/tools",
       expect.any(Object),
@@ -105,7 +139,7 @@ describe("GET /api/agents/tools", () => {
   it("does NOT use getServerConfig() or caipeUrl", async () => {
     // getServerConfig is not exported from our mock — if the route tried to
     // call it the mock would throw 'not a function'.
-    await expect(GET()).resolves.not.toThrow();
+    await expect(GET(makeRequest())).resolves.not.toThrow();
     // And the fetch target should be the internal URL, not a public one
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining("test-supervisor"),
@@ -121,7 +155,7 @@ describe("GET /api/agents/tools", () => {
       makeFetchResponse({ ok: true, status: 200, body: { tools } }),
     );
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(200);
@@ -133,7 +167,7 @@ describe("GET /api/agents/tools", () => {
       makeFetchResponse({ ok: true, status: 200, body: {} }),
     );
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(body).toEqual({ success: true, data: { tools: {} } });
@@ -146,7 +180,7 @@ describe("GET /api/agents/tools", () => {
       makeFetchResponse({ ok: false, status: 503, body: {} }),
     );
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(502);
@@ -159,7 +193,7 @@ describe("GET /api/agents/tools", () => {
       makeFetchResponse({ ok: false, status: 401, body: {} }),
     );
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(body.error).toMatch(/401/);
@@ -168,7 +202,7 @@ describe("GET /api/agents/tools", () => {
   it("returns 502 when fetch throws a network error", async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(502);
@@ -179,7 +213,7 @@ describe("GET /api/agents/tools", () => {
   it("returns 502 with 'Supervisor unreachable' when a non-Error is thrown", async () => {
     (global.fetch as jest.Mock).mockRejectedValue("timeout");
 
-    const res = await GET();
+    const res = await GET(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(502);
@@ -189,9 +223,13 @@ describe("GET /api/agents/tools", () => {
   // ── Auth forwarding ───────────────────────────────────────────────────────
 
   it("forwards the OAuth2 access token as a Bearer header when a session exists", async () => {
-    mockGetServerSession.mockResolvedValue({ accessToken: "tok-abc123" });
+    mockGetServerSession.mockResolvedValue({
+      user: { email: "admin@example.com", name: "Admin" },
+      role: "admin",
+      accessToken: "tok-abc123",
+    });
 
-    await GET();
+    await GET(makeRequest());
 
     const [, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(init.headers).toMatchObject({
@@ -199,36 +237,56 @@ describe("GET /api/agents/tools", () => {
     });
   });
 
-  it("sends no Authorization header when session is null", async () => {
+  it("returns 401 and does not proxy when session is null", async () => {
     mockGetServerSession.mockResolvedValue(null);
 
-    await GET();
+    const res = await GET(makeRequest());
+    const body = await res.json();
 
-    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(init.headers).not.toHaveProperty("Authorization");
+    expect(res.status).toBe(401);
+    expect(body.reason).toBe("not_signed_in");
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("sends no Authorization header when session has no accessToken", async () => {
+  it("returns 401 and does not proxy when session has no accessToken", async () => {
     mockGetServerSession.mockResolvedValue({ user: { email: "a@b.com" } });
 
-    await GET();
+    const res = await GET(makeRequest());
+    const body = await res.json();
 
-    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
-    expect(init.headers).not.toHaveProperty("Authorization");
+    expect(res.status).toBe(401);
+    expect(body.reason).toBe("session_expired");
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("continues without auth (no throw) when getServerSession rejects", async () => {
+  it("returns 403 and does not proxy when PDP denies bearer token access", async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    mockCheckPermission.mockResolvedValueOnce({
+      allowed: false,
+      reason: "DENY_NO_CAPABILITY",
+    });
+
+    const res = await GET(makeRequest({ headers: { Authorization: "Bearer user-token" } }));
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.reason).toBe("pdp_denied");
+    expect(body.code).toBe("mcp_server#read");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not proxy when getServerSession rejects", async () => {
     mockGetServerSession.mockRejectedValue(new Error("session store unavailable"));
 
-    await expect(GET()).resolves.toBeDefined();
-    // fetch should still be called — auth failure is non-fatal
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   // ── Accept header ─────────────────────────────────────────────────────────
 
   it("always sends Accept: application/json", async () => {
-    await GET();
+    await GET(makeRequest());
     const [, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(init.headers).toMatchObject({ Accept: "application/json" });
   });

@@ -205,7 +205,6 @@ const allGatesOpen = {
   audit_logs: true,
   action_audit: true,
   policy: true,
-  ag_policies: true,
   openfga: true,
 };
 

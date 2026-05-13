@@ -48,14 +48,37 @@ curl -s -o /dev/null -w "%{http_code}" \
 curl -s -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer $TOKEN" \
   http://localhost:4000/rag/v1/query
-# → 403 (AgentGateway CEL denies — no chat_user role)
+# → 403 (AgentGateway ext_authz/OpenFGA denies)
 ```
+
+---
+
+## Verify ReBAC Transition Mode
+
+Use the enforcement comparison endpoint to prove stale resource-specific realm roles
+do not allow access once a resource type is marked `rebac_enforced`:
+
+```bash
+curl -s -X POST http://localhost:3000/api/rbac/enforcement-comparison \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": {"type":"user","id":"alice"},
+    "resource": {"type":"agent","id":"incident-agent"},
+    "action": "use",
+    "realm_roles": ["agent_user:incident-agent"]
+  }' | python3 -m json.tool
+```
+
+Expected result for `agent=rebac_enforced`: `legacy.allowed=false`,
+`legacy.ignored_roles=["agent_user:incident-agent"]`, and
+`effective.source="rebac"`.
 
 ---
 
 ## Demo Walkthrough — Prove Every Gate
 
-This script exercises **all three RBAC outcomes** at AgentGateway: `200` (CEL allow), `403` (CEL deny), `401` (jwtAuth reject). It's the cleanest live demo of the system because it shows you *which layer* fired in each case.
+This script exercises **all three RBAC outcomes** at AgentGateway: `200` (ext_authz allow), `403` (ext_authz deny), `401` (jwtAuth reject). It's the cleanest live demo of the system because it shows you *which layer* fired in each case.
 
 ```bash
 # 1) Get a real chat_user token from Keycloak (no UI involved)
@@ -71,15 +94,15 @@ TOKEN=$(curl -s -X POST http://localhost:7080/realms/caipe/protocol/openid-conne
 echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | python3 -m json.tool \
   | grep -E '"(iss|aud|exp|realm_access)"'
 
-# 3) Call AG with a valid token → CEL rule evaluates → proxied to RAG MCP
+# 3) Call AG with a valid token → ext_authz allows → proxied to RAG MCP
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   -X POST http://localhost:4000/rag/v1/query \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"query":"hello"}'
-# → HTTP 200 (jwtAuth passed, chat_user role matches CEL rule)
+# → HTTP 200 (jwtAuth passed, OpenFGA allows)
 
-# 4) Call AG with a denied-user token → CEL evaluates → 403
+# 4) Call AG with a denied-user token → ext_authz evaluates → 403
 DENIED=$(curl -s -X POST http://localhost:7080/realms/caipe/protocol/openid-connect/token \
   -d 'grant_type=password&client_id=caipe-ui&client_secret=caipe-ui-dev-secret' \
   -d 'username=denied-user&password=denied' \
@@ -87,9 +110,9 @@ DENIED=$(curl -s -X POST http://localhost:7080/realms/caipe/protocol/openid-conn
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   -H "Authorization: Bearer $DENIED" \
   http://localhost:4000/rag/v1/query
-# → HTTP 403 (jwtAuth passed — denied-user is authenticated — but CEL deny)
+# → HTTP 403 (jwtAuth passed — denied-user is authenticated — but OpenFGA denies)
 
-# 5) Call AG with a forged token → jwtAuth rejects before CEL even runs
+# 5) Call AG with a forged token → jwtAuth rejects before ext_authz even runs
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
   -H "Authorization: Bearer not.a.real.jwt" \
   http://localhost:4000/rag/v1/query
@@ -99,7 +122,7 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" \
 curl -s http://localhost:15000/config | python3 -m json.tool | head -40
 ```
 
-The three outcomes (200, 403, 401) map directly onto the three distinct layers in the [per-request authorization diagram](./workflows.md#per-request-authorization-end-to-end): **CEL allow**, **CEL deny**, and **jwtAuth reject**.
+The three outcomes (200, 403, 401) map directly onto the distinct layers in the [per-request authorization diagram](./workflows.md#per-request-authorization-end-to-end): **ext_authz allow**, **ext_authz deny**, and **jwtAuth reject**.
 
 ---
 
@@ -184,7 +207,7 @@ NextAuth holds the refresh token and silently refreshes before expiry. If the re
 
 **Q: Can I add a custom role and enforce it at AgentGateway?**
 
-Yes. In Keycloak Admin: Realm Roles → Create. Add it to `default-roles-caipe` if it should be universal. Add an IdP mapper if it should come from a Duo SSO group. Then update `deploy/agentgateway/config.yaml` with a CEL policy referencing the new role. No code changes required.
+Yes for application/UI roles. In Keycloak Admin: Realm Roles → Create. Add it to `default-roles-caipe` if it should be universal. Add an IdP mapper if it should come from an upstream group. For AgentGateway authorization, model the access as OpenFGA relationships instead of editing CEL rules.
 
 **Q: Where do I look to change something?**
 

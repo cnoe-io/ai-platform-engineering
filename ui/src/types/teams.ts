@@ -1,5 +1,7 @@
 // Team types for team management and sharing
 
+import type { TeamMembershipSource } from "./identity-group-sync";
+
 export interface Team {
   _id: string;
   /**
@@ -13,10 +15,15 @@ export interface Team {
   slug: string;
   name: string;
   description?: string;
+  source?: 'manual' | 'identity_sync' | 'bootstrap' | 'migration';
+  status?: 'active' | 'archived' | 'pending_review' | 'disabled';
   owner_id: string; // User email who created the team
+  created_by?: string;
+  updated_by?: string;
   created_at: Date;
   updated_at: Date;
   members: TeamMember[];
+  membership_sources?: TeamMembershipSource[];
   keycloak_roles?: string[];
   /**
    * Spec 104 team-scoped RBAC: agents the team can chat with and tools the
@@ -28,6 +35,9 @@ export interface Team {
     agents?: string[];        // dynamic_agents._id values → agent_user:<id>
     agent_admins?: string[];  // dynamic_agents._id values → agent_admin:<id>
     tools?: string[];         // tool prefixes (e.g. `jira_*`) → tool_user:<prefix>
+    knowledge_bases?: string[];
+    skills?: string[];
+    tasks?: string[];
     tool_wildcard?: boolean;  // true → grant tool_user:* (all tools)
   };
   /**

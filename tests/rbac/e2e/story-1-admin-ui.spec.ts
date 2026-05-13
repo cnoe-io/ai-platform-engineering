@@ -19,7 +19,7 @@
  * the persona's pre-authenticated `apiContext` and assert:
  *
  *   alice_admin           → 200 (sees Keycloak-sourced user list)
- *   {bob,carol,dave,eve}  → 403 with reason=DENY_NO_CAPABILITY
+ *   {bob,carol,dave,eve}  → 403 with PDP-denied reason and admin_ui#view capability code
  *
  * Acceptance scenario 6 (audit-log row) is verified by a single check
  * after each request — we tail the e2e Mongo's `authz_decisions`
@@ -51,7 +51,8 @@ test.describe("@rbac Story 1 — Admin UI Keycloak gate", () => {
     expect(status, `${persona} should get 403`).toBe(403);
     const body = await resp.json().catch(() => ({}));
     if (typeof body === "object" && body !== null && "reason" in body) {
-      expect(body.reason).toBe("DENY_NO_CAPABILITY");
+      expect(body.reason).toBe("pdp_denied");
+      expect(body.code).toBe("admin_ui#view");
     }
   });
 });

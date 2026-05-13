@@ -57,6 +57,15 @@ class EffectiveTeamResolution:
     user_denial_message: Optional[str]
 
 
+@dataclass
+class ChannelResourceGrant:
+    """A resource made available to a Slack channel by ReBAC."""
+
+    resource_type: str
+    resource_id: str
+    actions: list[str]
+
+
 class ChannelTeamMapper:
     """Resolve Slack channel IDs to CAIPE MongoDB team ids."""
 
@@ -93,6 +102,12 @@ class ChannelTeamMapper:
         if not client:
             return None
         return client[self._db_name]["teams"]
+
+    def _grants_collection(self) -> Optional[Collection[Any]]:
+        client = self._get_client()
+        if not client:
+            return None
+        return client[self._db_name]["slack_channel_grants"]
 
     def invalidate(self, channel_id: str) -> None:
         self._cache.pop(channel_id, None)
@@ -166,6 +181,51 @@ class ChannelTeamMapper:
         self._cache[channel_id] = (tid, now)
         return tid
 
+    async def resolve_channel_resource_grants(
+        self,
+        workspace_id: str,
+        channel_id: str,
+    ) -> list[ChannelResourceGrant]:
+        """Return active ReBAC resource grants for a Slack channel."""
+
+        coll = self._grants_collection()
+        if coll is None or not workspace_id or not channel_id:
+            return []
+
+        def _load() -> list[dict[str, Any]]:
+            try:
+                return list(
+                    coll.find(
+                        {
+                            "workspace_id": workspace_id,
+                            "channel_id": channel_id,
+                            "status": "active",
+                        },
+                    ),
+                )
+            except PyMongoError as e:
+                logger.warning("slack_channel_grants query failed: %s", e)
+                return []
+
+        rows = await asyncio.to_thread(_load)
+        grants: list[ChannelResourceGrant] = []
+        for row in rows:
+            resource = row.get("resource")
+            if not isinstance(resource, dict):
+                continue
+            resource_type = resource.get("type")
+            resource_id = resource.get("id")
+            actions = row.get("actions", [])
+            if isinstance(resource_type, str) and isinstance(resource_id, str) and isinstance(actions, list):
+                grants.append(
+                    ChannelResourceGrant(
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        actions=[str(action) for action in actions],
+                    ),
+                )
+        return grants
+
 
 _default_mapper: Optional[ChannelTeamMapper] = None
 
@@ -203,3 +263,12 @@ async def resolve_effective_team_for_user(
         return EffectiveTeamResolution(team_id=None, user_denial_message=DEFAULT_TEAM_INVALID_MESSAGE)
 
     return EffectiveTeamResolution(team_id=None, user_denial_message=UNLINKED_CHANNEL_MESSAGE)
+
+
+async def resolve_channel_resource_grants(
+    workspace_id: str,
+    channel_id: str,
+) -> list[ChannelResourceGrant]:
+    """Resolve many ReBAC resource grants for a Slack channel."""
+
+    return await get_channel_team_mapper().resolve_channel_resource_grants(workspace_id, channel_id)

@@ -1,3 +1,6 @@
+import { isRoleSupersededByRebac } from "./keycloak-transition";
+import type { RebacEnforcementStatusRecord } from "./enforcement-status";
+
 /**
  * Extract per-task / per-skill grants from Keycloak JWT realm_access.roles (098).
  */
@@ -30,10 +33,27 @@ export function extractTaskAccessFromJwtRoles(roles: string[]): {
   userTaskIds: string[];
   adminTaskIds: string[];
   allGrantedTaskIds: string[];
+}
+export function extractTaskAccessFromJwtRoles(
+  roles: string[],
+  enforcementStatuses: Pick<RebacEnforcementStatusRecord, "resource_type" | "enforcement_status">[]
+): {
+  userTaskIds: string[];
+  adminTaskIds: string[];
+  allGrantedTaskIds: string[];
+}
+export function extractTaskAccessFromJwtRoles(
+  roles: string[],
+  enforcementStatuses: Pick<RebacEnforcementStatusRecord, "resource_type" | "enforcement_status">[] = []
+): {
+  userTaskIds: string[];
+  adminTaskIds: string[];
+  allGrantedTaskIds: string[];
 } {
   const userTaskIds: string[] = [];
   const adminTaskIds: string[] = [];
   for (const r of roles) {
+    if (isRoleSupersededByRebac(r, enforcementStatuses)) continue;
     if (r.startsWith("task_user:")) {
       userTaskIds.push(r.slice("task_user:".length));
     } else if (r.startsWith("task_admin:")) {
@@ -51,10 +71,27 @@ export function extractSkillAccessFromJwtRoles(roles: string[]): {
   userSkillIds: string[];
   adminSkillIds: string[];
   allGrantedSkillIds: string[];
+}
+export function extractSkillAccessFromJwtRoles(
+  roles: string[],
+  enforcementStatuses: Pick<RebacEnforcementStatusRecord, "resource_type" | "enforcement_status">[]
+): {
+  userSkillIds: string[];
+  adminSkillIds: string[];
+  allGrantedSkillIds: string[];
+}
+export function extractSkillAccessFromJwtRoles(
+  roles: string[],
+  enforcementStatuses: Pick<RebacEnforcementStatusRecord, "resource_type" | "enforcement_status">[] = []
+): {
+  userSkillIds: string[];
+  adminSkillIds: string[];
+  allGrantedSkillIds: string[];
 } {
   const userSkillIds: string[] = [];
   const adminSkillIds: string[] = [];
   for (const r of roles) {
+    if (isRoleSupersededByRebac(r, enforcementStatuses)) continue;
     if (r.startsWith("skill_user:")) {
       userSkillIds.push(r.slice("skill_user:".length));
     } else if (r.startsWith("skill_admin:")) {

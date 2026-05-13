@@ -8,13 +8,13 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
   getPaginationParams,
   paginatedResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
 
@@ -85,8 +85,8 @@ function validateTransportConfig(
  * Requires admin role.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "mcp_server", "read");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
@@ -97,7 +97,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     ]);
 
     return paginatedResponse(items, total, page, pageSize);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -110,8 +109,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
  * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "mcp_server", "manage");
 
     const body = await request.json();
 
@@ -167,7 +166,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await collection.insertOne(doc as any);
 
     return successResponse(doc, 201);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -187,8 +185,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Server ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "mcp_server", "manage");
 
     const body = await request.json();
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
@@ -227,7 +225,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     return successResponse(updated);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -247,8 +244,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Server ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "mcp_server", "manage");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
@@ -269,5 +266,4 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });
-  });
 });

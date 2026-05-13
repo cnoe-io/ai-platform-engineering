@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
   requireRbacPermission,
@@ -74,7 +74,9 @@ export const GET = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'team', 'view');
+
       const params = await context.params;
       validateTeamId(params.id);
 
@@ -109,7 +111,6 @@ export const GET = withErrorHandler(
         updated_at: record?.updated_at ?? null,
         updated_by: record?.updated_by ?? null,
       });
-    });
   }
 );
 
@@ -127,7 +128,9 @@ export const PUT = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'team', 'manage');
+
       const params = await context.params;
       validateTeamId(params.id);
 
@@ -204,7 +207,6 @@ export const PUT = withErrorHandler(
         updated_at: doc.updated_at,
         updated_by: doc.updated_by,
       });
-    });
   }
 );
 
@@ -217,7 +219,9 @@ export const DELETE = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'team', 'manage');
+
       const params = await context.params;
       validateTeamId(params.id);
 
@@ -278,6 +282,5 @@ export const DELETE = withErrorHandler(
         removed_datasource_id: datasourceId,
         remaining_kb_ids: updatedKbIds,
       });
-    });
   }
 );

@@ -9,8 +9,8 @@ Sits between :func:`channel_agent_mapper.resolve_channel_agent` and
             ─→ ``teams.slug`` (used as ``active_team`` in the OBO token)
 
 We also verify that the requesting user is a member of that team — the
-bot is the first of two RBAC checkpoints (the second is AGW CEL
-evaluating ``team_member:<slug>`` against the JWT). Doing it here lets us
+bot is the first of two RBAC checkpoints (the second is AgentGateway
+ext_authz/OpenFGA). Doing it here lets us
 return a friendly "you're not in this team" message rather than letting
 the request 403 silently downstream.
 
@@ -216,9 +216,9 @@ class ChannelTeamResolver:
                 ),
             )
 
-        # Membership pre-check: bot is the first checkpoint, AGW CEL is the
-        # second. Doing it here lets us return a friendlier message instead
-        # of a 403 from AGW.
+        # Membership pre-check: bot is the first checkpoint, AgentGateway
+        # ext_authz/OpenFGA is the second. Doing it here lets us return a
+        # friendlier message instead of a 403 from AGW.
         member_key = (channel_id, keycloak_user_id)
         cached_member = self._membership.get(member_key)
         if cached_member and now - cached_member[1] < self._ttl:

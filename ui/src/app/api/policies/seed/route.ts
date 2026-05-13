@@ -3,10 +3,11 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 
 interface PolicyDocument {
@@ -41,7 +42,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Policy storage requires MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async () => {
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     const collection = await getCollection<PolicyDocument>("policies");
 
     const existing = await collection.findOne({ name: "default" });
@@ -74,5 +77,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       seeded: true,
       message: `Seeded default policy from ${filePath}`,
     });
-  });
 });

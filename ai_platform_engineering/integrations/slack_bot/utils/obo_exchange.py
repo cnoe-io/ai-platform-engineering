@@ -3,8 +3,8 @@
 Exchanges a user's identity for an OBO token via Keycloak token-exchange,
 optionally requesting a per-team client scope (``team-<slug>`` or
 ``team-personal``) so that the resulting JWT carries an ``active_team``
-claim trusted by every downstream RBAC checkpoint (AGW CEL, dynamic-agents,
-RAG server).
+claim trusted by every downstream RBAC checkpoint (AgentGateway ext_authz,
+dynamic-agents, RAG server).
 
 Spec 104 — `active_team` is the canonical team-scope signal. The legacy
 ``X-Team-Id`` header has been removed: callers MUST embed the team via the
@@ -28,7 +28,7 @@ logger = logging.getLogger("caipe.slack_bot.obo_exchange")
 
 # Spec 104: literal value of the `active_team` claim used for DM / personal
 # (no team) interactions. Must match the hardcoded mapper on the
-# `team-personal` Keycloak client scope and the explicit branch in AGW CEL.
+# `team-personal` Keycloak client scope and the ext_authz personal-mode branch.
 PERSONAL_ACTIVE_TEAM = "__personal__"
 PERSONAL_SCOPE_NAME = "team-personal"
 

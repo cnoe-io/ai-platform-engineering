@@ -1,3 +1,11 @@
+import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+
+import {
+  buildOpenFgaTuple,
+  buildOpenFgaTupleDiff,
+  type UniversalRebacTupleDiffInput,
+} from "./tuple-builders";
+
 export interface OpenFgaTupleKey {
   user: string;
   relation: string;
@@ -20,6 +28,9 @@ export interface TeamResourceTupleDiffInput {
   agents: ResourceStringDiff;
   agentAdmins: ResourceStringDiff;
   tools: ResourceStringDiff;
+  knowledgeBases?: ResourceStringDiff;
+  skills?: ResourceStringDiff;
+  tasks?: ResourceStringDiff;
   toolWildcard: ResourceBooleanDiff;
 }
 
@@ -89,7 +100,7 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
 function resourceTuples(
   teamSlug: string,
   relation: string,
-  objectType: "agent" | "tool",
+  objectType: "agent" | "tool" | "knowledge_base" | "skill" | "task",
   ids: string[]
 ): OpenFgaTupleKey[] {
   return ids.map((id) => ({
@@ -112,6 +123,9 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "can_use", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "can_manage", "agent", input.agentAdmins.added),
     ...resourceTuples(input.teamSlug, "can_call", "tool", input.tools.added),
+    ...resourceTuples(input.teamSlug, "can_read", "knowledge_base", input.knowledgeBases?.added ?? []),
+    ...resourceTuples(input.teamSlug, "can_use", "skill", input.skills?.added ?? []),
+    ...resourceTuples(input.teamSlug, "can_use", "task", input.tasks?.added ?? []),
     ...(input.toolWildcard.added
       ? resourceTuples(input.teamSlug, "can_call", "tool", ["*"])
       : []),
@@ -121,12 +135,21 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "can_use", "agent", input.agents.removed),
     ...resourceTuples(input.teamSlug, "can_manage", "agent", input.agentAdmins.removed),
     ...resourceTuples(input.teamSlug, "can_call", "tool", input.tools.removed),
+    ...resourceTuples(input.teamSlug, "can_read", "knowledge_base", input.knowledgeBases?.removed ?? []),
+    ...resourceTuples(input.teamSlug, "can_use", "skill", input.skills?.removed ?? []),
+    ...resourceTuples(input.teamSlug, "can_use", "task", input.tasks?.removed ?? []),
     ...(input.toolWildcard.removed
       ? resourceTuples(input.teamSlug, "can_call", "tool", ["*"])
       : []),
   ]);
 
   return { writes, deletes };
+}
+
+export function buildUniversalRebacTupleDiff(
+  input: UniversalRebacTupleDiffInput
+): TeamResourceTupleDiff {
+  return buildOpenFgaTupleDiff(input);
 }
 
 export async function getOpenFgaStoreId(): Promise<string> {
@@ -179,6 +202,12 @@ export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFga
   }
   const storeId = await getOpenFgaStoreId();
   return { allowed: await tupleAllowed(baseUrl, storeId, tuple) };
+}
+
+export async function checkUniversalRebacRelationship(
+  relationship: UniversalRebacRelationship
+): Promise<OpenFgaCheckResult> {
+  return checkOpenFgaTuple(buildOpenFgaTuple(relationship));
 }
 
 export async function readOpenFgaTuples(options: OpenFgaReadOptions = {}): Promise<OpenFgaReadResult> {
@@ -273,4 +302,10 @@ export async function writeOpenFgaTupleDiff(diff: TeamResourceTupleDiff): Promis
     return { enabled: false, writes: 0, deletes: 0 };
   }
   return writeOpenFgaTuples(diff);
+}
+
+export async function writeUniversalRebacTupleDiff(
+  input: UniversalRebacTupleDiffInput
+): Promise<OpenFgaReconcileResult> {
+  return writeOpenFgaTupleDiff(buildUniversalRebacTupleDiff(input));
 }

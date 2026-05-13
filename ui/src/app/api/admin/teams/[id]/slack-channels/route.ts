@@ -30,10 +30,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
@@ -150,8 +149,8 @@ export const GET = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "view");
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "view");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -217,7 +216,6 @@ export const GET = withErrorHandler(
           description: a.description ?? "",
         })),
       });
-    });
   }
 );
 
@@ -234,9 +232,8 @@ export const PUT = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "admin");
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -404,6 +401,5 @@ export const PUT = withErrorHandler(
         channels: next,
         removed_channel_ids: removedChannelIds,
       });
-    });
   }
 );

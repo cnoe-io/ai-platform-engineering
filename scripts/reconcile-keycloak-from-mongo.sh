@@ -6,8 +6,7 @@
 #      the BFF startup auto-sync — restart caipe-ui first; this script just
 #      verifies).
 #   2. Ensures the `team_member:<slug>` realm role exists (slug-keyed to
-#      match AgentGateway CEL, which evaluates
-#      `team_member:<jwt.active_team>` and `active_team` carries the slug).
+#      match the signed `active_team` claim and OpenFGA team tuples).
 #   3. For each member email, looks up the Keycloak user; if found, assigns
 #      the team_member realm role. Members who have not yet logged in via
 #      SSO are listed at the end as "needs SSO login" — they will get their
@@ -149,7 +148,7 @@ for t in teams:
         print(f"    ! team {tid} has no slug — skipping (run BFF startup auto-sync to backfill)")
         continue
 
-    # Slug-keyed to match AGW CEL: jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+    # Slug-keyed to match the signed active_team claim and OpenFGA team tuples.
     role_name = f"team_member:{slug}"
     enc = urllib.parse.quote(role_name, safe="")
 

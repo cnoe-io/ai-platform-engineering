@@ -1,17 +1,18 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { deleteIdpMapper } from "@/lib/rbac/keycloak-admin";
 
 export const DELETE = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
-    return withAuth(request, async (_req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
+
       const params = await context.params;
       const mapperId = params.id;
       const alias = request.nextUrl.searchParams.get("alias");
@@ -25,6 +26,5 @@ export const DELETE = withErrorHandler(
         mapperId,
       });
       return successResponse({ ok: true });
-    });
   }
 );

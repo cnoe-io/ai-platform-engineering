@@ -1,9 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   searchRealmUsers,
@@ -121,8 +122,10 @@ async function userMatchesFilters(
 }
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
-  return withAuth(request, async (req, _user, session) => {
-    const url = new URL(req.url);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
+
+  const url = new URL(request.url);
     const search = (url.searchParams.get("search") ?? "").trim() || undefined;
     const role = (url.searchParams.get("role") ?? "").trim() || undefined;
     const team = (url.searchParams.get("team") ?? "").trim() || undefined;
@@ -243,5 +246,4 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       page,
       pageSize,
     });
-  });
 });

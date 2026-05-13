@@ -32,6 +32,7 @@ import {
   Search,
 } from "lucide-react";
 import type { Team, TeamMember } from "@/types/teams";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
 import { MultiSelect } from "@/components/ui/multi-select";
 
@@ -127,6 +128,20 @@ function getRoleBadgeVariant(role: string) {
   }
 }
 
+function getSourceLabel(source: TeamMembershipSource): string {
+  if (source.source_type === "manual") return "Manual";
+  if (source.source_type === "oidc_claim") return "OIDC claim";
+  if (source.source_type === "active_directory") return "AD";
+  if (source.source_type === "okta") return "Okta";
+  return source.source_type.replace(/_/g, " ");
+}
+
+function getSourceBadgeVariant(source: TeamMembershipSource) {
+  if (source.status === "active" && source.source_type === "manual") return "secondary" as const;
+  if (source.status === "active") return "outline" as const;
+  return "destructive" as const;
+}
+
 export function TeamDetailsDialog({
   team,
   mode,
@@ -188,6 +203,7 @@ export function TeamDetailsDialog({
 
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
+  const [membershipSources, setMembershipSources] = useState<TeamMembershipSource[]>([]);
 
   useEffect(() => {
     if (open && team) {
@@ -212,8 +228,32 @@ export function TeamDetailsDialog({
       setDiscoveryMemberOnly(true);
       setManualChannelId("");
       setManualChannelName("");
+      setMembershipSources(team.membership_sources ?? []);
     }
   }, [open, team, mode]);
+
+  useEffect(() => {
+    if (!open || activeMode !== "members" || !currentTeam?._id) return;
+    let cancelled = false;
+    fetch(`/api/admin/identity-group-sync/teams/${currentTeam._id}/membership-sources`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || "Failed to load membership sources");
+        }
+        if (!cancelled) {
+          setMembershipSources((data.data?.sources ?? []) as TeamMembershipSource[]);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load membership sources");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeMode, currentTeam?._id]);
 
   // Spec 104 — load the resources catalog the first time the user opens
   // the tab for a given team. We refetch on every open of the tab so the
@@ -684,6 +724,16 @@ export function TeamDetailsDialog({
   if (!currentTeam) return null;
 
   const members = currentTeam.members || [];
+  const sourcesByMember = membershipSources.reduce<Record<string, TeamMembershipSource[]>>(
+    (acc, source) => {
+      const key = (source.user_email ?? source.user_subject ?? "").toLowerCase();
+      if (!key) return acc;
+      acc[key] = acc[key] ?? [];
+      acc[key].push(source);
+      return acc;
+    },
+    {}
+  );
   const sortedMembers = [...members].sort((a, b) => {
     const roleOrder = { owner: 0, admin: 1, member: 2 };
     return (roleOrder[a.role as keyof typeof roleOrder] ?? 2) -
@@ -901,45 +951,62 @@ export function TeamDetailsDialog({
                     No members yet. Add members above.
                   </p>
                 ) : (
-                  sortedMembers.map((member) => (
-                    <div
-                      key={member.user_id}
-                      className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
-                          {member.user_id.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm truncate">{member.user_id}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Added {new Date(member.added_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={getRoleBadgeVariant(member.role)} className="gap-1 text-xs">
-                          {getRoleIcon(member.role)}
-                          {member.role}
-                        </Badge>
-                        {member.role !== "owner" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleRemoveMember(member.user_id)}
-                            disabled={removingMember === member.user_id}
-                          >
-                            {removingMember === member.user_id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
+                  sortedMembers.map((member) => {
+                    const memberSources = sourcesByMember[member.user_id.toLowerCase()] ?? [];
+                    return (
+                      <div
+                        key={member.user_id}
+                        className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
+                            {member.user_id.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{member.user_id}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Added {new Date(member.added_at).toLocaleDateString()}
+                            </p>
+                            {memberSources.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {memberSources.map((source) => (
+                                  <Badge
+                                    key={`${source.source_type}-${source.provider_id ?? "local"}-${source.external_group_id ?? "manual"}-${source.relationship}-${source.status}`}
+                                    variant={getSourceBadgeVariant(source)}
+                                    className="text-[10px] capitalize"
+                                  >
+                                    {getSourceLabel(source)}
+                                    {source.status !== "active" ? `: ${source.status}` : ""}
+                                  </Badge>
+                                ))}
+                              </div>
                             )}
-                          </Button>
-                        )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={getRoleBadgeVariant(member.role)} className="gap-1 text-xs">
+                            {getRoleIcon(member.role)}
+                            {member.role}
+                          </Badge>
+                          {member.role !== "owner" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleRemoveMember(member.user_id)}
+                              disabled={removingMember === member.user_id}
+                            >
+                              {removingMember === member.user_id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>

@@ -6,9 +6,10 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 
 interface Team {
@@ -22,7 +23,9 @@ interface Team {
  * List teams the current user is a member of.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user) => {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "view");
+
     const teamsCollection = await getCollection<Team>("teams");
 
     // Admins can see all teams (to share agents with any team);
@@ -37,5 +40,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .toArray();
 
     return successResponse(teams);
-  });
 });

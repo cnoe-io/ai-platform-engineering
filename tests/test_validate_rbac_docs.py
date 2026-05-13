@@ -33,7 +33,7 @@ spec.loader.exec_module(mod)
         "ai_platform_engineering/utils/auth/keycloak_authz.py",
         "ai_platform_engineering/utils/auth/audit.py",
         "ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/jwt_middleware.py",
-        "deploy/agentgateway/config-bridge.py",
+        "deploy/agentgateway/config.yaml.j2",
         "ui/src/lib/api-middleware.ts",
         "ui/src/lib/da-proxy.ts",
         "ui/src/lib/auth/session.ts",  # nested

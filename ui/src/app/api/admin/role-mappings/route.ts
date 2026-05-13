@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   listIdpAliases,
@@ -13,8 +13,9 @@ import {
 } from "@/lib/rbac/keycloak-admin";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
+
     console.log("[Admin RoleMappings] GET list", { email: user.email });
     const aliases = (await listIdpAliases()).filter((idp) => idp.alias);
     const nested = await Promise.all(
@@ -29,12 +30,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       mapperCount: mappers.length,
     });
     return successResponse({ mappers, idpAliases: aliases });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     const body = (await request.json()) as Record<string, unknown>;
     const { idpAlias, groupName, roleName } = body;
     if (typeof idpAlias !== "string" || !idpAlias.trim()) {
@@ -57,5 +58,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       roleName: r,
     });
     return successResponse(created, 201);
-  });
 });

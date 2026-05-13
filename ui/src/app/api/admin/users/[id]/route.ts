@@ -1,10 +1,11 @@
 import { type NextRequest } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   getRealmUserById,
@@ -34,75 +35,76 @@ export const GET = withErrorHandler(
     request: NextRequest,
     context: { params: Promise<{ id: string }> }
   ) => {
-    return withAuth(request, async (_req, _user, session) => {
-      const params = await context.params;
-      const id = params.id;
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "view");
 
-      const [kcUser, realmRoles, sessions, federatedIdentities] = await Promise.all([
-        getRealmUserById(id),
-        listRealmRoleMappingsForUser(id),
-        getUserSessions(id),
-        getUserFederatedIdentities(id),
-      ]);
+    const params = await context.params;
+    const id = params.id;
 
-      const email = String(kcUser.email ?? "").trim().toLowerCase();
-      type TeamOwnRow = { team_id: string; tenant_id: string; members?: string[] };
-      let teams: Array<{ team_id: string; tenant_id: string }> = [];
+    const [kcUser, realmRoles, sessions, federatedIdentities] = await Promise.all([
+      getRealmUserById(id),
+      listRealmRoleMappingsForUser(id),
+      getUserSessions(id),
+      getUserFederatedIdentities(id),
+    ]);
 
-      if (isMongoDBConfigured && email) {
-        const ownership = await getCollection<TeamOwnRow>("team_kb_ownership");
-        const rows = await ownership
-          .find({ members: email })
-          .project({ team_id: 1, tenant_id: 1 })
-          .toArray();
-        teams = rows.map((t) => ({
+    const email = String(kcUser.email ?? "").trim().toLowerCase();
+    type TeamOwnRow = { team_id: string; tenant_id: string; members?: string[] };
+    let teams: Array<{ team_id: string; tenant_id: string }> = [];
+
+    if (isMongoDBConfigured && email) {
+      const ownership = await getCollection<TeamOwnRow>("team_kb_ownership");
+      const rows = await ownership
+        .find({ members: email })
+        .project({ team_id: 1, tenant_id: 1 })
+        .toArray();
+      teams = rows.map((t) => ({
+        team_id: t.team_id,
+        tenant_id: t.tenant_id,
+      }));
+    }
+
+    const attributes = normalizeAttributes(kcUser.attributes);
+
+    const lastAccess = sessions.reduce((max, s) => {
+      const t = s.lastAccess ?? s.start ?? 0;
+      return t > max ? t : max;
+    }, 0);
+
+    const createdRaw = kcUser.createdTimestamp;
+    const createdAt =
+      typeof createdRaw === "number" && createdRaw > 0 ? createdRaw : null;
+
+    return successResponse({
+      user: {
+        id: String(kcUser.id ?? id),
+        username: String(kcUser.username ?? ""),
+        email: String(kcUser.email ?? ""),
+        firstName:
+          kcUser.firstName !== undefined && kcUser.firstName !== null
+            ? String(kcUser.firstName)
+            : "",
+        lastName:
+          kcUser.lastName !== undefined && kcUser.lastName !== null
+            ? String(kcUser.lastName)
+            : "",
+        enabled: kcUser.enabled !== false,
+        createdAt,
+        attributes,
+        slackLinkStatus: slackLinkStatus(attributes),
+        realmRoles: realmRoles.map((r) => ({
+          id: r.id,
+          name: r.name,
+          description: r.description,
+        })),
+        sessions,
+        federatedIdentities,
+        teams: teams.map((t) => ({
           team_id: t.team_id,
           tenant_id: t.tenant_id,
-        }));
-      }
-
-      const attributes = normalizeAttributes(kcUser.attributes);
-
-      const lastAccess = sessions.reduce((max, s) => {
-        const t = s.lastAccess ?? s.start ?? 0;
-        return t > max ? t : max;
-      }, 0);
-
-      const createdRaw = kcUser.createdTimestamp;
-      const createdAt =
-        typeof createdRaw === "number" && createdRaw > 0 ? createdRaw : null;
-
-      return successResponse({
-        user: {
-          id: String(kcUser.id ?? id),
-          username: String(kcUser.username ?? ""),
-          email: String(kcUser.email ?? ""),
-          firstName:
-            kcUser.firstName !== undefined && kcUser.firstName !== null
-              ? String(kcUser.firstName)
-              : "",
-          lastName:
-            kcUser.lastName !== undefined && kcUser.lastName !== null
-              ? String(kcUser.lastName)
-              : "",
-          enabled: kcUser.enabled !== false,
-          createdAt,
-          attributes,
-          slackLinkStatus: slackLinkStatus(attributes),
-          realmRoles: realmRoles.map((r) => ({
-            id: r.id,
-            name: r.name,
-            description: r.description,
-          })),
-          sessions,
-          federatedIdentities,
-          teams: teams.map((t) => ({
-            team_id: t.team_id,
-            tenant_id: t.tenant_id,
-          })),
-          lastAccess: lastAccess > 0 ? lastAccess : null,
-        },
-      });
+        })),
+        lastAccess: lastAccess > 0 ? lastAccess : null,
+      },
     });
   }
 );
@@ -112,22 +114,23 @@ export const PUT = withErrorHandler(
     request: NextRequest,
     context: { params: Promise<{ id: string }> }
   ) => {
-    return withAuth(request, async (req, _user, session) => {
-      const params = await context.params;
-      const id = params.id;
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
-      let body: Record<string, unknown>;
-      try {
-        body = (await req.json()) as Record<string, unknown>;
-      } catch {
-        throw new ApiError("Invalid JSON body", 400);
-      }
+    const params = await context.params;
+    const id = params.id;
 
-      const existing = await getRealmUserById(id);
-      const merged: Record<string, unknown> = { ...existing, ...body, id: existing.id };
-      await updateUser(id, merged);
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      throw new ApiError("Invalid JSON body", 400);
+    }
 
-      return successResponse({ ok: true });
-    });
+    const existing = await getRealmUserById(id);
+    const merged: Record<string, unknown> = { ...existing, ...body, id: existing.id };
+    await updateUser(id, merged);
+
+    return successResponse({ ok: true });
   }
 );

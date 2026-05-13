@@ -4,12 +4,10 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
-  GitBranch,
   Loader2,
   Maximize2,
   Minimize2,
   RefreshCw,
-  Shield,
   Trash2,
 } from "lucide-react";
 import {
@@ -38,6 +36,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { RebacPolicyBuilder } from "./rebac/RebacPolicyBuilder";
+import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
+import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
+import { RebacEnforcementStatusPanel } from "./rebac/RebacEnforcementStatusPanel";
+import { RebacGraphFilters } from "./rebac/RebacGraphFilters";
+import { SlackChannelRebacPanel } from "./rebac/SlackChannelRebacPanel";
+import type { UniversalRebacRelationship, UniversalRebacResourceAction } from "@/types/rbac-universal";
 
 type ResourceType = "agent" | "tool" | "knowledge_base";
 
@@ -108,6 +113,14 @@ const RESOURCE_LABELS: Record<ResourceType, string> = {
 
 const RESOURCE_TYPES = new Set<ResourceType>(["agent", "tool", "knowledge_base"]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
+const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
+  can_use: "use",
+  can_manage: "manage",
+  can_call: "call",
+  can_read: "read",
+  can_ingest: "ingest",
+  can_admin: "administer",
+};
 
 interface RebacNodeData {
   label: string;
@@ -196,6 +209,27 @@ function edgeTuple(edge: GraphEdge): TupleKey {
   return { user: edge.from, relation: edge.relation, object: edge.to };
 }
 
+function relationshipFromTuple(tuple: TupleKey): UniversalRebacRelationship | null {
+  const [subjectType, subjectRest = ""] = tuple.user.split(":", 2);
+  const [subjectId, subjectRelation] = subjectRest.split("#", 2);
+  const [resourceType, resourceId = ""] = tuple.object.split(":", 2);
+  const action = RELATION_TO_ACTION[tuple.relation];
+  if (!subjectType || !subjectId || !resourceType || !resourceId || !action) return null;
+  if (!["user", "team", "slack_channel", "external_group", "service_account", "anonymous"].includes(subjectType)) return null;
+  return {
+    subject: {
+      type: subjectType as UniversalRebacRelationship["subject"]["type"],
+      id: subjectId,
+      relation: subjectRelation as UniversalRebacRelationship["subject"]["relation"],
+    },
+    action,
+    resource: {
+      type: resourceType as UniversalRebacRelationship["resource"]["type"],
+      id: resourceId,
+    },
+  };
+}
+
 export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [tuples, setTuples] = useState<TupleRecord[]>([]);
@@ -281,17 +315,54 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     setResourceId(typeResources(catalog, resourceType)[0]?.id || "");
   }, [catalog, resourceType]);
 
+  async function applyChangeSet(
+    name: string,
+    writes: UniversalRebacRelationship[],
+    deletes: UniversalRebacRelationship[]
+  ) {
+    const create = await fetch("/api/admin/rebac/change-sets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, writes, deletes }),
+    });
+    if (!create.ok) throw new Error(`Change-set create failed: ${create.status}`);
+    const createPayload = await create.json();
+    const changeSet = apiData<{ change_set: { id: string } }>(createPayload).change_set;
+
+    const validate = await fetch(`/api/admin/rebac/change-sets/${changeSet.id}/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!validate.ok) throw new Error(`Change-set validation failed: ${validate.status}`);
+    const validationPayload = await validate.json();
+    const validation = apiData<{ validation: { valid: boolean; blocked?: unknown[] } }>(validationPayload).validation;
+    if (!validation.valid) {
+      throw new Error(`Change-set validation blocked ${validation.blocked?.length ?? 0} change(s)`);
+    }
+
+    const apply = await fetch(`/api/admin/rebac/change-sets/${changeSet.id}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!apply.ok) throw new Error(`Change-set apply failed: ${apply.status}`);
+  }
+
   async function mutateRelationship(operation: "grant" | "revoke") {
+    if (!selectedTuple) return;
+    const relationship = relationshipFromTuple(selectedTuple);
+    if (!relationship) {
+      setError("Selected tuple cannot be represented as a universal ReBAC relationship");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/openfga/relationship", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamSlug, resourceType, resourceId, relation, operation }),
-      });
-      if (!res.ok) throw new Error(`OpenFGA ${operation} failed: ${res.status}`);
+      await applyChangeSet(
+        `${operation === "grant" ? "Grant" : "Revoke"} ${relation} ${resourceType}:${resourceId}`,
+        operation === "grant" ? [relationship] : [],
+        operation === "revoke" ? [relationship] : []
+      );
       setMessage(`${operation === "grant" ? "Granted" : "Revoked"} ${relation} on ${resourceType}:${resourceId}`);
       await Promise.all([loadTuples(), loadGraph()]);
     } catch (err) {
@@ -303,36 +374,41 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
 
   async function checkAccess() {
     if (!selectedTuple) return;
+    const relationship = relationshipFromTuple(selectedTuple);
+    if (!relationship) {
+      setError("Selected tuple cannot be represented as a universal ReBAC relationship");
+      return;
+    }
     setBusy(true);
     setError(null);
     setCheckResult(null);
     try {
-      const res = await fetch("/api/admin/openfga/check", {
+      const res = await fetch("/api/admin/rebac/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tuple: selectedTuple }),
+        body: JSON.stringify({ relationship }),
       });
-      if (!res.ok) throw new Error(`OpenFGA check failed: ${res.status}`);
+      if (!res.ok) throw new Error(`ReBAC access check failed: ${res.status}`);
       const payload = await res.json();
       setCheckResult(Boolean(apiData<{ allowed: boolean }>(payload).allowed));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "OpenFGA check failed");
+      setError(err instanceof Error ? err.message : "ReBAC access check failed");
     } finally {
       setBusy(false);
     }
   }
 
   async function deleteTuple(tuple: TupleKey) {
+    const relationship = relationshipFromTuple(tuple);
+    if (!relationship) {
+      setError("Tuple cannot be represented as a universal ReBAC relationship");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/openfga/tuples", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deletes: [tuple] }),
-      });
-      if (!res.ok) throw new Error(`Tuple delete failed: ${res.status}`);
+      await applyChangeSet(`Revoke ${tuple.relation} ${tuple.object}`, [], [relationship]);
       setMessage(`Deleted ${tuple.user} ${tuple.relation} ${tuple.object}`);
       await Promise.all([loadTuples(), loadGraph()]);
     } catch (err) {
@@ -344,16 +420,17 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
 
   async function applyGraphChanges() {
     if (pendingGraphWrites.length === 0 && pendingGraphDeletes.length === 0) return;
+    const writes = pendingGraphWrites.map(relationshipFromTuple).filter(Boolean) as UniversalRebacRelationship[];
+    const deletes = pendingGraphDeletes.map(relationshipFromTuple).filter(Boolean) as UniversalRebacRelationship[];
+    if (writes.length !== pendingGraphWrites.length || deletes.length !== pendingGraphDeletes.length) {
+      setError("One or more staged graph changes cannot be represented as universal ReBAC relationships");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/openfga/tuples", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ writes: pendingGraphWrites, deletes: pendingGraphDeletes }),
-      });
-      if (!res.ok) throw new Error(`OpenFGA graph save failed: ${res.status}`);
+      await applyChangeSet("Graph policy change set", writes, deletes);
       setMessage(
         `Saved ${pendingGraphWrites.length} grant${pendingGraphWrites.length === 1 ? "" : "s"} and ${
           pendingGraphDeletes.length
@@ -434,19 +511,21 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         <TabsList>
           <TabsTrigger value="builder">Relationship Builder</TabsTrigger>
           <TabsTrigger value="explorer">Effective Access</TabsTrigger>
+          <TabsTrigger value="enforcement">Enforcement Status</TabsTrigger>
+          <TabsTrigger value="slack">Slack Channels</TabsTrigger>
           <TabsTrigger value="graph">Policy Graph</TabsTrigger>
           <TabsTrigger value="tuples">Tuple Inspector</TabsTrigger>
         </TabsList>
 
         <TabsContent value="builder">
-          <Card>
-            <CardHeader>
-              <CardTitle>Grant Team Access</CardTitle>
-              <CardDescription>
-                Create OpenFGA tuples from known teams and resources instead of typing raw relationships.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <RebacPolicyBuilder
+            selectedGrant={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+            selectedRevocation={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+            disabled={!isAdmin}
+            busy={busy}
+            onGrant={() => mutateRelationship("grant")}
+            onRevoke={() => mutateRelationship("revoke")}
+          >
               <RelationshipForm
                 catalog={catalog}
                 teamSlug={teamSlug}
@@ -460,21 +539,8 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 onRelation={setRelation}
               />
               {selectedTuple && <TuplePreview tuple={selectedTuple} />}
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={!isAdmin || busy || !selectedTuple} onClick={() => mutateRelationship("grant")}>
-                  Grant relationship
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={!isAdmin || busy || !selectedTuple}
-                  onClick={() => mutateRelationship("revoke")}
-                >
-                  Revoke relationship
-                </Button>
-              </div>
               {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
-            </CardContent>
-          </Card>
+          </RebacPolicyBuilder>
         </TabsContent>
 
         <TabsContent value="explorer">
@@ -499,20 +565,22 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 onRelation={setRelation}
               />
               {selectedTuple && <TuplePreview tuple={selectedTuple} />}
-              <Button disabled={busy || !selectedTuple} onClick={checkAccess} className="gap-2">
-                <Shield className="h-4 w-4" />
-                Check effective access
-              </Button>
-              {checkResult !== null && (
-                <div className="rounded-md border p-3 text-sm">
-                  Result:{" "}
-                  <Badge variant={checkResult ? "default" : "destructive"}>
-                    {checkResult ? "allowed" : "denied"}
-                  </Badge>
-                </div>
-              )}
+              <RebacAccessChecker
+                relationship={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+                allowed={checkResult}
+                busy={busy}
+                onCheck={checkAccess}
+              />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="enforcement">
+          <RebacEnforcementStatusPanel />
+        </TabsContent>
+
+        <TabsContent value="slack">
+          <SlackChannelRebacPanel disabled={!isAdmin} />
         </TabsContent>
 
         <TabsContent value="graph">
@@ -535,28 +603,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                <div>
-                  <Label htmlFor="graph-scope">Graph scope</Label>
-                  <select
-                    id="graph-scope"
-                    className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    value={graphScope}
-                    onChange={(event) => setGraphScope(event.target.value)}
-                  >
-                    <option value={ALL_RELATIONSHIPS_SCOPE}>All relationships in the system</option>
-                    {catalog?.teams.map((team) => (
-                      <option key={team.slug} value={team.slug}>
-                        {team.name} ({team.slug})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <Button variant="outline" className="self-end gap-2" onClick={loadGraph}>
-                  <GitBranch className="h-4 w-4" />
-                  Render graph
-                </Button>
-              </div>
+              <RebacGraphFilters
+                teams={catalog?.teams ?? []}
+                scope={graphScope}
+                allScopeValue={ALL_RELATIONSHIPS_SCOPE}
+                onScopeChange={setGraphScope}
+                onRender={loadGraph}
+              />
               <GraphSummary graph={graph} />
               <OpenFgaGraphEditor
                 catalog={catalog}
@@ -1167,6 +1220,8 @@ function PendingGraphChanges({
   onSave: () => void;
 }) {
   const hasChanges = writes.length > 0 || deletes.length > 0;
+  const grants = writes.map(relationshipFromTuple).filter(Boolean) as UniversalRebacRelationship[];
+  const revocations = deletes.map(relationshipFromTuple).filter(Boolean) as UniversalRebacRelationship[];
 
   return (
     <div className="rounded-md border p-3">
@@ -1176,6 +1231,7 @@ function PendingGraphChanges({
       </div>
       <div className="mt-2 max-h-60 space-y-2 overflow-auto">
         {!hasChanges && <p className="text-xs text-muted-foreground">No graph edits staged.</p>}
+        <PolicyChangeSetDiff grants={grants} revocations={revocations} />
         {writes.map((tuple) => (
           <div key={`write-${tupleKey(tuple)}`} className="rounded bg-emerald-500/10 p-2 text-xs">
             <Badge className="mb-1">grant</Badge>
@@ -1193,7 +1249,7 @@ function PendingGraphChanges({
       </div>
       <div className="mt-3 flex gap-2">
         <Button size="sm" disabled={!isAdmin || busy || !hasChanges} onClick={onSave}>
-          Save
+          Validate and save
         </Button>
         <Button size="sm" variant="outline" disabled={busy || !hasChanges} onClick={onClear}>
           Clear

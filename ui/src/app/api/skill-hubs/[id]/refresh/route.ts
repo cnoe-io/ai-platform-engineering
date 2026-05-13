@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { getHubSkills, resolveHubToken } from "@/lib/hub-crawl";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
@@ -39,8 +39,8 @@ export const POST = withErrorHandler(
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       const { id } = await context.params;
 
@@ -112,6 +112,5 @@ export const POST = withErrorHandler(
       const skills = await getHubSkills(hub, /* forceFresh */ true);
 
       return NextResponse.json({ hub_id: id, skills_count: skills.length });
-    });
   },
 );

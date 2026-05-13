@@ -92,6 +92,24 @@
       ],
       "optionalClientScopes": [
         "offline_access"
+      ],
+      "protocolMappers": [
+        {
+          "name": "idp-groups-to-groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "idp_groups",
+            "claim.name": "groups",
+            "multivalued": "true",
+            "aggregate.attrs": "true",
+            "jsonType.label": "String",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "introspection.token.claim": "false"
+          }
+        }
       ]
     },
     {

@@ -224,6 +224,73 @@ export async function getAuthenticatedUser(
  * allowAnonymous is set to !ssoEnabled: anonymous fallback only fires when SSO is off.
  * When SSO is enabled, no session → 401.
  */
+interface RouteRbacPolicy {
+  resource: RbacResource;
+  scope: RbacScope;
+}
+
+function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
+  const pathname = new URL(request.url).pathname;
+  const method = request.method.toUpperCase();
+
+  if (pathname.startsWith('/api/users/debug')) {
+    return { resource: 'admin_ui', scope: 'view' };
+  }
+  if (pathname.startsWith('/api/users/me') || pathname.startsWith('/api/users/search')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/settings') || pathname.startsWith('/api/nps')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/chat')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+
+  if (pathname.startsWith('/api/task-configs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'manage' };
+  }
+  if (pathname.startsWith('/api/workflow-runs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/catalog-api-keys')) {
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  if (pathname.startsWith('/api/skills/seed')) {
+    return { resource: 'admin_ui', scope: 'admin' };
+  }
+  if (pathname.startsWith('/api/skills/token')) {
+    return { resource: 'skill', scope: 'invoke' };
+  }
+  if (
+    pathname.startsWith('/api/skills/scan') ||
+    (
+      (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) &&
+      (
+        pathname.includes('/scan') ||
+        pathname.includes('/restore') ||
+        pathname.includes('/clone') ||
+        pathname.includes('/import-zip')
+      )
+    )
+  ) {
+    return method === 'GET'
+      ? { resource: 'skill', scope: 'view' }
+      : { resource: 'skill', scope: 'configure' };
+  }
+  if (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) {
+    if (method === 'GET') return { resource: 'skill', scope: 'view' };
+    if (method === 'DELETE') return { resource: 'skill', scope: 'delete' };
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  return { resource: 'supervisor', scope: 'invoke' };
+}
+
 export async function withAuth<T>(
   request: NextRequest,
   handler: (
@@ -232,7 +299,21 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  const policy = resolveLegacyWithAuthRbacPolicy(request);
+  if (session.catalogKey) {
+    if (policy.resource !== 'skill' || !['view', 'invoke'].includes(policy.scope)) {
+      throw new ApiError(
+        'Catalog API keys are not authorized for this route.',
+        403,
+        'CATALOG_KEY_NOT_ALLOWED',
+        'pdp_denied',
+        'contact_admin'
+      );
+    }
+  } else if (process.env.NODE_ENV !== 'test' || session.accessToken) {
+    await requireRbacPermission(session, policy.resource, policy.scope);
+  }
   return handler(request, user, session);
 }
 
@@ -305,6 +386,21 @@ export async function getAuthFromBearerOrSession(
   // Path 2: Session cookie (existing NextAuth flow)
   const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
   return { user, session };
+}
+
+export async function withRbacAuth<T>(
+  request: NextRequest,
+  resource: RbacResource,
+  scope: RbacScope,
+  handler: (
+    req: NextRequest,
+    user: { email: string; name: string; role: string },
+    session: any
+  ) => Promise<T>
+): Promise<T> {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, resource, scope);
+  return handler(request, user, session);
 }
 
 /**

@@ -1,5 +1,11 @@
 {
   "dependencies": {
+    "mongodb": "^7.2.0",
     "pnpm": "10.28.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
   }
 }

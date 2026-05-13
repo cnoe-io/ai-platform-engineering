@@ -23,6 +23,12 @@ TEAM_ROLE_MISMATCH_MESSAGE = (
     "Ask your admin to add you to the team for this channel."
 )
 
+SLACK_CHANNEL_REBAC_DENIAL_MESSAGE = (
+    "This channel is not authorized to use that CAIPE resource, "
+    "or your team does not have access. Ask your admin to update "
+    "the channel's ReBAC grants."
+)
+
 # Human-readable action labels for Slack ephemeral messages
 _ACTION_LABELS: dict[str, str] = {
     "admin_ui#view": "view the admin dashboard",
@@ -52,6 +58,12 @@ def format_slack_denial(resource: str, scope: str) -> str:
         f"Sorry, you don't have permission to {action}. "
         "Ask your workspace admin for access."
     )
+
+
+def format_slack_channel_rebac_denial() -> str:
+    """Format a denied Slack channel ReBAC message (FR-022)."""
+
+    return SLACK_CHANNEL_REBAC_DENIAL_MESSAGE
 
 
 def _decode_jwt_payload_unverified(token: str) -> dict[str, Any]:
@@ -140,13 +152,13 @@ def require_permission(
             if isinstance(bolt_ctx, dict) and bolt_ctx.get("rbac_enabled"):
                 # Prefer `active_team` (slug; set by _rbac_enrich_context). Fall
                 # back to `platform_team_id` for legacy callers — but only if
-                # it looks like a slug, since AGW's CEL and the realm role
+                # it looks like a slug, since OpenFGA tuples and the realm role
                 # naming are slug-keyed (matching `jwt.active_team`).
                 tslug = bolt_ctx.get("active_team")
                 if not (isinstance(tslug, str) and tslug):
                     tslug = bolt_ctx.get("platform_team_id")
-                # Skip the gate for personal-mode DMs — the AGW CEL has its
-                # own __personal__ branch that doesn't require team_member:*.
+                # Skip the gate for personal-mode DMs; the gateway ext_authz
+                # path handles __personal__ without requiring team_member:*.
                 if (
                     isinstance(tslug, str)
                     and tslug

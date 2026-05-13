@@ -359,7 +359,7 @@ fi
 # ------------------------------------------------------------------
 # Background: per Spec 104 / active-team-design.md, the bot mints a
 # distinct token-exchanged JWT per Slack interaction whose `active_team`
-# claim drives all downstream RBAC (AGW CEL, RAG, dynamic-agents).
+# claim drives all downstream RBAC (AgentGateway ext_authz, RAG, dynamic-agents).
 #
 # For DMs to the bot there is no team — we use the literal sentinel
 # string `__personal__` to mean "the user, in their personal capacity".

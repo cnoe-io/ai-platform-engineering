@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   successResponse,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 
@@ -36,8 +36,9 @@ function requireMongo() {
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
+
     requireMongo();
 
     const coll = await getCollection<ChannelAgentMappingDoc>(COLLECTION);
@@ -78,12 +79,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
 
     return successResponse({ items });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     requireMongo();
 
     const body = (await request.json()) as {
@@ -142,12 +143,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const saved = await coll.findOne({ slack_channel_id: doc.slack_channel_id });
     return successResponse({ id: saved?._id?.toString(), ...doc }, 201);
-  });
 });
 
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     requireMongo();
 
     let id: string | null = request.nextUrl.searchParams.get("id");
@@ -176,5 +177,4 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Mapping not found", 404);
     }
     return successResponse({ deactivated: true });
-  });
 });

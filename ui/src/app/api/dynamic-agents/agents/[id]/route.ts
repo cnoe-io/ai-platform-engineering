@@ -8,11 +8,12 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
   getUserTeamIds,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
@@ -34,7 +35,9 @@ export const GET = withErrorHandler(
       throw new ApiError("Agent ID is required", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "dynamic_agent", "view");
+
       const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
       // Find the agent
@@ -76,6 +79,5 @@ export const GET = withErrorHandler(
       }
 
       return successResponse(doc);
-    });
   }
 );

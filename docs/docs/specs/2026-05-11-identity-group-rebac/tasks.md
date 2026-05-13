@@ -17,14 +17,14 @@
 
 **Purpose**: Create the shared file layout and test fixtures needed by the identity sync and universal ReBAC work.
 
-- [ ] T001 Create Identity Group Sync API, component, and test directory skeletons in `ui/src/app/api/admin/identity-group-sync/`, `ui/src/components/admin/identity-group-sync/`, and `ui/src/lib/rbac/__tests__/identity-group-sync/`
-- [ ] T002 Create Universal ReBAC API, component, and test directory skeletons in `ui/src/app/api/admin/rebac/`, `ui/src/components/admin/rebac/`, and `ui/src/lib/rbac/__tests__/rebac/`
-- [ ] T003 Create Slack ReBAC API and test directory skeletons in `ui/src/app/api/admin/slack/channels/` and `ui/src/lib/rbac/__tests__/slack/`
-- [ ] T004 [P] Add representative identity-group fixture data in `tests/rbac/fixtures/identity_groups.ts`
-- [ ] T005 [P] Add representative Python identity-group fixture data in `tests/rbac/fixtures/identity_groups.py`
-- [ ] T006 [P] Add Slack channel multi-resource fixture data in `tests/rbac/fixtures/slack_rebac.ts`
-- [ ] T007 [P] Add universal resource fixture data in `tests/rbac/fixtures/rebac_resources.ts`
-- [ ] T008 [P] Add feature-specific E2E fixture helpers in `tests/rbac/e2e/identity-group-rebac-fixture.ts`
+- [X] T001 Create Identity Group Sync API, component, and test directory skeletons in `ui/src/app/api/admin/identity-group-sync/`, `ui/src/components/admin/identity-group-sync/`, and `ui/src/lib/rbac/__tests__/identity-group-sync/`
+- [X] T002 Create Universal ReBAC API, component, and test directory skeletons in `ui/src/app/api/admin/rebac/`, `ui/src/components/admin/rebac/`, and `ui/src/lib/rbac/__tests__/rebac/`
+- [X] T003 Create Slack ReBAC API and test directory skeletons in `ui/src/app/api/admin/slack/channels/` and `ui/src/lib/rbac/__tests__/slack/`
+- [X] T004 [P] Add representative identity-group fixture data in `tests/rbac/fixtures/identity_groups.ts`
+- [X] T005 [P] Add representative Python identity-group fixture data in `tests/rbac/fixtures/identity_groups.py`
+- [X] T006 [P] Add Slack channel multi-resource fixture data in `tests/rbac/fixtures/slack_rebac.ts`
+- [X] T007 [P] Add universal resource fixture data in `tests/rbac/fixtures/rebac_resources.ts`
+- [X] T008 [P] Add feature-specific E2E fixture helpers in `tests/rbac/e2e/identity-group-rebac-fixture.ts`
 
 ---
 
@@ -34,26 +34,26 @@
 
 **Critical**: No user story work should begin until this phase is complete.
 
-- [ ] T009 Define shared universal ReBAC TypeScript types in `ui/src/types/rbac-universal.ts`
-- [ ] T010 Define identity group sync TypeScript types in `ui/src/types/identity-group-sync.ts`
-- [ ] T011 Define Slack ReBAC TypeScript types in `ui/src/types/slack-rebac.ts`
-- [ ] T012 Implement MongoDB collection constants and typed helpers for new RBAC collections in `ui/src/lib/rbac/mongo-collections.ts`
-- [ ] T013 Implement deterministic team slug normalization and collision helpers in `ui/src/lib/rbac/team-slugs.ts`
-- [ ] T014 Implement standard action/resource catalog in `ui/src/lib/rbac/resource-model.ts`
-- [ ] T015 Implement shared ReBAC relationship validation and unsupported-action errors in `ui/src/lib/rbac/relationship-validator.ts`
-- [ ] T016 Implement relationship-to-OpenFGA tuple conversion helpers in `ui/src/lib/rbac/tuple-builders.ts`
-- [ ] T017 Extend OpenFGA read/write/check helpers for universal resource relations in `ui/src/lib/rbac/openfga.ts`
-- [ ] T018 Add OpenFGA model support for universal resource types and Slack channel relations in `deploy/openfga-experiment/model.fga`
-- [ ] T019 Mirror the OpenFGA authorization model changes in `deploy/openfga-experiment/init/authorization-model.json`
-- [ ] T020 Implement ReBAC admin API authorization helpers in `ui/src/app/api/admin/rebac/_lib.ts`
-- [ ] T021 Implement Identity Group Sync API authorization helpers in `ui/src/app/api/admin/identity-group-sync/_lib.ts`
-- [ ] T022 Implement Slack ReBAC API authorization helpers in `ui/src/app/api/admin/slack/channels/_lib.ts`
-- [ ] T023 Implement audit event emitters for sync, policy, graph, access-check, and Slack changes in `ui/src/lib/rbac/audit.ts`
-- [ ] T024 Implement MongoDB index initialization script for new RBAC collections in `scripts/init-rbac-mongo-indexes.ts`
-- [ ] T025 Add RBAC matrix resource/action entries for new resource types in `tests/rbac/rbac-matrix.yaml`
-- [ ] T026 Add unit tests for resource/action catalog and tuple validation in `ui/src/lib/rbac/__tests__/rebac/resource-model.test.ts`
-- [ ] T027 Add unit tests for OpenFGA tuple conversion helpers in `ui/src/lib/rbac/__tests__/rebac/tuple-builders.test.ts`
-- [ ] T028 Add documentation stubs for implementation changes in `docs/docs/security/rbac/file-map.md`
+- [X] T009 Define shared universal ReBAC TypeScript types in `ui/src/types/rbac-universal.ts`
+- [X] T010 Define identity group sync TypeScript types in `ui/src/types/identity-group-sync.ts`
+- [X] T011 Define Slack ReBAC TypeScript types in `ui/src/types/slack-rebac.ts`
+- [X] T012 Implement MongoDB collection constants and typed helpers for new RBAC collections in `ui/src/lib/rbac/mongo-collections.ts`
+- [X] T013 Implement deterministic team slug normalization and collision helpers in `ui/src/lib/rbac/team-slugs.ts`
+- [X] T014 Implement standard action/resource catalog in `ui/src/lib/rbac/resource-model.ts`
+- [X] T015 Implement shared ReBAC relationship validation and unsupported-action errors in `ui/src/lib/rbac/relationship-validator.ts`
+- [X] T016 Implement relationship-to-OpenFGA tuple conversion helpers in `ui/src/lib/rbac/tuple-builders.ts`
+- [X] T017 Extend OpenFGA read/write/check helpers for universal resource relations in `ui/src/lib/rbac/openfga.ts`
+- [X] T018 Add OpenFGA model support for universal resource types and Slack channel relations in `deploy/openfga-experiment/model.fga`
+- [X] T019 Mirror the OpenFGA authorization model changes in `deploy/openfga-experiment/init/authorization-model.json`
+- [X] T020 Implement ReBAC admin API authorization helpers in `ui/src/app/api/admin/rebac/_lib.ts`
+- [X] T021 Implement Identity Group Sync API authorization helpers in `ui/src/app/api/admin/identity-group-sync/_lib.ts`
+- [X] T022 Implement Slack ReBAC API authorization helpers in `ui/src/app/api/admin/slack/channels/_lib.ts`
+- [X] T023 Implement audit event emitters for sync, policy, graph, access-check, and Slack changes in `ui/src/lib/rbac/audit.ts`
+- [X] T024 Implement MongoDB index initialization script for new RBAC collections in `scripts/init-rbac-mongo-indexes.ts`
+- [X] T025 Add RBAC matrix resource/action entries for new resource types in `tests/rbac/rbac-matrix.yaml`
+- [X] T026 Add unit tests for resource/action catalog and tuple validation in `ui/src/lib/rbac/__tests__/rebac/resource-model.test.ts`
+- [X] T027 Add unit tests for OpenFGA tuple conversion helpers in `ui/src/lib/rbac/__tests__/rebac/tuple-builders.test.ts`
+- [X] T028 Add documentation stubs for implementation changes in `docs/docs/security/rbac/file-map.md`
 
 **Checkpoint**: The repository has shared types, storage/index support, relationship validation, OpenFGA model coverage, admin API gates, audit helpers, and baseline tests.
 
@@ -67,32 +67,32 @@
 
 ### Tests for User Story 1
 
-- [ ] T029 [P] [US1] Add BFF contract tests for Identity Group Sync provider and rule endpoints in `ui/src/app/api/admin/identity-group-sync/__tests__/rules-route.test.ts`
-- [ ] T030 [P] [US1] Add BFF contract tests for dry-run and apply endpoints in `ui/src/app/api/admin/identity-group-sync/__tests__/sync-run-route.test.ts`
-- [ ] T031 [P] [US1] Add unit tests for regex mapping clusters, priority resolution, excludes, and slug collisions in `ui/src/lib/rbac/__tests__/identity-group-sync/rule-matcher.test.ts`
-- [ ] T032 [P] [US1] Add unit tests for source-preserving membership reconciliation in `ui/src/lib/rbac/__tests__/identity-group-sync/membership-reconciler.test.ts`
-- [ ] T033 [P] [US1] Add Playwright dry-run and apply scenario for enterprise group sync in `tests/rbac/e2e/story-identity-group-sync.spec.ts`
+- [X] T029 [P] [US1] Add BFF contract tests for Identity Group Sync provider and rule endpoints in `ui/src/app/api/admin/identity-group-sync/__tests__/rules-route.test.ts`
+- [X] T030 [P] [US1] Add BFF contract tests for dry-run and apply endpoints in `ui/src/app/api/admin/identity-group-sync/__tests__/sync-run-route.test.ts`
+- [X] T031 [P] [US1] Add unit tests for regex mapping clusters, priority resolution, excludes, and slug collisions in `ui/src/lib/rbac/__tests__/identity-group-sync/rule-matcher.test.ts`
+- [X] T032 [P] [US1] Add unit tests for source-preserving membership reconciliation in `ui/src/lib/rbac/__tests__/identity-group-sync/membership-reconciler.test.ts`
+- [X] T033 [P] [US1] Add Playwright dry-run and apply scenario for enterprise group sync in `tests/rbac/e2e/story-identity-group-sync.spec.ts`
 
 ### Implementation for User Story 1
 
-- [ ] T034 [P] [US1] Implement identity provider repository helpers in `ui/src/lib/rbac/identity-provider-store.ts`
-- [ ] T035 [P] [US1] Implement identity group sync rule repository helpers in `ui/src/lib/rbac/identity-group-sync-rule-store.ts`
-- [ ] T036 [P] [US1] Implement external group and group-team link repository helpers in `ui/src/lib/rbac/external-group-store.ts`
-- [ ] T037 [P] [US1] Implement team membership source repository helpers in `ui/src/lib/rbac/team-membership-source-store.ts`
-- [ ] T038 [US1] Implement ordered regex mapping cluster evaluator in `ui/src/lib/rbac/identity-group-rule-matcher.ts`
-- [ ] T039 [US1] Implement dry-run planner for matched groups, generated teams, membership diffs, skipped users, conflicts, and tuple diffs in `ui/src/lib/rbac/identity-group-sync-planner.ts`
-- [ ] T040 [US1] Implement apply reconciler for approved runs and OpenFGA user-team tuple writes in `ui/src/lib/rbac/identity-group-sync-reconciler.ts`
-- [ ] T041 [US1] Implement provider health endpoint in `ui/src/app/api/admin/identity-group-sync/providers/route.ts`
-- [ ] T042 [US1] Implement rule list/create endpoint in `ui/src/app/api/admin/identity-group-sync/rules/route.ts`
-- [ ] T043 [US1] Implement rule update endpoint in `ui/src/app/api/admin/identity-group-sync/rules/[ruleId]/route.ts`
-- [ ] T044 [US1] Implement dry-run endpoint in `ui/src/app/api/admin/identity-group-sync/dry-run/route.ts`
-- [ ] T045 [US1] Implement apply endpoint in `ui/src/app/api/admin/identity-group-sync/apply/route.ts`
-- [ ] T046 [US1] Implement run details endpoint in `ui/src/app/api/admin/identity-group-sync/runs/[runId]/route.ts`
-- [ ] T047 [US1] Implement skipped-user remediation endpoint in `ui/src/app/api/admin/identity-group-sync/skipped-users/[sourceId]/resolve/route.ts`
-- [ ] T048 [US1] Implement Identity Group Sync admin tab shell in `ui/src/components/admin/identity-group-sync/IdentityGroupSyncTab.tsx`
-- [ ] T049 [US1] Implement mapping cluster editor component in `ui/src/components/admin/identity-group-sync/MappingClusterEditor.tsx`
-- [ ] T050 [US1] Implement dry-run preview component with conflicts and skipped users in `ui/src/components/admin/identity-group-sync/DryRunPreview.tsx`
-- [ ] T051 [US1] Wire Identity Group Sync tab into the admin page in `ui/src/app/(app)/admin/page.tsx`
+- [X] T034 [P] [US1] Implement identity provider repository helpers in `ui/src/lib/rbac/identity-provider-store.ts`
+- [X] T035 [P] [US1] Implement identity group sync rule repository helpers in `ui/src/lib/rbac/identity-group-sync-rule-store.ts`
+- [X] T036 [P] [US1] Implement external group and group-team link repository helpers in `ui/src/lib/rbac/external-group-store.ts`
+- [X] T037 [P] [US1] Implement team membership source repository helpers in `ui/src/lib/rbac/team-membership-source-store.ts`
+- [X] T038 [US1] Implement ordered regex mapping cluster evaluator in `ui/src/lib/rbac/identity-group-rule-matcher.ts`
+- [X] T039 [US1] Implement dry-run planner for matched groups, generated teams, membership diffs, skipped users, conflicts, and tuple diffs in `ui/src/lib/rbac/identity-group-sync-planner.ts`
+- [X] T040 [US1] Implement apply reconciler for approved runs and OpenFGA user-team tuple writes in `ui/src/lib/rbac/identity-group-sync-reconciler.ts`
+- [X] T041 [US1] Implement provider health endpoint in `ui/src/app/api/admin/identity-group-sync/providers/route.ts`
+- [X] T042 [US1] Implement rule list/create endpoint in `ui/src/app/api/admin/identity-group-sync/rules/route.ts`
+- [X] T043 [US1] Implement rule update endpoint in `ui/src/app/api/admin/identity-group-sync/rules/[ruleId]/route.ts`
+- [X] T044 [US1] Implement dry-run endpoint in `ui/src/app/api/admin/identity-group-sync/dry-run/route.ts`
+- [X] T045 [US1] Implement apply endpoint in `ui/src/app/api/admin/identity-group-sync/apply/route.ts`
+- [X] T046 [US1] Implement run details endpoint in `ui/src/app/api/admin/identity-group-sync/runs/[runId]/route.ts`
+- [X] T047 [US1] Implement skipped-user remediation endpoint in `ui/src/app/api/admin/identity-group-sync/skipped-users/[sourceId]/resolve/route.ts`
+- [X] T048 [US1] Implement Identity Group Sync admin tab shell in `ui/src/components/admin/identity-group-sync/IdentityGroupSyncTab.tsx`
+- [X] T049 [US1] Implement mapping cluster editor component in `ui/src/components/admin/identity-group-sync/MappingClusterEditor.tsx`
+- [X] T050 [US1] Implement dry-run preview component with conflicts and skipped users in `ui/src/components/admin/identity-group-sync/DryRunPreview.tsx`
+- [X] T051 [US1] Wire Identity Group Sync tab into the admin page in `ui/src/app/(app)/admin/page.tsx`
 
 **Checkpoint**: User Story 1 is independently functional as the MVP and can sync approved enterprise groups into CAIPE teams with explainable membership provenance.
 
@@ -106,19 +106,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T052 [P] [US2] Add BFF tests for manual team creation source metadata in `ui/src/app/api/admin/teams/__tests__/manual-team-source.test.ts`
-- [ ] T053 [P] [US2] Add BFF tests for manual membership source preservation in `ui/src/app/api/admin/teams/[id]/members/__tests__/membership-sources.test.ts`
-- [ ] T054 [P] [US2] Add Playwright scoped team admin membership scenario in `tests/rbac/e2e/story-manual-team-management.spec.ts`
+- [x] T052 [P] [US2] Add BFF tests for manual team creation source metadata in `ui/src/app/api/admin/teams/__tests__/manual-team-source.test.ts`
+- [x] T053 [P] [US2] Add BFF tests for manual membership source preservation in `ui/src/app/api/admin/teams/[id]/members/__tests__/membership-sources.test.ts`
+- [x] T054 [P] [US2] Add Playwright scoped team admin membership scenario in `tests/rbac/e2e/story-manual-team-management.spec.ts`
 
 ### Implementation for User Story 2
 
-- [ ] T055 [US2] Update team creation API to set source/status/owner metadata in `ui/src/app/api/admin/teams/route.ts`
-- [ ] T056 [US2] Update team detail API to return membership source summaries in `ui/src/app/api/admin/teams/[id]/route.ts`
-- [ ] T057 [US2] Update team members API to create and remove manual `team_membership_sources` records in `ui/src/app/api/admin/teams/[id]/members/route.ts`
-- [ ] T058 [US2] Implement team membership source read endpoint in `ui/src/app/api/admin/identity-group-sync/teams/[teamId]/membership-sources/route.ts`
-- [ ] T059 [US2] Implement scoped team-admin authorization checks for manual membership edits in `ui/src/lib/rbac/team-admin-guards.ts`
-- [ ] T060 [US2] Update Team Details membership UI to display manual, synced, stale, and pending identity-link sources in `ui/src/components/admin/TeamDetailsDialog.tsx`
-- [ ] T061 [US2] Add manual membership source preservation to the sync reconciler in `ui/src/lib/rbac/identity-group-sync-reconciler.ts`
+- [x] T055 [US2] Update team creation API to set source/status/owner metadata in `ui/src/app/api/admin/teams/route.ts`
+- [x] T056 [US2] Update team detail API to return membership source summaries in `ui/src/app/api/admin/teams/[id]/route.ts`
+- [x] T057 [US2] Update team members API to create and remove manual `team_membership_sources` records in `ui/src/app/api/admin/teams/[id]/members/route.ts`
+- [x] T058 [US2] Implement team membership source read endpoint in `ui/src/app/api/admin/identity-group-sync/teams/[teamId]/membership-sources/route.ts`
+- [x] T059 [US2] Implement scoped team-admin authorization checks for manual membership edits in `ui/src/lib/rbac/team-admin-guards.ts`
+- [x] T060 [US2] Update Team Details membership UI to display manual, synced, stale, and pending identity-link sources in `ui/src/components/admin/TeamDetailsDialog.tsx`
+- [x] T061 [US2] Add manual membership source preservation to the sync reconciler in `ui/src/lib/rbac/identity-group-sync-reconciler.ts`
 
 **Checkpoint**: Manual teams and memberships can be administered safely and remain intact across automated sync.
 
@@ -132,19 +132,19 @@
 
 ### Tests for User Story 3
 
-- [ ] T062 [P] [US3] Add catalog contract tests for every protected resource type in `ui/src/app/api/admin/rebac/__tests__/catalog-route.test.ts`
-- [ ] T063 [P] [US3] Add enforcement-status contract tests in `ui/src/app/api/admin/rebac/__tests__/enforcement-status-route.test.ts`
-- [ ] T064 [P] [US3] Add RBAC matrix tests for deny-by-default and representative read/manage checks in `tests/rbac/unit/ts/universal-rebac-matrix.test.ts`
+- [x] T062 [P] [US3] Add catalog contract tests for every protected resource type in `ui/src/app/api/admin/rebac/__tests__/catalog-route.test.ts`
+- [x] T063 [P] [US3] Add enforcement-status contract tests in `ui/src/app/api/admin/rebac/__tests__/enforcement-status-route.test.ts`
+- [x] T064 [P] [US3] Add RBAC matrix tests for deny-by-default and representative read/manage checks in `tests/rbac/unit/ts/universal-rebac-matrix.test.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T065 [US3] Implement canonical ReBAC resource discovery service in `ui/src/lib/rbac/resource-catalog.ts`
-- [ ] T066 [US3] Implement ReBAC catalog endpoint in `ui/src/app/api/admin/rebac/catalog/route.ts`
-- [ ] T067 [US3] Implement enforcement status store and helpers in `ui/src/lib/rbac/enforcement-status.ts`
-- [ ] T068 [US3] Implement enforcement status endpoint in `ui/src/app/api/admin/rebac/enforcement-status/route.ts`
-- [ ] T069 [US3] Update OpenFGA catalog endpoint to include all universal resource types in `ui/src/app/api/admin/openfga/catalog/route.ts`
-- [ ] T070 [US3] Update team resource assignment API to use universal tuple builders for agents, tools, knowledge bases, skills, and tasks in `ui/src/app/api/admin/teams/[id]/resources/route.ts`
-- [ ] T071 [US3] Update RBAC matrix fixtures with universal resource examples in `tests/rbac/fixtures/rebac_resources.ts`
+- [x] T065 [US3] Implement canonical ReBAC resource discovery service in `ui/src/lib/rbac/resource-catalog.ts`
+- [x] T066 [US3] Implement ReBAC catalog endpoint in `ui/src/app/api/admin/rebac/catalog/route.ts`
+- [x] T067 [US3] Implement enforcement status store and helpers in `ui/src/lib/rbac/enforcement-status.ts`
+- [x] T068 [US3] Implement enforcement status endpoint in `ui/src/app/api/admin/rebac/enforcement-status/route.ts`
+- [x] T069 [US3] Update OpenFGA catalog endpoint to include all universal resource types in `ui/src/app/api/admin/openfga/catalog/route.ts`
+- [x] T070 [US3] Update team resource assignment API to use universal tuple builders for agents, tools, knowledge bases, skills, and tasks in `ui/src/app/api/admin/teams/[id]/resources/route.ts`
+- [x] T071 [US3] Update RBAC matrix fixtures with universal resource examples in `tests/rbac/fixtures/rebac_resources.ts`
 
 **Checkpoint**: Every resource type from the authorization matrix can be discovered, checked, and represented with at least read/manage enforcement metadata.
 
@@ -158,22 +158,22 @@
 
 ### Tests for User Story 4
 
-- [ ] T072 [P] [US4] Add change-set contract tests in `ui/src/app/api/admin/rebac/__tests__/change-sets-route.test.ts`
-- [ ] T073 [P] [US4] Add relationship validation tests for unsupported actions and privilege escalation in `ui/src/lib/rbac/__tests__/rebac/policy-change-validator.test.ts`
-- [ ] T074 [P] [US4] Add Playwright policy builder staged diff scenario in `tests/rbac/e2e/story-policy-authoring.spec.ts`
+- [x] T072 [P] [US4] Add change-set contract tests in `ui/src/app/api/admin/rebac/__tests__/change-sets-route.test.ts`
+- [x] T073 [P] [US4] Add relationship validation tests for unsupported actions and privilege escalation in `ui/src/lib/rbac/__tests__/rebac/policy-change-validator.test.ts`
+- [x] T074 [P] [US4] Add Playwright policy builder staged diff scenario in `tests/rbac/e2e/story-policy-authoring.spec.ts`
 
 ### Implementation for User Story 4
 
-- [ ] T075 [P] [US4] Implement policy rule repository helpers in `ui/src/lib/rbac/policy-rule-store.ts`
-- [ ] T076 [P] [US4] Implement policy change-set repository helpers in `ui/src/lib/rbac/policy-change-set-store.ts`
-- [ ] T077 [US4] Implement change-set validator for delegated scope, action support, circular grants, and last-admin risk in `ui/src/lib/rbac/policy-change-validator.ts`
-- [ ] T078 [US4] Implement change-set create endpoint in `ui/src/app/api/admin/rebac/change-sets/route.ts`
-- [ ] T079 [US4] Implement change-set validate endpoint in `ui/src/app/api/admin/rebac/change-sets/[changeSetId]/validate/route.ts`
-- [ ] T080 [US4] Implement change-set apply endpoint with OpenFGA tuple writes and audit records in `ui/src/app/api/admin/rebac/change-sets/[changeSetId]/apply/route.ts`
-- [ ] T081 [US4] Implement relationship list endpoint for a resource in `ui/src/app/api/admin/rebac/resources/[type]/[id]/relationships/route.ts`
-- [ ] T082 [US4] Implement guided policy builder component in `ui/src/components/admin/rebac/RebacPolicyBuilder.tsx`
-- [ ] T083 [US4] Implement staged policy diff component in `ui/src/components/admin/rebac/PolicyChangeSetDiff.tsx`
-- [ ] T084 [US4] Update OpenFGA ReBAC admin tab to use validated change sets in `ui/src/components/admin/OpenFgaRebacTab.tsx`
+- [x] T075 [P] [US4] Implement policy rule repository helpers in `ui/src/lib/rbac/policy-rule-store.ts`
+- [x] T076 [P] [US4] Implement policy change-set repository helpers in `ui/src/lib/rbac/policy-change-set-store.ts`
+- [x] T077 [US4] Implement change-set validator for delegated scope, action support, circular grants, and last-admin risk in `ui/src/lib/rbac/policy-change-validator.ts`
+- [x] T078 [US4] Implement change-set create endpoint in `ui/src/app/api/admin/rebac/change-sets/route.ts`
+- [x] T079 [US4] Implement change-set validate endpoint in `ui/src/app/api/admin/rebac/change-sets/[changeSetId]/validate/route.ts`
+- [x] T080 [US4] Implement change-set apply endpoint with OpenFGA tuple writes and audit records in `ui/src/app/api/admin/rebac/change-sets/[changeSetId]/apply/route.ts`
+- [x] T081 [US4] Implement relationship list endpoint for a resource in `ui/src/app/api/admin/rebac/resources/[type]/[id]/relationships/route.ts`
+- [x] T082 [US4] Implement guided policy builder component in `ui/src/components/admin/rebac/RebacPolicyBuilder.tsx`
+- [x] T083 [US4] Implement staged policy diff component in `ui/src/components/admin/rebac/PolicyChangeSetDiff.tsx`
+- [x] T084 [US4] Update OpenFGA ReBAC admin tab to use validated change sets in `ui/src/components/admin/OpenFgaRebacTab.tsx`
 
 **Checkpoint**: Administrators can create, validate, apply, and revoke ReBAC relationships without typing raw tuples.
 
@@ -187,20 +187,20 @@
 
 ### Tests for User Story 5
 
-- [ ] T085 [P] [US5] Add graph endpoint contract tests for all/team/resource/subject/Slack scopes in `ui/src/app/api/admin/rebac/__tests__/graph-route.test.ts`
-- [ ] T086 [P] [US5] Add access-check explanation tests in `ui/src/app/api/admin/rebac/__tests__/check-route.test.ts`
-- [ ] T087 [P] [US5] Add Playwright graph filtering and access checker scenario in `tests/rbac/e2e/story-graph-and-access-checker.spec.ts`
+- [x] T085 [P] [US5] Add graph endpoint contract tests for all/team/resource/subject/Slack scopes in `ui/src/app/api/admin/rebac/__tests__/graph-route.test.ts`
+- [x] T086 [P] [US5] Add access-check explanation tests in `ui/src/app/api/admin/rebac/__tests__/check-route.test.ts`
+- [x] T087 [P] [US5] Add Playwright graph filtering and access checker scenario in `tests/rbac/e2e/story-graph-and-access-checker.spec.ts`
 
 ### Implementation for User Story 5
 
-- [ ] T088 [US5] Implement relationship graph query service with pagination and source metadata in `ui/src/lib/rbac/rebac-graph.ts`
-- [ ] T089 [US5] Implement graph endpoint with scope filters in `ui/src/app/api/admin/rebac/graph/route.ts`
-- [ ] T090 [US5] Implement access explanation service that combines OpenFGA checks and MongoDB provenance in `ui/src/lib/rbac/access-explainer.ts`
-- [ ] T091 [US5] Implement access checker endpoint in `ui/src/app/api/admin/rebac/check/route.ts`
-- [ ] T092 [US5] Update existing OpenFGA graph endpoint to delegate to universal graph service in `ui/src/app/api/admin/openfga/graph/route.ts`
-- [ ] T093 [US5] Implement graph filter controls component in `ui/src/components/admin/rebac/RebacGraphFilters.tsx`
-- [ ] T094 [US5] Implement access checker UI component in `ui/src/components/admin/rebac/RebacAccessChecker.tsx`
-- [ ] T095 [US5] Update graph editor to display source, enforcement status, and missing-prerequisite explanations in `ui/src/components/admin/OpenFgaRebacTab.tsx`
+- [x] T088 [US5] Implement relationship graph query service with pagination and source metadata in `ui/src/lib/rbac/rebac-graph.ts`
+- [x] T089 [US5] Implement graph endpoint with scope filters in `ui/src/app/api/admin/rebac/graph/route.ts`
+- [x] T090 [US5] Implement access explanation service that combines OpenFGA checks and MongoDB provenance in `ui/src/lib/rbac/access-explainer.ts`
+- [x] T091 [US5] Implement access checker endpoint in `ui/src/app/api/admin/rebac/check/route.ts`
+- [x] T092 [US5] Update existing OpenFGA graph endpoint to delegate to universal graph service in `ui/src/app/api/admin/openfga/graph/route.ts`
+- [x] T093 [US5] Implement graph filter controls component in `ui/src/components/admin/rebac/RebacGraphFilters.tsx`
+- [x] T094 [US5] Implement access checker UI component in `ui/src/components/admin/rebac/RebacAccessChecker.tsx`
+- [x] T095 [US5] Update graph editor to display source, enforcement status, and missing-prerequisite explanations in `ui/src/components/admin/OpenFgaRebacTab.tsx`
 
 **Checkpoint**: Administrators can inspect full or scoped relationship graphs and explain both allows and denies.
 
@@ -214,22 +214,22 @@
 
 ### Tests for User Story 6
 
-- [ ] T096 [P] [US6] Add Slack channel admin API contract tests in `ui/src/app/api/admin/slack/channels/__tests__/channel-resources-route.test.ts`
-- [ ] T097 [P] [US6] Add Slack runtime ReBAC tests in `ai_platform_engineering/integrations/slack_bot/tests/test_slack_channel_rebac.py`
-- [ ] T098 [P] [US6] Add Playwright Slack channel multi-resource admin scenario in `tests/rbac/e2e/story-slack-channel-rebac.spec.ts`
+- [x] T096 [P] [US6] Add Slack channel admin API contract tests in `ui/src/app/api/admin/slack/channels/__tests__/channel-resources-route.test.ts`
+- [x] T097 [P] [US6] Add Slack runtime ReBAC tests in `ai_platform_engineering/integrations/slack_bot/tests/test_slack_channel_rebac.py`
+- [x] T098 [P] [US6] Add Playwright Slack channel multi-resource admin scenario in `tests/rbac/e2e/story-slack-channel-rebac.spec.ts`
 
 ### Implementation for User Story 6
 
-- [ ] T099 [P] [US6] Implement Slack channel grant repository helpers in `ui/src/lib/rbac/slack-channel-grant-store.ts`
-- [ ] T100 [P] [US6] Implement Slack channel ReBAC decision helpers for UI/BFF checks in `ui/src/lib/rbac/slack-channel-rebac.ts`
-- [ ] T101 [US6] Implement Slack channels list endpoint in `ui/src/app/api/admin/slack/channels/route.ts`
-- [ ] T102 [US6] Implement Slack channel resources read/write endpoint in `ui/src/app/api/admin/slack/channels/[workspaceId]/[channelId]/resources/route.ts`
-- [ ] T103 [US6] Implement Slack channel access-check endpoint in `ui/src/app/api/admin/slack/channels/[workspaceId]/[channelId]/access-check/route.ts`
-- [ ] T104 [US6] Implement Slack channel ReBAC admin component in `ui/src/components/admin/rebac/SlackChannelRebacPanel.tsx`
-- [ ] T105 [US6] Implement Python Slack runtime ReBAC evaluator in `ai_platform_engineering/integrations/slack_bot/utils/slack_rebac.py`
-- [ ] T106 [US6] Integrate Slack runtime ReBAC checks into middleware in `ai_platform_engineering/integrations/slack_bot/utils/rbac_middleware.py`
-- [ ] T107 [US6] Update Slack channel mapping utilities to emit channel resource context in `ai_platform_engineering/integrations/slack_bot/utils/channel_agent_mapper.py`
-- [ ] T108 [US6] Update Slack channel-team mapper to support many resource grants in `ai_platform_engineering/integrations/slack_bot/utils/channel_team_mapper.py`
+- [x] T099 [P] [US6] Implement Slack channel grant repository helpers in `ui/src/lib/rbac/slack-channel-grant-store.ts`
+- [x] T100 [P] [US6] Implement Slack channel ReBAC decision helpers for UI/BFF checks in `ui/src/lib/rbac/slack-channel-rebac.ts`
+- [x] T101 [US6] Implement Slack channels list endpoint in `ui/src/app/api/admin/slack/channels/route.ts`
+- [x] T102 [US6] Implement Slack channel resources read/write endpoint in `ui/src/app/api/admin/slack/channels/[workspaceId]/[channelId]/resources/route.ts`
+- [x] T103 [US6] Implement Slack channel access-check endpoint in `ui/src/app/api/admin/slack/channels/[workspaceId]/[channelId]/access-check/route.ts`
+- [x] T104 [US6] Implement Slack channel ReBAC admin component in `ui/src/components/admin/rebac/SlackChannelRebacPanel.tsx`
+- [x] T105 [US6] Implement Python Slack runtime ReBAC evaluator in `ai_platform_engineering/integrations/slack_bot/utils/slack_rebac.py`
+- [x] T106 [US6] Integrate Slack runtime ReBAC checks into middleware in `ai_platform_engineering/integrations/slack_bot/utils/rbac_middleware.py`
+- [x] T107 [US6] Update Slack channel mapping utilities to emit channel resource context in `ai_platform_engineering/integrations/slack_bot/utils/channel_agent_mapper.py`
+- [x] T108 [US6] Update Slack channel-team mapper to support many resource grants in `ai_platform_engineering/integrations/slack_bot/utils/channel_team_mapper.py`
 
 **Checkpoint**: A Slack channel can expose many agents, tools, and knowledge bases, and runtime access is denied unless channel and user/resource checks pass.
 
@@ -243,20 +243,20 @@
 
 ### Tests for User Story 7
 
-- [ ] T109 [P] [US7] Add Keycloak transition helper tests in `ui/src/lib/rbac/__tests__/rebac/keycloak-transition.test.ts`
-- [ ] T110 [P] [US7] Add enforcement comparison API tests in `ui/src/app/api/rbac/__tests__/enforcement-comparison-route.test.ts`
-- [ ] T111 [P] [US7] Add RBAC matrix migration-state coverage in `tests/rbac/unit/ts/keycloak-rebac-transition.test.ts`
+- [x] T109 [P] [US7] Add Keycloak transition helper tests in `ui/src/lib/rbac/__tests__/rebac/keycloak-transition.test.ts`
+- [x] T110 [P] [US7] Add enforcement comparison API tests in `ui/src/app/api/rbac/__tests__/enforcement-comparison-route.test.ts`
+- [x] T111 [P] [US7] Add RBAC matrix migration-state coverage in `tests/rbac/unit/ts/keycloak-rebac-transition.test.ts`
 
 ### Implementation for User Story 7
 
-- [ ] T112 [US7] Implement Keycloak role classification and transitional-role helpers in `ui/src/lib/rbac/keycloak-transition.ts`
-- [ ] T113 [US7] Implement role-vs-ReBAC comparison service in `ui/src/lib/rbac/enforcement-comparison.ts`
-- [ ] T114 [US7] Implement enforcement comparison endpoint in `ui/src/app/api/rbac/enforcement-comparison/route.ts`
-- [ ] T115 [US7] Update task and skill role helpers to honor ReBAC-enforced resource state in `ui/src/lib/rbac/task-skill-realm-access.ts`
-- [ ] T116 [US7] Update Keycloak resource sync to stop creating permanent per-resource roles for ReBAC-enforced resources in `ui/src/lib/rbac/keycloak-resource-sync.ts`
-- [ ] T117 [US7] Update AgentGateway config template to document ReBAC shadow/enforced mode boundaries in `deploy/agentgateway/config.yaml.j2`
-- [ ] T118 [US7] Implement enforcement status UI panel in `ui/src/components/admin/rebac/RebacEnforcementStatusPanel.tsx`
-- [ ] T119 [US7] Add role drift detection helpers in `ui/src/lib/rbac/drift-detection.ts`
+- [x] T112 [US7] Implement Keycloak role classification and transitional-role helpers in `ui/src/lib/rbac/keycloak-transition.ts`
+- [x] T113 [US7] Implement role-vs-ReBAC comparison service in `ui/src/lib/rbac/enforcement-comparison.ts`
+- [x] T114 [US7] Implement enforcement comparison endpoint in `ui/src/app/api/rbac/enforcement-comparison/route.ts`
+- [x] T115 [US7] Update task and skill role helpers to honor ReBAC-enforced resource state in `ui/src/lib/rbac/task-skill-realm-access.ts`
+- [x] T116 [US7] Update Keycloak resource sync to stop creating permanent per-resource roles for ReBAC-enforced resources in `ui/src/lib/rbac/keycloak-resource-sync.ts`
+- [x] T117 [US7] Update AgentGateway config template to document ReBAC shadow/enforced mode boundaries in `deploy/agentgateway/config.yaml.j2`
+- [x] T118 [US7] Implement enforcement status UI panel in `ui/src/components/admin/rebac/RebacEnforcementStatusPanel.tsx`
+- [x] T119 [US7] Add role drift detection helpers in `ui/src/lib/rbac/drift-detection.ts`
 
 **Checkpoint**: Administrators can see migration state, compare role and ReBAC decisions, and rely on ReBAC for resource types that are marked enforced.
 
@@ -266,20 +266,47 @@
 
 **Purpose**: Complete documentation, migration guardrails, performance checks, and end-to-end validation across the implemented stories.
 
-- [ ] T120 [P] Update RBAC architecture reference for identity sync, universal ReBAC resources, Slack channel many-to-many access, and Keycloak transition in `docs/docs/security/rbac/architecture.md`
-- [ ] T121 [P] Update RBAC workflow diagrams for dry-run/apply sync, policy authoring, graph access check, Slack invocation, and migration modes in `docs/docs/security/rbac/workflows.md`
-- [ ] T122 [P] Update RBAC usage guide with quickstart/demo steps for identity sync and policy graph administration in `docs/docs/security/rbac/usage.md`
-- [ ] T123 [P] Update RBAC file map with every new auth-relevant file in `docs/docs/security/rbac/file-map.md`
-- [ ] T124 Update OpenFGA experiment README with model migration and tuple backfill instructions in `deploy/openfga-experiment/README.md`
-- [ ] T125 Add migration/backfill operational script for membership sources and Slack grants in `scripts/backfill-universal-rebac.ts`
-- [ ] T126 Add rollback helper for source-scoped tuple deletion in `scripts/rollback-universal-rebac-tuples.ts`
-- [ ] T127 Add performance test for 500-group dry-run preview in `tests/rbac/unit/ts/identity-group-sync-performance.test.ts`
-- [ ] T128 Add performance test for filtered graph load in `tests/rbac/unit/ts/rebac-graph-performance.test.ts`
-- [ ] T129 Run and document RBAC docs validation in `tests/test_validate_rbac_docs.py`
-- [ ] T130 Run and document UI unit tests for identity sync, ReBAC, and Slack ReBAC in `ui/src/lib/rbac/__tests__/`
-- [ ] T131 Run and document Python Slack bot RBAC tests in `ai_platform_engineering/integrations/slack_bot/tests/`
-- [ ] T132 Run and document RBAC E2E tests in `tests/rbac/e2e/`
-- [ ] T133 Run and document final quality gates from `docs/docs/specs/2026-05-11-identity-group-rebac/quickstart.md`
+- [X] T120 [P] Update RBAC architecture reference for identity sync, universal ReBAC resources, Slack channel many-to-many access, and Keycloak transition in `docs/docs/security/rbac/architecture.md`
+- [X] T121 [P] Update RBAC workflow diagrams for dry-run/apply sync, policy authoring, graph access check, Slack invocation, and migration modes in `docs/docs/security/rbac/workflows.md`
+- [X] T122 [P] Update RBAC usage guide with quickstart/demo steps for identity sync and policy graph administration in `docs/docs/security/rbac/usage.md`
+- [X] T123 [P] Update RBAC file map with every new auth-relevant file in `docs/docs/security/rbac/file-map.md`
+- [X] T124 Update OpenFGA experiment README with model migration and tuple backfill instructions in `deploy/openfga-experiment/README.md`
+- [X] T125 Add migration/backfill operational script for membership sources and Slack grants in `scripts/backfill-universal-rebac.ts`
+- [X] T126 Add rollback helper for source-scoped tuple deletion in `scripts/rollback-universal-rebac-tuples.ts`
+- [X] T127 Add performance test for 500-group dry-run preview in `tests/rbac/unit/ts/identity-group-sync-performance.test.ts`
+- [X] T128 Add performance test for filtered graph load in `tests/rbac/unit/ts/rebac-graph-performance.test.ts`
+- [X] T129 Run and document RBAC docs validation in `tests/test_validate_rbac_docs.py`
+- [X] T130 Run and document UI unit tests for identity sync, ReBAC, and Slack ReBAC in `ui/src/lib/rbac/__tests__/`
+- [X] T131 Run and document Python Slack bot RBAC tests in `ai_platform_engineering/integrations/slack_bot/tests/`
+- [X] T132 Run and document RBAC E2E tests in `tests/rbac/e2e/`
+- [X] T133 Run and document final quality gates from `docs/docs/specs/2026-05-11-identity-group-rebac/quickstart.md`
+
+**Phase 10 validation evidence (2026-05-12)**:
+
+- `PYTHONPATH=. uv run pytest tests/test_validate_rbac_docs.py -v` → 25 passed.
+- `npm test -- --runInBand identity-group-sync rebac slack` from `ui/` → 26 suites passed, 70 tests passed.
+- `PYTHONPATH=. uv run pytest ai_platform_engineering/integrations/slack_bot/tests/test_slack_channel_rebac.py -v` → 3 passed.
+- `npx tsc -p tsconfig.scripts.json --noEmit` → passed.
+- `npm run build` from `ui/` → passed.
+- `make test-rbac-pytest` → 29 passed, 583 skipped.
+- `make test-rbac-jest` → 21 suites passed, 141 tests passed, 504 skipped.
+- Remote dry-run on `caipe-rbac.outshift.io`: `scripts/backfill-universal-rebac.ts` → `membership_sources=5 relationships=0 slack_channel_grants=0`.
+- Remote RBAC Playwright suite against `https://caipe-rbac.outshift.io` with `--workers=1` → 19 passed, 16 skipped.
+- Post-review hardening: `/api/admin/users/[id]` detail/update moved to dual-auth PDP gates (`admin_ui#view` / `admin_ui#admin`), RBAC matrix rows enabled, and universal ReBAC rollback expanded to source-scoped memberships, relationships, and Slack grants.
+- Post-review verification: `npx tsc -p tsconfig.scripts.json --noEmit` → passed; `npx jest src/__tests__/rbac-matrix-driver.test.ts --runInBand` from `ui/` → 84 passed, 492 skipped; `uv run python -m pytest tests/test_validate_rbac_docs.py -q` → 25 passed; `npm run build` from `ui/` → passed.
+- Post-review deployment: rebuilt/restarted `caipe-ui` on `caipe-rbac.outshift.io`; public smoke confirmed admin detail `200`, non-admin detail `403` (`admin_ui#view`), non-admin update `403` (`admin_ui#admin`); updated remote non-secret OIDC URLs to match Keycloak's public issuer; backfill dry-run now reports `membership_sources=21 relationships=0 slack_channel_grants=0 skipped_slack_channel_grants=0`.
+- User-admin completion pass: migrated the remaining `/api/admin/users/*` sibling routes from session-only admin gates to dual-auth PDP gates (`/stats`, `[id]/teams`, `[id]/roles`, and `[id]/role`); no `migration_status: pending`, `TODO migrate`, `withAuth`, or `requireAdmin` usages remain for the admin-user route family.
+- User-admin verification: `npx jest src/app/api/admin/users/__tests__/dual-auth-user-admin-routes.test.ts --runInBand` → 6 passed; `npx jest src/__tests__/rbac-matrix-driver.test.ts --runInBand` → 108 passed, 468 skipped; `uv run python -m pytest tests/test_validate_rbac_docs.py -q` → 25 passed; `npm run build` from `ui/` → passed.
+- User-admin deployment: rebuilt/restarted `caipe-ui` on `caipe-rbac.outshift.io`; public smoke confirmed Bob is denied with structured PDP errors for `/api/admin/users/stats` (`admin_ui#view`) and `/api/admin/users/[id]/{teams,roles,role}` mutations (`admin_ui#admin`).
+- User-admin review follow-up: patched malformed JSON handling for `PATCH /api/admin/users/[id]/role` so invalid bodies return `400 Invalid JSON body` instead of a generic 500, covered by the dual-auth route test and verified on `caipe-rbac.outshift.io`.
+- Metrics admin completion pass: migrated `GET/POST /api/admin/metrics` from bearer/session authentication without an admin gate to dual-auth `admin_ui#view` PDP enforcement before any Prometheus proxy call; RBAC matrix rows and security docs now reflect the migrated observability proxy.
+- Metrics admin verification: `npx jest src/app/api/admin/metrics/__tests__/route.test.ts --runInBand` → 2 passed; `npx jest src/__tests__/rbac-matrix-driver.test.ts --runInBand` → 120 passed, 456 skipped; `uv run python -m pytest tests/test_validate_rbac_docs.py -q` → 25 passed; `npm run build` from `ui/` → passed.
+- Metrics admin deployment: rebuilt/restarted `caipe-ui` on `caipe-rbac.outshift.io`; public smoke confirmed Bob is denied with `403 pdp_denied` and `admin_ui#view` for both instant and batch metrics calls.
+- Matrix cleanup pass: enabled already-implemented PDP rows for identity-group provider/apply APIs, ReBAC change-set creation, Slack channel ReBAC list/resource grant APIs, and enforcement comparison so the matrix driver exercises them instead of skipping them as pending.
+- Matrix cleanup verification: `npx jest src/__tests__/rbac-matrix-driver.test.ts --runInBand` → 156 passed, 420 skipped; `uv run python -m pytest tests/test_validate_rbac_docs.py -q` → 25 passed.
+- Admin stats completion pass: migrated `GET /api/admin/stats/skills` and `GET /api/admin/stats/checkpoints` from session-only auth to dual-auth `admin_ui#view` PDP enforcement before loading MongoDB-backed stats; RBAC matrix and docs now mark both rows migrated.
+- Admin stats verification: `npx jest src/app/api/admin/stats/__tests__/stats-rbac-routes.test.ts --runInBand` → 2 passed; `npx jest src/__tests__/rbac-matrix-driver.test.ts --runInBand` → 168 passed, 408 skipped; `uv run python -m pytest tests/test_validate_rbac_docs.py -q` → 25 passed; `npm run build` from `ui/` → passed.
+- Admin stats deployment: rebuilt/restarted `caipe-ui` on `caipe-rbac.outshift.io`; public smoke confirmed Bob is denied with `403 pdp_denied` and `admin_ui#view` for both admin stats endpoints.
 
 ---
 

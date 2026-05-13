@@ -10,6 +10,7 @@ const ALL_TABS: AdminTabKey[] = [
   "users",
   "teams",
   "roles",
+  "identity_group_sync",
   "slack",
   "skills",
   "feedback",
@@ -20,7 +21,6 @@ const ALL_TABS: AdminTabKey[] = [
   "audit_logs",
   "action_audit",
   "policy",
-  "ag_policies",
   "openfga",
 ];
 
@@ -31,6 +31,7 @@ const DEFAULT_POLICIES: AdminTabPolicy[] = [
   { tab_key: "metrics", expression: "true" },
   { tab_key: "health", expression: "true" },
   { tab_key: "roles", expression: "'admin' in user.roles" },
+  { tab_key: "identity_group_sync", expression: "'admin' in user.roles" },
   { tab_key: "slack", expression: "'admin' in user.roles" },
   { tab_key: "feedback", expression: "'admin' in user.roles" },
   { tab_key: "nps", expression: "'admin' in user.roles" },
@@ -38,7 +39,6 @@ const DEFAULT_POLICIES: AdminTabPolicy[] = [
   { tab_key: "audit_logs", expression: "'admin' in user.roles" },
   { tab_key: "action_audit", expression: "'admin' in user.roles" },
   { tab_key: "policy", expression: "'admin' in user.roles" },
-  { tab_key: "ag_policies", expression: "'admin' in user.roles" },
   { tab_key: "openfga", expression: "'admin' in user.roles" },
 ];
 

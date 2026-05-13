@@ -45,6 +45,7 @@ class ChannelAgentResolution:
     agent_id: Optional[str]
     agent_name: Optional[str]
     user_denial_message: Optional[str]
+    workspace_id: Optional[str] = None
 
 
 class ChannelAgentMapper:
@@ -144,6 +145,7 @@ class ChannelAgentMapper:
             )
             return ChannelAgentResolution(None, None, CHANNEL_NOT_MAPPED_MESSAGE)
 
+        agent["_slack_workspace_id"] = mapping.get("slack_workspace_id")
         self._cache[channel_id] = (agent, now)
         return await self._check_access(agent, keycloak_user_id)
 
@@ -154,6 +156,8 @@ class ChannelAgentMapper:
     ) -> ChannelAgentResolution:
         agent_id = str(agent.get("_id", ""))
         agent_name = str(agent.get("name", agent_id))
+        workspace_id = agent.get("_slack_workspace_id")
+        workspace_id = workspace_id if isinstance(workspace_id, str) and workspace_id else None
 
         if not agent.get("enabled", True):
             return ChannelAgentResolution(None, None, AGENT_DISABLED_MESSAGE)
@@ -161,7 +165,7 @@ class ChannelAgentMapper:
         visibility = agent.get("visibility", "global")
 
         if visibility == "global":
-            return ChannelAgentResolution(agent_id, agent_name, None)
+            return ChannelAgentResolution(agent_id, agent_name, None, workspace_id)
 
         if visibility == "private":
             # Private agents should not be used for channel routing
@@ -174,7 +178,7 @@ class ChannelAgentMapper:
         # visibility == "team": check Keycloak realm roles
         shared_with = agent.get("shared_with_teams", [])
         if not shared_with:
-            return ChannelAgentResolution(agent_id, agent_name, None)
+            return ChannelAgentResolution(agent_id, agent_name, None, workspace_id)
 
         try:
             roles = await fetch_user_realm_role_names(keycloak_user_id)
@@ -188,7 +192,7 @@ class ChannelAgentMapper:
         role_set = set(roles)
         for team in shared_with:
             if f"team_member:{team}" in role_set:
-                return ChannelAgentResolution(agent_id, agent_name, None)
+                return ChannelAgentResolution(agent_id, agent_name, None, workspace_id)
 
         return ChannelAgentResolution(None, None, AGENT_ACCESS_DENIED_MESSAGE)
 

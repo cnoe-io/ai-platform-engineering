@@ -5,13 +5,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
-  requireRbacPermission,
   ApiError,
   validateEmail,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import {
   searchRealmUsers,
@@ -21,6 +20,12 @@ import {
   removeRealmRolesFromUser,
   isValidTeamSlug,
 } from '@/lib/rbac/keycloak-admin';
+import {
+  listActiveTeamMembershipSourcesForTeamUser,
+  markTeamMembershipSourceRemoved,
+  upsertTeamMembershipSource,
+} from '@/lib/rbac/team-membership-source-store';
+import type { TeamMembershipSource } from '@/types/identity-group-sync';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -54,10 +59,14 @@ function parseTeamId(id: string): ObjectId {
  * hardcoded mapper). Using the ObjectId here would silently mismatch the
  * AGW check and deny non-admin members of every team.
  */
-async function syncKeycloakTeamRole(email: string, teamSlug: string, action: 'assign' | 'remove') {
+async function syncKeycloakTeamRole(
+  email: string,
+  teamSlug: string,
+  action: 'assign' | 'remove'
+): Promise<string | undefined> {
   if (!isValidTeamSlug(teamSlug)) {
     console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping role ${action} for ${email}`);
-    return;
+    return undefined;
   }
   const roleName = `team_member:${teamSlug}`;
   try {
@@ -66,7 +75,7 @@ async function syncKeycloakTeamRole(email: string, teamSlug: string, action: 'as
     const kcUser = users.find(u => (u.email as string)?.toLowerCase() === email.toLowerCase());
     if (!kcUser?.id) {
       console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping role ${action}`);
-      return;
+      return undefined;
     }
     const userId = String(kcUser.id);
 
@@ -85,9 +94,38 @@ async function syncKeycloakTeamRole(email: string, teamSlug: string, action: 'as
       await removeRealmRolesFromUser(userId, [role]);
       console.log(`[TeamSync] Removed ${roleName} from ${email}`);
     }
+    return userId;
   } catch (err) {
     console.warn(`[TeamSync] Failed to ${action} ${roleName} for ${email}:`, err);
+    return undefined;
   }
+}
+
+function manualMembershipSource(input: {
+  teamId: string;
+  teamSlug: string;
+  email: string;
+  relationship: 'member' | 'admin';
+  actor: string;
+  now: Date;
+  userSubject?: string;
+}): TeamMembershipSource {
+  const timestamp = input.now.toISOString();
+  return {
+    team_id: input.teamId,
+    team_slug: input.teamSlug,
+    user_subject: input.userSubject,
+    user_email: input.email,
+    relationship: input.relationship,
+    source_type: 'manual',
+    managed: false,
+    status: 'active',
+    first_seen_at: timestamp,
+    last_seen_at: timestamp,
+    last_applied_at: timestamp,
+    created_by: input.actor,
+    created_at: timestamp,
+  };
 }
 
 // POST /api/admin/teams/[id]/members
@@ -98,10 +136,8 @@ export const POST = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    await requireRbacPermission(session, 'admin_ui', 'admin');
-    requireAdmin(session);
-
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const body = await request.json();
@@ -143,20 +179,32 @@ export const POST = withErrorHandler(async (
       added_by: user.email,
     };
 
-    await teams.updateOne(
-      { _id: teamId },
-      {
-        $push: { members: newMember } as any,
-        $set: { updated_at: now },
-      }
-    );
+    if (!existingMember) {
+      await teams.updateOne(
+        { _id: teamId },
+        {
+          $push: { members: newMember } as any,
+          $set: { updated_at: now, updated_by: user.email },
+        }
+      );
+    }
 
-    const updated = await teams.findOne({ _id: teamId });
-
-    // Sync Keycloak team role (best-effort). Slug-keyed to match AGW CEL.
+    // Sync Keycloak team role (best-effort). Slug-keyed to match active_team/OpenFGA.
     const teamSlug = String(team.slug || "").trim();
+    let keycloakSubject: string | undefined;
     if (teamSlug) {
-      await syncKeycloakTeamRole(email, teamSlug, 'assign');
+      keycloakSubject = await syncKeycloakTeamRole(email, teamSlug, 'assign');
+      await upsertTeamMembershipSource(
+        manualMembershipSource({
+          teamId: params.id,
+          teamSlug,
+          email,
+          relationship: role,
+          actor: user.email,
+          now,
+          userSubject: keycloakSubject,
+        })
+      );
     } else {
       console.warn(
         `[TeamSync] Team ${teamId} has no slug; cannot assign team_member role for ${email}. ` +
@@ -164,10 +212,11 @@ export const POST = withErrorHandler(async (
       );
     }
 
+    const updated = await teams.findOne({ _id: teamId });
+
     console.log(`[Admin] Member added to team ${team.name}: ${email} (${role}) by ${user.email}`);
 
-    return successResponse({ team: updated }, 201);
-  });
+  return successResponse({ team: updated }, 201);
 });
 
 // DELETE /api/admin/teams/[id]/members
@@ -178,10 +227,8 @@ export const DELETE = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    await requireRbacPermission(session, 'admin_ui', 'admin');
-    requireAdmin(session);
-
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const url = new URL(request.url);
@@ -213,24 +260,55 @@ export const DELETE = withErrorHandler(async (
       throw new ApiError('User is not a member of this team', 404);
     }
 
-    await teams.updateOne(
-      { _id: teamId },
-      {
-        $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
-        $set: { updated_at: new Date() },
-      }
-    );
-
-    const updated = await teams.findOne({ _id: teamId });
-
-    // Revoke Keycloak team role (best-effort). Slug-keyed to match AGW CEL.
+    const now = new Date();
     const teamSlug = String(team.slug || "").trim();
+    const member = team.members?.find((m: any) => m.user_id.toLowerCase() === email);
+    const relationship = member?.role === 'admin' ? 'admin' : 'member';
     if (teamSlug) {
-      await syncKeycloakTeamRole(email, teamSlug, 'remove');
+      await markTeamMembershipSourceRemoved(
+        manualMembershipSource({
+          teamId: params.id,
+          teamSlug,
+          email,
+          relationship,
+          actor: user.email,
+          now,
+        }),
+        user.email,
+        now.toISOString()
+      );
     }
+
+    const otherActiveSources = teamSlug
+      ? await listActiveTeamMembershipSourcesForTeamUser({
+          teamId: params.id,
+          teamSlug,
+          userEmail: email,
+          relationship,
+        })
+      : [];
+    const stillGranted = otherActiveSources.some((source) => source.source_type !== 'manual');
+
+    if (!stillGranted) {
+      await teams.updateOne(
+        { _id: teamId },
+        {
+          $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
+          $set: { updated_at: now, updated_by: user.email },
+        }
+      );
+    }
+
+    // Revoke Keycloak team role only after the final granting source is gone.
+    if (teamSlug) {
+      if (!stillGranted) {
+        await syncKeycloakTeamRole(email, teamSlug, 'remove');
+      }
+    }
+
+    const updated = stillGranted ? team : await teams.findOne({ _id: teamId });
 
     console.log(`[Admin] Member removed from team ${team.name}: ${email} by ${user.email}`);
 
-    return successResponse({ team: updated });
-  });
+  return successResponse({ team: updated });
 });

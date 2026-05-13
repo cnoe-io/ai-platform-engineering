@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import crypto from "crypto";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   successResponse,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { getRealmUserById, mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
 
@@ -42,8 +42,8 @@ export const POST = withErrorHandler(async (
   const params = await context.params;
   const keycloakUserId = decodeURIComponent(params.id);
 
-  return withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const kcUser = await getRealmUserById(keycloakUserId);
     const slackUserId = readSlackId(kcUser.attributes);
@@ -60,7 +60,6 @@ export const POST = withErrorHandler(async (
       message:
         "Share this URL with the Slack user; they must open it while signed into CAIPE with their own account.",
     });
-  });
 });
 
 export const DELETE = withErrorHandler(async (
@@ -70,9 +69,9 @@ export const DELETE = withErrorHandler(async (
   const params = await context.params;
   const keycloakUserId = decodeURIComponent(params.id);
 
-  return withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
-    await mergeUserAttributes(keycloakUserId, { slack_user_id: undefined });
-    return successResponse({ revoked: true, keycloak_user_id: keycloakUserId });
-  });
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
+  await mergeUserAttributes(keycloakUserId, { slack_user_id: undefined });
+  return successResponse({ revoked: true, keycloak_user_id: keycloakUserId });
 });

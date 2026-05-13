@@ -67,6 +67,8 @@ if RBAC_ENABLED:
         PERSONAL_ACTIVE_TEAM,
     )
     from utils.obo_exchange import impersonate_user, OboExchangeError
+    from utils.slack_rebac import get_slack_channel_rebac_evaluator
+    from utils.rbac_middleware import format_slack_channel_rebac_denial
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
@@ -95,6 +97,8 @@ if RBAC_ENABLED:
         resolution = await resolve_channel_agent(channel_id, keycloak_user_id)
         if resolution.agent_id:
             context["channel_agent_id"] = resolution.agent_id
+            if resolution.workspace_id:
+                context["slack_workspace_id"] = resolution.workspace_id
             logger.info(
                 "Channel %s mapped to agent %s for user %s",
                 channel_id, resolution.agent_id, keycloak_user_id,
@@ -157,6 +161,26 @@ if RBAC_ENABLED:
                     "Could not establish your team-scoped session. "
                     "This usually means the team's Keycloak scope hasn't "
                     "been provisioned — ask your admin to retry.")
+
+        if channel_id and resolution.agent_id:
+            workspace_id = context.get("slack_workspace_id") or os.environ.get("SLACK_WORKSPACE_ID") or "unknown"
+            decision = get_slack_channel_rebac_evaluator().check_agent_access(
+                workspace_id=str(workspace_id),
+                channel_id=str(channel_id),
+                agent_id=resolution.agent_id,
+                active_team=active_team,
+                obo_token=obo.access_token,
+            )
+            if not decision.allowed:
+                logger.info(
+                    "Slack ReBAC denied channel=%s agent=%s reason=%s channel_allowed=%s user_allowed=%s",
+                    channel_id,
+                    resolution.agent_id,
+                    decision.reason,
+                    decision.channel_allowed,
+                    decision.user_allowed,
+                )
+                return ("deny", format_slack_channel_rebac_denial())
 
         return "ok"
 

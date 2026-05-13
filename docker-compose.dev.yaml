@@ -1318,9 +1318,11 @@ services:
       # way to AGW, so the BFF must accept that audience too. Adding it here
       # via OIDC_EXTRA_AUDIENCES (defaults to "agentgateway") keeps the OBO
       # path working without forcing every operator to set the env var.
+      # The RBAC e2e persona fixture mints tokens from the caipe-platform
+      # resource-server client, so the dev BFF accepts that audience too.
       # For Okta-style deployments, also see OIDC_ACCEPTED_AUDIENCES.
       - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
-      - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-}
+      - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-caipe-platform}
       # OpenFGA ReBAC reconciliation is opt-in so non-RBAC local UI runs do
       # not require the OpenFGA profile. The remote RBAC stack enables it in
       # `.env` and writes Team Resources changes as OpenFGA tuples.
@@ -2500,10 +2502,9 @@ services:
 
   # OpenFGA remote PDP for AgentGateway ext_authz.
   #
-  # AgentGateway calls openfga-authz-bridge on every MCP request before the
-  # existing mcpAuthorization CEL rules run. OpenFGA currently owns the coarse
-  # ReBAC decision (`user:<sub> can_call document:mcp`); CEL still performs
-  # per-tool and team-scope checks until those relationships are fully modeled.
+  # AgentGateway calls openfga-authz-bridge on every MCP request; OpenFGA is
+  # the authorization source for the gateway path. We do not run a CEL policy
+  # config bridge for AgentGateway.
   openfga-postgres:
     image: postgres:17-alpine
     container_name: openfga-postgres
@@ -2646,37 +2647,10 @@ services:
       - "127.0.0.1:15000:15000" # Admin UI (config.config.adminAddr)
     volumes:
       - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
-      - ag_config:/etc/agentgateway/dynamic:ro
     tmpfs:
       - /tmp
     healthcheck:
       disable: true
-
-  # AG Config Bridge — syncs CEL policies from MongoDB to AG's config.yaml
-  ag-config-bridge:
-    build:
-      context: ./deploy/agentgateway
-      dockerfile: Dockerfile.config-bridge
-    container_name: ag-config-bridge
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    profiles:
-      - rbac
-    depends_on:
-      caipe-mongodb:
-        condition: service_healthy
-    environment:
-      MONGODB_URI: ${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
-      AG_CONFIG_OUTPUT: /etc/agentgateway/config.yaml
-      AG_TEMPLATE_PATH: /app/config.yaml.j2
-      AG_POLL_INTERVAL: ${AG_POLL_INTERVAL:-5}
-      AG_ISSUER: ${AG_ISSUER:-http://localhost:7080/realms/caipe}
-      AG_AUDIENCE: ${AG_AUDIENCE:-caipe-platform, agentgateway}
-      AG_JWKS_URL: ${AG_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
-    volumes:
-      - ag_config:/etc/agentgateway
 
   ####################################################################################################
   #                       LangGraph Persistence Backends                                         #
@@ -2838,8 +2812,6 @@ volumes:
   langgraph_postgres_data:
     driver: local
   langgraph_mongodb_data:
-    driver: local
-  ag_config:
     driver: local
   openfga_postgres_data:
     driver: local

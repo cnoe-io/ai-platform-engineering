@@ -13,10 +13,11 @@ import { NextRequest } from "next/server";
 import type { Filter } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   getUserTeamIds,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
@@ -27,7 +28,9 @@ const COLLECTION_NAME = "dynamic_agents";
  * List dynamic agents available for the current user to chat with.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "view");
+
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
     const userEmail = user.email || "";
@@ -67,5 +70,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     });
 
     return successResponse(normalizedAgents);
-  });
 });

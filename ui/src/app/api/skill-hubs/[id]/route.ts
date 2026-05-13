@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
   validateCredentialsRef,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   normalizeHubLocation,
@@ -28,8 +28,8 @@ export const PATCH = withErrorHandler(
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       const { id } = await context.params;
       const body = await request.json();
@@ -97,7 +97,6 @@ export const PATCH = withErrorHandler(
       const { _id, ...rest } = updated as any;
 
       return NextResponse.json(rest);
-    });
   },
 );
 
@@ -107,8 +106,8 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       const { id } = await context.params;
 
@@ -126,6 +125,5 @@ export const DELETE = withErrorHandler(
         { success: true, message: `Hub ${id} deleted` },
         { status: 200 },
       );
-    });
   },
 );

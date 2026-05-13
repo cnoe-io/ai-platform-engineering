@@ -1,16 +1,16 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { listRealmRoles, createRealmRole } from "@/lib/rbac/keycloak-admin";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
 
     const roles = await listRealmRoles();
     console.log(
@@ -21,12 +21,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       roles,
       total: roles.length,
     });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = (await request.json()) as {
       name?: unknown;
@@ -52,5 +51,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       },
       201
     );
-  });
 });

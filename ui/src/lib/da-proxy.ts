@@ -14,7 +14,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { ApiError, getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import {
+  ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
+} from "@/lib/api-middleware";
+import type { RbacResource, RbacScope } from "@/lib/rbac/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -33,6 +38,11 @@ export interface AuthResult {
   bearerToken?: string;
 }
 
+export interface ProxyRbacPermission {
+  resource: RbacResource;
+  scope: RbacScope;
+}
+
 /**
  * Resolve user identity from the request (session cookie or Bearer token).
  *
@@ -46,6 +56,7 @@ export interface AuthResult {
  */
 export async function authenticateRequest(
   request: NextRequest,
+  permission?: ProxyRbacPermission,
 ): Promise<AuthResult | NextResponse> {
   const method = request.method;
   const path = request.nextUrl.pathname;
@@ -59,6 +70,9 @@ export async function authenticateRequest(
 
   try {
     const { user, session } = await getAuthFromBearerOrSession(request);
+    if (permission) {
+      await requireRbacPermission(session, permission.resource, permission.scope);
+    }
 
     console.log(
       `[gateway] ${method} ${path} — auth=${authMethod} user=${user.email} role=${user.role} client=${clientSource} ip=${ip} ua=${ua}`,

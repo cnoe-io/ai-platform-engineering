@@ -9,11 +9,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
@@ -36,8 +36,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Server ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "mcp_server", "manage");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
@@ -107,5 +107,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
       throw new ApiError(err.message || "Failed to probe MCP server", 500);
     }
-  });
 });

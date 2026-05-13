@@ -25,7 +25,7 @@
  * Gates (identical to the agent_skills variant; copy-paste because
  * the two routes have to stay byte-equivalent on policy or someone
  * will eventually exploit the gap):
- *   - ``requireAdmin(session)``
+ *   - ``admin_ui#admin`` RBAC permission
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== "false"`` (POST only — DELETE
  *     remains open even when the feature is off so stuck overrides
  *     can be cleaned up; matches the agent_skills route)
@@ -36,10 +36,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
+  requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
@@ -134,13 +134,13 @@ export const POST = withErrorHandler(
       throw new ApiError("skillId is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       // Body validation — same shape as the agent_skills route.
       let body: unknown;
       try {
-        body = await req.json();
+        body = await request.json();
       } catch {
         throw new ApiError("Request body must be valid JSON.", 400);
       }
@@ -260,7 +260,7 @@ export const POST = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -278,7 +278,6 @@ export const POST = withErrorHandler(
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 
@@ -314,17 +313,17 @@ export const DELETE = withErrorHandler(
       throw new ApiError("skillId is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       // Optional reason on clear. Same parser as the agent_skills
       // route — tolerate "no body" and "body but no reason field"
       // cleanly.
       let reason: string | undefined;
       try {
-        const ct = req.headers.get("content-type") ?? "";
+        const ct = request.headers.get("content-type") ?? "";
         if (ct.includes("application/json")) {
-          const body = (await req.json()) as { reason?: unknown };
+          const body = (await request.json()) as { reason?: unknown };
           if (typeof body?.reason === "string") {
             const trimmed = body.reason.trim();
             if (trimmed.length > 0 && trimmed.length <= 4096) {
@@ -402,7 +401,7 @@ export const DELETE = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -414,7 +413,6 @@ export const DELETE = withErrorHandler(
         scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 

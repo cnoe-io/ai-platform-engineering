@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   validateCredentialsRef,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
 import {
@@ -26,8 +26,8 @@ import {
  * route's bulk siblings + the hub admin scans). Admin only.
  */
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = await request.json();
     const { type, location } = body;
@@ -231,5 +231,4 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         { status: 502 },
       );
     }
-  });
 });

@@ -8,9 +8,10 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 
 /**
@@ -18,7 +19,9 @@ import {
  * List available LLM models for agent configuration.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async () => {
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "view");
+
     const collection = await getCollection("llm_models");
     const models = await collection.find({}).sort({ name: 1 }).toArray();
 
@@ -30,5 +33,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         description: m.description ?? "",
       })),
     );
-  });
 });

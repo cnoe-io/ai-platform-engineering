@@ -3,36 +3,162 @@
 # Coarse AGW gate:
 #   user:<keycloak_sub> can_call document:mcp
 #
-# Team Resources admin UI reconciles:
+# Team Resources and universal ReBAC admin surfaces reconcile:
 #   user:<keycloak_sub> member team:<slug>
 #   team:<slug>#member can_use agent:<agent_id>
 #   team:<slug>#member can_manage agent:<agent_id>
 #   team:<slug>#member can_call tool:<tool_prefix>
+#   slack_channel:<workspace_id>--<channel_id> can_call tool:<tool_prefix>
+#   team:<slug>#member can_read knowledge_base:<kb_id>
 
 model
   schema 1.1
 
 type user
+type service_account
+type anonymous
 
-type team
+type external_group
   relations
     define member: [user]
 
+type team
+  relations
+    define member: [user, external_group#member]
+    define admin: [user, external_group#member]
+
+type organization
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type slack_workspace
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type slack_channel
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member]
+    define can_write: [user, service_account, team#member, team#admin, external_group#member]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
 type agent
   relations
-    define can_use: [team#member]
-    define can_manage: [team#member]
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type mcp_server
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_invoke: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
 
 type tool
   relations
-    define can_call: [team#member]
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_call: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
 
 type knowledge_base
   relations
-    define can_read: [team#member]
-    define can_ingest: [team#member]
-    define can_admin: [team#member]
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_ingest: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_admin: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
 
 type document
   relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_delete: [user, service_account, team#admin]
+    define can_share: [user, service_account, team#member, team#admin]
+    define can_audit: [user, service_account, team#admin]
     define can_call: [user]
+
+type skill
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type task
+  relations
+    define can_discover: [user, service_account, team#member, team#admin, external_group#member]
+    define can_read: [user, service_account, team#member, team#admin, external_group#member]
+    define can_use: [user, service_account, team#member, team#admin, external_group#member]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type conversation
+  relations
+    define can_discover: [user, service_account, team#member, team#admin]
+    define can_read: [user, service_account, team#member, team#admin]
+    define can_write: [user, service_account, team#member, team#admin]
+    define can_share: [user, service_account, team#member, team#admin]
+    define can_delete: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type admin_surface
+  relations
+    define can_discover: [user, service_account, team#admin]
+    define can_read: [user, service_account, team#admin]
+    define can_write: [user, service_account, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type policy
+  relations
+    define can_discover: [user, service_account, team#admin]
+    define can_read: [user, service_account, team#admin]
+    define can_write: [user, service_account, team#admin]
+    define can_approve: [user, service_account, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type audit_log
+  relations
+    define can_discover: [user, service_account, team#admin]
+    define can_read: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type secret_ref
+  relations
+    define can_discover: [user, service_account, team#admin]
+    define can_read_metadata: [user, service_account, team#admin]
+    define can_use: [user, service_account, team#member, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]
+
+type system_config
+  relations
+    define can_discover: [user, service_account, team#admin]
+    define can_read: [user, service_account, team#admin]
+    define can_write: [user, service_account, team#admin]
+    define can_manage: [user, service_account, team#admin]
+    define can_audit: [user, service_account, team#admin]

@@ -97,13 +97,14 @@ The `active_team` claim in the JWT only says **what team this token claims to re
 
 So if we trusted `active_team` alone, an attacker (or a buggy client) who could trigger a token-exchange with `scope=team-finance-prod` would get a token claiming `active_team=finance-prod` — even if they've never been added to the Finance team.
 
-The `team_member:<slug>` realm role is the **proof of membership**. It is a regular Keycloak realm role assigned to the user when an admin adds them to the team in the admin UI (via `ensureRealmRole` + role assignment). Unlike the scope-injected claim, this role is part of the user's identity in Keycloak's database — it can't be self-asserted by manipulating the token request.
+The `team_member:<slug>` realm role is one **proof of membership** and is mirrored into OpenFGA as `user:<sub> member team:<slug>`. The realm role is assigned to the user when an admin adds them to the team in the admin UI (via `ensureRealmRole` + role assignment). Unlike the scope-injected claim, this role is part of the user's identity in Keycloak's database — it can't be self-asserted by manipulating the token request.
 
-AgentGateway CEL rules then require **both**:
+AgentGateway now delegates the gateway decision to OpenFGA through `ext_authz`.
+The equivalent relationship facts are represented as tuples:
 
-```cel
-jwt.realm_access.roles.contains("tool_user:" + tool) &&        // role: I have permission for this tool
-jwt.realm_access.roles.contains("team_member:" + jwt.active_team)  // role: I really am a member of the team I'm claiming to act as
+```text
+user:<sub> member team:<slug>
+team:<slug>#member can_call tool:<tool-or-prefix>
 ```
 
 The `active_team` claim says "I want to act as team X." The `team_member:X` role says "Keycloak agrees I'm a member of team X." The conjunction is what makes the system safe.
@@ -154,7 +155,7 @@ There is **no cached realm-role list** in any of these clients. Keycloak reads `
 
 > "Best-effort — logs warnings on failure so that MongoDB membership is never blocked by Keycloak issues."
 
-If Keycloak is briefly unavailable when an admin adds a user to a team, the user shows up in the team in the admin UI immediately, but they will be **denied at AgentGateway** until the role sync succeeds (because their JWT won't carry `team_member:<slug>`). There is currently **no automatic retry/reconciler** — recovery depends on operator awareness from the warning logs. Adding a periodic reconciler that compares MongoDB team membership to Keycloak realm-role assignments and repairs drift is a known follow-up.
+If Keycloak is briefly unavailable when an admin adds a user to a team, the user shows up in the team in the admin UI immediately, but service-side JWT-role checks can still deny until the role sync succeeds. AgentGateway authorization depends on the OpenFGA tuple path, so the ReBAC tuple writer/reconciler is the authoritative recovery path for the gateway decision.
 
 ### Summary table
 
@@ -166,7 +167,7 @@ If Keycloak is briefly unavailable when an admin adds a user to a team, the user
 | 4. Realm role `team_member:<slug>` lazily created if missing | `createRealmRole` → `POST /admin/realms/{realm}/roles` | `ui/src/lib/rbac/keycloak-admin.ts` |
 | 5. Role assigned to user | `assignRealmRolesToUser` → `POST /admin/realms/{realm}/users/{userId}/role-mappings/realm` | same |
 | 6. Next token mint for that user | Keycloak embeds all of the user's realm roles into `realm_access.roles` | Keycloak internals |
-| 7. AgentGateway CEL evaluates | `jwt.realm_access.roles.contains("team_member:" + jwt.active_team)` | AGW config |
+| 7. AgentGateway ext_authz evaluates | OpenFGA checks the subject/resource tuple graph | `deploy/openfga-experiment/bridge/main.py` |
 
 ---
 

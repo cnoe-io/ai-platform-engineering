@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { isOpenFgaConfigured, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
+import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
 import type { Team } from "@/types/teams";
 import { withOpenFgaViewAuth } from "../_lib";
 
@@ -63,12 +64,21 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       }
     }
 
+    const universal = await listRebacCatalog();
+    const universalByType = universal.resources.reduce<Record<string, unknown[]>>((acc, resource) => {
+      acc[resource.type] = acc[resource.type] ?? [];
+      acc[resource.type].push(resource);
+      return acc;
+    }, {});
+
     return successResponse({
       status: {
         configured: isOpenFgaConfigured(),
         reconcile_enabled: isOpenFgaReconciliationEnabled(),
         store_name: process.env.OPENFGA_STORE_NAME || "caipe-openfga",
       },
+      resource_types: universal.resource_types,
+      actions: universal.actions,
       teams: teams.map((team) => ({
         id: String(team._id),
         slug: team.slug || String(team._id),
@@ -98,7 +108,9 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
           description: "",
           object: `knowledge_base:${id}`,
         })),
+        by_type: universalByType,
       },
+      universal_resources: universal.resources,
     });
   })
 );

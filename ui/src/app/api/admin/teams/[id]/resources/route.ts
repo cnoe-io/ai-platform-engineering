@@ -15,9 +15,8 @@
  *       removed      → remove role from each member.
  *
  * Why we materialize roles on members instead of "team roles":
- *   AgentGateway CEL rules and Dynamic Agents both authorize against
- *   `jwt.realm_access.roles`, which Keycloak only populates from realm-role
- *   assignments on the **user** (or composites). There is no "team token";
+ *   AgentGateway ext_authz and Dynamic Agents both authorize against
+ *   realm-role grants materialized into the user's token. There is no "team token";
  *   each user authenticates separately, so the team is just a UI grouping
  *   that fans out role bindings.
  *
@@ -30,10 +29,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
@@ -61,6 +59,24 @@ interface DynamicAgentLite {
 interface MCPServerLite {
   _id: string;
   name?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+interface SkillLite {
+  _id?: string;
+  id?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  enabled?: boolean;
+}
+
+interface TaskLite {
+  _id?: string;
+  id?: string;
+  name?: string;
+  title?: string;
   description?: string;
   enabled?: boolean;
 }
@@ -113,8 +129,8 @@ export const GET = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "view");
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "view");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -125,8 +141,13 @@ export const GET = withErrorHandler(
 
       const agentsCol = await getCollection<DynamicAgentLite>("dynamic_agents");
       const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
+      const skillsCol = await getCollection<SkillLite>("skills");
+      const tasksCol = await getCollection<TaskLite>("task_configs");
+      const ownershipCol = await getCollection<{ kb_ids?: string[]; kb_permissions?: Record<string, string> }>(
+        "team_kb_ownership"
+      );
 
-      const [allAgents, allServers] = await Promise.all([
+      const [allAgents, allServers, allSkills, allTasks, ownership] = await Promise.all([
         agentsCol
           .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1, visibility: 1 } })
           .sort({ name: 1 })
@@ -137,6 +158,17 @@ export const GET = withErrorHandler(
           .sort({ name: 1 })
           .toArray()
           .catch(() => [] as MCPServerLite[]),
+        skillsCol
+          .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, id: 1, name: 1, title: 1, description: 1 } })
+          .sort({ name: 1 })
+          .toArray()
+          .catch(() => [] as SkillLite[]),
+        tasksCol
+          .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, id: 1, name: 1, title: 1, description: 1 } })
+          .sort({ name: 1 })
+          .toArray()
+          .catch(() => [] as TaskLite[]),
+        ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
       // We render tools by MCP server prefix (e.g. `jira_*`) because the
@@ -144,6 +176,11 @@ export const GET = withErrorHandler(
       // default. Users can still type a specific `tool_user:<full_tool_name>`
       // role manually via the realm roles tab.
       const toolPrefixes = allServers.map((s) => `${s._id}_*`);
+      const kbIds = new Set<string>();
+      for (const row of ownership) {
+        for (const id of row.kb_ids ?? []) kbIds.add(id);
+        for (const id of Object.keys(row.kb_permissions ?? {})) kbIds.add(id);
+      }
 
       const resources = team.resources ?? {};
 
@@ -157,6 +194,9 @@ export const GET = withErrorHandler(
           agents: resources.agents ?? [],
           agent_admins: resources.agent_admins ?? [],
           tools: resources.tools ?? [],
+          knowledge_bases: resources.knowledge_bases ?? [],
+          skills: resources.skills ?? [],
+          tasks: resources.tasks ?? [],
           tool_wildcard: Boolean(resources.tool_wildcard),
         },
         available: {
@@ -166,9 +206,17 @@ export const GET = withErrorHandler(
             name: id,
             description: allServers[i].description ?? "",
           })),
+          knowledge_bases: Array.from(kbIds).sort().map((id) => ({ id, name: id, description: "" })),
+          skills: allSkills.map((s) => {
+            const id = String(s.id ?? s._id ?? s.name);
+            return { id, name: s.name ?? s.title ?? id, description: s.description ?? "" };
+          }),
+          tasks: allTasks.map((t) => {
+            const id = String(t.id ?? t._id ?? t.name);
+            return { id, name: t.name ?? t.title ?? id, description: t.description ?? "" };
+          }),
         },
       });
-    });
   }
 );
 
@@ -180,6 +228,9 @@ interface PutBody {
   agents?: unknown;
   agent_admins?: unknown;
   tools?: unknown;
+  knowledge_bases?: unknown;
+  skills?: unknown;
+  tasks?: unknown;
   tool_wildcard?: unknown;
 }
 
@@ -204,9 +255,8 @@ export const PUT = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "admin");
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -230,11 +280,24 @@ export const PUT = withErrorHandler(
       const prevAgents = team.resources?.agents ?? [];
       const prevAgentAdmins = team.resources?.agent_admins ?? [];
       const prevTools = team.resources?.tools ?? [];
+      const prevKnowledgeBases = team.resources?.knowledge_bases ?? [];
+      const prevSkills = team.resources?.skills ?? [];
+      const prevTasks = team.resources?.tasks ?? [];
       const prevToolWildcard = Boolean(team.resources?.tool_wildcard);
+      const nextKnowledgeBases =
+        body.knowledge_bases === undefined
+          ? prevKnowledgeBases
+          : parseStringArray(body.knowledge_bases, "knowledge_bases");
+      const nextSkills =
+        body.skills === undefined ? prevSkills : parseStringArray(body.skills, "skills");
+      const nextTasks = body.tasks === undefined ? prevTasks : parseStringArray(body.tasks, "tasks");
 
       const agentDiff = diff(prevAgents, nextAgents);
       const agentAdminDiff = diff(prevAgentAdmins, nextAgentAdmins);
       const toolDiff = diff(prevTools, nextTools);
+      const knowledgeBaseDiff = diff(prevKnowledgeBases, nextKnowledgeBases);
+      const skillDiff = diff(prevSkills, nextSkills);
+      const taskDiff = diff(prevTasks, nextTasks);
       // Wildcard is a single boolean — model as a one-element diff so it flows
       // through the same role-reconciliation pipeline below.
       const wildcardDiff = diff(
@@ -341,7 +404,7 @@ export const PUT = withErrorHandler(
       //    Keycloak remains the source for JWT role materialization while OpenFGA
       //    owns relationship facts. Keep the same ordering contract as KC:
       //    fail before Mongo if the remote PDP state cannot be reconciled.
-      const openFgaTupleDiff = buildTeamResourceTupleDiff({
+      const tupleDiffInput = {
         teamSlug: team.slug || id,
         memberUserIds: resolvedMemberUserIds,
         agents: agentDiff,
@@ -351,21 +414,38 @@ export const PUT = withErrorHandler(
           added: wildcardDiff.added.length > 0,
           removed: wildcardDiff.removed.length > 0,
         },
-      });
+      };
+      if (knowledgeBaseDiff.added.length > 0 || knowledgeBaseDiff.removed.length > 0) {
+        Object.assign(tupleDiffInput, { knowledgeBases: knowledgeBaseDiff });
+      }
+      if (skillDiff.added.length > 0 || skillDiff.removed.length > 0) {
+        Object.assign(tupleDiffInput, { skills: skillDiff });
+      }
+      if (taskDiff.added.length > 0 || taskDiff.removed.length > 0) {
+        Object.assign(tupleDiffInput, { tasks: taskDiff });
+      }
+      const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
       const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
 
       // ── 4. Persist selection on the team document.
       const now = new Date();
+      const nextResources = {
+        agents: nextAgents,
+        agent_admins: nextAgentAdmins,
+        tools: nextTools,
+        ...(body.knowledge_bases !== undefined || prevKnowledgeBases.length > 0
+          ? { knowledge_bases: nextKnowledgeBases }
+          : {}),
+        ...(body.skills !== undefined || prevSkills.length > 0 ? { skills: nextSkills } : {}),
+        ...(body.tasks !== undefined || prevTasks.length > 0 ? { tasks: nextTasks } : {}),
+        tool_wildcard: nextToolWildcard,
+      };
+
       await teamsCol.updateOne(
         { _id: teamId } as never,
         {
           $set: {
-            resources: {
-              agents: nextAgents,
-              agent_admins: nextAgentAdmins,
-              tools: nextTools,
-              tool_wildcard: nextToolWildcard,
-            },
+            resources: nextResources,
             updated_at: now,
           },
         }
@@ -377,12 +457,7 @@ export const PUT = withErrorHandler(
 
       return successResponse({
         team_id: id,
-        resources: {
-          agents: nextAgents,
-          agent_admins: nextAgentAdmins,
-          tools: nextTools,
-          tool_wildcard: nextToolWildcard,
-        },
+        resources: nextResources,
         diff: {
           agents_added: agentDiff.added,
           agents_removed: agentDiff.removed,
@@ -397,6 +472,5 @@ export const PUT = withErrorHandler(
         members_skipped: skippedMembers,
         openfga,
       });
-    });
   }
 );

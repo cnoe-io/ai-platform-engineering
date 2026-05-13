@@ -11,7 +11,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import { getAuthenticatedUser } from "@/lib/api-middleware";
+import {
+  ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
+} from "@/lib/api-middleware";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();
@@ -34,9 +38,22 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate the request
   let accessToken: string | undefined;
   try {
-    const { session } = await getAuthenticatedUser(request, { allowAnonymous: !getServerConfig().ssoEnabled });
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "dynamic_agent", "manage");
     accessToken = "accessToken" in session ? session.accessToken : undefined;
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: err.message,
+          code: err.code,
+          reason: err.reason,
+          action: err.action,
+        },
+        { status: err.statusCode },
+      );
+    }
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
