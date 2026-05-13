@@ -288,6 +288,8 @@ async function createIndexes(db: Db) {
 
     // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
     safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),

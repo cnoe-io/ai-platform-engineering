@@ -13,15 +13,9 @@ import logging
 from typing import Any, Callable, Mapping, Optional, cast
 
 from .audit import log_authz_decision
-from .channel_team_mapper import user_has_team_member_role
 from .keycloak_authz import RbacCheckRequest, check_permission
 
 logger = logging.getLogger("caipe.slack_bot.rbac")
-
-TEAM_ROLE_MISMATCH_MESSAGE = (
-    "You don't have access to CAIPE in this channel. "
-    "Ask your admin to add you to the team for this channel."
-)
 
 SLACK_CHANNEL_REBAC_DENIAL_MESSAGE = (
     "This channel is not authorized to use that CAIPE resource, "
@@ -87,19 +81,6 @@ def _decode_jwt_payload_unverified(token: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _realm_roles_from_access_token_unverified(token: str) -> list[str]:
-    payload = _decode_jwt_payload_unverified(token)
-    ra = payload.get("realm_access")
-    if isinstance(ra, dict):
-        roles = ra.get("roles")
-        if isinstance(roles, list):
-            return [str(r) for r in roles]
-    roles = payload.get("roles")
-    if isinstance(roles, list):
-        return [str(r) for r in roles]
-    return []
-
-
 def extract_tenant_from_context(kwargs: Mapping[str, Any]) -> Optional[str]:
     """Return tenant id from ``org`` claim on the OBO/user JWT.
 
@@ -149,34 +130,6 @@ def require_permission(
                 return format_slack_denial(resource, scope)
 
             bolt_ctx = kwargs.get("context")
-            if isinstance(bolt_ctx, dict) and bolt_ctx.get("rbac_enabled"):
-                # Prefer `active_team` (slug; set by _rbac_enrich_context). Fall
-                # back to `platform_team_id` for legacy callers — but only if
-                # it looks like a slug, since OpenFGA tuples and the realm role
-                # naming are slug-keyed (matching `jwt.active_team`).
-                tslug = bolt_ctx.get("active_team")
-                if not (isinstance(tslug, str) and tslug):
-                    tslug = bolt_ctx.get("platform_team_id")
-                # Skip the gate for personal-mode DMs; the gateway ext_authz
-                # path handles __personal__ without requiring team_member:*.
-                if (
-                    isinstance(tslug, str)
-                    and tslug
-                    and tslug != "__personal__"
-                ):
-                    jwt_roles = _realm_roles_from_access_token_unverified(access_token)
-                    if not user_has_team_member_role(jwt_roles, tslug):
-                        log_authz_decision(
-                            tenant_id=tenant_id,
-                            sub=sub,
-                            resource=resource,  # type: ignore[arg-type]
-                            scope=scope,
-                            outcome="deny",
-                            reason_code="DENY_TEAM_SCOPE",
-                            pdp="keycloak",
-                        )
-                        return TEAM_ROLE_MISMATCH_MESSAGE
-
             merged_kwargs = {**kwargs, "access_token": access_token}
             jwt_tenant = extract_tenant_from_context(merged_kwargs)
             if jwt_tenant is not None and bolt_ctx is not None:

@@ -78,8 +78,7 @@ export type AuditReasonCode =
   | "DENY_SCOPE"
   | "DENY_TENANT"
   | "DENY_UNLINKED"
-  | "DENY_PDP_UNAVAILABLE"
-  | "DENY_CEL";
+  | "DENY_PDP_UNAVAILABLE";
 
 /** Structured audit event for authorization decisions (FR-005, data-model.md) */
 export interface AuditEvent {
@@ -137,7 +136,7 @@ export interface UnifiedAuditEvent {
   source: AuditEventSource;
 }
 
-/** Admin dashboard tab keys for CEL-based visibility (US2, FR-004) */
+/** Admin dashboard tab keys for RBAC-based visibility */
 export type AdminTabKey =
   | "users"
   | "teams"
@@ -152,19 +151,10 @@ export type AdminTabKey =
   | "health"
   | "audit_logs"
   | "action_audit"
-  | "policy"
   | "openfga";
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
-
-/** A single CEL policy row stored in MongoDB admin_tab_policies */
-export interface AdminTabPolicy {
-  tab_key: AdminTabKey;
-  expression: string;
-  updated_by?: string;
-  updated_at?: string;
-}
 
 /** Per-KB permission level for team-KB ownership (FR-038) */
 export type KbPermission = 'read' | 'ingest' | 'admin';

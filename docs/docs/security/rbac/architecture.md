@@ -19,47 +19,64 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 |------|----------|---------|
 | `chat_user` | Yes — all authenticated users | Grants baseline chat/supervisor access and first-run OpenFGA bootstrap paths |
 | `admin` | No — explicit assignment | Full CAIPE admin UI: user management, team CRUD, role assignment, Keycloak Admin API proxy |
-| `kb_admin` | No | Knowledge base management: upload documents, configure RAG pipelines |
+| `kb_admin` | No | Legacy coarse knowledge base management role; per-KB grants should move to OpenFGA relationships |
 | `team_member` | No | Legacy team marker — superseded by `team_member:<slug>` (spec 104) |
 
 `chat_user` is in the `default-roles-caipe` composite, so every newly-created or brokered user gets it automatically. This is patched at runtime by `init-idp.sh` because Keycloak's realm import doesn't reliably populate composite role members.
 
 #### Resource-scoped roles (spec 104 — team-scoped RBAC)
 
-Spec 104 introduced a second tier of realm roles that bind *resources* (tools, agents, teams) to *callers*. They use a `<category>:<id>` naming convention with `:` as the separator. Dynamic Agents still read these roles from `jwt.realm_access.roles`; the AgentGateway path is moving the authoritative decision to OpenFGA through `ext_authz`.
+Spec 104 introduced a second tier of realm roles that bound *resources* (tools, agents, teams) to *callers*. Those names are now treated as legacy compatibility signals; new resource grants are OpenFGA relationships and AgentGateway delegates the authoritative decision to OpenFGA through `ext_authz`.
 
 | Pattern | Example | Meaning |
 |---------|---------|---------|
 | `tool_user:<tool_name>` | `tool_user:jira_search_issues` | Caller may invoke this MCP tool. The tool name is the LangChain-prefixed `<server_id>_<tool>` produced by Dynamic Agents. |
 | `tool_user:*` | `tool_user:*` | Wildcard — caller may invoke any MCP tool (admin convenience). |
-| `tool_user:<server>_*` | `tool_user:jira_*` | All tools from one MCP server (seeded by `init-idp.sh`; also projected to OpenFGA tuples by Team Resources). |
+| `tool_user:<server>_*` | `tool_user:jira_*` | Legacy compatibility role for all tools from one MCP server. Team Resources now writes OpenFGA tuples by default. |
 | `agent_user:<agent_id>` | `agent_user:test-april-2025` | Caller may chat with this dynamic agent (enforced in DA, not AG). |
 | `agent_admin:<agent_id>` | `agent_admin:test-april-2025` | Caller may modify the agent's config. Implies `agent_user:<agent_id>`. |
-| `team_member:<slug>` | `team_member:demo-team` | Caller belongs to the team. **The role name is keyed on the team `slug`, not the Mongo ObjectId**. The BFF's `members/route.ts` and the reconcile script both write slug-keyed roles and OpenFGA team-member tuples; an earlier ObjectId-keyed implementation existed and is migrated by `scripts/reconcile-keycloak-from-mongo.sh` on first run. |
+| `team_member:<slug>` | `team_member:demo-team` | Temporary compatibility marker for older team-context paths. New membership writes create OpenFGA `user:<sub> member team:<slug>` tuples instead of minting new realm-role assignments. |
 | `team_admin:<slug>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
 | `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
 
 Roles are created and assigned by:
 - `init-idp.sh` (dev/CI seed; runs in the `keycloak-init` job; reads `BOOTSTRAP_ADMIN_EMAILS` to seed the demo bundle).
-- The Admin UI **Team Resources panel** (`Admin → Teams → <team> → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
-  1. Ensures the realm role (`agent_user:<id>`, `agent_admin:<id>`, `tool_user:<server>_*`, or `tool_user:*` for the wildcard) exists in Keycloak (idempotent — `ensureRealmRole`).
-  2. Resolves each team member's email to a Keycloak `sub` (`findUserIdByEmail`) and applies the add/remove diff via `assignRealmRolesToUser` / `removeRealmRolesFromUser`.
-  3. If `OPENFGA_RECONCILE_ENABLED=true`, writes the same relationship intent to OpenFGA before Mongo persistence: `user:<sub> member team:<slug>`, `team:<slug>#member can_use agent:<id>`, `team:<slug>#member can_manage agent:<id>`, and `team:<slug>#member can_call tool:<prefix|*>`.
-  4. Persists the selection on the team document in Mongo (`team.resources = { agents, agent_admins, tools, tool_wildcard }`).
-  The Resources tab covers Use+Manage per agent and per-MCP-server tool grants plus a single "All tools" wildcard checkbox. Members without a Keycloak account yet (invited but never logged in) are returned in `members_skipped`; the rest of the operation still completes so a single absent user can't brick the panel. Mongo persistence happens **after** Keycloak and OpenFGA reconciliation so an authz-store outage doesn't leave Mongo ahead of the enforcement stores.
-- The Admin UI **Team Slack Channels panel** (`Admin → Teams → <team> → Slack Channels` tab, spec 098 US9) — bind Slack channels to a team so the bot resolves the channel's effective team via `channel_team_mappings` (and optionally a default agent via `channel_agent_mappings`). `PUT /api/admin/teams/[id]/slack-channels` is an idempotent full-replace: it deactivates this team's previous mappings that aren't in the new payload (only when `team_id` still matches — never touches another team's rows), upserts the active set, mirrors the bound-agent dropdown into `channel_agent_mappings`, and denormalises a thin `slack_channels` array onto the team document for the team-card chip count. The UI offers a live `conversations.list` discovery picker (server-side `SLACK_BOT_TOKEN` only, 60s in-process cache) plus a manual ID entry fallback for when the bot isn't in the channel yet. The bound-agent dropdown is constrained to `team.resources.agents` so admins can't accidentally bind a channel to an agent the team doesn't otherwise have access to (the backend re-validates).
-- The Admin UI **Team Roles panel** (`Admin → Teams → <team> → Roles` tab) — for everything *not* covered by the Resources tab (`admin_user`, `chat_user`, `kb_admin`, `kb_reader:<kb>`, `kb_ingestor:<kb>`, custom roles, etc.). Calls `PUT /api/admin/teams/[id]/roles` with the same idempotent ensure-role + diff-reconcile-members + persist-on-team flow. The GET endpoint surfaces the full realm-role catalog (minus system roles like `default-roles-caipe`/`offline_access`/`uma_authorization`) grouped by category prefix so admins can pick or paste in role names; orphan assignments (roles assigned but no longer in the catalog) are surfaced as a warning so they can be removed.
+- The Admin UI **Team Resources panel** (`Admin → Teams → selected team → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
+  1. Writes relationship intent to OpenFGA before Mongo persistence: `team:<slug>#member can_use agent:<id>`, `team:<slug>#member can_manage agent:<id>`, and `team:<slug>#member can_call tool:<prefix|*>`.
+  2. Resolves current team members to Keycloak `sub` values and writes OpenFGA `user:<sub> member team:<slug>` membership tuples when possible.
+  3. Persists the selection on the team document in Mongo (`team.resources = { agents, agent_admins, tools, tool_wildcard }`).
+  The Resources tab covers Use+Manage per agent and per-MCP-server tool grants plus a single "All tools" wildcard checkbox. Mongo persistence happens **after** OpenFGA reconciliation so a PDP outage doesn't leave Mongo ahead of the enforcement store.
+- The Admin UI **Team Slack Channels panel** (`Admin → Teams → <team> → Slack Channels` tab, spec 098 US9) — bind Slack channels to a team so the bot resolves the channel's effective team via `channel_team_mappings`. Agent/resource access is configured separately in the OpenFGA ReBAC Slack Channels panel, where one Slack channel can have many grants. `PUT /api/admin/teams/[id]/slack-channels` is an idempotent full-replace: it deactivates this team's previous mappings that aren't in the new payload (only when `team_id` still matches — never touches another team's rows), upserts the active set, and denormalises a thin `slack_channels` array onto the team document for the team-card chip count. The UI offers a live `conversations.list` discovery picker (server-side `SLACK_BOT_TOKEN` only, 60s in-process cache) plus a manual ID entry fallback for when the bot isn't in the channel yet.
+- The Admin UI **Team Roles panel** (`Admin → Teams → selected team → Roles` tab) — for global realm roles such as `admin_user`, `chat_user`, and custom coarse roles. Resource-scoped roles (`agent_user:*`, `agent_admin:*`, `tool_user:*`, `kb_reader:*`, `kb_ingestor:*`, `kb_admin:*`, task roles, and skill roles) are hidden and rejected because those grants belong in OpenFGA relationships.
 
 #### When Realm Roles Are Created
 
-Keycloak realm roles are **not created for every possible resource upfront**. We create them when they become part of policy:
+Keycloak realm roles are **not created for every possible resource upfront**. New deployments keep Keycloak focused on identity, login, and coarse bootstrap roles:
 
-- **Bootstrap roles** (`admin`, `chat_user`, `admin_user`, `tool_user:*`, demo `team_member:<slug>`, demo agent/tool roles) are seeded by `init-idp.sh` so a fresh dev/RBAC stack works immediately.
-- **Team membership roles** (`team_member:<slug>`) are created on demand when a team is created or member reconciliation runs. They back Slack active-team checks and are mirrored into OpenFGA team-member tuples.
-- **Team resource roles** (`agent_user:<id>`, `agent_admin:<id>`, `tool_user:<prefix>`) are created on demand when an admin saves Team Resources. The BFF calls `ensureRealmRole` for the roles in the diff before assigning/removing them from team members.
-- **Catch-all/custom roles** are created from the Team Roles or Roles admin surfaces when an admin explicitly adds them.
+- **Bootstrap roles** (`admin`, `chat_user`, `admin_user`, demo `team_member:<slug>`) are seeded by `init-idp.sh` so a fresh dev/RBAC stack works immediately.
+- **Team membership roles** (`team_member:<slug>`) are temporary compatibility artifacts. New team member writes update OpenFGA `user:<sub> member team:<slug>` tuples rather than creating new realm-role grants.
+- **Team resource roles** (`agent_user:<id>`, `agent_admin:<id>`, `tool_user:<prefix>`) are no longer created by Team Resources. Team Resources writes OpenFGA tuples only.
+- **Catch-all/custom global roles** are created from the Team Roles or Roles admin surfaces when an admin explicitly adds them.
 
 Rule of thumb: **Keycloak owns identity and JWT role claims; OpenFGA owns relationship tuples for who is related to which team/resource.** Keycloak does not need a realm role for every OpenFGA tuple, and OpenFGA does not mint JWT claims.
+
+#### User-facing Role Cleanup
+
+The Admin UI intentionally separates **product roles** from **raw Keycloak plumbing**:
+
+- The Users table shows curated business/global roles only (`admin`, `admin_user`, `chat_user`, `kb_admin`, `kb_ingestor`, and custom coarse roles).
+- Keycloak system roles (`default-roles-caipe`, `offline_access`, `uma_authorization`) are hidden from the table and role filter because they are OIDC/UMA plumbing, not product permissions.
+- Team-membership roles (`team_member:<slug>`) are hidden from the role-chip column because the Teams column is the human-facing source for membership.
+- Legacy resource roles (`agent_user:*`, `agent_admin:*`, `tool_user:*`, `kb_reader:*`, `task_user:*`, `skill_user:*`) are hidden from the user list because OpenFGA relationships are the authoritative resource grant model.
+
+`GET /api/admin/users` still returns `raw_roles` and `role_classifications` for diagnostics, but its `roles` field is curated for the product UI. Stale `team_member:*` assignments that are not backed by a Mongo team slug can be removed with:
+
+```bash
+CLEAN_STALE_TEAM_ROLES=true DELETE_STALE_TEAM_ROLES=true \
+  scripts/reconcile-keycloak-from-mongo.sh
+```
+
+Do not delete Keycloak system roles as part of cleanup. They may be required by Keycloak or OIDC flows even though CAIPE hides them from the main admin UX.
 
 ### External IdP Brokering (Duo SSO, Okta, or any OIDC provider)
 
@@ -186,6 +203,12 @@ Manual team management is also provenance-aware. Teams created through `/api/adm
 
 Admins can create and visualize OpenFGA policy/resource relationships at `Admin → Security & Policy → OpenFGA ReBAC`.
 
+The older user-facing `Policy` tab has been removed. It edited CEL tab-visibility
+and legacy policy surfaces that are no longer part of the operational model.
+Admin tab visibility is now a deterministic BFF gate (`/api/rbac/admin-tab-gates`)
+based on session role plus feature flags; resource authorization is modeled in
+OpenFGA relationships.
+
 The UI is intentionally BFF-first:
 
 1. The browser loads a safe catalog from `/api/admin/openfga/catalog` (teams, dynamic agents, MCP tool prefixes, known KB IDs, and OpenFGA status).
@@ -202,7 +225,7 @@ Policy authoring is staged through `policy_change_sets` instead of direct browse
 
 Graph and access explanation APIs read OpenFGA tuples and join them with `rebac_relationships` provenance. `/api/admin/rebac/graph` supports all-relationship views and scoped filters for team, subject, resource, and Slack channel, returning source metadata with each edge. `/api/admin/rebac/check` runs the same universal relationship check and explains allow outcomes with the recorded source path or deny outcomes with the missing OpenFGA prerequisite. The legacy `/api/admin/openfga/graph` endpoint delegates to the universal graph service so older UI code gets the same source-aware graph.
 
-Slack channel ReBAC is managed through `/api/admin/slack/channels` and the per-channel resources/access-check routes under `/api/admin/slack/channels/[workspaceId]/[channelId]`. A channel can now hold many active grants in `slack_channel_grants`, each writing OpenFGA tuples such as `slack_channel:<workspace>--<channel> can_use agent:<id>`. The OpenFGA ReBAC tab includes a Slack Channels panel for adding channel resource grants without replacing the older team channel binding panel. At runtime, the Slack bot carries the channel's workspace id from `channel_agent_mappings`, mints the user's team-scoped OBO token, then calls the Slack channel ReBAC evaluator before dispatching to the mapped agent. The request is denied unless both the channel grant and the user's team/resource relationship allow the selected resource.
+Slack channel ReBAC is managed through `/api/admin/slack/channels` and the per-channel resources/routes/access-check routes under `/api/admin/slack/channels/[workspaceId]/[channelId]`. A channel can hold many active grants in `slack_channel_grants`, each writing OpenFGA tuples such as `slack_channel:<workspace>--<channel> can_use agent:<id>`. Agent routes live in `slack_channel_agent_routes`; saving a route automatically creates the matching route-owned channel grant and OpenFGA tuple so admins do not have to configure routing and authorization in two separate steps. The OpenFGA ReBAC tab includes a Slack Channels panel for adding channel resource grants and agent routes. At runtime, the Slack bot resolves the channel's team from `channel_team_mappings`, mints the user's team-scoped OBO token, and authorizes the selected agent against the channel grant before dispatch. The request is denied unless both the channel grant and the user's team/resource relationship allow the selected resource.
 
 Keycloak realm roles remain supported as migration compatibility signals, but `/api/rbac/enforcement-comparison` now compares legacy role decisions with ReBAC decisions for a selected subject/action/resource. `keycloak-transition.ts` classifies bootstrap, system, team, and resource-specific roles and ignores stale per-resource roles for resource types marked `rebac_enforced`. Task/skill role helpers and Keycloak resource sync honor the same enforcement status so new permanent Keycloak resources are not created once ReBAC is authoritative.
 
@@ -513,6 +536,11 @@ The Admin UI's former "AG MCP Policies" tab, `/api/rbac/ag-policies`,
 `ag_sync_state` are retired. Relationship changes should be modeled as OpenFGA
 tuples through the ReBAC admin surfaces instead of editing AgentGateway CEL.
 
+The BFF's former CEL overlay is also retired: `CEL_RBAC_EXPRESSIONS`,
+`/api/rbac/admin-tab-policies`, editable `admin_tab_policies`, and the browser CEL
+editor are no longer part of the UI authorization path. Keep custom authorization
+logic in OpenFGA tuples and audited ReBAC change sets.
+
 ### Operational Guarantees
 
 | Guarantee | Mechanism |
@@ -560,20 +588,22 @@ Inside `get_current_user()`:
 8. Return UserContext { email, name, groups, is_admin, access_token, obo_jwt }
 ```
 
-### Agent-Level Authorization (CEL or Visibility Rules)
+### Agent-Level Authorization (Visibility Rules)
 
 After the user is authenticated, `can_use_agent(agent, user)` decides whether they can invoke a specific agent:
 
 ```
-CEL expression configured? ──YES──▶ evaluate cel_dynamic_agent_access_expression
-        │ NO
-        ▼
   is_admin  →  ALLOW (admins can use any agent)
   owner_id == user.email  →  ALLOW
   visibility == GLOBAL  →  ALLOW
   visibility == TEAM && user.groups ∩ agent.shared_with_teams ≠ ∅  →  ALLOW
   visibility == PRIVATE  →  DENY
 ```
+
+The optional Dynamic Agents CEL hook was retired with the management-plane CEL
+migration. Runtime agent access now follows the service's built-in visibility
+rules, while downstream tool authorization is enforced by AgentGateway and
+OpenFGA.
 
 ### Token Forwarding to MCP Tools
 

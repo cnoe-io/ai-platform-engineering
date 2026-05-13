@@ -109,18 +109,22 @@ flowchart LR
   AGW --> MCP[MCP tools and RAG]
 ```
 
+
+
 The important separation is:
 
-| Layer | Primary job |
-|---|---|
-| Keycloak | Authenticate users and issue signed tokens |
-| CAIPE UI / BFF | Enforce management-plane route permissions and write policy intent |
-| MongoDB | Store UI intent, teams, mappings, provenance, and operational state |
-| OpenFGA | Store and answer relationship authorization decisions |
-| Dynamic Agents | Run agents and forward the user's JWT to downstream tool paths |
-| AgentGateway | Enforce MCP gateway access with `jwtAuth` plus OpenFGA `ext_authz` |
-| MCP / RAG services | Execute domain operations with service-side validation and filters |
-| Slack bot | Convert Slack events into CAIPE user/team context through identity linking and OBO |
+
+| Layer              | Primary job                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| Keycloak           | Authenticate users and issue signed tokens                                         |
+| CAIPE UI / BFF     | Enforce management-plane route permissions and write policy intent                 |
+| MongoDB            | Store UI intent, teams, mappings, provenance, and operational state                |
+| OpenFGA            | Store and answer relationship authorization decisions                              |
+| Dynamic Agents     | Run agents and forward the user's JWT to downstream tool paths                     |
+| AgentGateway       | Enforce MCP gateway access with `jwtAuth` plus OpenFGA `ext_authz`                 |
+| MCP / RAG services | Execute domain operations with service-side validation and filters                 |
+| Slack bot          | Convert Slack events into CAIPE user/team context through identity linking and OBO |
+
 
 ---
 
@@ -169,7 +173,7 @@ team:<slug>#member can_read knowledge_base:<id>
 slack_channel:<workspace>:<channel> can_invoke agent:<agent_id>
 ```
 
-The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call document:mcp`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured differently. Richer per-team, per-agent, per-tool, and per-KB tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
+The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call document:mcp`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured diffcaerently. Richer per-team, per-agent, per-tool, and per-KB tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
 
 ### Data Plane
 
@@ -187,6 +191,10 @@ For MCP calls:
 8. If JWT validation fails, AgentGateway returns `401`.
 
 AgentGateway does not manage AG MCP Policies anymore. There is no Mongo-backed AgentGateway CEL policy CRUD surface and no config bridge that renders MCP authorization rules. Gateway access is delegated to OpenFGA through `ext_authz`; richer resource relationships are managed in OpenFGA rather than in AgentGateway policy documents.
+
+The Admin UI no longer exposes the old `Policy` tab or CEL tab-visibility editor.
+The Security & Policy area is intentionally centered on audit review and
+OpenFGA/ReBAC relationship management.
 
 ---
 
@@ -209,25 +217,28 @@ Roles are stamps in Keycloak. They are useful for:
 
 Common examples:
 
-| Role | Meaning |
-|---|---|
-| `chat_user` | User can access normal CAIPE chat paths |
-| `admin` | User can access admin UI capabilities |
-| `kb_admin` | User can administer knowledge bases |
-| `team_member:<slug>` | User belongs to a CAIPE team |
-| `team_admin:<slug>` | User can administer a CAIPE team |
-| `agent_user:<id>` | User can use a specific dynamic agent |
-| `agent_admin:<id>` | User can manage a specific dynamic agent |
-| `tool_user:<prefix>` | User can use an MCP tool or server prefix |
 
-Roles are not the final long-term source for every relationship decision. OpenFGA is the relationship graph.
+| Role                 | Meaning                                                         |
+| -------------------- | --------------------------------------------------------------- |
+| `chat_user`          | User can access normal CAIPE chat paths                         |
+| `admin`              | User can access admin UI capabilities                           |
+| `team_member:<slug>` | Temporary compatibility marker for older team checks            |
+| `team_admin:<slug>`  | Temporary compatibility marker for older team admin checks      |
+| `agent_user:<id>`    | Legacy compatibility role for a specific dynamic agent          |
+| `agent_admin:<id>`   | Legacy compatibility role for managing a specific dynamic agent |
+| `tool_user:<prefix>` | Legacy compatibility role for an MCP tool or server prefix      |
+
+
+Roles are not the final long-term source for relationship decisions. New team membership and resource grants are OpenFGA relationships; Team Resources and Team Roles no longer mirror per-resource Keycloak roles.
+
+In the Admin Users table, CAIPE shows a curated role view: global/business roles are displayed as chips, team membership appears in the Teams column, and Keycloak plumbing roles such as `default-roles-caipe`, `offline_access`, and `uma_authorization` are hidden. The API still keeps raw Keycloak role data available for diagnostics as `raw_roles` and `role_classifications`.
 
 ### Teams
 
 Teams are CAIPE's administrative grouping unit. A team has:
 
 - A display name for humans.
-- A stable slug used in roles, scopes, JWT claims, and relationship tuples.
+- A stable slug used in client scopes, JWT `active_team` claims, and relationship tuples.
 - Members and membership provenance.
 - Optional team admins.
 - Resource grants for agents, tools, KBs, and Slack integrations.
@@ -246,13 +257,15 @@ CAIPE uses a hybrid source model:
 
 Membership provenance matters because a user can be in a team for different reasons:
 
-| Source | Meaning |
-|---|---|
-| `manual` | Admin explicitly added the user |
-| `login_claim` | The user's login token carried a matching group |
-| `okta_sync` | Direct Okta directory sync found the group membership |
-| `bootstrap` | Setup-time or emergency initialization assigned access |
+
+| Source        | Meaning                                                   |
+| ------------- | --------------------------------------------------------- |
+| `manual`      | Admin explicitly added the user                           |
+| `login_claim` | The user's login token carried a matching group           |
+| `okta_sync`   | Direct Okta directory sync found the group membership     |
+| `bootstrap`   | Setup-time or emergency initialization assigned access    |
 | `policy_rule` | A configured identity-group sync rule assigned membership |
+
 
 ### Resources
 
@@ -316,15 +329,17 @@ This preserves end-user identity all the way to the tool boundary.
 
 A denial can happen at different layers:
 
-| Symptom | Likely layer |
-|---|---|
-| Redirect to login | No valid UI session |
-| `401` from API | Missing, expired, malformed, or invalid JWT |
-| `403` from BFF route | User is authenticated but lacks route permission |
-| `403` from AgentGateway | JWT is valid but OpenFGA denied the configured gateway relationship |
-| Empty or filtered RAG results | Coarse auth passed, but KB or document filter removed inaccessible data |
-| Slack bot asks user to link | Slack user is not linked to a Keycloak identity |
-| Slack bot denies channel use | Channel is unmapped, user lacks team membership, or channel/resource grant is missing |
+
+| Symptom                       | Likely layer                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| Redirect to login             | No valid UI session                                                                   |
+| `401` from API                | Missing, expired, malformed, or invalid JWT                                           |
+| `403` from BFF route          | User is authenticated but lacks route permission                                      |
+| `403` from AgentGateway       | JWT is valid but OpenFGA denied the configured gateway relationship                   |
+| Empty or filtered RAG results | Coarse auth passed, but KB or document filter removed inaccessible data               |
+| Slack bot asks user to link   | Slack user is not linked to a Keycloak identity                                       |
+| Slack bot denies channel use  | Channel is unmapped, user lacks team membership, or channel/resource grant is missing |
+
 
 The access checker and audit logs should be the first place to look for "why."
 
@@ -448,6 +463,8 @@ Slack channels can be granted access to resources such as agents. This supports 
 - A channel can have explicit resource grants.
 - The bot can explain why a channel or user was denied.
 
+Agent routes are coupled to authorization. When an admin creates a Slack channel route for `agent:<id>`, the BFF also creates the matching route-owned `slack_channel:<workspace>--<channel> can_use agent:<id>` grant and writes the OpenFGA tuple. Manual grants remain available for non-route resources such as tools, knowledge bases, tasks, and skills.
+
 The Slack path writes and checks the same policy concepts as the UI path: users, teams, resources, relationships, and audit events.
 
 ---
@@ -474,6 +491,8 @@ sequenceDiagram
   AG->>MCP: Forward only if allowed
 ```
 
+
+
 Important behavior:
 
 - Invalid token: `401`.
@@ -495,7 +514,7 @@ It supports:
 
 - Guided tuple creation.
 - Access checks.
-- Full graph viewing.
+- Team-scoped graph viewing with an optional selected-user filter for large deployments.
 - Relationship provenance.
 - Staged policy change sets.
 - Validation before apply.
@@ -510,6 +529,8 @@ Use it when:
 - You need to debug a gateway denial.
 
 Most routine team grants should still go through Team Resources because that keeps Mongo intent, Keycloak compatibility roles, and OpenFGA tuples reconciled from one UI action.
+
+For large deployments, do not render all users in the Policy Graph. Keep the team scope selected and search for a specific user; the graph then loads `user:<keycloak-sub>` membership tuples plus the user's team-derived grants instead of drawing every principal in OpenFGA.
 
 ---
 
@@ -895,15 +916,17 @@ Use this guide as the first read for the feature.
 
 Then send readers to the deeper pages based on what they need:
 
-| Need | Next document |
-|---|---|
-| Component-by-component architecture | [Architecture](./architecture.md) |
-| Exact sequence diagrams | [Workflows](./workflows.md) |
-| Hands-on commands and test users | [Usage](./usage.md) |
-| Roles vs scopes and `active_team` | [Roles vs Scopes](./roles-scopes-comparison.md) |
-| File ownership and code entry points | [File Map](./file-map.md) |
-| Secret/bootstrap deployment details | [Secrets Bootstrap](./secrets-bootstrap.md) |
-| Historical PDP tradeoff rationale | [Feasibility: PDP Options](./feasibility-pdp-options.md) |
+
+| Need                                 | Next document                                            |
+| ------------------------------------ | -------------------------------------------------------- |
+| Component-by-component architecture  | [Architecture](./architecture.md)                        |
+| Exact sequence diagrams              | [Workflows](./workflows.md)                              |
+| Hands-on commands and test users     | [Usage](./usage.md)                                      |
+| Roles vs scopes and `active_team`    | [Roles vs Scopes](./roles-scopes-comparison.md)          |
+| File ownership and code entry points | [File Map](./file-map.md)                                |
+| Secret/bootstrap deployment details  | [Secrets Bootstrap](./secrets-bootstrap.md)              |
+| Historical PDP tradeoff rationale    | [Feasibility: PDP Options](./feasibility-pdp-options.md) |
+
 
 If someone only has ten minutes, tell them to read:
 

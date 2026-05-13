@@ -14,12 +14,9 @@ import {
 } from '@/lib/api-middleware';
 import {
   searchRealmUsers,
-  createRealmRole,
-  getRoleByName,
-  assignRealmRolesToUser,
-  removeRealmRolesFromUser,
   isValidTeamSlug,
 } from '@/lib/rbac/keycloak-admin';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import {
   listActiveTeamMembershipSourcesForTeamUser,
   markTeamMembershipSourceRemoved,
@@ -48,57 +45,44 @@ function parseTeamId(id: string): ObjectId {
   return new ObjectId(id);
 }
 
-/**
- * Ensure the `team_member:<slug>` Keycloak realm role exists and assign it
- * to the user identified by email. Best-effort — logs warnings on failure
- * so that MongoDB membership is never blocked by Keycloak issues.
- *
- * NOTE: Role names are keyed on the team **slug**, not the Mongo ObjectId.
- * AgentGateway's CEL evaluates `team_member:<jwt.active_team>` and
- * `active_team` is the slug (carried by the `team-<slug>` client scope's
- * hardcoded mapper). Using the ObjectId here would silently mismatch the
- * AGW check and deny non-admin members of every team.
- */
-async function syncKeycloakTeamRole(
-  email: string,
-  teamSlug: string,
-  action: 'assign' | 'remove'
-): Promise<string | undefined> {
+async function resolveKeycloakUserSubject(email: string, teamSlug: string): Promise<string | undefined> {
   if (!isValidTeamSlug(teamSlug)) {
-    console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping role ${action} for ${email}`);
+    console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping OpenFGA tuple for ${email}`);
     return undefined;
   }
-  const roleName = `team_member:${teamSlug}`;
   try {
-    // Find Keycloak user by email
     const users = await searchRealmUsers({ search: email, first: 0, max: 1 });
     const kcUser = users.find(u => (u.email as string)?.toLowerCase() === email.toLowerCase());
     if (!kcUser?.id) {
-      console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping role ${action}`);
+      console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping OpenFGA tuple`);
       return undefined;
     }
-    const userId = String(kcUser.id);
-
-    if (action === 'assign') {
-      let role;
-      try {
-        role = await getRoleByName(roleName);
-      } catch {
-        await createRealmRole(roleName, `Team member role for team "${teamSlug}"`);
-        role = await getRoleByName(roleName);
-      }
-      await assignRealmRolesToUser(userId, [role]);
-      console.log(`[TeamSync] Assigned ${roleName} to ${email}`);
-    } else {
-      const role = await getRoleByName(roleName);
-      await removeRealmRolesFromUser(userId, [role]);
-      console.log(`[TeamSync] Removed ${roleName} from ${email}`);
-    }
-    return userId;
+    return String(kcUser.id);
   } catch (err) {
-    console.warn(`[TeamSync] Failed to ${action} ${roleName} for ${email}:`, err);
+    console.warn(`[TeamSync] Failed to resolve Keycloak user for ${email}:`, err);
     return undefined;
   }
+}
+
+async function writeTeamMembershipTuple(
+  userSubject: string | undefined,
+  teamSlug: string,
+  action: 'assign' | 'remove'
+): Promise<void> {
+  if (!userSubject) return;
+  const tuple = {
+    user: `user:${userSubject}`,
+    relation: "member",
+    object: `team:${teamSlug}`,
+  };
+  const result = await writeOpenFgaTuples({
+    writes: action === 'assign' ? [tuple] : [],
+    deletes: action === 'remove' ? [tuple] : [],
+  });
+  console.log(
+    `[TeamSync] ${action === 'assign' ? 'Wrote' : 'Deleted'} OpenFGA team membership tuple ` +
+      `for user:${userSubject} team:${teamSlug} (enabled=${result.enabled})`
+  );
 }
 
 function manualMembershipSource(input: {
@@ -189,11 +173,12 @@ export const POST = withErrorHandler(async (
       );
     }
 
-    // Sync Keycloak team role (best-effort). Slug-keyed to match active_team/OpenFGA.
+    // Sync OpenFGA team membership tuple when the Keycloak subject is known.
     const teamSlug = String(team.slug || "").trim();
     let keycloakSubject: string | undefined;
     if (teamSlug) {
-      keycloakSubject = await syncKeycloakTeamRole(email, teamSlug, 'assign');
+      keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
+      await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'assign');
       await upsertTeamMembershipSource(
         manualMembershipSource({
           teamId: params.id,
@@ -207,7 +192,7 @@ export const POST = withErrorHandler(async (
       );
     } else {
       console.warn(
-        `[TeamSync] Team ${teamId} has no slug; cannot assign team_member role for ${email}. ` +
+        `[TeamSync] Team ${teamId} has no slug; cannot write OpenFGA membership tuple for ${email}. ` +
         `Restart caipe-ui to trigger backfill via syncTeamScopesOnStartup.`
       );
     }
@@ -299,10 +284,11 @@ export const DELETE = withErrorHandler(async (
       );
     }
 
-    // Revoke Keycloak team role only after the final granting source is gone.
+    // Revoke OpenFGA membership only after the final granting source is gone.
     if (teamSlug) {
       if (!stillGranted) {
-        await syncKeycloakTeamRole(email, teamSlug, 'remove');
+        const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
+        await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'remove');
       }
     }
 

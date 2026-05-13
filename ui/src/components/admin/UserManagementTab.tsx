@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { isCuratedUserListRole } from "@/lib/rbac/keycloak-transition";
 
 const PAGE_SIZE = 20;
 
@@ -46,6 +47,8 @@ interface AdminUserRow {
   enabled: boolean;
   attributes: Record<string, string[]>;
   roles: string[];
+  raw_roles?: string[];
+  hidden_role_count?: number;
 }
 
 interface KeycloakRole {
@@ -119,9 +122,15 @@ const ROLE_BADGE_CLASSES = [
   "border-rose-500/40 text-rose-700 dark:text-rose-300",
 ];
 
-function RoleBadges({ roles }: { roles: string[] }) {
+function RoleBadges({
+  roles,
+  hiddenRoleCount = 0,
+}: {
+  roles: string[];
+  hiddenRoleCount?: number;
+}) {
   const maxShow = 3;
-  if (!roles.length) {
+  if (!roles.length && hiddenRoleCount === 0) {
     return <span className="text-muted-foreground text-xs">—</span>;
   }
   const shown = roles.slice(0, maxShow);
@@ -140,6 +149,14 @@ function RoleBadges({ roles }: { roles: string[] }) {
       {more > 0 && (
         <span className="text-[10px] text-muted-foreground self-center">
           +{more} more
+        </span>
+      )}
+      {hiddenRoleCount > 0 && (
+        <span
+          className="text-[10px] text-muted-foreground self-center"
+          title="System, team-membership, and legacy resource roles are hidden from this table. Open the user detail view for raw Keycloak role debugging."
+        >
+          +{hiddenRoleCount} raw hidden
         </span>
       )}
     </div>
@@ -335,7 +352,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
         if (!cancelled) {
           setRealmRoles(
             (json.data?.roles as KeycloakRole[] | undefined)?.filter(
-              (r) => !r.clientRole
+              (r) => !r.clientRole && isCuratedUserListRole(r.name)
             ) ?? []
           );
         }
@@ -604,7 +621,10 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                         {u.email || "—"}
                       </td>
                       <td className="px-4 py-2.5 align-top">
-                        <RoleBadges roles={u.roles} />
+                        <RoleBadges
+                          roles={u.roles}
+                          hiddenRoleCount={u.hidden_role_count ?? 0}
+                        />
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground max-w-[180px]">
                         {teamNames.length ? (

@@ -29,11 +29,6 @@ from common.constants import REDIS_USERINFO_CACHE_PREFIX
 from common import utils
 from server.auth import get_auth_manager, AuthManager
 
-try:
-  from cel_evaluator import evaluate as cel_evaluate
-except ImportError:
-  cel_evaluate = None  # type: ignore[misc, assignment]
-
 logger = utils.get_logger(__name__)
 
 # Email validation regex (RFC 5322 simplified)
@@ -1001,100 +996,6 @@ RBAC_MONGODB_URI = os.getenv("RBAC_MONGODB_URI", "")
 RBAC_MONGODB_DATABASE = os.getenv("RBAC_MONGODB_DATABASE", "")
 RBAC_TEAM_SCOPE_ENABLED = os.getenv("RBAC_TEAM_SCOPE_ENABLED", "false").lower() in ("true", "1", "yes")
 
-CEL_KB_ACCESS_EXPRESSION = os.getenv("CEL_KB_ACCESS_EXPRESSION", "").strip()
-CEL_KB_ACCESS_EXPRESSIONS_RAW = os.getenv("CEL_KB_ACCESS_EXPRESSIONS", "").strip()
-
-
-def _kb_cel_expression_for(datasource_id: str) -> str:
-  """Resolve CEL expression for a datasource: per-id map entry or global default."""
-  if CEL_KB_ACCESS_EXPRESSIONS_RAW:
-    try:
-      mapping = json.loads(CEL_KB_ACCESS_EXPRESSIONS_RAW)
-      if isinstance(mapping, dict):
-        per = mapping.get(datasource_id) or mapping.get(str(datasource_id))
-        if isinstance(per, str) and per.strip():
-          return per.strip()
-    except json.JSONDecodeError as e:
-      logger.error("Invalid JSON in CEL_KB_ACCESS_EXPRESSIONS: %s", e)
-  return CEL_KB_ACCESS_EXPRESSION
-
-
-def _kb_cel_context(
-  user_context: UserContext,
-  datasource_id: str,
-  scope: str,
-  request: Optional[Request],
-) -> Dict[str, Any]:
-  # Spec 104: prefer the signed `active_team` JWT claim (sentinel
-  # ``__personal__`` for DM/personal mode) and ignore it for the team
-  # roster the CEL engine sees. Group-channel slugs are exposed in
-  # ``user.teams`` so existing CEL like ``"<slug>" in user.teams`` keeps
-  # working without a header round-trip.
-  active_team = user_context.active_team
-  teams = list(user_context.groups or [])
-  if active_team and active_team != "__personal__" and active_team not in teams:
-    teams = [*teams, active_team]
-  return {
-    "user": {
-      "roles": list(user_context.realm_roles or []),
-      "teams": teams,
-      "email": user_context.email,
-    },
-    "resource": {
-      "id": datasource_id,
-      "type": "knowledge_base",
-      "visibility": "",
-      "owner_id": "",
-      "shared_with_teams": [],
-    },
-    "action": scope,
-  }
-
-
-def _filter_kb_ids_by_cel(
-  user_context: UserContext,
-  scope: str,
-  kb_ids: List[str],
-  request: Optional[Request],
-) -> List[str]:
-  if "*" in kb_ids:
-    return ["*"]
-  if not kb_ids:
-    return []
-  if not (CEL_KB_ACCESS_EXPRESSION or CEL_KB_ACCESS_EXPRESSIONS_RAW):
-    return kb_ids
-  if not cel_evaluate:
-    logger.warning("CEL KB expressions configured but cel_evaluator is not installed — denying all KB ids (fail-closed)")
-    return []
-  filtered: List[str] = []
-  for kid in kb_ids:
-    expr = _kb_cel_expression_for(kid)
-    if not expr:
-      filtered.append(kid)
-      continue
-    ctx = _kb_cel_context(user_context, kid, scope, request)
-    if cel_evaluate(expr, ctx):
-      filtered.append(kid)
-  return filtered
-
-
-def _enforce_cel_kb_access(
-  user_context: UserContext,
-  datasource_id: str,
-  scope: str,
-  request: Request,
-) -> None:
-  if not cel_evaluate:
-    logger.warning("CEL KB access configured but cel_evaluator is not installed")
-    raise HTTPException(status_code=503, detail="CEL policy engine unavailable (fail-closed)")
-  expr = _kb_cel_expression_for(datasource_id)
-  if not expr:
-    return
-  ctx = _kb_cel_context(user_context, datasource_id, scope, request)
-  if not cel_evaluate(expr, ctx):
-    logger.warning("CEL denied KB access: user=%s datasource=%s scope=%s", user_context.email, datasource_id, scope)
-    raise HTTPException(status_code=403, detail="CEL policy denied access to this knowledge base")
-
 
 async def _get_team_kb_ownership_from_mongo(
   team_id: str,
@@ -1181,7 +1082,7 @@ async def get_accessible_kb_ids(
 
   if "*" in ids:
     return ["*"]
-  return _filter_kb_ids_by_cel(user_context, scope, list(ids), request)
+  return list(ids)
 
 
 async def check_kb_datasource_access(
@@ -1202,7 +1103,6 @@ async def check_kb_datasource_access(
     team_id = None
   accessible = await get_accessible_kb_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
   if "*" in accessible:
-    _enforce_cel_kb_access(user_context, datasource_id, scope, request)
     return
   if not accessible:
     raise HTTPException(
@@ -1210,7 +1110,6 @@ async def check_kb_datasource_access(
       detail="No accessible knowledge bases for this operation",
     )
   if datasource_id in accessible:
-    _enforce_cel_kb_access(user_context, datasource_id, scope, request)
     return
   raise HTTPException(status_code=403, detail="Access denied for this datasource")
 

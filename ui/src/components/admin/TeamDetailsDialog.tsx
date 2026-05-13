@@ -70,13 +70,11 @@ interface TeamSlackChannel {
   slack_channel_id: string;
   channel_name: string;
   slack_workspace_id?: string;
-  bound_agent_id: string | null;
 }
 
 interface SlackChannelsPayload {
   team_id: string;
   channels: TeamSlackChannel[];
-  available_agents: ResourceOption[];
 }
 
 interface DiscoveredSlackChannel {
@@ -466,7 +464,6 @@ export function TeamDetailsDialog({
           slack_channel_id: c.id,
           channel_name: c.name,
           slack_workspace_id: "unknown",
-          bound_agent_id: null,
         },
       ];
     });
@@ -484,7 +481,6 @@ export function TeamDetailsDialog({
           slack_channel_id: id,
           channel_name: name,
           slack_workspace_id: "unknown",
-          bound_agent_id: null,
         },
       ];
     });
@@ -494,14 +490,6 @@ export function TeamDetailsDialog({
 
   const handleRemoveChannel = (id: string) => {
     setEditedChannels((prev) => prev.filter((c) => c.slack_channel_id !== id));
-  };
-
-  const handleBindAgentChange = (channelId: string, agentId: string | null) => {
-    setEditedChannels((prev) =>
-      prev.map((c) =>
-        c.slack_channel_id === channelId ? { ...c, bound_agent_id: agentId } : c
-      )
-    );
   };
 
   const handleSaveChannels = async () => {
@@ -1017,12 +1005,9 @@ export function TeamDetailsDialog({
         {activeMode === "resources" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
-              Grant this team access to agents and tools. Saving creates the
-              matching realm roles in Keycloak (<code className="font-mono">agent_user:&lt;id&gt;</code>,{" "}
-              <code className="font-mono">agent_admin:&lt;id&gt;</code>,{" "}
-              <code className="font-mono">tool_user:&lt;prefix&gt;</code>,{" "}
-              <code className="font-mono">tool_user:*</code>) and assigns them
-              to every team member. For other realm roles see the{" "}
+              Grant this team access to agents and tools. Saving writes OpenFGA
+              relationships for this team; Keycloak no longer mirrors
+              per-resource realm roles. For global realm roles see the{" "}
               <button
                 type="button"
                 className="underline"
@@ -1086,10 +1071,9 @@ export function TeamDetailsDialog({
             <p className="text-xs text-muted-foreground">
               Assign realm roles to every member of this team. Use this for
               global flags (<code className="font-mono">admin_user</code>,{" "}
-              <code className="font-mono">chat_user</code>,{" "}
-              <code className="font-mono">kb_admin</code>), KB-scoped roles
-              (<code className="font-mono">kb_reader:&lt;kb&gt;</code>), or any
-              custom realm role. Agent/tool grants live in the{" "}
+              <code className="font-mono">chat_user</code>), or any custom
+              coarse realm role. Agent, tool, KB, task, and skill grants live
+              in OpenFGA through the{" "}
               <button
                 type="button"
                 className="underline"
@@ -1142,17 +1126,8 @@ export function TeamDetailsDialog({
             <p className="text-xs text-muted-foreground">
               Bind Slack channels to this team. The Slack bot uses{" "}
               <code className="font-mono">channel_team_mappings</code> to
-              decide which team&apos;s RBAC applies to in-channel requests, and
-              optionally <code className="font-mono">channel_agent_mappings</code>{" "}
-              to pick the default agent. Bound agents must already be assigned
-              to the team via the{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => setActiveMode("resources")}
-              >
-                Resources tab
-              </button>.
+              decide which team&apos;s RBAC applies to in-channel requests.
+              Agent and resource access is granted from Security &amp; Policy → OpenFGA ReBAC → Slack Channels.
             </p>
 
             {channelsNotice && (
@@ -1170,7 +1145,6 @@ export function TeamDetailsDialog({
             ) : (
               <SlackChannelsPanel
                 assigned={editedChannels}
-                bindableAgents={channelsData.available_agents}
                 discovery={discovery}
                 discoveryLoading={discoveryLoading}
                 discoveryLoadingMore={discoveryLoadingMore}
@@ -1184,7 +1158,6 @@ export function TeamDetailsDialog({
                 onAddFromDiscovery={handleAddChannelFromDiscovery}
                 onAddManual={handleAddChannelManual}
                 onRemove={handleRemoveChannel}
-                onBindAgent={handleBindAgentChange}
                 manualChannelId={manualChannelId}
                 manualChannelName={manualChannelName}
                 onManualIdChange={setManualChannelId}
@@ -1232,8 +1205,8 @@ export function TeamDetailsDialog({
 
 /**
  * Spec 104 — Agents picker. Each row has two independent checkboxes:
- * "Use" (`agent_user:<id>`) and "Manage" (`agent_admin:<id>`). Manage
- * implies Use in our authz model, so ticking Manage auto-ticks Use; the
+ * "Use" (`can_use agent:<id>`) and "Manage" (`can_manage agent:<id>`).
+ * Manage implies Use in our authz model, so ticking Manage auto-ticks Use; the
  * UI mirrors this so admins don't end up with the visually-confusing
  * state of "manage but cannot use".
  */
@@ -1297,7 +1270,7 @@ function AgentList({
                   <div className="flex items-center gap-3 mt-0.5">
                     <label
                       className="flex items-center cursor-pointer"
-                      title="agent_user:<id> — chat with this agent"
+                      title="OpenFGA can_use agent:<id> — chat with this agent"
                     >
                       <input
                         type="checkbox"
@@ -1312,7 +1285,7 @@ function AgentList({
                     </label>
                     <label
                       className="flex items-center cursor-pointer"
-                      title="agent_admin:<id> — edit/configure this agent"
+                      title="OpenFGA can_manage agent:<id> — edit/configure this agent"
                     >
                       <input
                         type="checkbox"
@@ -1333,10 +1306,9 @@ function AgentList({
 
 /**
  * Spec 104 — Tools picker. A single column of MCP-server prefixes plus a
- * single "All tools" wildcard checkbox at the top that, when ticked,
- * grants `tool_user:*` to members. Wildcard does not visually un-tick the
- * per-server boxes — they stay as a record of intent — but on the backend
- * the wildcard role alone is sufficient for authz.
+ * single "All tools" wildcard checkbox at the top. Wildcard does not visually
+ * un-tick the per-server boxes — they stay as a record of intent — but the
+ * backend writes a single OpenFGA wildcard relationship.
  */
 function ToolList({
   options,
@@ -1374,8 +1346,7 @@ function ToolList({
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">All tools (wildcard)</span>
             <span className="block text-xs text-muted-foreground">
-              Grant <code className="font-mono">tool_user:*</code> — invoke any
-              MCP tool. Use sparingly.
+              Grant this team permission to invoke any MCP tool. Use sparingly.
             </span>
           </span>
         </label>
@@ -1447,7 +1418,6 @@ function ToolList({
  */
 function SlackChannelsPanel({
   assigned,
-  bindableAgents,
   discovery,
   discoveryLoading,
   discoveryLoadingMore,
@@ -1461,14 +1431,12 @@ function SlackChannelsPanel({
   onAddFromDiscovery,
   onAddManual,
   onRemove,
-  onBindAgent,
   manualChannelId,
   manualChannelName,
   onManualIdChange,
   onManualNameChange,
 }: {
   assigned: TeamSlackChannel[];
-  bindableAgents: ResourceOption[];
   discovery: DiscoveryPayload | null;
   discoveryLoading: boolean;
   discoveryLoadingMore: boolean;
@@ -1482,7 +1450,6 @@ function SlackChannelsPanel({
   onAddFromDiscovery: (c: DiscoveredSlackChannel) => void;
   onAddManual: () => void;
   onRemove: (id: string) => void;
-  onBindAgent: (channelId: string, agentId: string | null) => void;
   manualChannelId: string;
   manualChannelName: string;
   onManualIdChange: (v: string) => void;
@@ -1536,25 +1503,6 @@ function SlackChannelsPanel({
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">
-                      Bound agent
-                    </Label>
-                    <select
-                      value={c.bound_agent_id ?? ""}
-                      onChange={(e) =>
-                        onBindAgent(c.slack_channel_id, e.target.value || null)
-                      }
-                      className="h-7 rounded border bg-background px-2 text-xs flex-1 min-w-0"
-                    >
-                      <option value="">— None (fall through) —</option>
-                      {bindableAgents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 </li>
               ))}

@@ -1,5 +1,6 @@
 import {
   classifyRealmRole,
+  curateRealmRolesForUser,
   filterRolesForRebacEnforcement,
   legacyRoleAllows,
 } from "../../keycloak-transition";
@@ -23,6 +24,32 @@ describe("Keycloak ReBAC transition helpers", () => {
       resource_type: "agent",
       resource_id: "incident-agent",
       action: "use",
+    });
+  });
+
+  it("curates user-list roles while retaining raw roles for debugging", () => {
+    expect(
+      curateRealmRolesForUser([
+        "admin",
+        "chat_user",
+        "offline_access",
+        "default-roles-caipe",
+        "team_member:manual-u2-1778604473704-qjkzq",
+        "agent_admin:1-april-2025",
+        "custom_support_role",
+      ])
+    ).toMatchObject({
+      roles: ["admin", "chat_user", "custom_support_role"],
+      raw_roles: [
+        "admin",
+        "chat_user",
+        "offline_access",
+        "default-roles-caipe",
+        "team_member:manual-u2-1778604473704-qjkzq",
+        "agent_admin:1-april-2025",
+        "custom_support_role",
+      ],
+      hidden_role_count: 4,
     });
   });
 

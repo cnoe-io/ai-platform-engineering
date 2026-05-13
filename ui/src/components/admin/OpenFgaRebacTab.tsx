@@ -40,7 +40,7 @@ import { RebacPolicyBuilder } from "./rebac/RebacPolicyBuilder";
 import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
 import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
 import { RebacEnforcementStatusPanel } from "./rebac/RebacEnforcementStatusPanel";
-import { RebacGraphFilters } from "./rebac/RebacGraphFilters";
+import { RebacGraphFilters, type RebacGraphUserOption } from "./rebac/RebacGraphFilters";
 import { SlackChannelRebacPanel } from "./rebac/SlackChannelRebacPanel";
 import type { UniversalRebacRelationship, UniversalRebacResourceAction } from "@/types/rbac-universal";
 
@@ -240,6 +240,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [message, setMessage] = useState<string | null>(null);
   const [teamSlug, setTeamSlug] = useState("");
   const [graphScope, setGraphScope] = useState(ALL_RELATIONSHIPS_SCOPE);
+  const [graphUser, setGraphUser] = useState<RebacGraphUserOption | null>(null);
   const [graphFullscreenOpen, setGraphFullscreenOpen] = useState(false);
   const [resourceType, setResourceType] = useState<ResourceType>("agent");
   const [resourceId, setResourceId] = useState("");
@@ -284,12 +285,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const loadGraph = useCallback(async () => {
     const params = new URLSearchParams();
     if (graphScope !== ALL_RELATIONSHIPS_SCOPE) params.set("team", graphScope);
+    if (graphUser) params.set("subject", `user:${graphUser.id}`);
     params.set("limit", "1000");
     const res = await fetch(`/api/admin/openfga/graph?${params.toString()}`);
     if (!res.ok) throw new Error(`Failed to load graph: ${res.status}`);
     const payload = await res.json();
     setGraph(apiData<{ nodes: GraphNode[]; edges: GraphEdge[] }>(payload));
-  }, [graphScope]);
+  }, [graphScope, graphUser]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -607,7 +609,9 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 teams={catalog?.teams ?? []}
                 scope={graphScope}
                 allScopeValue={ALL_RELATIONSHIPS_SCOPE}
+                selectedUser={graphUser}
                 onScopeChange={setGraphScope}
+                onUserChange={setGraphUser}
                 onRender={loadGraph}
               />
               <GraphSummary graph={graph} />

@@ -39,4 +39,52 @@ describe("ReBAC graph performance", () => {
     expect(mockReadOpenFgaTuples).toHaveBeenCalledTimes(1);
     expect(elapsedMs).toBeLessThan(250);
   });
+
+  it("loads a selected user's neighborhood with tuple-key reads instead of scanning all users", async () => {
+    mockReadOpenFgaTuples.mockImplementation(async (options?: { tuple?: { user?: string } }) => {
+      if (options?.tuple?.user === "user:alice-sub") {
+        return {
+          continuationToken: undefined,
+          tuples: [
+            {
+              key: {
+                user: "user:alice-sub",
+                relation: "member",
+                object: "team:platform",
+              },
+            },
+          ],
+        };
+      }
+      if (options?.tuple?.user === "team:platform#member") {
+        return {
+          continuationToken: undefined,
+          tuples: [
+            {
+              key: {
+                user: "team:platform#member",
+                relation: "can_use",
+                object: "agent:incident-agent",
+              },
+            },
+          ],
+        };
+      }
+      return { continuationToken: undefined, tuples: [] };
+    });
+
+    const { queryRebacGraph } = await import("../../rebac-graph");
+    const result = await queryRebacGraph({ subject: "user:alice-sub", limit: 100 });
+
+    expect(result.edges.map((edge) => [edge.from, edge.relation, edge.to])).toEqual([
+      ["user:alice-sub", "member", "team:platform"],
+      ["team:platform#member", "can_use", "agent:incident-agent"],
+    ]);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({ tuple: { user: "user:alice-sub" } })
+    );
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({ tuple: { user: "team:platform#member" } })
+    );
+  });
 });

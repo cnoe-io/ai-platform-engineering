@@ -52,6 +52,7 @@ function matchesFilter(row: any, filter: Record<string, any>): boolean {
   return Object.entries(filter).every(([key, value]) => {
     if (value && typeof value === "object" && "$ne" in value) return row[key] !== value.$ne;
     if (value && typeof value === "object" && "$in" in value) return value.$in.includes(row[key]);
+    if (value && typeof value === "object" && "$nin" in value) return !value.$nin.includes(row[key]);
     if (key.includes(".")) {
       const resolved = key.split(".").reduce((acc, part) => acc?.[part], row);
       return resolved === value;
@@ -219,5 +220,72 @@ describe("Slack channel ReBAC APIs", () => {
         action: "use",
       })
     );
+  });
+
+  it("saving Slack agent routes automatically creates matching channel grants", async () => {
+    mockCollections.slack_channel_agent_routes = createMockCollection([]);
+    const { PUT } = await import("../[workspaceId]/[channelId]/routes/route");
+
+    const response = await PUT(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/routes`, {
+        method: "PUT",
+        body: JSON.stringify({
+          routes: [
+            {
+              agent_id: "incident-agent",
+              enabled: true,
+              priority: 10,
+              users: { enabled: true, listen: "mention" },
+            },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.routes).toHaveLength(1);
+    expect(mockCollections.slack_channel_agent_routes.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceId,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "active",
+          priority: 10,
+          users: { enabled: true, listen: "mention" },
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceId,
+        channel_id: channelId,
+        "resource.type": "agent",
+        "resource.id": "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          actions: ["use"],
+          source_type: "route",
+          status: "active",
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: `slack_channel:${workspaceId}--${channelId}`,
+          relation: "can_use",
+          object: "agent:incident-agent",
+        },
+      ],
+      deletes: [],
+    });
   });
 });

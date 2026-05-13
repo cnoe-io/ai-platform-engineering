@@ -40,7 +40,6 @@ dependencies = [
     "click==8.3.0",
     "aiofile==3.9.0",
     # 098 RBAC additions
-    "cel-python>=0.5.0",
     "python-jose[cryptography]>=3.3.0",
     "common",
 ]

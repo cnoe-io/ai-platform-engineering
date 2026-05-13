@@ -87,11 +87,6 @@ import {
   POST as slackUserPOST,
   DELETE as slackUserDELETE,
 } from "../admin/slack/users/[id]/route";
-import {
-  GET as channelMappingsGET,
-  POST as channelMappingsPOST,
-  DELETE as channelMappingsDELETE,
-} from "../admin/slack/channel-mappings/route";
 
 function makeRequest(path: string, init: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
@@ -213,28 +208,4 @@ describe("admin RBAC plumbing routes", () => {
     expect(mockMergeUserAttributes).not.toHaveBeenCalled();
   });
 
-  it("denies Slack channel mapping routes without their method scope", async () => {
-    await expectPdpDenied(
-      channelMappingsGET(makeRequest("/api/admin/slack/channel-mappings", {
-        headers: { Authorization: "Bearer bob" },
-      })),
-      "admin_ui#view",
-    );
-    await expectPdpDenied(
-      channelMappingsPOST(makeRequest("/api/admin/slack/channel-mappings", {
-        method: "POST",
-        headers: { Authorization: "Bearer bob" },
-        body: JSON.stringify({ slack_channel_id: "C1", agent_id: "agent-1" }),
-      })),
-      "admin_ui#admin",
-    );
-    await expectPdpDenied(
-      channelMappingsDELETE(makeRequest("/api/admin/slack/channel-mappings?id=64f000000000000000000001", {
-        method: "DELETE",
-        headers: { Authorization: "Bearer bob" },
-      })),
-      "admin_ui#admin",
-    );
-    expect(mockGetCollection).not.toHaveBeenCalledWith("channel_agent_mappings");
-  });
 });

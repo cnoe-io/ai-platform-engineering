@@ -9,6 +9,7 @@ This is the canonical reference for how authentication and authorization work in
 | Explain the feature front to back to CAIPE users, admins, operators, or security reviewers | [Enterprise RBAC and ReBAC Feature Guide](./feature-guide.md) |
 | Understand each component (Keycloak, UI, Supervisor, AgentGateway, Dynamic Agents) and how they're wired | [Architecture](./architecture.md) |
 | Get the short end-to-end summary of the Comprehensive RBAC refactor, including Keycloak roles, AgentGateway, and OpenFGA | [Comprehensive RBAC Refactor](./comprehensive-rbac-refactor.md) |
+| Understand how JWT identity and OpenFGA relationship checks work together | [JWT and OpenFGA](./jwt-and-openfga.md) |
 | Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |
 | Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
@@ -27,6 +28,7 @@ Think of CAIPE like a **secure corporate office building**:
 - **Every service** is a room with its own badge reader. You prove who you are once at the front desk, get a badge, and that badge is checked at every door — no calling HR again each time.
 - **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint calls **OpenFGA** through `ext_authz` for the PDP decision before proxying.
 - **Team Resources** and **OpenFGA ReBAC** in the Admin UI are the rich ReBAC authoring surfaces: admins assign agents and MCP tool prefixes to a team, preview effective OpenFGA access, inspect all relationships in a full-screen graph, edit relationships on a drag/drop graph canvas, and inspect materialized tuples.
+- **CEL policy editing is retired** for the management plane. Admins use OpenFGA/ReBAC relationships instead of editing AgentGateway or admin-tab CEL rules.
 - **Identity Group Sync** maps enterprise groups into CAIPE team memberships using a hybrid source model: `memberOf` / `groups` claims refresh the signed-in user's memberships at login, while direct Okta directory queries power full admin dry-runs, removals, and drift detection.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 

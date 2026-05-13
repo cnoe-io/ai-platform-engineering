@@ -1,7 +1,6 @@
 """Spec 104 — resolve a Slack channel to its CAIPE team slug.
 
-Sits between :func:`channel_agent_mapper.resolve_channel_agent` and
-:func:`obo_exchange.impersonate_user`. Maps:
+Runs before :func:`obo_exchange.impersonate_user`. Maps:
 
   Slack channel ID
     ─→ ``channel_team_mappings.team_id`` (team Mongo ObjectId hex)
@@ -15,9 +14,8 @@ return a friendly "you're not in this team" message rather than letting
 the request 403 silently downstream.
 
 Uses an in-process TTL cache to avoid hammering Mongo on every Slack
-event; the same cache invalidation strategy as :class:`ChannelAgentMapper`
-applies (admins should restart bots after large team-membership changes
-or rely on the 60s TTL).
+event; admins should restart bots after large team-membership changes or rely
+on the 60s TTL.
 """
 
 from __future__ import annotations

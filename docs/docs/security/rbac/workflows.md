@@ -251,29 +251,20 @@ All log lines that reference a Slack profile email run it through `mask_email()`
 
 ---
 
-## Channel → Dynamic Agent Routing
+## Slack Channel → Team + Agent ReBAC
 
-> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns each line a specific expert agent (like routing IT tickets to the right tier). When a user calls in, the operator checks the channel's routing table, verifies the user has clearance for that agent, then patches them through. The routing decision and access check happen *before* the message reaches the agent.
+> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns the line to a team and grants one or more resources to that line. When a user calls in, the operator checks both the channel grant and the user's team/resource relationship before patching them through.
 
 ### How It Works
 
-Every Slack channel is still allowed to keep one default dynamic-agent route for message dispatch, but ReBAC now lets the same channel hold many resource grants for agents, tools, and knowledge bases. When a message arrives, the Slack bot resolves the target agent and then verifies the channel/resource grant:
+Slack channel routing now separates "which team owns this channel?" from "which resources may be used here?" When a message arrives, the Slack bot resolves the selected agent from Slack bot configuration/thread ownership, then verifies the selected agent against OpenFGA:
 
-1. **Lookup**: query `channel_agent_mappings` in MongoDB by `slack_channel_id`
-2. **Existence check**: verify the mapped agent exists in `dynamic_agents` and `enabled = true`
-3. **RBAC check** (basic):
-   - `visibility = global` → allow any authenticated user
-   - `visibility = team` → require `team_member:<team>` Keycloak realm role for one of the agent's `shared_with_teams`
-   - `visibility = private` → deny (private agents are not appropriate for channel routing)
-4. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace>--<channel> can_use agent:<id>` and the user's active team relationship
-5. **Route**: pass the resolved `agent_id` to the chat/stream call only after both the channel grant and user/resource grant allow the request; fallback to YAML config default if no mapping exists and the handler permits unmapped mentions
+1. **Team lookup**: query `channel_team_mappings` in MongoDB by `slack_channel_id`.
+2. **Active team minting**: mint the user's OBO token with the channel team's `active_team` claim.
+3. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace>--<channel> can_use agent:<id>` and the user's active team/resource relationship.
+4. **Route**: dispatch to the selected `agent_id` only after both the channel grant and user/resource grant allow the request.
 
-The Slack YAML config still registers which channels the bot listens to, but
-RBAC mode does **not** require an agent binding in that YAML. A valid active
-MongoDB `channel_agent_mappings` row is enough to dispatch the message to the
-dynamic agent. Additional channel resources live in `slack_channel_grants`, and
-the runtime denies direct attempts to use a resource that is not granted to that
-channel even when the user has access elsewhere.
+The Slack YAML config still registers which channels the bot listens to and which agents can be selected by message matching. Relationship authorization lives in `slack_channel_grants`, so one channel can be granted many agents, tools, tasks, skills, and knowledge bases.
 
 ## Keycloak Role → ReBAC Transition Check
 
@@ -287,19 +278,19 @@ The transition comparison flow is intentionally read-only:
 
 ### Admin UI
 
-Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings**.
+Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/resource grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
 
-- Dropdown lists only routable dynamic agents (`global` or `team`). Private agents are intentionally excluded and the API rejects them because channel messages represent shared channel context, not the agent owner's private workspace.
-- Upsert semantics: creating a new mapping for an already-mapped channel replaces the old mapping
-- Deactivating a mapping (soft delete) falls back to the YAML config default agent
+- Channel/team ownership is exclusive: a channel cannot be actively mapped to two teams.
+- Channel/resource grants are many-to-many: a channel can have multiple agent grants plus tool/KB/task/skill grants.
+- Removing a grant denies that resource in the channel even if the user has access elsewhere.
 
-### MongoDB Collection: `channel_agent_mappings`
+### MongoDB Collection: `channel_team_mappings`
 
 ```json
 {
   "_id": ObjectId,
   "slack_channel_id": "C0123456789",
-  "agent_id": "my-k8s-agent",
+  "team_id": "6612...",
   "channel_name": "#k8s-support",
   "slack_workspace_id": "T0123456789",
   "created_by": "admin@example.com",
@@ -323,7 +314,7 @@ Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings*
 }
 ```
 
-The `agent_id` field is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
+The agent grant itself lives in `slack_channel_grants`; the `resource.id` value is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
 
 ---
 
@@ -356,7 +347,7 @@ STEP 2: Supervisor Ingestion  (A2A + LangGraph)
 STEP 3: Policy Enforcement  (AgentGateway)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   POST /argocd/...  Authorization: Bearer OBO_JWT
-    → CEL: roles.exists(r, r=="chat_user") → ALLOW
+    → ext_authz: OpenFGA check for caller/team/tool relationship → ALLOW
     → Proxy to ArgoCD MCP Server
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

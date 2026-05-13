@@ -24,14 +24,30 @@ export interface LegacyRoleAllowsInput {
   enforcementStatuses?: Pick<RebacEnforcementStatusRecord, "resource_type" | "enforcement_status">[];
 }
 
+export interface CuratedRealmRoles {
+  roles: string[];
+  raw_roles: string[];
+  role_classifications: RealmRoleClassification[];
+  hidden_role_count: number;
+}
+
 const SYSTEM_ROLES = new Set(["default-roles-caipe", "offline_access", "uma_authorization"]);
 const BOOTSTRAP_ROLES = new Set([
   "admin",
   "admin_user",
   "chat_user",
-  "kb_admin",
   "kb_ingestor",
-  "tool_user:*",
+]);
+
+const EXACT_RESOURCE_ROLES = new Map<
+  string,
+  {
+    resource_type: UniversalRebacResourceType;
+    resource_id: string;
+    action: UniversalRebacResourceAction;
+  }
+>([
+  ["kb_admin", { resource_type: "knowledge_base", resource_id: "*", action: "administer" }],
 ]);
 
 const ROLE_PATTERNS: Array<{
@@ -67,6 +83,17 @@ export function classifyRealmRole(role: string): RealmRoleClassification {
   if (BOOTSTRAP_ROLES.has(role)) {
     return { role, kind: "bootstrap", transition_state: "permanent" };
   }
+  const exactResourceRole = EXACT_RESOURCE_ROLES.get(role);
+  if (exactResourceRole) {
+    return {
+      role,
+      kind: "resource",
+      transition_state: "transitional",
+      resource_type: exactResourceRole.resource_type,
+      resource_id: exactResourceRole.resource_id,
+      action: exactResourceRole.action,
+    };
+  }
 
   for (const pattern of ROLE_PATTERNS) {
     if (!role.startsWith(pattern.prefix)) continue;
@@ -82,6 +109,22 @@ export function classifyRealmRole(role: string): RealmRoleClassification {
   }
 
   return { role, kind: "unknown", transition_state: "transitional" };
+}
+
+export function isCuratedUserListRole(role: string): boolean {
+  const classification = classifyRealmRole(role);
+  return classification.kind === "bootstrap" || classification.kind === "unknown";
+}
+
+export function curateRealmRolesForUser(rawRoles: string[]): CuratedRealmRoles {
+  const role_classifications = rawRoles.map((role) => classifyRealmRole(role));
+  const roles = rawRoles.filter((role) => isCuratedUserListRole(role));
+  return {
+    roles,
+    raw_roles: rawRoles,
+    role_classifications,
+    hidden_role_count: rawRoles.length - roles.length,
+  };
 }
 
 export function isRoleSupersededByRebac(

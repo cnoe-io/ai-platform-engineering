@@ -17,8 +17,50 @@ export interface SlackChannelResourceGrant {
   channel_id: string;
   resource: UniversalRebacResourceRef & { type: SlackChannelGrantResourceType };
   actions: UniversalRebacResourceAction[];
-  source_type: "manual" | "policy_rule" | "migration" | "bootstrap";
+  source_type: "manual" | "policy_rule" | "migration" | "bootstrap" | "route";
   status: "active" | "staged" | "revoked" | "blocked";
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type SlackRouteListenMode = "message" | "mention" | "all";
+
+export interface SlackRouteSideConfig {
+  enabled?: boolean;
+  listen?: SlackRouteListenMode;
+  user_list?: string[];
+  bot_list?: string[];
+  overthink?: {
+    enabled?: boolean;
+  };
+}
+
+export interface SlackRouteEscalationConfig {
+  emoji?: {
+    enabled?: boolean;
+    name?: string;
+  };
+  delete_admins?: string[];
+  users?: string[];
+  victorops?: {
+    enabled?: boolean;
+    team?: string;
+  };
+}
+
+export interface SlackChannelAgentRoute {
+  workspace_id: string;
+  channel_id: string;
+  agent_id: string;
+  enabled: boolean;
+  priority: number;
+  users?: SlackRouteSideConfig;
+  bots?: SlackRouteSideConfig;
+  escalation?: SlackRouteEscalationConfig;
+  source_type: "manual" | "yaml_import" | "bootstrap";
+  status: "active" | "disabled" | "revoked";
   created_by?: string;
   created_at: string;
   updated_by?: string;

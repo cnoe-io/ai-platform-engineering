@@ -37,20 +37,6 @@ DEFAULT_TEAM_INVALID_MESSAGE = (
 )
 
 
-def user_has_team_member_role(realm_roles: list[str], team_slug: str) -> bool:
-    """Return True if *realm_roles* contains ``team_member:<team_slug>``.
-
-    The argument is the team **slug** (e.g. ``platform-eng``), not the
-    MongoDB ObjectId. AgentGateway's CEL evaluates
-    ``team_member:<jwt.active_team>`` and ``active_team`` carries the slug,
-    so the realm role must be slug-keyed for the JWT path to validate.
-    """
-    if not isinstance(team_slug, str) or not team_slug:
-        return False
-    expected = f"team_member:{team_slug}"
-    return any(r == expected for r in realm_roles)
-
-
 @dataclass
 class EffectiveTeamResolution:
     team_id: Optional[str]

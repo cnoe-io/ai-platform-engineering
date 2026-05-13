@@ -30,7 +30,7 @@ flowchart TD
   User[User / Slack User] --> UI[CAIPE UI / Slack Bot]
 
   UI --> KC[Keycloak]
-  KC --> JWT[Signed JWT<br/>sub, email, roles, active_team]
+  KC --> JWT[Signed JWT<br/>sub, email, coarse roles, active_team]
 
   UI --> DA[Dynamic Agents Runtime]
   Slack[Slack Bot] --> OBO[Keycloak Token Exchange<br/>OBO token with act.sub + active_team]
@@ -47,7 +47,7 @@ flowchart TD
   AGW --> MCP[MCP Servers<br/>Jira, RAG, GitHub, ArgoCD]
 
   Admin[Admin UI<br/>Teams / Resources] --> Mongo[(MongoDB<br/>teams, resources)]
-  Admin --> KCRoles[Keycloak Admin API<br/>materialize realm roles]
+  Admin --> KCScopes[Keycloak Admin API<br/>client scopes + coarse roles]
   Admin --> FGATuples[OpenFGA tuple writer]
   FGATuples --> FGA
 ```
@@ -57,8 +57,8 @@ flowchart TD
 1. A user logs in through Keycloak, usually brokered from an enterprise IdP such
    as Duo SSO or Okta.
 2. Keycloak issues a signed JWT.
-3. The JWT carries identity and roles such as `admin`, `chat_user`,
-   `team_member:platform-engineering`, and `tool_user:jira_*`.
+3. The JWT carries identity, coarse roles such as `admin` and `chat_user`, and
+   request context such as `active_team`.
 4. Dynamic Agents forwards the user JWT to AgentGateway when calling MCP tools.
 5. AgentGateway verifies the JWT with Keycloak JWKS.
 6. AgentGateway calls OpenFGA through gRPC `extAuthz`.
@@ -93,18 +93,19 @@ Keycloak owns authentication, JWT issuance, and realm-role materialization.
 |------|---------|
 | `chat_user` | Basic authenticated CAIPE user |
 | `admin` | Admin UI access |
-| `kb_admin` | Knowledge base administration |
+| `kb_admin` | Legacy coarse knowledge base administration |
 | `admin_user` | Spec 104 superuser for resource checks |
-| `team_member:<slug>` | User belongs to a team |
-| `team_admin:<slug>` | User can manage a team |
-| `agent_user:<agent_id>` | User can chat with a dynamic agent |
-| `agent_admin:<agent_id>` | User can manage that agent |
-| `tool_user:<tool>` | User can call one MCP tool |
-| `tool_user:<server>_*` | User can call all tools from one MCP server, for example `tool_user:jira_*` |
-| `tool_user:*` | User can call all MCP tools |
+| `team_member:<slug>` | Temporary compatibility role; new membership writes use OpenFGA |
+| `team_admin:<slug>` | Temporary compatibility role; team admin grants should move to OpenFGA |
+| `agent_user:<agent_id>` | Legacy compatibility role; new agent use grants are OpenFGA tuples |
+| `agent_admin:<agent_id>` | Legacy compatibility role; new agent manage grants are OpenFGA tuples |
+| `tool_user:<tool>` | Legacy compatibility role; new tool grants are OpenFGA tuples |
+| `tool_user:<server>_*` | Legacy compatibility role; new server-prefix grants are OpenFGA tuples |
+| `tool_user:*` | Legacy compatibility role; new wildcard tool grants are OpenFGA tuples |
 
 The `active_team` JWT claim tells AgentGateway which team context is active for
-the request. Team slugs, not Mongo ObjectIds, are used in team-scoped roles.
+the request. Team slugs, not Mongo ObjectIds, are used in client scopes and
+OpenFGA relationship objects.
 
 ## AgentGateway
 
@@ -151,7 +152,7 @@ The Admin UI has two human-facing ReBAC surfaces:
 
 - **Team Resources** is the source-of-truth editor for team grants. Admins choose
   which agents and MCP tool prefixes a team can use, and the BFF materializes the
-  change into Keycloak roles, OpenFGA tuples, and Mongo intent.
+  change into OpenFGA tuples and Mongo intent.
 - **OpenFGA ReBAC** is the relationship workbench. It provides a guided tuple
   builder, effective-access preview, full-screen all-relationship graph viewing,
   drag/drop policy/resource graph editing, and advanced tuple inspector without
@@ -161,25 +162,22 @@ When an admin saves team resources:
 
 ```mermaid
 flowchart LR
-  Save[Admin saves Team Resources] --> KC[Keycloak role reconciliation]
-  Save --> FGA[OpenFGA tuple reconciliation]
+  Save[Admin saves Team Resources] --> FGA[OpenFGA tuple reconciliation]
   Save --> Mongo[Mongo team.resources]
 
-  KC --> JWT[Future JWT role stamps]
   FGA --> Graph[Relationship graph]
   Mongo --> UI[Admin UI source of truth]
 ```
 
-Example: granting `platform-engineering` access to Jira writes both:
+Example: granting `platform-engineering` access to Jira writes:
 
-- Keycloak role assignment: `tool_user:jira_*`
 - OpenFGA tuple: `team:platform-engineering#member can_call tool:jira_*`
 
 Most admins should use Team Resources. Platform admins can use OpenFGA ReBAC for
 one-off relationship creation, graph-based staging/review, checks,
 visualization, and safe tuple cleanup.
 MongoDB keeps the UI-level intent, Keycloak gets JWT-compatible role
-materialization, and OpenFGA gets the relationship graph.
+context, and OpenFGA gets the relationship graph.
 
 ## Slack Path
 

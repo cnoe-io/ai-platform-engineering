@@ -463,70 +463,7 @@ export function requireAdminView(session: { role?: string; canViewAdmin?: boolea
 import { checkPermission } from '@/lib/rbac/keycloak-authz';
 import { logAuthzDecision } from '@/lib/rbac/audit';
 import { deniedApiResponse } from '@/lib/rbac/error-responses';
-import { evaluate as evalCel } from '@/lib/rbac/cel-evaluator';
 import type { RbacResource, RbacScope } from '@/lib/rbac/types';
-
-function parseCelRbacExpressions(): Record<string, string> {
-  const raw = process.env.CEL_RBAC_EXPRESSIONS?.trim();
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v === 'string' && v.trim()) out[k] = v.trim();
-      }
-      return out;
-    }
-  } catch (e) {
-    console.warn('[CEL] Invalid CEL_RBAC_EXPRESSIONS JSON — ignoring map:', e);
-  }
-  return {};
-}
-
-function decodeJwtPayload(accessToken: string): Record<string, unknown> {
-  try {
-    const parts = accessToken.split('.');
-    if (parts.length < 2) return {};
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = Buffer.from(b64, 'base64').toString('utf8');
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function buildRbacCelContext(
-  session: { accessToken?: string; sub?: string; org?: string },
-  resource: RbacResource,
-  scope: RbacScope,
-  extra?: Record<string, unknown>
-): Record<string, unknown> {
-  const payload = session.accessToken ? decodeJwtPayload(session.accessToken) : {};
-  const ra = (payload.realm_access as { roles?: string[] } | undefined)?.roles;
-  const roles = Array.isArray(ra) ? [...ra] : [];
-  const teams: string[] = [];
-  const baseResource = {
-    id: '',
-    type: resource,
-    visibility: '',
-    owner_id: '',
-    shared_with_teams: teams as string[],
-  };
-  const resourceObj =
-    extra?.resource && typeof extra.resource === 'object'
-      ? { ...baseResource, ...(extra.resource as Record<string, unknown>) }
-      : baseResource;
-  return {
-    user: {
-      email: String(payload.email ?? payload.preferred_username ?? session.sub ?? ''),
-      teams,
-      roles,
-    },
-    resource: resourceObj,
-    action: typeof extra?.action === 'string' ? extra.action : scope,
-  };
-}
 
 /**
  * Minimum realm role required per resource when falling back from Keycloak
@@ -595,7 +532,7 @@ export async function requireRbacPermission(
   session: { accessToken?: string; sub?: string; org?: string; user?: { email?: string } },
   resource: RbacResource,
   scope: RbacScope,
-  celContext?: Record<string, unknown>
+  _context?: Record<string, unknown>
 ): Promise<void> {
   const accessToken = session.accessToken;
   const email = session.user?.email;
@@ -685,33 +622,8 @@ export async function requireRbacPermission(
     }
   }
 
-  // Supplementary CEL policy layer (applied after PDP or role-fallback allow)
-  const celMap = parseCelRbacExpressions();
-  const celKey = `${resource}#${scope}`;
-  const celExpr = celMap[celKey];
-  if (celExpr) {
-    const ctx = buildRbacCelContext(session, resource, scope, celContext);
-    const ok = evalCel(celExpr, ctx);
-    if (!ok) {
-      logAuthzDecision({
-        tenantId: session.org ?? 'unknown',
-        sub: session.sub ?? 'unknown',
-        resource,
-        scope,
-        outcome: 'deny',
-        reasonCode: 'DENY_CEL',
-        pdp: 'keycloak',
-        email,
-      });
-      throw new ApiError(
-        'Access denied by policy. Contact your admin if you believe this is in error.',
-        403,
-        'CEL_DENIED',
-        'cel_denied',
-        'contact_admin'
-      );
-    }
-  }
+  // No supplementary CEL layer: all management-plane authorization now flows
+  // through Keycloak/OpenFGA-era RBAC checks plus the role fallback above.
 }
 
 // ============================================================================

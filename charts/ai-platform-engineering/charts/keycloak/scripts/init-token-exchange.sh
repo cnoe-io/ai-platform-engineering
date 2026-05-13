@@ -363,8 +363,8 @@ fi
 #
 # For DMs to the bot there is no team — we use the literal sentinel
 # string `__personal__` to mean "the user, in their personal capacity".
-# CEL has an explicit branch for this value that skips the
-# `team_member:<team>` check but still enforces `tool_user:*`.
+# Downstream OpenFGA checks use this sentinel to skip channel/team resource
+# relationships that only make sense in shared Slack channels.
 #
 # Implementation: a Keycloak client scope named `team-personal` with a
 # single `oidc-hardcoded-claim-mapper` that injects

@@ -88,3 +88,52 @@ export async function replaceSlackChannelGrants(
 
   return listSlackChannelGrants(workspaceId, channelId);
 }
+
+export async function ensureRouteOwnedAgentGrants(
+  workspaceId: string,
+  channelId: string,
+  agentIds: string[],
+  actor: string
+): Promise<void> {
+  const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const now = new Date().toISOString();
+  const uniqueAgentIds = Array.from(new Set(agentIds.map((id) => id.trim()).filter(Boolean)));
+
+  await collection.updateMany(
+    {
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      source_type: "route",
+      status: "active",
+      "resource.type": "agent",
+      "resource.id": { $nin: uniqueAgentIds },
+    } as never,
+    { $set: { status: "revoked", updated_by: actor, updated_at: now } }
+  );
+
+  for (const agentId of uniqueAgentIds) {
+    await collection.updateOne(
+      {
+        workspace_id: workspaceId,
+        channel_id: channelId,
+        "resource.type": "agent",
+        "resource.id": agentId,
+      } as never,
+      {
+        $set: {
+          workspace_id: workspaceId,
+          channel_id: channelId,
+          resource: { type: "agent", id: agentId },
+          actions: ["use"],
+          source_type: "route",
+          status: "active",
+          created_by: actor,
+          created_at: now,
+          updated_by: actor,
+          updated_at: now,
+        },
+      },
+      { upsert: true }
+    );
+  }
+}

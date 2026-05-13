@@ -47,9 +47,12 @@ Dynamic agent access combines Keycloak resources/scopes with realm roles:
 
 Wildcards like `agent_user:*` may apply platform-wide at that scope per deployment policy.
 
-### CEL policy evaluation layer
+### Policy evaluation layer
 
-After Keycloak Authorization Services (UMA ticket, **PDP-1**) grants a permission, optional **CEL** expressions from `CEL_RBAC_EXPRESSIONS` (JSON map of `resource#scope` → expression) can **deny** access (`DENY_CEL`, HTTP 403 `"Policy denied (CEL)"`). Context includes JWT-derived `user.roles`, resource metadata, and action. This is defense-in-depth on top of Keycloak policies and realm roles.
+The BFF no longer supports a supplementary CEL deny layer. After Keycloak
+Authorization Services grants a permission, the request proceeds unless a
+resource-specific OpenFGA/ReBAC check or service-side guard denies it. Model new
+resource policy as OpenFGA relationships and audited ReBAC change sets.
 
 ### Keycloak AuthZ resources & scopes
 
@@ -786,13 +789,17 @@ Paginated query across **all** audit event types (auth decisions, tool actions, 
 
 ---
 
-## Admin tab visibility (CEL)
+## Admin tab visibility
 
-Admin UI tabs can be gated by **CEL expressions** stored in MongoDB collection `admin_tab_policies`. Evaluated context includes `user.email`, `user.roles` (JWT `realm_access.roles` plus session/bootstrap admin), and `user.teams` (currently often empty in this path). Feature flags (`feedbackEnabled`, `npsEnabled`, `auditLogsEnabled`, `actionAuditEnabled`) are **AND**ed with CEL for the corresponding tabs.
+Admin UI tabs are gated by deterministic BFF logic, not editable CEL. Baseline
+tabs (`users`, `teams`, `skills`, `metrics`, `health`) are visible to signed-in
+users; administrative tabs require the admin session/realm role or bootstrap
+admin email. Feature flags (`feedbackEnabled`, `npsEnabled`,
+`auditLogsEnabled`, `actionAuditEnabled`) are still ANDed with the matching tab.
 
 ### `GET /api/rbac/admin-tab-gates`
 
-**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `slack`, `skills`, `feedback`, `nps`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `policy`).
+**Description:** Returns `{ gates: Record<tab_key, boolean> }` for all known admin tabs (`users`, `teams`, `roles`, `identity_group_sync`, `slack`, `skills`, `feedback`, `nps`, `stats`, `metrics`, `health`, `audit_logs`, `action_audit`, `openfga`).
 
 **Authorization:** Valid NextAuth session with `user.email`. Unauthenticated → `401`.
 
@@ -820,73 +827,8 @@ Admin UI tabs can be gated by **CEL expressions** stored in MongoDB collection `
 |------|-------------|
 | `401` | `{ "error": "Unauthorized" }` |
 
-**Notes:** If MongoDB is unavailable, default policies from code are used for evaluation. Missing tab keys are back-filled from defaults on first read.
-
----
-
-### `PUT /api/rbac/admin-tab-gates`
-
-**Description:** Upserts one CEL expression for a tab. Body is validated with a dry-run evaluation before persist.
-
-**Authorization:** `session.role === "admin"` (NextAuth coarse admin). Not Keycloak UMA.
-
-**Parameters (JSON body):**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `tab_key` | string | Yes | One of the known tab keys (see GET). |
-| `expression` | string | Yes | CEL expression (e.g. `'admin' in user.roles`). |
-
-**Response** (`200`):
-
-```json
-{
-  "success": true,
-  "tab_key": "stats",
-  "expression": "'admin' in user.roles"
-}
-```
-
-**Errors:**
-
-| Code | Description |
-|------|-------------|
-| `400` | Invalid JSON, missing fields, unknown `tab_key`, or invalid CEL |
-| `401` | Not signed in |
-| `403` | `{ "error": "Admin access required" }` |
-| `500` | MongoDB update failure |
-
----
-
-### `GET /api/rbac/admin-tab-policies`
-
-**Description:** Returns raw stored policies for the Policy tab editor: `tab_key`, `expression`, `updated_by`, `updated_at`.
-
-**Authorization:** `session.role === "admin"` + MongoDB configured.
-
-**Response** (`200`):
-
-```json
-{
-  "policies": [
-    {
-      "tab_key": "users",
-      "expression": "true",
-      "updated_by": "alice@example.com",
-      "updated_at": "2026-03-25T12:00:00.000Z"
-    }
-  ]
-}
-```
-
-**Errors:**
-
-| Code | Description |
-|------|-------------|
-| `401` | Not signed in |
-| `403` | Not admin |
-| `503` | `{ "error": "MongoDB not configured" }` |
-| `500` | Database error |
+**Notes:** The retired `Policy` tab, `admin_tab_policies` collection, and
+`/api/rbac/admin-tab-policies` endpoint are no longer part of the admin surface.
 
 ---
 
@@ -902,5 +844,5 @@ Admin UI tabs can be gated by **CEL expressions** stored in MongoDB collection `
 | Python audit callback handler | `ai_platform_engineering/utils/audit_callback.py` |
 | BFF dual-write (auth → audit_events) | `ui/src/lib/rbac/audit.ts` |
 | Unified audit API route | `ui/src/app/api/admin/audit-events/route.ts` |
-| Admin tab CEL gates / policies | `ui/src/app/api/rbac/admin-tab-gates/route.ts`, `ui/src/app/api/rbac/admin-tab-policies/route.ts` |
+| Admin tab visibility gates | `ui/src/app/api/rbac/admin-tab-gates/route.ts` |
 | Unified audit UI component | `ui/src/components/admin/UnifiedAuditTab.tsx` |

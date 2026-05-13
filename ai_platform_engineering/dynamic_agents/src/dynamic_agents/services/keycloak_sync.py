@@ -1,22 +1,23 @@
-"""Keycloak Admin API sync for dynamic agents (resources + realm roles)."""
+"""Keycloak Admin API sync for dynamic agent authz resources.
+
+OpenFGA is the authoritative resource-grant store. This service keeps only the
+Keycloak Authorization Services resource registration needed by legacy clients;
+it no longer creates per-agent realm roles such as ``agent_user:<id>``.
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from typing import Any, Literal
-from urllib.parse import quote
+from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-RoleType = Literal["user", "admin"]
-
 
 class KeycloakSyncService:
-  """Register Keycloak authz resources and per-agent realm roles."""
+  """Register Keycloak authz resources for dynamic agents."""
 
   def __init__(self) -> None:
     self._base = os.getenv("KEYCLOAK_URL", "http://localhost:7080").rstrip("/")
@@ -55,24 +56,6 @@ class KeycloakSyncService:
         return str(cid) if cid else None
     return None
 
-  def _ensure_realm_role(self, name: str, description: str = "") -> None:
-    url = f"{self._base}/admin/realms/{self._realm}/roles"
-    body = {"name": name, "description": description or name, "clientRole": False}
-    with httpx.Client(timeout=15.0) as client:
-      r = client.post(url, json=body, headers=self._headers())
-      if r.status_code == 409:
-        return
-      r.raise_for_status()
-
-  def _delete_realm_role_by_name(self, name: str) -> None:
-    enc = quote(name, safe="")
-    url = f"{self._base}/admin/realms/{self._realm}/roles/{enc}"
-    with httpx.Client(timeout=15.0) as client:
-      r = client.delete(url, headers=self._headers())
-      if r.status_code == 404:
-        return
-      r.raise_for_status()
-
   def _delete_authz_resource_by_name(self, client_uuid: str, name: str) -> None:
     base = f"{self._base}/admin/realms/{self._realm}/clients/{client_uuid}/authz/resource-server/resource"
     with httpx.Client(timeout=15.0) as client:
@@ -93,8 +76,6 @@ class KeycloakSyncService:
     if not self.enabled:
       logger.debug("Keycloak sync skipped: admin client credentials not configured")
       return
-    self._ensure_realm_role(f"agent_user:{agent_id}", f"Dynamic agent user access ({agent_id})")
-    self._ensure_realm_role(f"agent_admin:{agent_id}", f"Dynamic agent admin ({agent_id})")
     if not self._authz_client_id:
       return
     c_uuid = self._client_uuid(self._authz_client_id)
@@ -121,51 +102,11 @@ class KeycloakSyncService:
   def remove_agent_resource(self, agent_id: str) -> None:
     if not self.enabled:
       return
-    self._delete_realm_role_by_name(f"agent_user:{agent_id}")
-    self._delete_realm_role_by_name(f"agent_admin:{agent_id}")
     if not self._authz_client_id:
       return
     c_uuid = self._client_uuid(self._authz_client_id)
     if c_uuid:
       self._delete_authz_resource_by_name(c_uuid, f"dynamic_agent:{agent_id}")
-
-  def _realm_role_repr(self, role_name: str) -> dict[str, Any] | None:
-    enc = quote(role_name, safe="")
-    url = f"{self._base}/admin/realms/{self._realm}/roles/{enc}"
-    with httpx.Client(timeout=15.0) as client:
-      r = client.get(url, headers=self._headers())
-      if r.status_code == 404:
-        return None
-      r.raise_for_status()
-      body = r.json()
-      return body if isinstance(body, dict) else None
-
-  def assign_agent_role(self, user_id: str, agent_id: str, role_type: RoleType) -> None:
-    if not self.enabled:
-      raise RuntimeError("Keycloak admin client not configured")
-    role_name = f"agent_{role_type}:{agent_id}"
-    role = self._realm_role_repr(role_name)
-    if not role:
-      raise RuntimeError(f"Realm role {role_name!r} does not exist — sync the agent first")
-    url = f"{self._base}/admin/realms/{self._realm}/users/{user_id}/role-mappings/realm"
-    with httpx.Client(timeout=15.0) as client:
-      r = client.post(url, json=[role], headers=self._headers())
-      r.raise_for_status()
-
-  def remove_agent_role(self, user_id: str, agent_id: str, role_type: RoleType) -> None:
-    if not self.enabled:
-      raise RuntimeError("Keycloak admin client not configured")
-    role_name = f"agent_{role_type}:{agent_id}"
-    role = self._realm_role_repr(role_name)
-    if not role:
-      return
-    url = f"{self._base}/admin/realms/{self._realm}/users/{user_id}/role-mappings/realm"
-    hdrs = {**self._headers(), "Content-Type": "application/json"}
-    with httpx.Client(timeout=15.0) as client:
-      r = client.request("DELETE", url, content=json.dumps([role]), headers=hdrs)
-      if r.status_code == 404:
-        return
-      r.raise_for_status()
 
 
 _sync_singleton: KeycloakSyncService | None = None

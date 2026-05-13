@@ -169,10 +169,9 @@ seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (se
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec 104: Team-scoped RBAC seed
 #
-# Creates resource-scoped realm roles (`tool_user:<name>`, `agent_user:<id>`,
-# `team_member:<id>`, `admin_user`) and assigns the demo bundle to every email
-# in BOOTSTRAP_ADMIN_EMAILS. This unblocks the test-april-2025 + jira demo
-# without waiting for the Admin UI flow (Story 4 of spec 104).
+# Creates only coarse bootstrap realm roles. Resource-scoped grants
+# (`tool_user:<name>`, `agent_user:<id>`, `agent_admin:<id>`) are modeled in
+# OpenFGA and should not be materialized into Keycloak tokens for new installs.
 #
 # All operations are idempotent. Re-running the job adds nothing if roles
 # and assignments already exist.
@@ -242,33 +241,18 @@ seed_spec104_main() {
       || echo "[init-idp] [spec-104]   = ${EMAIL} → ${ROLE_NAME} (already assigned)"
   }
 
-  # Demo team / agent / wildcard / superuser roles
-  local SP104_ROLES="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
-
-  # Per-tool roles for every MCP server we ship with the dev compose.
-  # Keep this list aligned with deploy/agentgateway/config.yaml MCP targets and
-  # the agents/*/mcp servers. The Admin UI (spec-104 story 4) will create
-  # additional tool_user:<name> roles on demand.
-  local SP104_TOOL_PREFIXES="jira github argocd confluence pagerduty backstage komodor weather petstore rag"
-  local prefix
-  for prefix in ${SP104_TOOL_PREFIXES}; do
-    # Wildcard form per-MCP. Today we don't enumerate every single tool name
-    # because LangChain naming is `<server>_<tool>` and the per-tool list is
-    # large and version-dependent. Instead we seed the wildcard
-    # `tool_user:<server>_*` and the AG CEL rule supports both exact match
-    # and (in a future iteration) glob — for now grant via tool_user:* on
-    # admin users and tool_user:<server>_<tool> on team users.
-    SP104_ROLES="${SP104_ROLES} tool_user:${prefix}_*"
-  done
+  # Coarse identity/bootstrap roles only. Team membership remains for the
+  # transition-era active_team claim; resource grants are OpenFGA tuples.
+  local SP104_ROLES="admin_user team_member:demo-team"
 
   # Realm role creation (idempotent).
   for r in ${SP104_ROLES}; do
     _sp104_ensure_role "${r}"
   done
 
-  # Bootstrap admins → admin_user + tool_user:* + every demo role.
+  # Bootstrap admins → coarse admin + demo-team membership.
   if [ -n "${BOOTSTRAP_ADMIN_EMAILS:-}" ]; then
-    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
+    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user team_member:demo-team"
     # Split BOOTSTRAP_ADMIN_EMAILS on comma. We must restore IFS before the
     # inner space-separated loop over ADMIN_ROLES_FOR_BOOTSTRAP, otherwise the
     # whole role string is treated as one token.

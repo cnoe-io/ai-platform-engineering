@@ -309,17 +309,11 @@ curl -X POST http://localhost:3000/api/dynamic-agents \
   }'
 ```
 
-### 2. Map Slack Channel to Agent
+### 2. Grant the Slack Channel Access in OpenFGA
 
-```bash
-curl -X POST http://localhost:3000/api/admin/slack/channel-mappings \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "slack_channel_id": "C123456",
-    "agent_id": "devops-helper"
-  }'
-```
+Use **Admin → Security & Policy → OpenFGA ReBAC → Slack Channels** to grant
+`slack_channel:<workspace>--<channel> can_use agent:devops-helper`. Team/channel
+ownership is managed separately from the team's Slack Channels tab.
 
 ### 3. User Sends Message in Slack
 
@@ -348,7 +342,7 @@ User in #platform-incidents: @caipe-bot help me review recent PRs
 | Component | Role | Technology |
 |-----------|------|-----------|
 | **Keycloak** | Identity, roles, token storage | OIDC broker + Admin API |
-| **Channel Mapper** | Slack channel → agent routing | MongoDB `channel_agent_mappings` |
+| **Slack ReBAC** | Slack channel/team/resource authorization | MongoDB + OpenFGA tuples |
 | **RBAC Enforcer** | Visibility checks (global/team/private) | Next.js Gateway middleware |
 | **Token Cache** | OBO pre-auth + memory caching | In-memory (5min TTL) |
 | **Dynamic Agents** | LangGraph execution + MCP tool filtering | Python service + MongoDB config |

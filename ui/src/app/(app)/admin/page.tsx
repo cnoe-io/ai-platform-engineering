@@ -26,12 +26,10 @@ import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
-import { PolicyTab } from "@/components/admin/PolicyTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
 import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
 import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
-import { SlackChannelMappingTab } from "@/components/admin/SlackChannelMappingTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
@@ -205,7 +203,7 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga'] as const;
 
 type CategoryKey = 'people' | 'insights' | 'platform' | 'security';
 
@@ -261,7 +259,6 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'audit-logs', label: 'Audits', icon: FileText, gateKey: 'audit_logs' },
       { value: 'action-audit', label: 'Action Audit', icon: Shield, gateKey: 'action_audit' },
-      { value: 'policy', label: 'Policy', icon: Shield, gateKey: 'policy' },
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
     ],
   },
@@ -425,7 +422,6 @@ function AdminPage() {
   const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
-  const [slackSubTab, setSlackSubTab] = useState<"slack-users" | "slack-channels">("slack-users");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -2471,10 +2467,6 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-              <TabsContent value="policy" className="space-y-4">
-                <PolicyTab isAdmin={isAdmin} />
-              </TabsContent>
-
               <TabsContent value="openfga" className="space-y-4">
                 <OpenFgaRebacTab isAdmin={isAdmin} />
               </TabsContent>
@@ -2488,24 +2480,7 @@ function AdminPage() {
               </TabsContent>
 
               <TabsContent value="slack" className="space-y-4">
-                <Tabs value={slackSubTab} onValueChange={(v) => setSlackSubTab(v as "slack-users" | "slack-channels")} className="space-y-4">
-                  <TabsList className="w-full sm:w-auto justify-start">
-                    <TabsTrigger value="slack-users" className="gap-1.5">
-                      <Users className="h-4 w-4" />
-                      Slack users
-                    </TabsTrigger>
-                    <TabsTrigger value="slack-channels" className="gap-1.5">
-                      <Layers className="h-4 w-4" />
-                      Channel mappings
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="slack-users" className="mt-4">
-                    <SlackUsersTab isAdmin={isAdmin} />
-                  </TabsContent>
-                  <TabsContent value="slack-channels" className="mt-4">
-                    <SlackChannelMappingTab isAdmin={isAdmin} />
-                  </TabsContent>
-                </Tabs>
+                <SlackUsersTab isAdmin={isAdmin} />
               </TabsContent>
             </Tabs>
           </div>
@@ -2559,7 +2534,7 @@ function StatChip({
 }: {
   icon: React.ReactNode;
   label: string;
-  // string variant supports wildcard markers like "*" for tool_user:*
+  // string variant supports wildcard markers like "*" for all-tool grants
   count?: number | string;
   onClick: () => void;
 }) {

@@ -27,14 +27,6 @@ interface TeamDoc {
   };
 }
 
-interface ChannelAgentMappingDoc {
-  slack_workspace_id?: string;
-  slack_channel_id?: string;
-  agent_id?: string;
-  active?: boolean;
-  created_by?: string;
-}
-
 function teamId(team: TeamDoc): string {
   return typeof team._id === "string" ? team._id : String(team._id);
 }
@@ -43,29 +35,18 @@ function relationshipForRole(role: string | undefined): "member" | "admin" {
   return role === "admin" || role === "owner" ? "admin" : "member";
 }
 
-function slackChannelSubjectId(workspaceId: string, channelId: string): string {
-  return `${workspaceId}--${channelId}`;
-}
-
 async function main(): Promise<void> {
   const client = new MongoClient(mongoUri);
   await client.connect();
   try {
     const db = client.db(mongoDatabaseName);
     const teams = await db.collection<TeamDoc>("teams").find({}).toArray();
-    const channelMappings = await db
-      .collection<ChannelAgentMappingDoc>("channel_agent_mappings")
-      .find({ active: { $ne: false } })
-      .toArray();
     const now = new Date().toISOString();
     const membershipSources = db.collection("team_membership_sources");
     const relationships = db.collection("rebac_relationships");
-    const slackGrants = db.collection("slack_channel_grants");
 
     let membershipCount = 0;
     let relationshipCount = 0;
-    let slackGrantCount = 0;
-    let skippedSlackGrantCount = 0;
     for (const team of teams) {
       const slug = team.slug?.trim();
       if (!slug) continue;
@@ -142,74 +123,9 @@ async function main(): Promise<void> {
       }
     }
 
-    for (const mapping of channelMappings) {
-      const workspaceId = mapping.slack_workspace_id?.trim();
-      const channelId = mapping.slack_channel_id?.trim();
-      const agentId = mapping.agent_id?.trim();
-      if (!workspaceId || !channelId || !agentId) {
-        skippedSlackGrantCount += 1;
-        continue;
-      }
-
-      slackGrantCount += 1;
-      relationshipCount += 1;
-      if (apply) {
-        await slackGrants.updateOne(
-          {
-            workspace_id: workspaceId,
-            channel_id: channelId,
-            "resource.type": "agent",
-            "resource.id": agentId,
-          },
-          {
-            $set: {
-              workspace_id: workspaceId,
-              channel_id: channelId,
-              resource: { type: "agent", id: agentId },
-              actions: ["use"],
-              source_type: "migration",
-              source_id: migrationSourceId,
-              status: "active",
-              updated_by: mapping.created_by ?? migrationSourceId,
-              updated_at: now,
-            },
-            $setOnInsert: {
-              created_by: mapping.created_by ?? migrationSourceId,
-              created_at: now,
-            },
-          },
-          { upsert: true }
-        );
-
-        await relationships.updateOne(
-          {
-            "subject.type": "slack_channel",
-            "subject.id": slackChannelSubjectId(workspaceId, channelId),
-            action: "use",
-            "resource.type": "agent",
-            "resource.id": agentId,
-          },
-          {
-            $set: {
-              subject: { type: "slack_channel", id: slackChannelSubjectId(workspaceId, channelId) },
-              action: "use",
-              resource: { type: "agent", id: agentId },
-              source_type: "migration",
-              source_id: migrationSourceId,
-              status: "active",
-              updated_at: now,
-            },
-            $setOnInsert: { created_at: now, created_by: migrationSourceId },
-          },
-          { upsert: true }
-        );
-      }
-    }
-
     console.log(
       `${apply ? "applied" : "dry-run"} backfill: ` +
-        `membership_sources=${membershipCount} relationships=${relationshipCount} ` +
-        `slack_channel_grants=${slackGrantCount} skipped_slack_channel_grants=${skippedSlackGrantCount}`
+        `membership_sources=${membershipCount} relationships=${relationshipCount}`
     );
   } finally {
     await client.close();

@@ -48,10 +48,6 @@ jest.mock('@/lib/mongodb', () => ({
   isMongoDBConfigured: true,
 }));
 
-jest.mock('@/lib/rbac/cel-evaluator', () => ({
-  evaluate: jest.fn().mockReturnValue(true),
-}));
-
 jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
 }));

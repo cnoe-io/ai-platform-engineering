@@ -14,6 +14,7 @@ export const RBAC_COLLECTION_NAMES = {
   rebacRelationships: "rebac_relationships",
   policyRules: "policy_rules",
   policyChangeSets: "policy_change_sets",
+  slackChannelAgentRoutes: "slack_channel_agent_routes",
   slackChannelGrants: "slack_channel_grants",
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",

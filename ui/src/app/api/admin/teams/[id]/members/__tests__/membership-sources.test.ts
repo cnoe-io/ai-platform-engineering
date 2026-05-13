@@ -11,10 +11,7 @@ const mockUpsertTeamMembershipSource = jest.fn();
 const mockMarkTeamMembershipSourceRemoved = jest.fn();
 const mockListActiveTeamMembershipSourcesForTeamUser = jest.fn();
 const mockSearchRealmUsers = jest.fn();
-const mockCreateRealmRole = jest.fn();
-const mockGetRoleByName = jest.fn();
-const mockAssignRealmRolesToUser = jest.fn();
-const mockRemoveRealmRolesFromUser = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
@@ -40,11 +37,11 @@ jest.mock("@/lib/rbac/audit", () => ({
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   searchRealmUsers: (...args: unknown[]) => mockSearchRealmUsers(...args),
-  createRealmRole: (...args: unknown[]) => mockCreateRealmRole(...args),
-  getRoleByName: (...args: unknown[]) => mockGetRoleByName(...args),
-  assignRealmRolesToUser: (...args: unknown[]) => mockAssignRealmRolesToUser(...args),
-  removeRealmRolesFromUser: (...args: unknown[]) => mockRemoveRealmRolesFromUser(...args),
   isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
 jest.mock("@/lib/rbac/team-membership-source-store", () => ({
@@ -117,10 +114,7 @@ beforeEach(() => {
   mockMarkTeamMembershipSourceRemoved.mockResolvedValue(undefined);
   mockListActiveTeamMembershipSourcesForTeamUser.mockResolvedValue([]);
   mockSearchRealmUsers.mockResolvedValue([{ id: "kc-user", email: "new@example.com" }]);
-  mockCreateRealmRole.mockResolvedValue(undefined);
-  mockGetRoleByName.mockResolvedValue({ id: "role-id", name: "team_member:platform" });
-  mockAssignRealmRolesToUser.mockResolvedValue(undefined);
-  mockRemoveRealmRolesFromUser.mockResolvedValue(undefined);
+  mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
 });
 
 describe("manual membership source preservation", () => {
@@ -146,6 +140,10 @@ describe("manual membership source preservation", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: "user:kc-user", relation: "member", object: "team:platform" }],
+      deletes: [],
+    });
     expect(mockUpsertTeamMembershipSource).toHaveBeenCalledWith(
       expect.objectContaining({
         team_id: TEAM_ID,
@@ -155,13 +153,14 @@ describe("manual membership source preservation", () => {
         source_type: "manual",
         managed: false,
         status: "active",
+        user_subject: "kc-user",
       })
     );
   });
 
-  it("allows scoped team admins to add members only to their own team", async () => {
+  it("allows authorized team admins to add members", async () => {
     mockGetServerSession.mockResolvedValue(session("team-admin@example.com"));
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValueOnce(TEAM).mockResolvedValueOnce({
       ...TEAM,
@@ -242,6 +241,9 @@ describe("manual membership source preservation", () => {
       expect.anything(),
       expect.objectContaining({ $pull: expect.anything() })
     );
-    expect(mockRemoveRealmRolesFromUser).not.toHaveBeenCalled();
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalledWith({
+      writes: [],
+      deletes: [{ user: "user:kc-user", relation: "member", object: "team:platform" }],
+    });
   });
 });

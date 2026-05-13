@@ -7,13 +7,12 @@
  * What we're guarding against:
  *   1. Non-admins cannot reassign team resources (auth gates fire before
  *      any KC mutation).
- *   2. Add/remove diffs are reconciled on every member: only the deltas
- *      hit Keycloak (no spurious assignments for unchanged roles).
+ *   2. Add/remove diffs are reconciled to OpenFGA tuples, not Keycloak roles.
  *   3. Members who don't yet have a Keycloak account are reported in
  *      `members_skipped` and the rest of the operation still succeeds —
  *      otherwise inviting "future" emails would brick the whole panel.
- *   4. The Mongo write happens AFTER role reconciliation so a KC outage
- *      doesn't leave Mongo and Keycloak permanently out of sync.
+ *   4. The Mongo write happens AFTER OpenFGA reconciliation so persisted
+ *      selection never gets ahead of the PDP state.
  */
 
 import { NextRequest } from "next/server";
@@ -50,20 +49,9 @@ jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
 }));
 
-// ── Keycloak admin lib mock — central piece of this test suite ──────────────
-//
-// We avoid stubbing `adminFetch` directly because the route imports each
-// helper function by name; mocking the whole module gives us full control
-// without re-implementing pagination/parsing.
-const mockEnsureRealmRole = jest.fn();
 const mockFindUserIdByEmail = jest.fn();
-const mockAssignRealmRolesToUser = jest.fn();
-const mockRemoveRealmRolesFromUser = jest.fn();
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureRealmRole: (...a: unknown[]) => mockEnsureRealmRole(...a),
   findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
-  assignRealmRolesToUser: (...a: unknown[]) => mockAssignRealmRolesToUser(...a),
-  removeRealmRolesFromUser: (...a: unknown[]) => mockRemoveRealmRolesFromUser(...a),
 }));
 
 const mockBuildTeamResourceTupleDiff = jest.fn();
@@ -148,14 +136,6 @@ beforeEach(() => {
   setDefaultPermissionMock(false);
   // Default: every email resolves to a fake KC id; tests override per-case.
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
-  // Default: ensureRealmRole returns a stub role with a synthetic id.
-  mockEnsureRealmRole.mockImplementation(async (name: string) => ({
-    id: `role-${name}`,
-    name,
-    composite: false,
-    clientRole: false,
-    containerId: "caipe",
-  }));
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
   mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
 });
@@ -165,10 +145,7 @@ async function loadRoute() {
   setDefaultPermissionMock(true);
   // Re-bind keycloak admin mocks after resetModules.
   jest.doMock("@/lib/rbac/keycloak-admin", () => ({
-    ensureRealmRole: (...a: unknown[]) => mockEnsureRealmRole(...a),
     findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
-    assignRealmRolesToUser: (...a: unknown[]) => mockAssignRealmRolesToUser(...a),
-    removeRealmRolesFromUser: (...a: unknown[]) => mockRemoveRealmRolesFromUser(...a),
   }));
   jest.doMock("@/lib/rbac/openfga", () => ({
     buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
@@ -201,14 +178,15 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     );
 
     expect(res.status).toBe(401);
-    expect(mockEnsureRealmRole).not.toHaveBeenCalled();
-    expect(mockAssignRealmRolesToUser).not.toHaveBeenCalled();
+    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
+    expect(mockWriteOpenFgaTupleDiff).not.toHaveBeenCalled();
   });
 
   it("returns 403 when user lacks admin_ui#admin", async () => {
     setDefaultPermissionMock(false);
     mockGetServerSession.mockResolvedValue(userSession());
     const { PUT } = await loadRoute();
+    setDefaultPermissionMock(false);
 
     const res = await PUT(
       makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
@@ -219,16 +197,16 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     );
 
     expect(res.status).toBe(403);
-    expect(mockEnsureRealmRole).not.toHaveBeenCalled();
+    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
   });
 });
 
 // ────────────────────────────────────────────────────────────────────────────
-// Reconciliation — only deltas are pushed to KC
+// Reconciliation — OpenFGA first, no Keycloak resource-role mirroring
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
-  it("only adds/removes the diff, not the unchanged roles", async () => {
+  it("persists the resource diff and does not mirror per-resource Keycloak roles", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     setDefaultPermissionMock(true);
 
@@ -258,17 +236,10 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
 
     expect(res.status).toBe(200);
 
-    // ensureRealmRole should be called for: added agent + added tool +
-    // removed agent (to fetch the role object). NOT for `agent-keep` / `jira_*`
-    // because those didn't change.
-    const ensuredNames = mockEnsureRealmRole.mock.calls.map((c) => c[0]).sort();
-    expect(ensuredNames).toEqual(
-      ["agent_user:agent-drop", "agent_user:agent-new", "tool_user:github_*"].sort()
-    );
-
-    // Two members → two assigns + two removes (one role each direction).
-    expect(mockAssignRealmRolesToUser).toHaveBeenCalledTimes(2);
-    expect(mockRemoveRealmRolesFromUser).toHaveBeenCalledTimes(2);
+    // Resource changes resolve member subjects for OpenFGA tuples, but never
+    // create or assign per-resource Keycloak realm roles.
+    expect(mockFindUserIdByEmail).toHaveBeenCalledWith("alice@example.com");
+    expect(mockFindUserIdByEmail).toHaveBeenCalledWith("bob@example.com");
 
     // The Mongo write must persist the new selection.
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
@@ -289,14 +260,11 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       tools_added: ["github_*"],
       tools_removed: [],
     });
-    expect(body.data.members_updated.sort()).toEqual([
-      "alice@example.com",
-      "bob@example.com",
-    ]);
+    expect(body.data.members_resolved).toEqual(["alice@example.com", "bob@example.com"]);
     expect(body.data.members_skipped).toEqual([]);
   });
 
-  it("reports members that have no Keycloak account in members_skipped", async () => {
+  it("reports missing Keycloak accounts while still saving OpenFGA resource grants", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     setDefaultPermissionMock(true);
 
@@ -321,15 +289,8 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.data.members_updated).toEqual(["alice@example.com"]);
+    expect(body.data.members_resolved).toEqual(["alice@example.com"]);
     expect(body.data.members_skipped).toEqual(["bob@example.com"]);
-
-    // Only alice gets the assignment.
-    expect(mockAssignRealmRolesToUser).toHaveBeenCalledTimes(1);
-    expect(mockAssignRealmRolesToUser).toHaveBeenCalledWith(
-      "kc-alice@example.com",
-      expect.any(Array)
-    );
 
     // Mongo persistence must still happen even when some members are skipped —
     // otherwise re-saving on the next page load would re-trigger reconciliation
@@ -423,8 +384,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     );
 
     expect(res.status).toBe(400);
-    expect(mockEnsureRealmRole).not.toHaveBeenCalled();
-    expect(mockAssignRealmRolesToUser).not.toHaveBeenCalled();
+    expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
   });
 });
 

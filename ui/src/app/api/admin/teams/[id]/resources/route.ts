@@ -9,20 +9,11 @@
  * PUT  /api/admin/teams/[id]/resources
  *   body: { agents: string[]; tools: string[] }
  *   - Persists the selection on the team document (`team.resources`).
- *   - Reconciles realm-role assignments for every team member:
- *       added agent  → ensure role `agent_user:<id>`  → assign to each member
- *       added tool   → ensure role `tool_user:<id>`   → assign to each member
- *       removed      → remove role from each member.
+ *   - Reconciles OpenFGA relationship tuples for team → resource access.
  *
- * Why we materialize roles on members instead of "team roles":
- *   AgentGateway ext_authz and Dynamic Agents both authorize against
- *   realm-role grants materialized into the user's token. There is no "team token";
- *   each user authenticates separately, so the team is just a UI grouping
- *   that fans out role bindings.
- *
- * Idempotency: roles are created on demand (`ensureRealmRole`) and assignments
- * are full diffs against current state, so re-saving the same selection is a
- * no-op.
+ * Keycloak is intentionally not updated for per-resource grants. Realm roles
+ * such as `agent_user:<id>` and `tool_user:<prefix>` are legacy artifacts; the
+ * OpenFGA tuple store is the resource PDP.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -36,11 +27,7 @@ import {
   ApiError,
 } from "@/lib/api-middleware";
 import {
-  ensureRealmRole,
   findUserIdByEmail,
-  assignRealmRolesToUser,
-  removeRealmRolesFromUser,
-  type KeycloakRole,
 } from "@/lib/rbac/keycloak-admin";
 import {
   buildTeamResourceTupleDiff,
@@ -111,15 +98,6 @@ function diff(prev: string[], next: string[]): { added: string[]; removed: strin
   };
 }
 
-function toRoleNames(
-  prefix: "agent_user" | "agent_admin" | "tool_user",
-  ids: string[]
-): string[] {
-  return ids.filter((id) => typeof id === "string" && id.length > 0).map((id) => `${prefix}:${id}`);
-}
-
-const TOOL_WILDCARD_ROLE = "tool_user:*";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GET — current selection + available picker catalog
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,10 +149,8 @@ export const GET = withErrorHandler(
         ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
-      // We render tools by MCP server prefix (e.g. `jira_*`) because the
-      // realm role catalog uses `tool_user:<server>_*` as a coarse grant by
-      // default. Users can still type a specific `tool_user:<full_tool_name>`
-      // role manually via the realm roles tab.
+      // We render tools by MCP server prefix (e.g. `jira_*`) and persist those
+      // prefixes directly as OpenFGA tool objects.
       const toolPrefixes = allServers.map((s) => `${s._id}_*`);
       const kbIds = new Set<string>();
       for (const row of ownership) {
@@ -221,7 +197,7 @@ export const GET = withErrorHandler(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT — persist selection + reconcile member role assignments
+// PUT — persist selection + reconcile OpenFGA tuples
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PutBody {
@@ -298,112 +274,33 @@ export const PUT = withErrorHandler(
       const knowledgeBaseDiff = diff(prevKnowledgeBases, nextKnowledgeBases);
       const skillDiff = diff(prevSkills, nextSkills);
       const taskDiff = diff(prevTasks, nextTasks);
-      // Wildcard is a single boolean — model as a one-element diff so it flows
-      // through the same role-reconciliation pipeline below.
-      const wildcardDiff = diff(
-        prevToolWildcard ? [TOOL_WILDCARD_ROLE] : [],
-        nextToolWildcard ? [TOOL_WILDCARD_ROLE] : []
-      );
+      const wildcardAdded = !prevToolWildcard && nextToolWildcard;
+      const wildcardRemoved = prevToolWildcard && !nextToolWildcard;
 
-      // ── 1. Ensure all newly-added roles exist in Keycloak.
-      //
-      //    Done up front (and concurrently) so a partial save doesn't leave
-      //    Mongo updated but KC missing the role; if KC is unreachable we
-      //    bail before mutating anything.
-      const addedAgentRoles = await Promise.all(
-        toRoleNames("agent_user", agentDiff.added).map((n) =>
-          ensureRealmRole(n, `Spec 104: team-scoped grant — agent ${n.split(":")[1]}`)
-        )
-      );
-      const addedAgentAdminRoles = await Promise.all(
-        toRoleNames("agent_admin", agentAdminDiff.added).map((n) =>
-          ensureRealmRole(n, `Spec 104: team-scoped grant — manage agent ${n.split(":")[1]}`)
-        )
-      );
-      const addedToolRoles = await Promise.all(
-        toRoleNames("tool_user", toolDiff.added).map((n) =>
-          ensureRealmRole(n, `Spec 104: team-scoped grant — tool(s) ${n.split(":")[1]}`)
-        )
-      );
-      // The wildcard role itself (`tool_user:*`) is bootstrapped by init-idp,
-      // but ensureRealmRole is idempotent so this is safe defence-in-depth.
-      const addedWildcardRoles = await Promise.all(
-        wildcardDiff.added.map((n) =>
-          ensureRealmRole(n, "Spec 104: team-scoped wildcard grant — all MCP tools")
-        )
-      );
-
-      // For removals we still need the role objects (assign/removeRealmRolesToUser
-      // take {id,name,...}, not bare names). Removed roles always already exist
-      // (they were ensured at add-time), so ensureRealmRole is a cheap GET here.
-      const removedAgentRoles = await Promise.all(
-        toRoleNames("agent_user", agentDiff.removed).map((n) => ensureRealmRole(n))
-      );
-      const removedAgentAdminRoles = await Promise.all(
-        toRoleNames("agent_admin", agentAdminDiff.removed).map((n) => ensureRealmRole(n))
-      );
-      const removedToolRoles = await Promise.all(
-        toRoleNames("tool_user", toolDiff.removed).map((n) => ensureRealmRole(n))
-      );
-      const removedWildcardRoles = await Promise.all(
-        wildcardDiff.removed.map((n) => ensureRealmRole(n))
-      );
-
-      // ── 2. Reconcile each member.
+      // ── 1. Resolve current member subjects for OpenFGA team membership.
       //
       //    A team can have a member email that doesn't have a Keycloak account
       //    yet (e.g. invited but never logged in). We log + skip those rather
-      //    than failing the whole PUT — the UI will flag them in the response.
+      //    than failing the whole PUT — the UI flags them in the response.
       const members: TeamMember[] = team.members ?? [];
       const skippedMembers: string[] = [];
-      const updatedMembers: string[] = [];
+      const resolvedMembers: string[] = [];
       const resolvedMemberUserIds: string[] = [];
 
-      const rolesToAdd: KeycloakRole[] = [
-        ...addedAgentRoles,
-        ...addedAgentAdminRoles,
-        ...addedToolRoles,
-        ...addedWildcardRoles,
-      ];
-      const rolesToRemove: KeycloakRole[] = [
-        ...removedAgentRoles,
-        ...removedAgentAdminRoles,
-        ...removedToolRoles,
-        ...removedWildcardRoles,
-      ];
-
-      if (rolesToAdd.length > 0 || rolesToRemove.length > 0) {
-        for (const m of members) {
-          const userId = await findUserIdByEmail(m.user_id);
-          if (!userId) {
-            skippedMembers.push(m.user_id);
-            continue;
-          }
-          try {
-            if (rolesToAdd.length > 0) {
-              await assignRealmRolesToUser(userId, rolesToAdd);
-            }
-            if (rolesToRemove.length > 0) {
-              await removeRealmRolesFromUser(userId, rolesToRemove);
-            }
-            resolvedMemberUserIds.push(userId);
-            updatedMembers.push(m.user_id);
-          } catch (err) {
-            // One member failure shouldn't poison the rest. Log + continue.
-            console.error(
-              `[Admin TeamResources] Failed to reconcile roles for ${m.user_id}:`,
-              err instanceof Error ? err.message : err
-            );
-            skippedMembers.push(m.user_id);
-          }
+      for (const m of members) {
+        const userId = await findUserIdByEmail(m.user_id);
+        if (!userId) {
+          skippedMembers.push(m.user_id);
+          continue;
         }
+        resolvedMemberUserIds.push(userId);
+        resolvedMembers.push(m.user_id);
       }
 
-      // ── 3. Reconcile OpenFGA ReBAC tuples before Mongo persistence.
+      // ── 2. Reconcile OpenFGA ReBAC tuples before Mongo persistence.
       //
-      //    Keycloak remains the source for JWT role materialization while OpenFGA
-      //    owns relationship facts. Keep the same ordering contract as KC:
-      //    fail before Mongo if the remote PDP state cannot be reconciled.
+      //    OpenFGA owns relationship facts. Fail before Mongo if the remote
+      //    PDP state cannot be reconciled.
       const tupleDiffInput = {
         teamSlug: team.slug || id,
         memberUserIds: resolvedMemberUserIds,
@@ -411,8 +308,8 @@ export const PUT = withErrorHandler(
         agentAdmins: agentAdminDiff,
         tools: toolDiff,
         toolWildcard: {
-          added: wildcardDiff.added.length > 0,
-          removed: wildcardDiff.removed.length > 0,
+          added: wildcardAdded,
+          removed: wildcardRemoved,
         },
       };
       if (knowledgeBaseDiff.added.length > 0 || knowledgeBaseDiff.removed.length > 0) {
@@ -427,7 +324,7 @@ export const PUT = withErrorHandler(
       const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
       const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
 
-      // ── 4. Persist selection on the team document.
+      // ── 3. Persist selection on the team document.
       const now = new Date();
       const nextResources = {
         agents: nextAgents,
@@ -452,7 +349,7 @@ export const PUT = withErrorHandler(
       );
 
       console.log(
-        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${nextToolWildcard ? "on" : "off"} members_updated=${updatedMembers.length} members_skipped=${skippedMembers.length} by=${user.email}`
+        `[Admin TeamResources] PUT team=${id} agents+=${agentDiff.added.length}/-${agentDiff.removed.length} agent_admins+=${agentAdminDiff.added.length}/-${agentAdminDiff.removed.length} tools+=${toolDiff.added.length}/-${toolDiff.removed.length} wildcard=${nextToolWildcard ? "on" : "off"} members_resolved=${resolvedMembers.length} members_skipped=${skippedMembers.length} by=${user.email}`
       );
 
       return successResponse({
@@ -465,10 +362,11 @@ export const PUT = withErrorHandler(
           agent_admins_removed: agentAdminDiff.removed,
           tools_added: toolDiff.added,
           tools_removed: toolDiff.removed,
-          tool_wildcard_added: wildcardDiff.added.length > 0,
-          tool_wildcard_removed: wildcardDiff.removed.length > 0,
+          tool_wildcard_added: wildcardAdded,
+          tool_wildcard_removed: wildcardRemoved,
         },
-        members_updated: updatedMembers,
+        members_resolved: resolvedMembers,
+        members_updated: resolvedMembers,
         members_skipped: skippedMembers,
         openfga,
       });

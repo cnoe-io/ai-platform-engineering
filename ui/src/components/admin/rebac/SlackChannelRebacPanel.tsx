@@ -25,6 +25,16 @@ interface SlackChannelGrant {
   status: string;
 }
 
+interface SlackChannelAgentRoute {
+  agent_id: string;
+  enabled: boolean;
+  priority: number;
+  users?: {
+    enabled?: boolean;
+    listen?: "message" | "mention" | "all";
+  };
+}
+
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
 }
@@ -33,9 +43,13 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   const [channels, setChannels] = useState<SlackChannelSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [grants, setGrants] = useState<SlackChannelGrant[]>([]);
+  const [routes, setRoutes] = useState<SlackChannelAgentRoute[]>([]);
   const [resourceType, setResourceType] = useState<GrantType>("agent");
   const [resourceId, setResourceId] = useState("");
   const [action, setAction] = useState<UniversalRebacResourceAction>("use");
+  const [routeAgentId, setRouteAgentId] = useState("");
+  const [routeListen, setRouteListen] = useState<"message" | "mention" | "all">("mention");
+  const [routePriority, setRoutePriority] = useState(100);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -72,6 +86,16 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     setGrants(data.grants ?? []);
   }, [selected]);
 
+  const loadRoutes = useCallback(async () => {
+    if (!selected) return;
+    const response = await fetch(
+      `/api/admin/slack/channels/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.channel_id)}/routes`
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const data = apiData<{ routes: SlackChannelAgentRoute[] }>(await response.json());
+    setRoutes(data.routes ?? []);
+  }, [selected]);
+
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
@@ -81,6 +105,12 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       setMessage(error instanceof Error ? error.message : "Failed to load Slack channel grants")
     );
   }, [loadGrants]);
+
+  useEffect(() => {
+    void loadRoutes().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "Failed to load Slack channel routes")
+    );
+  }, [loadRoutes]);
 
   const saveGrant = async () => {
     if (!selected || !resourceId.trim()) return;
@@ -109,6 +139,42 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       await loadChannels();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to save Slack channel grant");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveRoute = async () => {
+    if (!selected || !routeAgentId.trim()) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const agentId = routeAgentId.trim();
+      const nextRoutes = [
+        ...routes.filter((route) => route.agent_id !== agentId),
+        {
+          agent_id: agentId,
+          enabled: true,
+          priority: routePriority,
+          users: { enabled: true, listen: routeListen },
+        },
+      ];
+      const response = await fetch(
+        `/api/admin/slack/channels/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.channel_id)}/routes`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routes: nextRoutes }),
+        }
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const data = apiData<{ routes: SlackChannelAgentRoute[] }>(await response.json());
+      setRoutes(data.routes ?? []);
+      setRouteAgentId("");
+      setMessage("Slack route saved and matching OpenFGA channel grant created.");
+      await Promise.all([loadChannels(), loadGrants()]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to save Slack route");
     } finally {
       setLoading(false);
     }
@@ -208,6 +274,63 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           {loading ? "Saving..." : "Grant Resource To Channel"}
         </Button>
         {message && <p className="text-sm text-muted-foreground">{message}</p>}
+
+        <div className="rounded-md border p-4 space-y-3">
+          <div>
+            <Label>Agent Routes</Label>
+            <p className="text-xs text-muted-foreground">
+              Creating a route automatically creates the matching channel <code>can_use agent</code> grant.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="slack-route-agent-id">Agent ID</Label>
+              <Input
+                id="slack-route-agent-id"
+                value={routeAgentId}
+                onChange={(event) => setRouteAgentId(event.target.value)}
+                placeholder="incident-agent"
+                disabled={disabled}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Listen</Label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={routeListen}
+                onChange={(event) => setRouteListen(event.target.value as "message" | "mention" | "all")}
+                disabled={disabled}
+              >
+                <option value="mention">mention</option>
+                <option value="message">message</option>
+                <option value="all">all</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="slack-route-priority">Priority</Label>
+              <Input
+                id="slack-route-priority"
+                type="number"
+                value={routePriority}
+                onChange={(event) => setRoutePriority(Number(event.target.value))}
+                disabled={disabled}
+              />
+            </div>
+          </div>
+          <Button onClick={saveRoute} disabled={disabled || loading || !selected || !routeAgentId.trim()}>
+            {loading ? "Saving..." : "Create Route + Grant"}
+          </Button>
+          {routes.length > 0 && (
+            <div className="space-y-2">
+              {routes.map((route) => (
+                <div key={route.agent_id} className="flex items-center justify-between rounded-md border p-3 text-sm">
+                  <span>agent:{route.agent_id}</span>
+                  <Badge>{route.users?.listen ?? "mention"} / priority {route.priority}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="space-y-2">
           <Label>Active Grants</Label>
