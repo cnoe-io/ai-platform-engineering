@@ -49,7 +49,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="curl",
             name="Curl",
-            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs",
+            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs. WARNING: enabling this tool allows the agent to make write requests (PUT/PATCH/DELETE) that may modify or delete data.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
