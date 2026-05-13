@@ -21,6 +21,29 @@ on:
       # source path watcher here the way prebuild-caipe-ui.yml watches `ui/**`.
       - 'build/Dockerfile.skill-scanner'
       - 'docker-compose.dev.yaml'
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to publish prebuild for'
+        required: true
+        type: number
+      head_ref:
+        description: 'PR head branch ref'
+        required: true
+        type: string
+      head_sha:
+        description: 'PR head commit SHA'
+        required: true
+        type: string
+      base_ref:
+        description: 'PR base branch ref'
+        required: true
+        type: string
+      base_sha:
+        description: 'PR base commit SHA'
+        required: false
+        type: string
+        default: ''
 
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/skill-scanner
@@ -33,8 +56,7 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       github.event.action != 'closed'
     permissions:
       contents: read
@@ -71,6 +93,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -86,11 +109,18 @@ jobs:
         id: compute_tag
         shell: bash
         run: |
-          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH="${{ inputs.head_ref || github.head_ref }}"
+          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
+          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT="origin/${BASE_REF}"
+          fi
+          COMMIT_COUNT=$(git rev-list --count "${BASE_COMMIT}..HEAD")
           echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
           echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
 
@@ -135,15 +165,16 @@ jobs:
             SKILL_SCANNER_VERSION=${{ env.SKILL_SCANNER_VERSION }}
             BUILDKIT_INLINE_CACHE=1
             IMAGE_TAG=${{ env.PREBUILD_TAG }}
-            GIT_COMMIT=${{ github.sha }}
+            GIT_COMMIT=${{ inputs.head_sha || github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           provenance: false
           sbom: false
 
       - name: 💬 Comment on PR
-        if: github.event_name == 'pull_request'
+        if: inputs.pr_number || github.event_name == 'pull_request'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          PR_NUMBER: ${{ inputs.pr_number || github.event.pull_request.number }}
           IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
           IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
           PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
@@ -184,7 +215,7 @@ jobs:
             > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
 
             github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: Number(process.env.PR_NUMBER || context.issue.number),
               owner: context.repo.owner,
               repo: context.repo.repo,
               body

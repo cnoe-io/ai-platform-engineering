@@ -54,7 +54,13 @@ models:
 
 # ── MCP Servers ───────────────────────────────────────────────────
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"
-mcp_servers: []
+mcp_servers:
+  - id: "litellm"
+    name: "LiteLLM"
+    description: "Read-only MCP tools for LiteLLM proxy inventory, keys, spend, users, teams, projects, and health."
+    transport: "http"
+    endpoint: "${LITELLM_MCP_ENDPOINT:-http://host.docker.internal:18080/mcp/}"
+    enabled: true
   # - id: "github-mcp"
   #   name: "GitHub"
   #   description: "GitHub MCP server for repository operations"

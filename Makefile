@@ -306,6 +306,10 @@ test-mcp-komodor: ## Run Komodor MCP tests
 	@echo "Running Komodor MCP tests..."
 	@cd ai_platform_engineering/agents/komodor/mcp && $(MAKE) test
 
+test-mcp-litellm: ## Run LiteLLM MCP tests
+	@echo "Running LiteLLM MCP tests..."
+	@cd ai_platform_engineering/agents/litellm/mcp && $(MAKE) test
+
 test-mcp-pagerduty: ## Run PagerDuty MCP tests
 	@echo "Running PagerDuty MCP tests..."
 	@cd ai_platform_engineering/agents/pagerduty/mcp && $(MAKE) test

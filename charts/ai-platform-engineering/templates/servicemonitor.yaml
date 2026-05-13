@@ -15,7 +15,7 @@ metadata:
   {{- end }}
 spec:
   # Match ALL ai-platform-engineering services in this release, EXCEPT services
-  # that don't expose /metrics endpoints (mcp, rag-server, agent-ontology, skill-scanner)
+  # that don't expose /metrics endpoints (mcp, rag-server, agent-ontology, skill-scanner, caipe-ui)
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -27,6 +27,7 @@ spec:
           - rag-server
           - agent-ontology
           - skill-scanner
+          - caipe-ui
   endpoints:
     - port: http
       path: {{ .Values.metrics.path | default "/metrics" }}

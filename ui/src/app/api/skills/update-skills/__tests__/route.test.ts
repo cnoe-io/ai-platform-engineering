@@ -69,16 +69,16 @@ const callGET = async (url: string) => {
 };
 
 describe('GET /api/skills/update-skills — defaults', () => {
-  it('uses "update-skills" as the default command name', async () => {
+  it('uses "update-caipe-skills" as the default command name', async () => {
     const data = await callGET(
       'https://app.example.com/api/skills/update-skills',
     );
 
-    expect(data.defaults.command_name).toBe('update-skills');
+    expect(data.defaults.command_name).toBe('update-caipe-skills');
     // The fallback template references the command name via the placeholder.
-    // The renderer should also have used "update-skills" as the install path
+    // The renderer should also have used "update-caipe-skills" as the install path
     // basename for any per-agent rendering with a scope.
-    expect(data.inputs.command_name).toBe('update-skills');
+    expect(data.inputs.command_name).toBe('update-caipe-skills');
   });
 
   it('uses the update-skills description as the default description', async () => {
@@ -88,6 +88,12 @@ describe('GET /api/skills/update-skills — defaults', () => {
 
     expect(data.defaults.description).toMatch(/refresh.*locally-installed/i);
     expect(data.defaults.description).toMatch(/catalog/i);
+    expect(data.template).toContain(
+      'description: Refresh locally-installed CAIPE skills from the live catalog',
+    );
+    expect(data.template).not.toContain(
+      'description: Browse and install skills from the CAIPE skill catalog',
+    );
   });
 
   it('honors a custom command_name over the default', async () => {
@@ -98,7 +104,7 @@ describe('GET /api/skills/update-skills — defaults', () => {
     expect(data.inputs.command_name).toBe('refresh-skills');
     // Defaults stay anchored to the route's own default — only the input
     // changes per request.
-    expect(data.defaults.command_name).toBe('update-skills');
+    expect(data.defaults.command_name).toBe('update-caipe-skills');
   });
 });
 
@@ -151,14 +157,20 @@ describe('GET /api/skills/update-skills — template resolution', () => {
       String(p).endsWith('/data/skills/update-skills.md'),
     );
     mockStat.mockReturnValue({ isFile: () => true, size: 128 });
-    mockRead.mockReturnValue('---\ndescription: chart copy\n---\n# body');
+    mockRead.mockReturnValue('---\ndescription: {{DESCRIPTION}}\n---\n# body');
 
     const data = await callGET(
       'https://app.example.com/api/skills/update-skills',
     );
 
     expect(data.source).toMatch(/file:.*update-skills\.md$/);
-    expect(data.canonical_template).toContain('chart copy');
+    expect(data.canonical_template).toContain('description: {{DESCRIPTION}}');
+    expect(data.template).toContain(
+      'description: Refresh locally-installed CAIPE skills from the live catalog',
+    );
+    expect(data.template).not.toContain(
+      'description: Browse and install skills from the CAIPE skill catalog',
+    );
   });
 });
 
@@ -192,20 +204,19 @@ describe('GET /api/skills/update-skills — response shape parity', () => {
       canonical_template: expect.any(String),
       placeholders: expect.arrayContaining([
         '{{COMMAND_NAME}}',
+        '{{UPDATE_COMMAND_NAME}}',
         '{{DESCRIPTION}}',
         '{{BASE_URL}}',
         '{{ARG_REF}}',
       ]),
     });
 
-    // install_paths[scope] is an ARRAY of universal-target paths.
+    // install_paths[scope] is an ARRAY with the Claude-native and shared target paths.
     expect(Array.isArray(data.install_paths.user)).toBe(true);
-    expect(data.install_paths.user).toContain(
-      '~/.claude/skills/update-skills/SKILL.md',
-    );
-    expect(data.install_paths.user).toContain(
-      '~/.agents/skills/update-skills/SKILL.md',
-    );
+    expect(data.install_paths.user).toEqual([
+      '~/.claude/skills/update-caipe-skills/SKILL.md',
+      '~/.agents/skills/update-caipe-skills/SKILL.md',
+    ]);
 
     // Dropped legacy fields must not reappear.
     expect(data.format).toBeUndefined();
