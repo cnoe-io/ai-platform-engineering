@@ -62,7 +62,8 @@ spec:
           {{- $hasModels := and .Values.appConfig.models (gt (len .Values.appConfig.models) 0) }}
           {{- $hasMcpServers := and .Values.appConfig.mcp_servers (gt (len .Values.appConfig.mcp_servers) 0) }}
           {{- $hasAgents := and .Values.appConfig.agents (gt (len .Values.appConfig.agents) 0) }}
-          {{- $hasAppConfig := or $hasModels $hasMcpServers $hasAgents }}
+          {{- $hasAgenticApps := and .Values.appConfig.agentic_apps (or .Values.appConfig.agentic_apps.packages .Values.appConfig.agentic_apps.installations) }}
+          {{- $hasAppConfig := or $hasModels $hasMcpServers $hasAgents $hasAgenticApps }}
           env:
             {{- if $hasAppConfig }}
             - name: APP_CONFIG_PATH

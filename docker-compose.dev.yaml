@@ -1569,9 +1569,7 @@ services:
     # visibility timeout + redrive policy handle the retry.
     restart: unless-stopped
     profiles:
-      - agentic-sdlc
       - sqs-webhook
-      - caipe-ui
 
   ####################################################################################################
   #                                      Dynamic Agents                                              #

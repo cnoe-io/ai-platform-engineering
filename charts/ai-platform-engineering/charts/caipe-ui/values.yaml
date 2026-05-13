@@ -337,3 +337,9 @@ appConfig:
   #   allowed_tools:
   #     github: []
   #   enabled: true
+
+  # External agentic app package and installation seed data.
+  # Rendered into APP_CONFIG_PATH with models, MCP servers, and agents.
+  agentic_apps:
+    packages: []
+    installations: []

@@ -1,7 +1,8 @@
 {{- $hasModels := and .Values.appConfig.models (gt (len .Values.appConfig.models) 0) }}
 {{- $hasMcpServers := and .Values.appConfig.mcp_servers (gt (len .Values.appConfig.mcp_servers) 0) }}
 {{- $hasAgents := and .Values.appConfig.agents (gt (len .Values.appConfig.agents) 0) }}
-{{- if or $hasModels $hasMcpServers $hasAgents }}
+{{- $hasAgenticApps := and .Values.appConfig.agentic_apps (or .Values.appConfig.agentic_apps.packages .Values.appConfig.agentic_apps.installations) }}
+{{- if or $hasModels $hasMcpServers $hasAgents $hasAgenticApps }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -32,5 +33,14 @@ data:
       {{- toYaml .Values.appConfig.agents | nindent 6 }}
     {{- else }}
     agents: []
+    {{- end }}
+
+    {{- if $hasAgenticApps }}
+    agentic_apps:
+      {{- toYaml .Values.appConfig.agentic_apps | nindent 6 }}
+    {{- else }}
+    agentic_apps:
+      packages: []
+      installations: []
     {{- end }}
 {{- end }}
