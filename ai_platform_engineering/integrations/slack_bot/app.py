@@ -339,7 +339,8 @@ def handle_mention(event, say, client):
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
 
-    overthink = agent_match.users.overthink if agent_match and agent_match.users else None
+    # Overthink only applies to top-level messages; thread mentions always respond
+    overthink = (agent_match.users.overthink if agent_match and agent_match.users else None) if not is_thread_reply else None
 
     # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
