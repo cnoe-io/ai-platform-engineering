@@ -267,7 +267,7 @@ jobs:
 
           echo "Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {

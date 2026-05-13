@@ -94,94 +94,87 @@ runs:
     # ------------------------------------------------------------------
     - name: 🏷️ Compute version tag
       id: compute
-      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+      shell: bash
       env:
         BASE_VERSION: ${{ steps.branch.outputs.base_version }}
         SUFFIX: ${{ steps.branch.outputs.suffix }}
-      with:
-        script: |
-          const baseVersion = process.env.BASE_VERSION;
-          const suffix = process.env.SUFFIX;
-          const prefix = `${baseVersion}-${suffix}.`;
+      run: |
+        set -euo pipefail
 
-          console.log(`🔍 Querying tags matching: ${prefix}*`);
+        PREFIX="${BASE_VERSION}-${SUFFIX}."
+        BASE_RE="${BASE_VERSION//./\\.}"
 
-          // ── Step 2: Fetch & parse existing tags ──────────────────────────
-          const { data: refs } = await github.rest.git.listMatchingRefs({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            ref: `tags/${prefix}`
-          });
+        echo "🔍 Querying local tags matching: ${PREFIX}*"
+        git fetch --tags --force --quiet || true
 
-          // Regex for base tags: {base}-{suffix}.N
-          const baseTagRe = new RegExp(
-            `^${baseVersion.replace(/\./g, '\\.')}-${suffix}\\.(\\d+)$`
-          );
-          // Regex for chart tags: {base}-{suffix}.N-chart.M
-          const chartTagRe = new RegExp(
-            `^${baseVersion.replace(/\./g, '\\.')}-${suffix}\\.(\\d+)-chart\\.(\\d+)$`
-          );
+        MAX_N=0
+        MAX_M_FOR_MAX_N=0
 
-          let maxN = 0;            // highest N among base tags
-          const chartMs = {};      // { N: maxM } for chart tags
+        while IFS= read -r TAG_NAME; do
+          [[ -z "$TAG_NAME" ]] && continue
 
-          for (const ref of refs) {
-            const tagName = ref.ref.replace('refs/tags/', '');
+          if [[ "$TAG_NAME" =~ ^${BASE_RE}-${SUFFIX}\.([0-9]+)$ ]]; then
+            N="${BASH_REMATCH[1]}"
+            if (( N > MAX_N )); then
+              MAX_N="$N"
+              MAX_M_FOR_MAX_N=0
+            fi
+            continue
+          fi
 
-            const baseMatch = tagName.match(baseTagRe);
-            if (baseMatch) {
-              const n = parseInt(baseMatch[1], 10);
-              if (n > maxN) maxN = n;
-              continue;
-            }
+          if [[ "$TAG_NAME" =~ ^${BASE_RE}-${SUFFIX}\.([0-9]+)-chart\.([0-9]+)$ ]]; then
+            N="${BASH_REMATCH[1]}"
+            M="${BASH_REMATCH[2]}"
+            if (( N > MAX_N )); then
+              MAX_N="$N"
+              MAX_M_FOR_MAX_N="$M"
+            elif (( N == MAX_N && M > MAX_M_FOR_MAX_N )); then
+              MAX_M_FOR_MAX_N="$M"
+            fi
+          fi
+        done < <(git tag -l "${PREFIX}*")
 
-            const chartMatch = tagName.match(chartTagRe);
-            if (chartMatch) {
-              const n = parseInt(chartMatch[1], 10);
-              const m = parseInt(chartMatch[2], 10);
-              // Also track maxN from chart tags (a chart tag implies its base exists)
-              if (n > maxN) maxN = n;
-              if (!chartMs[n] || m > chartMs[n]) chartMs[n] = m;
-            }
-          }
+        LATEST_BASE_TAG=""
+        if (( MAX_N > 0 )); then
+          LATEST_BASE_TAG="${BASE_VERSION}-${SUFFIX}.${MAX_N}"
+        fi
 
-          const latestBaseTag = maxN > 0 ? `${baseVersion}-${suffix}.${maxN}` : null;
-          const maxMForMaxN = chartMs[maxN] || 0;
-          const latestTag = maxMForMaxN > 0
-            ? `${latestBaseTag}-chart.${maxMForMaxN}`
-            : latestBaseTag;
+        LATEST_TAG="$LATEST_BASE_TAG"
+        if [[ -n "$LATEST_BASE_TAG" && "$MAX_M_FOR_MAX_N" -gt 0 ]]; then
+          LATEST_TAG="${LATEST_BASE_TAG}-chart.${MAX_M_FOR_MAX_N}"
+        fi
 
-          console.log(`📊 maxN=${maxN}, latestBaseTag=${latestBaseTag}, maxMForMaxN=${maxMForMaxN}, latestTag=${latestTag}`);
+        echo "📊 maxN=$MAX_N, latestBaseTag=${LATEST_BASE_TAG:-null}, maxMForMaxN=$MAX_M_FOR_MAX_N, latestTag=${LATEST_TAG:-null}"
 
-          // ── Step 3: Chart-only detection ─────────────────────────────────
-          let diffTarget;
-          if (latestTag) {
-            diffTarget = latestTag;
-          } else if (suffix === 'dev') {
-            // First dev tag on main → diff against latest x.y.z release tag
-            diffTarget = baseVersion;
-            console.log(`⚠️ No prior dev tags; diffing against release tag ${diffTarget}`);
-          } else if (suffix === 'rc') {
-            // First rc tag on release branch → diff against merge-base with main
-            diffTarget = 'MERGE_BASE';
-          } else if (suffix === 'hotfix') {
-            // First hotfix tag → diff against x.y.z tag
-            diffTarget = baseVersion;
-            console.log(`⚠️ No prior hotfix tags; diffing against release tag ${diffTarget}`);
-          }
+        DIFF_TARGET=""
+        if [[ -n "$LATEST_TAG" ]]; then
+          DIFF_TARGET="$LATEST_TAG"
+        elif [[ "$SUFFIX" == "dev" ]]; then
+          # First dev tag on main → diff against latest x.y.z release tag
+          DIFF_TARGET="$BASE_VERSION"
+          echo "⚠️ No prior dev tags; diffing against release tag $DIFF_TARGET"
+        elif [[ "$SUFFIX" == "rc" ]]; then
+          # First rc tag on release branch → diff against merge-base with main
+          DIFF_TARGET="MERGE_BASE"
+        elif [[ "$SUFFIX" == "hotfix" ]]; then
+          # First hotfix tag → diff against x.y.z tag
+          DIFF_TARGET="$BASE_VERSION"
+          echo "⚠️ No prior hotfix tags; diffing against release tag $DIFF_TARGET"
+        fi
 
-          // We'll resolve the actual diff in a shell step; pass diff_target forward
-          core.exportVariable('DIFF_TARGET', diffTarget || '');
-          core.exportVariable('LATEST_TAG', latestTag || '');
-          core.exportVariable('LATEST_BASE_TAG', latestBaseTag || '');
-          core.exportVariable('MAX_N', String(maxN));
-          core.exportVariable('MAX_M_FOR_MAX_N', String(maxMForMaxN));
+        {
+          echo "diff_target=$DIFF_TARGET"
+          echo "latest_tag=$LATEST_TAG"
+          echo "latest_base_tag=$LATEST_BASE_TAG"
+          echo "max_n=$MAX_N"
+          echo "max_m_for_max_n=$MAX_M_FOR_MAX_N"
+        } >> "$GITHUB_OUTPUT"
 
     - name: 🔗 Resolve diff target
       id: resolve-diff
       shell: bash
       env:
-        DIFF_TARGET: ${{ env.DIFF_TARGET }}
+        DIFF_TARGET: ${{ steps.compute.outputs.diff_target }}
         SUFFIX: ${{ steps.branch.outputs.suffix }}
       run: |
         # Resolve symbolic diff target to a concrete git ref
@@ -220,7 +213,7 @@ runs:
         fi
 
         echo "Changed files:"
-        echo "$CHANGED_FILES" | head -20
+        sed -n '1,20p' <<< "$CHANGED_FILES"
 
         # ── Paths that affect image builds (triggers full version bump) ──
         # Keep in sync with pr-version-bump.yml paths filter.
@@ -232,12 +225,12 @@ runs:
 
         if [[ -n "$OTHER_FILES" ]]; then
           echo "🔇 Ignored (no build impact):"
-          echo "$OTHER_FILES" | head -10
+          sed -n '1,10p' <<< "$OTHER_FILES"
         fi
 
         if [[ -n "$IMAGE_FILES" ]]; then
           echo "📦 Image-affecting changes detected:"
-          echo "$IMAGE_FILES" | head -10
+          sed -n '1,10p' <<< "$IMAGE_FILES"
           echo "chart_only=false" >> $GITHUB_OUTPUT
         elif [[ -n "$CHART_FILES" ]]; then
           echo "✅ Only chart changes detected — chart-only"
@@ -254,10 +247,10 @@ runs:
         BASE_VERSION: ${{ steps.branch.outputs.base_version }}
         SUFFIX: ${{ steps.branch.outputs.suffix }}
         CHART_ONLY: ${{ steps.chart-only.outputs.chart_only }}
-        LATEST_TAG: ${{ env.LATEST_TAG }}
-        LATEST_BASE_TAG: ${{ env.LATEST_BASE_TAG }}
-        MAX_N: ${{ env.MAX_N }}
-        MAX_M_FOR_MAX_N: ${{ env.MAX_M_FOR_MAX_N }}
+        LATEST_TAG: ${{ steps.compute.outputs.latest_tag }}
+        LATEST_BASE_TAG: ${{ steps.compute.outputs.latest_base_tag }}
+        MAX_N: ${{ steps.compute.outputs.max_n }}
+        MAX_M_FOR_MAX_N: ${{ steps.compute.outputs.max_m_for_max_n }}
       run: |
         if [[ "$CHART_ONLY" == "true" ]]; then
           if [[ -z "$LATEST_BASE_TAG" ]]; then

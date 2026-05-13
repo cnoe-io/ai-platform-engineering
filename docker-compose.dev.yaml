@@ -1356,6 +1356,12 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-60}
+      # Keep uvicorn reload off in Docker. DEBUG=true from .env can make the
+      # mounted dev service hang during startup; the UI gateway still injects
+      # dev user context when auth is disabled.
+      - DEBUG=${DYNAMIC_AGENTS_DEBUG:-false}
+      # CORS_ORIGINS: must be a JSON array (bare "*" from prod default is not valid JSON for list[str])
+      # To restrict origins, set DYNAMIC_AGENTS_CORS_ORIGINS='["http://localhost:3000"]' in .env
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
     healthcheck:
       # Use /healthz (matches FastAPI route in routes/health.py and the Helm chart probes).

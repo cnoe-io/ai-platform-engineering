@@ -1,0 +1,126 @@
+name: Prebuild status artifact
+description: Upload a prebuild status artifact and dispatch the artifact comment reconciler.
+
+inputs:
+  pr_number:
+    description: Pull request number.
+    required: true
+  head_sha:
+    description: Pull request head SHA.
+    required: true
+  head_ref:
+    description: Pull request head ref.
+    required: true
+  source:
+    description: Producer workflow source.
+    required: true
+  type:
+    description: Artifact type, such as docker or helm.
+    required: true
+  name:
+    description: Artifact display name.
+    required: true
+  repository:
+    description: Docker repository or Helm registry.
+    required: false
+    default: ""
+  tag:
+    description: Docker tag.
+    required: false
+    default: ""
+  ref:
+    description: Fully qualified docker image or Helm chart ref.
+    required: false
+    default: ""
+  version:
+    description: Helm chart version.
+    required: false
+    default: ""
+  release_name:
+    description: Helm release name.
+    required: false
+    default: ""
+  status:
+    description: "Status value: building, published, or failed."
+    required: true
+  artifact_suffix:
+    description: Artifact suffix, usually start or final.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare status artifact
+      id: status
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        artifact_name="prebuild-status-pr-${{ inputs.pr_number }}-sha-${{ inputs.head_sha }}-${{ inputs.source }}-${{ inputs.name }}-${{ inputs.artifact_suffix }}"
+        artifact_dir="${RUNNER_TEMP}/prebuild-status/${artifact_name}"
+        mkdir -p "${artifact_dir}"
+
+        jq -n \
+          --argjson pr_number "${{ inputs.pr_number }}" \
+          --arg head_sha "${{ inputs.head_sha }}" \
+          --arg head_ref "${{ inputs.head_ref }}" \
+          --arg source "${{ inputs.source }}" \
+          --arg type "${{ inputs.type }}" \
+          --arg name "${{ inputs.name }}" \
+          --arg repository "${{ inputs.repository }}" \
+          --arg tag "${{ inputs.tag }}" \
+          --arg ref "${{ inputs.ref }}" \
+          --arg version "${{ inputs.version }}" \
+          --arg releaseName "${{ inputs.release_name }}" \
+          --arg status "${{ inputs.status }}" \
+          --arg workflow "${{ github.workflow }}" \
+          --arg run_id "${{ github.run_id }}" \
+          --arg run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          --arg created_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+          '{
+            pr_number: $pr_number,
+            head_sha: $head_sha,
+            head_ref: $head_ref,
+            source: $source,
+            type: $type,
+            name: $name,
+            repository: $repository,
+            tag: $tag,
+            ref: $ref,
+            version: $version,
+            releaseName: $releaseName,
+            status: $status,
+            workflow: $workflow,
+            run_id: $run_id,
+            run_url: $run_url,
+            created_at: $created_at
+          }' > "${artifact_dir}/status.json"
+
+        echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+
+    - name: Upload status artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: ${{ steps.status.outputs.artifact_name }}
+        path: ${{ runner.temp }}/prebuild-status/${{ steps.status.outputs.artifact_name }}/status.json
+        retention-days: 7
+        if-no-files-found: error
+
+    - name: Dispatch artifact comment reconciler
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        jq -n \
+          --argjson pr_number "${{ inputs.pr_number }}" \
+          --arg head_sha "${{ inputs.head_sha }}" \
+          '{
+            event_type: "prebuild-artifact-status",
+            client_payload: {
+              pr_number: $pr_number,
+              head_sha: $head_sha
+            }
+          }' \
+          | gh api --method POST /repos/${{ github.repository }}/dispatches --input -

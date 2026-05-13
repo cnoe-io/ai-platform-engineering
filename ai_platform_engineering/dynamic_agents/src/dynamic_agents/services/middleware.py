@@ -19,8 +19,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from botocore.config import Config as BotocoreConfig
-from cnoe_agent_utils import LLMFactory
 from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
@@ -32,6 +30,8 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+
+from dynamic_agents.services.llm import get_configured_llm
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -214,10 +214,9 @@ def _instantiate_model(
     Returns:
         Initialized BaseChatModel instance.
     """
-    boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
-    return LLMFactory(provider=model_provider).get_llm(
-        model=model_id,
-        config=boto_config,
+    return get_configured_llm(
+        model_id=model_id,
+        model_provider=model_provider,
     )
 
 
