@@ -101,10 +101,10 @@ jobs:
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          HEAD_REF="${{ github.event.pull_request.head.ref }}"
-
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
 
           BASE_SHA=$(git rev-parse "origin/${BASE_REF}")
@@ -345,14 +345,15 @@ jobs:
       - name: 🔍 Check if release merge PR
         id: release-check
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          BASE="${{ github.event.pull_request.base.ref }}"
-          HEAD="${{ github.event.pull_request.head.ref }}"
-          if [[ "$BASE" == "main" && "$HEAD" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
             VERSION="${BASH_REMATCH[1]}"
             echo "is_release_merge=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "🚀 Release merge PR detected: $HEAD → main"
+            echo "🚀 Release merge PR detected: $HEAD_REF → main"
 
             RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
             if [[ "$RAW_VERSION" == "$VERSION" ]]; then
@@ -566,11 +567,12 @@ jobs:
         if: steps.helm-labels.outputs.undo_charts == 'true'
         id: chart-cleanup
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
 
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             BASE_COMMIT="$BASE_SHA"
@@ -635,17 +637,21 @@ jobs:
       - name: 📤 Commit version bump
         if: steps.helm-labels.outputs.undo_charts != 'true' && (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
         id: commit
+        env:
+          BUMP_CHARTS: ${{ steps.helm-labels.outputs.bump_charts }}
+          FINAL_VERSION: ${{ steps.update.outputs.final_version }}
+          RELEASE_VERSION: ${{ steps.release-check.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add pyproject.toml uv.lock CHANGELOG.md docs/docusaurus.config.ts docs/src/pages/index.tsx || true
 
-          if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
+          if [[ "$BUMP_CHARTS" == "true" ]]; then
             find charts -name "Chart.yaml" -type f -exec git add {} +
           fi
 
-          TAG="${{ steps.update.outputs.final_version || steps.release-check.outputs.version }}"
+          TAG="${FINAL_VERSION:-$RELEASE_VERSION}"
           git commit -m "chore: bump version to $TAG"
           git push
 
