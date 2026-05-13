@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Single MongoDB service for the Autonomous Agents backend.
 
 Mirrors the pattern used by ``dynamic_agents/services/mongo.py``: one

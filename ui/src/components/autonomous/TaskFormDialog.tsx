@@ -23,11 +23,11 @@ import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
 import { fromFormState, toFormState } from "./formState";
 
 const WEBHOOK_PROVIDER_OPTIONS = [
+  { value: "generic_hmac", label: "Generic HMAC" },
   { value: "github", label: "GitHub" },
   { value: "jira", label: "Jira" },
   { value: "slack", label: "Slack" },
   { value: "pagerduty", label: "PagerDuty" },
-  { value: "generic_hmac", label: "Generic HMAC" },
 ];
 
 interface TaskFormDialogProps {

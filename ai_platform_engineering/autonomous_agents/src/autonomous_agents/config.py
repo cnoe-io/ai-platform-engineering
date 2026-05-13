@@ -190,20 +190,8 @@ class Settings(BaseSettings):
     # deliveries.
     trigger_instance_ttl_days: int = Field(default=7, ge=1)
 
-    # IMP-16 — circuit breaker around the supervisor A2A call.
-    #
-    # Enabled by default because the failure mode it prevents
-    # (every scheduled task burning its full retry budget against a
-    # broken supervisor) is exactly the cascading-failure pattern
-    # autonomous workloads cause. Operators can flip this off via
-    # ``CIRCUIT_BREAKER_ENABLED=0`` if they ever need to.
+    # Circuit breaker around the supervisor A2A call.
     circuit_breaker_enabled: bool = True
-
-    # How many *consecutive* failed supervisor calls trip the breaker.
-    # The streaming A2A path has no retry layer, so each transient blip
-    # counts as one failure directly. Default of 5 trades a little extra
-    # failure-tolerance for fewer false-positive trips on brief
-    # supervisor restarts.
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
 
     # How long the breaker stays OPEN before letting a single trial

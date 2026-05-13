@@ -107,7 +107,8 @@ Runs when an external system POSTs to `/api/v1/hooks/{task_id}`.
 trigger:
   type: webhook
   path: "/hooks/pr-review"
-  secret: "optional-hmac-secret"   # validates X-Hub-Signature-256 header
+  provider: "generic_hmac"         # or github, slack, pagerduty, jira, webex
+  secret: "optional-hmac-secret"   # validates the provider-specific HMAC
 ```
 
 ---

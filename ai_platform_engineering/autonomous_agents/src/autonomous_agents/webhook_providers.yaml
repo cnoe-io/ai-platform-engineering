@@ -5,11 +5,9 @@
 # replay-protection timestamps, and identify ping/health-check deliveries
 # for each upstream that posts to /api/v1/hooks/{task_id}.
 #
-# A WebhookTrigger picks an adapter via the per-task ``provider`` field
-# (default "github" for backward compatibility). At startup the service
-# loads this file once via services.webhook_adapters.load_adapters; the
-# operator can override the file path with WEBHOOK_PROVIDERS_FILE so
-# private upstreams can be added without forking the package.
+# A WebhookTrigger picks an adapter via the per-task ``provider`` field. 
+# At startup the service loads this file once via services.webhook_adapters.load_adapters; 
+# the operator can override the file path with WEBHOOK_PROVIDERS_FILE.
 #
 # Schema reference (see services/webhook_adapters.py for the parser):
 #
@@ -35,17 +33,9 @@
 #         header: <header>
 #         value: <case-insensitive match>
 #       dedup_header: <header>     # default per-delivery id (overridable per task)
-#
-# Backward-compat contract: the "github" provider here MUST replicate the
-# legacy hard-coded behaviour (X-Hub-Signature-256 over body, optionally
-# bound to X-Webhook-Timestamp via WEBHOOK_REPLAY_WINDOW_SECONDS, ping
-# short-circuit on X-GitHub-Event=ping).
 # =============================================================================
 
 providers:
-  # ---------------------------------------------------------------------------
-  # GitHub (and any sender that mirrors GitHub's signing contract)
-  # ---------------------------------------------------------------------------
   github:
     signature:
       header: X-Hub-Signature-256
@@ -65,10 +55,6 @@ providers:
       value: ping
     dedup_header: X-GitHub-Delivery
 
-  # ---------------------------------------------------------------------------
-  # Slack — always-on timestamp binding, 5 min replay window per Slack docs.
-  # https://api.slack.com/authentication/verifying-requests-from-slack
-  # ---------------------------------------------------------------------------
   slack:
     signature:
       header: X-Slack-Signature
@@ -83,11 +69,6 @@ providers:
       required: true
     payload_template: "v0:{timestamp}:{body}"
 
-  # ---------------------------------------------------------------------------
-  # PagerDuty — comma-separated kv pairs; multiple v1 entries permitted
-  # during secret rotation, accept if any matches.
-  # https://developer.pagerduty.com/docs/db0fa8c8984fc-overview#webhook-payload-signature
-  # ---------------------------------------------------------------------------
   pagerduty:
     signature:
       header: X-PagerDuty-Signature
@@ -97,14 +78,6 @@ providers:
       encoding: hex
     payload_template: "{body}"
 
-  # ---------------------------------------------------------------------------
-  # Jira Cloud — issue callbacks contain top-level timestamp, webhookEvent,
-  # issue_event_type_name, user, issue, and optionally changelog/comment. When
-  # a webhook secret is configured, Jira signs the raw JSON body with HMAC and
-  # sends it as X-Hub-Signature: sha256=<hex>. The Atlassian webhook identifier
-  # is stable across retries and is the preferred dedup key.
-  # https://developer.atlassian.com/cloud/jira/software/webhooks/
-  # ---------------------------------------------------------------------------
   jira:
     signature:
       header: X-Hub-Signature
@@ -115,29 +88,6 @@ providers:
     payload_template: "{body}"
     dedup_header: X-Atlassian-Webhook-Identifier
 
-  # ---------------------------------------------------------------------------
-  # Webex — fan-in inbound from the /api/v1/hooks/webex/events route.
-  # Webex signs the raw request body with HMAC-SHA1 and the secret
-  # configured at webhook creation, then sends the lowercase hex digest
-  # as ``X-Spark-Signature`` with NO ``sha1=`` prefix. Hence ``prefix:
-  # ""`` -- the loader treats the empty string as "no prefix to strip"
-  # and the canonicaliser lowercases the bare hex so case-insensitive
-  # comparison is uniform.
-  #
-  # No timestamp: Webex does not sign a timestamp into the body and
-  # provides no replay-window header, so we cannot enforce one here.
-  # The shared bot secret rotates via ``WEBEX_WEBHOOK_SECRET``.
-  #
-  # No ping: Webex's webhook creation API does not deliver a
-  # configuration ping like GitHub does. The route's "is this just a
-  # test delivery?" check (no ``data.id``) handles Webex's test events.
-  #
-  # No dedup_header: Webex does not surface a per-delivery id. Dedup
-  # therefore falls through to the verified ``X-Spark-Signature`` value
-  # which Webex repeats on retry of the same event -- meaningful for
-  # exactly-once even without a delivery id.
-  # https://developer.webex.com/docs/api/guides/webhooks
-  # ---------------------------------------------------------------------------
   webex:
     signature:
       header: X-Spark-Signature
@@ -147,11 +97,6 @@ providers:
       encoding: hex
     payload_template: "{body}"
 
-  # ---------------------------------------------------------------------------
-  # Generic HMAC — vendor-neutral default for in-house upstreams. Same shape
-  # as github but with non-GitHub-flavoured header names so operators don't
-  # have to pretend their internal sender is GitHub.
-  # ---------------------------------------------------------------------------
   generic_hmac:
     signature:
       header: X-Webhook-Signature-256

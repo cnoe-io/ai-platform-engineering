@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Webex thread map -- (Webex messageId) -> (task_id, run_id).
 
 When a scheduled autonomous task posts a message to a Webex space via

@@ -218,11 +218,11 @@ describe("syncAutonomousTasks", () => {
     const api = makeApi();
     const serverWebhook: AutonomousTask = {
       ...cronTask("hook"),
-      trigger: { type: "webhook", provider: "github", has_secret: true },
+      trigger: { type: "webhook", provider: "generic_hmac", has_secret: true },
     };
     const draftWebhook: AutonomousTask = {
       ...cronTask("hook"),
-      trigger: { type: "webhook", provider: "github", secret: null },
+      trigger: { type: "webhook", provider: "generic_hmac", secret: null },
     };
 
     await syncAutonomousTasks({

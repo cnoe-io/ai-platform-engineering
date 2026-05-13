@@ -22,15 +22,17 @@ class TaskStatus(str, Enum):
 
 
 # =============================================================================
-# Trigger definitions -
+# Trigger definitions
 # =============================================================================
 
 class CronTrigger(BaseModel):
+    """Trigger for cron-scheduled tasks"""
     type: Literal[TriggerType.CRON] = TriggerType.CRON
     schedule: str = Field(..., description="Cron expression e.g. '0 9 * * *'")
 
 
 class IntervalTrigger(BaseModel):
+    """Trigger for interval-scheduled tasks"""
     type: Literal[TriggerType.INTERVAL] = TriggerType.INTERVAL
     seconds: int | None = None
     minutes: int | None = None
@@ -38,6 +40,7 @@ class IntervalTrigger(BaseModel):
 
     @model_validator(mode="after")
     def require_positive_interval(self) -> "IntervalTrigger":
+        """Require at least one positive field and reject non-positive values."""
         invalid = [name for name, val in [("seconds", self.seconds), ("minutes", self.minutes), ("hours", self.hours)] if val is not None and val <= 0]
         if invalid:
             raise ValueError(f"IntervalTrigger fields must be positive integers: {', '.join(invalid)}")
@@ -47,43 +50,23 @@ class IntervalTrigger(BaseModel):
 
 
 class WebhookTrigger(BaseModel):
+    """Trigger for webhook-scheduled tasks"""
     type: Literal[TriggerType.WEBHOOK] = TriggerType.WEBHOOK
     secret: str | None = Field(None, description="Optional HMAC secret for payload validation")
-    # Provider id from ``webhook_providers.yaml`` -- selects the
-    # signature header, scheme, algorithm, payload template, and ping
-    # short-circuit for this task's webhook. Defaults to ``"github"`` so
-    # tasks authored before this field existed (and the entire test
-    # suite, which signs with ``X-Hub-Signature-256``) keep working
-    # without migration. Operators add new upstreams (Slack, PagerDuty,
-    # an internal generic-HMAC sender, ...) by setting this to the
-    # matching adapter id rather than by forking the route.
     provider: str = Field(
-        default="github",
+        default="generic_hmac",
         description=(
-            "Webhook provider adapter id (e.g. 'github', 'slack', "
-            "'pagerduty', 'generic_hmac'). Must match an entry in "
-            "webhook_providers.yaml. Defaults to 'github' for "
-            "backward compatibility."
+            "Webhook provider adapter id from webhook_providers.yaml "
+            "Use 'generic_hmac' for vendor-neutral HMAC webhooks. "
+            "Missing values default to 'generic_hmac'."
         ),
     )
-    # Optional name of an HTTP header that uniquely identifies a delivery
-    # (e.g. ``X-GitHub-Delivery``, ``X-PagerDuty-Webhook-Id``). When set
-    # and present on the request, the dedup key for the
-    # ``trigger_instances`` collection is derived from
-    # ``f"{task_id}:hdr:{value}"``. When unset (or absent on a given
-    # request) the dedup key falls back to the verified HMAC signature
-    # we already compute for auth -- see
-    # ``services.trigger_instances.derive_dedup_key`` for the full
-    # precedence. Header names are matched case-insensitively per HTTP
-    # convention; we normalise to whatever case the sender used in the
-    # row's ``delivery_header_name`` field for audit clarity.
     dedup_header: str | None = Field(
         default=None,
         description=(
-            "HTTP header name carrying a unique delivery id. When set and "
-            "present, used as the dedup key for the trigger_instances "
-            "collection so retries from the sender don't double-fire the "
-            "task. Falls back to the HMAC signature when absent."
+            "HTTP header name carrying a unique delivery id. When set "
+            "Used as the dedup key for the trigger_instances collection "
+            "so retries from the sender don't double-fire the task."
         ),
     )
 
@@ -172,43 +155,28 @@ class Acknowledgement(BaseModel):
 
 
 # =============================================================================
-# Task definition (loaded from YAML)
+# Task definition
 # =============================================================================
 
 class TaskDefinition(BaseModel):
     id: str = Field(..., description="Unique task identifier")
     name: str = Field(..., description="Human-readable task name")
     description: str | None = None
-    # Spec #099 FR-001 / OQ-1: ``agent`` is a *hint*, not a hard requirement.
-    # When absent, the supervisor's LLM router picks a sub-agent from the
-    # prompt at run time. Made optional in this revision so operators can
-    # author tasks without knowing CAIPE's internal agent ids.
-    # Empty-string and whitespace-only values are normalised to None by
-    # ``a2a_client._normalize_agent_hint`` so they behave the same as a
-    # missing field on the wire.
     agent: str | None = Field(
         default=None,
         description=(
-            "Optional routing hint — sub-agent id (e.g. 'github', 'argocd'). "
+            "Optional routing hint using sub-agent id. "
             "When set, supervisor skips LLM routing and dispatches directly. "
             "When omitted, the supervisor's LLM picks a sub-agent based on "
             "the prompt."
         ),
     )
-    # When set, scheduler + preflight target the dynamic-agents service
-    # instead of the supervisor so the prompt actually executes through
-    # the user's custom agent (its tools / system prompt / middleware).
-    # Semantically mutually exclusive with `agent` (which names a CAIPE
-    # MAS sub-agent). If both are set, ``dynamic_agent_id`` wins -- see
-    # the validator below -- because the supervisor has no awareness of
-    # dynamic-agent ids and would always preflight-fail them.
     dynamic_agent_id: str | None = Field(
         default=None,
         description=(
             "Dynamic-agents service agent id. When set, scheduler and "
             "preflight target the dynamic-agents service instead of the "
-            "supervisor so the prompt runs through that custom agent's "
-            "tools / system prompt / middleware."
+            "supervisor so the prompt runs through that custom agent."
         ),
     )
     prompt: str = Field(..., description="Prompt sent to the agent when this task fires")
@@ -216,11 +184,6 @@ class TaskDefinition(BaseModel):
     llm_provider: str | None = Field(None, description="Override global LLM provider for this task")
     enabled: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-    # Optional per-task override for the supervisor A2A call timeout.
-    # When None, the service-wide ``A2A_TIMEOUT_SECONDS`` from Settings
-    # applies. Useful for slow-running synthesis prompts that need a
-    # longer per-call budget than the default.
     timeout_seconds: float | None = Field(
         default=None,
         gt=0,
@@ -230,11 +193,7 @@ class TaskDefinition(BaseModel):
     @field_validator("timeout_seconds")
     @classmethod
     def _timeout_must_be_finite(cls, v: float | None) -> float | None:
-        # Pydantic's ``gt=0`` constraint accepts ``float('inf')`` and ``nan``,
-        # and YAML/env parsing can happily produce those values too.
-        # Either would silently break the httpx timeout at runtime, so reject
-        # both at load time. ``Settings`` has the same guard for the global
-        # default — keep them in lockstep.
+        """Reject non-finite values that would break httpx timeouts at runtime."""
         if v is None:
             return v
         if v != v or v in (float("inf"), float("-inf")):
@@ -243,14 +202,11 @@ class TaskDefinition(BaseModel):
 
     @model_validator(mode="after")
     def _reconcile_agent_routing(self) -> "TaskDefinition":
-        # ``agent`` (CAIPE MAS sub-agent hint -> supervisor) and
-        # ``dynamic_agent_id`` (custom agent -> dynamic-agents service) are
-        # semantically mutually exclusive: the supervisor can't honour a
-        # dynamic-agent id, and the dynamic-agents service has no notion
-        # of MAS sub-agent hints. If both arrive (e.g. a draft created
-        # before this field existed and then re-stamped by the editor),
-        # prefer the explicit dynamic-agent route and clear the legacy
-        # hint so downstream branches stay unambiguous.
+        """Keep task routing pointed at one execution backend.
+
+        If data carries both ``agent`` and ``dynamic_agent_id``, drop the 
+        supervisor hint and prioritize the ``dynamic_agent_id``.
+        """
         if self.dynamic_agent_id and self.agent:
             import logging
             logging.getLogger("autonomous_agents").warning(
@@ -279,7 +235,7 @@ class TaskDefinition(BaseModel):
 
 
 # =============================================================================
-# Task run records (in-memory, can be backed by DB later)
+# Task run records
 # =============================================================================
 
 class FollowUpContext(BaseModel):
@@ -317,6 +273,7 @@ class FollowUpContext(BaseModel):
 
 
 class TaskRun(BaseModel):
+    """Record of a single execution of a task definition."""
     run_id: str
     task_id: str
     task_name: str

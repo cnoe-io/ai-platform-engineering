@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Chat history publisher -- surfaces autonomous runs in the UI's chat history.
 
 IMP-13 + spec #099. Operations folks live in the chat sidebar; autonomous

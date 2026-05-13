@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Task definition lifecycle: store singleton, runtime sync, preflight.
 
 This module owns the "what happens when a task definition is created /

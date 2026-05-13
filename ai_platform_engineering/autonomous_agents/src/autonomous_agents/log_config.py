@@ -33,6 +33,7 @@ class TaskContextFilter(logging.Filter):
 
 
 def setup_logging() -> logging.Logger:
+    """Setup logging for the autonomous_agents."""
     log_level = get_log_level()
     pkg_logger = logging.getLogger("autonomous_agents")
     pkg_logger.setLevel(log_level)

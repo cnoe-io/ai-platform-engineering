@@ -35,6 +35,7 @@ class TestTriggerTypes:
         """WebhookTrigger reports ``TriggerType.WEBHOOK``."""
         trigger = WebhookTrigger()
         assert trigger.type == TriggerType.WEBHOOK
+        assert trigger.provider == "generic_hmac"
 
     def test_webhook_trigger_optional_secret(self):
         """``secret`` is optional on WebhookTrigger."""

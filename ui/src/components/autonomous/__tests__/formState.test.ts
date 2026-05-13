@@ -126,7 +126,7 @@ describe("formState.fromFormState", () => {
     const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "   " });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", provider: "github", secret: null },
+        trigger: { type: "webhook", provider: "generic_hmac", secret: null },
       }),
     });
   });
@@ -184,7 +184,7 @@ describe("formState.summarizeTrigger", () => {
   });
   it("summarises webhook with/without secret", () => {
     expect(summarizeTrigger({ type: "webhook", provider: "jira", has_secret: true })).toBe("Webhook: jira (signed)");
-    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
+    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: generic_hmac");
   });
 });
 

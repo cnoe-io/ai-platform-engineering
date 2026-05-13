@@ -44,16 +44,7 @@ _MAX_TASK_RUNS = 500
 
 
 def _serialize_trigger(task: TaskDefinition) -> dict:
-    """Render a trigger to wire JSON, redacting any HMAC secret.
-
-    The webhook ``secret`` is the symmetric key used to verify
-    ``X-Hub-Signature-256`` on incoming POSTs. Echoing it back in
-    list/get/create/update responses would leak it into browser
-    devtools, network captures, and any audit log that records the
-    full response body. The UI only needs to know whether a secret
-    is configured (``has_secret``) to render the "secret already
-    configured -- type to replace" hint in the form dialog.
-    """
+    """Render a trigger to wire JSON, redacting any HMAC secret."""
     payload = task.trigger.model_dump()
     if isinstance(task.trigger, WebhookTrigger):
         secret = payload.pop("secret", None)
@@ -84,11 +75,6 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "name": task.name,
         "description": task.description,
         "agent": task.agent,
-        # When set, scheduler + preflight route this task through the
-        # dynamic-agents service instead of the supervisor (so the
-        # prompt actually executes inside the user's custom agent).
-        # Round-trip on the wire so the UI can render a distinct
-        # routing label and so unchanged-task PUTs preserve the value.
         "dynamic_agent_id": getattr(task, "dynamic_agent_id", None),
         "prompt": task.prompt,
         "llm_provider": task.llm_provider,

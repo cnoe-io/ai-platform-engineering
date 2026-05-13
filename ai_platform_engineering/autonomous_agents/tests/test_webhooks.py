@@ -65,13 +65,18 @@ def _make_dedup_task(
     *,
     secret: str | None = None,
     dedup_header: str | None = None,
+    provider: str = "github",
 ) -> TaskDefinition:
     return TaskDefinition(
         id=task_id,
         name="webhook task",
         agent="dummy-agent",
         prompt="run the thing",
-        trigger=WebhookTrigger(secret=secret, dedup_header=dedup_header),
+        trigger=WebhookTrigger(
+            secret=secret,
+            provider=provider,
+            dedup_header=dedup_header,
+        ),
     )
 
 
@@ -258,6 +263,36 @@ class TestInitialFireSecrets:
         bad = client.post("/api/v1/hooks/wh-1", content=body)
         assert bad.status_code == 401
         assert "Missing X-Hub-Signature-256" in bad.json()["detail"]
+
+    def test_provider_less_task_uses_generic_hmac(self, client, monkeypatch):
+        """Webhook tasks without ``provider`` use the vendor-neutral adapter."""
+        _set_settings(monkeypatch)
+        task = TaskDefinition(
+            id="wh-1",
+            name="webhook task",
+            agent="dummy-agent",
+            prompt="run the thing",
+            trigger=WebhookTrigger(secret="task-secret"),
+        )
+        _register(task)
+
+        body = json.dumps({"x": 1}).encode()
+        sig = _hex_sig("task-secret", body)
+
+        ok = client.post(
+            "/api/v1/hooks/wh-1",
+            content=body,
+            headers={"X-Webhook-Signature-256": sig},
+        )
+        assert ok.status_code == 202
+
+        bad = client.post(
+            "/api/v1/hooks/wh-1",
+            content=body,
+            headers={"X-Hub-Signature-256": sig},
+        )
+        assert bad.status_code == 401
+        assert "Missing X-Webhook-Signature-256" in bad.json()["detail"]
 
     def test_global_secret_fallback_used_when_task_has_none(self, client, monkeypatch):
         """Tasks without a per-task secret fall back to the global ``WEBHOOK_SECRET``."""
