@@ -74,6 +74,7 @@ const STATUS_ICON: Record<WfRunStatus, React.ReactNode> = {
   ),
   completed: <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />,
   failed: <XCircle className="h-3.5 w-3.5 text-red-500" />,
+  cancelled: <XCircle className="h-3.5 w-3.5 text-muted-foreground" />,
 };
 
 const STATUS_LABEL: Record<WfRunStatus, string> = {
@@ -82,6 +83,7 @@ const STATUS_LABEL: Record<WfRunStatus, string> = {
   waiting_for_input: "Waiting",
   completed: "Completed",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 const STATUS_COLOR: Record<WfRunStatus, string> = {
@@ -90,6 +92,7 @@ const STATUS_COLOR: Record<WfRunStatus, string> = {
   waiting_for_input: "border-amber-500/40 text-amber-500",
   completed: "border-green-500/40 text-green-500",
   failed: "border-red-500/40 text-red-500",
+  cancelled: "border-muted-foreground/40 text-muted-foreground",
 };
 
 

@@ -19,7 +19,8 @@ export type WfRunStatus =
   | "running"
   | "waiting_for_input"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type WfStepStatus =
   | "pending"

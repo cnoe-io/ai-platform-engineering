@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import { useParams } from "next/navigation";
-import { CheckCircle2, XCircle, Loader2, Clock, MessageSquare, FolderOpen, Info } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Clock, MessageSquare, FolderOpen, Info, Ban } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { WorkflowRunTimeline } from "@/components/workflows/WorkflowRunTimeline";
@@ -22,6 +22,7 @@ const RUN_STATUS_CONFIG: Record<WfRunStatus, { label: string; color: string; ico
   waiting_for_input: { label: "Waiting", color: "text-amber-500 bg-amber-500/10", icon: <MessageSquare className="h-4 w-4" /> },
   completed: { label: "Completed", color: "text-green-500 bg-green-500/10", icon: <CheckCircle2 className="h-4 w-4" /> },
   failed: { label: "Failed", color: "text-red-500 bg-red-500/10", icon: <XCircle className="h-4 w-4" /> },
+  cancelled: { label: "Cancelled", color: "text-muted-foreground bg-muted/50", icon: <Ban className="h-4 w-4" /> },
 };
 
 export default function WorkflowRunPage() {
@@ -188,7 +189,7 @@ export default function WorkflowRunPage() {
               stepEvents={stepEvents}
               workflowFiles={showFiles ? workflowFiles : undefined}
               onFileDownload={handleFileDownload}
-              onResume={handleResume}
+              onResume={run.status !== "failed" && run.status !== "cancelled" ? handleResume : undefined}
             />
           )}
         </div>

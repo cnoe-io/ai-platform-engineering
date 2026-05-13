@@ -103,7 +103,7 @@ export function WorkflowRunTimeline({
               isActive={isActive}
               agentInfo={agentMap[step.agent_id]}
               onResume={
-                step.status === "waiting_for_input"
+                step.status === "waiting_for_input" && run.status !== "failed" && run.status !== "cancelled"
                   ? (data) => handleResume(step.index, data)
                   : undefined
               }

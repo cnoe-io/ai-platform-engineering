@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { Workflow, ExternalLink, CheckCircle2, XCircle, Loader2, Clock } from "lucide-react";
+import { Workflow, ExternalLink, CheckCircle2, XCircle, Loader2, Clock, PauseCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
@@ -13,7 +13,7 @@ interface WorkflowRunInfo {
 interface RunStatus {
   _id: string;
   workflow_config_id: string;
-  status: "running" | "completed" | "failed" | "cancelled";
+  status: "running" | "completed" | "failed" | "cancelled" | "waiting_for_input";
   started_at?: string;
   completed_at?: string;
   current_step_index?: number;
@@ -31,6 +31,7 @@ interface WorkflowRunCardProps {
 
 const STATUS_CONFIG = {
   running: { icon: Loader2, label: "Running", className: "text-sky-400 animate-spin", bg: "border-sky-500/30 bg-sky-500/5" },
+  waiting_for_input: { icon: PauseCircle, label: "Waiting for input", className: "text-amber-400", bg: "border-amber-500/30 bg-amber-500/5" },
   completed: { icon: CheckCircle2, label: "Completed", className: "text-emerald-400", bg: "border-emerald-500/30 bg-emerald-500/5" },
   failed: { icon: XCircle, label: "Failed", className: "text-red-400", bg: "border-red-500/30 bg-red-500/5" },
   cancelled: { icon: XCircle, label: "Cancelled", className: "text-muted-foreground", bg: "border-border bg-muted/30" },
@@ -78,7 +79,7 @@ function RunCard({ runId }: { runId: string }) {
 
   useEffect(() => {
     if (stopped || hidden) return;
-    if (status && status.status !== "running") {
+    if (status && status.status !== "running" && status.status !== "waiting_for_input") {
       setStopped(true);
       return;
     }

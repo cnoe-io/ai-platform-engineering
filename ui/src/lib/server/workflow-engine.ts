@@ -39,7 +39,8 @@ export type WorkflowRunStatus =
   | "running"
   | "waiting_for_input"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface WorkflowStepRun {
   type: "step";
@@ -189,7 +190,7 @@ export async function cancelWorkflowRun(runId: string): Promise<void> {
   const col = await getCollection<WorkflowRunDocument>(RUNS_COLLECTION);
   await col.updateOne(
     { _id: runId },
-    { $set: { status: "failed", completed_at: new Date() } },
+    { $set: { status: "cancelled" as WorkflowRunStatus, completed_at: new Date() } },
   );
 }
 
