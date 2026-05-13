@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 import httpx
 
 log = logging.getLogger("caipe-cron-runner")
+DEFAULT_HTTP_TIMEOUT_SECONDS = 300.0
 
 
 def _required_env(key: str) -> str:
@@ -44,7 +45,7 @@ def main() -> int:
     caipe_url = _required_env("CAIPE_API_URL").rstrip("/")
     caipe_token = _required_env("CAIPE_API_TOKEN")
     chat_path = os.environ.get("CAIPE_CHAT_PATH", "/api/v1/chat/invoke")
-    timeout = float(os.environ.get("HTTP_TIMEOUT", "60"))
+    timeout = float(os.environ.get("HTTP_TIMEOUT", str(DEFAULT_HTTP_TIMEOUT_SECONDS)))
 
     sched_headers = {"X-Scheduler-Token": scheduler_token}
 
@@ -109,9 +110,28 @@ def main() -> int:
                     schedule_id, http_status, error,
                 )
             else:
-                log.info(
-                    "Chat POST ok: schedule=%s http=%s", schedule_id, http_status
-                )
+                try:
+                    chat_body = chat_resp.json()
+                except ValueError:
+                    chat_body = None
+
+                if isinstance(chat_body, dict) and chat_body.get("success") is False:
+                    status = "error"
+                    error = str(
+                        chat_body.get("error")
+                        or chat_resp.text
+                        or "Chat API returned success=false"
+                    )[:1000]
+                    log.error(
+                        "Chat POST returned unsuccessful response: schedule=%s http=%s body=%s",
+                        schedule_id,
+                        http_status,
+                        error,
+                    )
+                else:
+                    log.info(
+                        "Chat POST ok: schedule=%s http=%s", schedule_id, http_status
+                    )
         except Exception as e:
             status = "error"
             error = str(e)[:1000]

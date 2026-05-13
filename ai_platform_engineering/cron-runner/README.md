@@ -22,7 +22,7 @@ SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
 | `CAIPE_API_URL`          | yes      | e.g. `http://caipe-ui:3000`                   |
 | `CAIPE_API_TOKEN`        | yes      | Mounted from `caipe-cron-runner-token` Secret. |
 | `CAIPE_CHAT_PATH`        | no       | Default `/api/v1/chat/invoke`.                |
-| `HTTP_TIMEOUT`           | no       | Seconds; default 60.                          |
+| `HTTP_TIMEOUT`           | no       | Seconds; default 300.                         |
 | `LOG_LEVEL`              | no       | Default `INFO`.                               |
 
 ## Chat API contract
