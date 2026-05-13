@@ -528,6 +528,24 @@ class AgentRuntime:
         if self._workflow_prompt_addendum:
             system_prompt += self._workflow_prompt_addendum
 
+        # 10c. Append warnings about failed resources so the agent is aware of limitations
+        warning_lines: list[str] = []
+        if self._failed_servers:
+            warning_lines.append("**MCP servers that failed to load (tools from these servers are unavailable):**")
+            warning_lines.append(f"  {self._failed_servers_error}")
+        if self._failed_skills:
+            warning_lines.append(f"**Skills that failed to load:** {', '.join(self._failed_skills)}")
+            warning_lines.append(f"  Reason: {self._failed_skills_error}")
+        if self._failed_workflows:
+            warning_lines.append(f"**Workflows that failed to load:** {', '.join(self._failed_workflows)}")
+            warning_lines.append(f"  Reason: {self._failed_workflows_error}")
+        if warning_lines:
+            system_prompt += "\n\n## Warning: Unavailable Resources\n"
+            system_prompt += (
+                "The following resources were configured but failed to load. Do not attempt to use them.\n\n"
+            )
+            system_prompt += "\n".join(warning_lines)
+
         # 11. Create agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message

@@ -28,6 +28,8 @@ export interface StepContext {
   index: number;
   /** Error message if step failed */
   error: string | null;
+  /** Files written by write_file tool during this step */
+  filesWritten?: string[];
 }
 
 export interface TemplateContext {
