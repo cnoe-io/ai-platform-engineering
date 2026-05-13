@@ -31,8 +31,7 @@ inputs:
       Set to 'false' for PRs that only touch Python/UI code and do not
       need a pre-built Helm chart — avoids the version-conflict noise
       caused by every concurrent PR bumping chart versions independently.
-      Chart-only mode (version ending in -chart.M) always bumps charts
-      regardless of this flag.
+      Chart-only mode (version ending in -chart.M) also respects this flag.
     required: false
     default: 'true'
 
@@ -93,6 +92,13 @@ runs:
           # ─────────────────────────────────────────────────────────────
           echo ""
           echo "🔄 Chart-only update mode"
+
+          if [[ "$BUMP_CHARTS" != "true" ]]; then
+            echo "  ⏭️ Skipping Chart.yaml updates (helm-chart-bump label not present)"
+            echo "skip_commit=true" >> $GITHUB_OUTPUT
+            echo "final_version=$VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
 
           if [[ -z "$DIFF_TARGET" ]]; then
             echo "❌ diff_target is required for chart-only updates"

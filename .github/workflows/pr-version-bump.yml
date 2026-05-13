@@ -6,7 +6,9 @@ on:
     branches:
       - main
       - 'release/**'
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
 
 permissions:
   contents: write
@@ -29,6 +31,14 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
+            const supportedBase = pr.base.ref === 'main' || pr.base.ref.startsWith('release/');
+            if (!supportedBase) {
+              core.setOutput('should_run', 'false');
+              core.setOutput('reason', `unsupported base branch ${pr.base.ref}`);
+              core.info(`should_run=false: unsupported base branch ${pr.base.ref}`);
+              return;
+            }
+
             const releaseMergeRe = /^release\/\d+\.\d+\.\d+(?:-hotfix)?$/;
             const isReleaseMerge = pr.base.ref === 'main' && releaseMergeRe.test(pr.head.ref);
 
@@ -73,7 +83,7 @@ jobs:
     # Don't run on commits made by the bot (avoid infinite loop)
     if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     outputs:
-      new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
+      new_commit: ${{ steps.chart-cleanup-commit.outputs.committed == 'true' || steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
       should_prebuild: ${{ steps.helm-labels.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
@@ -84,17 +94,17 @@ jobs:
       - name: 📥 Checkout PR branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
 
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          HEAD_REF="${{ github.event.pull_request.head.ref }}"
-
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
 
           BASE_SHA=$(git rev-parse "origin/${BASE_REF}")
@@ -335,14 +345,15 @@ jobs:
       - name: 🔍 Check if release merge PR
         id: release-check
         shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          BASE="${{ github.base_ref }}"
-          HEAD="${{ github.head_ref }}"
-          if [[ "$BASE" == "main" && "$HEAD" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
             VERSION="${BASH_REMATCH[1]}"
             echo "is_release_merge=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "🚀 Release merge PR detected: $HEAD → main"
+            echo "🚀 Release merge PR detected: $HEAD_REF → main"
 
             RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
             if [[ "$RAW_VERSION" == "$VERSION" ]]; then
@@ -364,50 +375,177 @@ jobs:
         with:
           version: ${{ steps.release-check.outputs.version }}
 
-      # ── Check labels before version bumping ───────────────────────────
+      # ── Sync chart-bump label from review state before version bumping ─
       - name: 🏷️ Check helm labels
         id: helm-labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const chartBumpLabel = 'helm-chart-bump';
+            const helmPrereleaseLabel = 'helm-prerelease';
+            const eventName = context.eventName;
+            const action = context.payload.action || '';
+            const reviewState = (context.payload.review?.state || '').toLowerCase();
+
+            const labelNames = new Set((pr.labels || []).map(label => label.name));
+            let chartBumpPresent = labelNames.has(chartBumpLabel);
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+
+            const latestDecisionByReviewer = new Map();
+            for (const review of reviews) {
+              const state = (review.state || '').toUpperCase();
+              if (!['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(state)) {
+                continue;
+              }
+              const reviewer = review.user?.login;
+              if (!reviewer) {
+                continue;
+              }
+              const submittedAt = review.submitted_at || review.dismissed_at || review.updated_at || review.submittedAt || '';
+              const previous = latestDecisionByReviewer.get(reviewer);
+              if (!previous || new Date(submittedAt) >= new Date(previous.submittedAt)) {
+                latestDecisionByReviewer.set(reviewer, { state, submittedAt });
+              }
+            }
+
+            const hasActiveApproval = [...latestDecisionByReviewer.values()]
+              .some(review => review.state === 'APPROVED');
+            const approvalSubmitted = eventName === 'pull_request_review' && action === 'submitted' && reviewState === 'approved';
+            const approvalDismissed = eventName === 'pull_request_review' && action === 'dismissed';
+            const chartBumpLabelRemoved = eventName === 'pull_request' && action === 'unlabeled' && context.payload.label?.name === chartBumpLabel;
+
+            async function ensureLabel() {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: chartBumpLabel
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: chartBumpLabel,
+                  color: '5319e7',
+                  description: 'Bump Helm Chart.yaml versions before merge'
+                });
+              }
+            }
+
+            if (approvalSubmitted && !chartBumpPresent) {
+              await ensureLabel();
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: [chartBumpLabel]
+              });
+              chartBumpPresent = true;
+              core.info(`Added ${chartBumpLabel} after PR approval`);
+            }
+
+            let removedAfterDismissal = false;
+            if (approvalDismissed && !hasActiveApproval && chartBumpPresent) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: chartBumpLabel
+              });
+              chartBumpPresent = false;
+              removedAfterDismissal = true;
+              core.info(`Removed ${chartBumpLabel} because the PR no longer has an active approval`);
+            }
+
+            const undoCharts = chartBumpLabelRemoved || removedAfterDismissal || (approvalDismissed && !hasActiveApproval);
+            const bumpCharts = chartBumpPresent && !undoCharts;
+            const shouldPrebuild = pr.head.ref.startsWith('prebuild/') || labelNames.has(helmPrereleaseLabel);
+
+            core.setOutput('bump_charts', String(bumpCharts));
+            core.setOutput('should_run', String(shouldPrebuild));
+            core.setOutput('undo_charts', String(undoCharts));
+            core.setOutput('has_active_approval', String(hasActiveApproval));
+            core.setOutput('helm_chart_bump_label', String(chartBumpPresent));
+            core.setOutput('waiting_for_chart_bump_approval', String(!bumpCharts && !undoCharts && !hasActiveApproval));
+
+            core.info(`bump_charts=${bumpCharts}`);
+            core.info(`undo_charts=${undoCharts}`);
+            core.info(`should_prebuild=${shouldPrebuild}`);
+            core.info(`has_active_approval=${hasActiveApproval}`);
+
+      - name: 💬 Comment if chart bump is waiting for approval
+        if: steps.helm-labels.outputs.waiting_for_chart_bump_approval == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const markerPrefix = '<!-- pr-version-bump:waiting-for-chart-bump-approval';
+            const marker = `<!-- pr-version-bump:waiting-for-chart-bump-approval sha=${process.env.HEAD_SHA} -->`;
+            const body = `${marker}
+            ## Helm chart bump waiting for approval
+
+            This failure is expected. Helm chart version bumps are deferred until the PR is approved or the \`helm-chart-bump\` label is added.
+
+            Once the PR is approved, CI will add \`helm-chart-bump\`, commit the Chart.yaml version updates, and rerun.`;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100
+            });
+
+            const existing = comments.find(comment =>
+              comment.user?.type === 'Bot' && (comment.body || '').includes(markerPrefix)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+              core.info(`Updated waiting-for-approval comment: ${existing.html_url}`);
+            } else {
+              const response = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body
+              });
+              core.info(`Created waiting-for-approval comment: ${response.data.html_url}`);
+            }
+
+      - name: ❌ Require approval before chart bump
+        if: steps.helm-labels.outputs.waiting_for_chart_bump_approval == 'true'
         run: |
-          HEAD_REF="${{ github.head_ref }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
-          BUMP_CHARTS=false
-          SHOULD_PREBUILD=false
-
-          # prebuild/* branches always bump charts and publish
-          if [[ "$HEAD_REF" == prebuild/* ]]; then
-            BUMP_CHARTS=true
-            SHOULD_PREBUILD=true
-            echo "✅ prebuild/ branch — chart bump + prebuild publishing enabled"
-          fi
-
-          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
-
-          if [[ "$LABELS" == *"helm-chart-bump"* ]]; then
-            BUMP_CHARTS=true
-            echo "✅ helm-chart-bump label — chart versions will be bumped"
-          fi
-
-          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
-            SHOULD_PREBUILD=true
-            echo "✅ helm-prerelease label — prebuild chart publishing enabled"
-          fi
-
-          echo "bump_charts=$BUMP_CHARTS" >> $GITHUB_OUTPUT
-          echo "should_run=$SHOULD_PREBUILD" >> $GITHUB_OUTPUT
+          echo "::error::Helm chart version bumps are deferred until PR approval or the helm-chart-bump label is added. This failure is expected before approval."
+          exit 1
 
       # ── Normal path: determine-version + update-version-files ──────────
       - name: 🏷️ Determine version
-        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        if: ${{ steps.helm-labels.outputs.undo_charts != 'true' && steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
         id: version
         uses: ./.github/actions/determine-version
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📝 Update version files
-        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        if: ${{ steps.helm-labels.outputs.undo_charts != 'true' && steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
         id: update
         uses: ./.github/actions/update-version-files
         with:
@@ -415,25 +553,123 @@ jobs:
           diff_target: ${{ steps.version.outputs.diff_target }}
           bump_charts: ${{ steps.helm-labels.outputs.bump_charts }}
 
+      - name: ⚙️ Install yq for chart cleanup
+        if: steps.helm-labels.outputs.undo_charts == 'true'
+        shell: bash
+        run: |
+          if ! command -v yq &>/dev/null; then
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          fi
+          yq --version
+
+      - name: ↩️ Restore chart bump fields
+        if: steps.helm-labels.outputs.undo_charts == 'true'
+        id: chart-cleanup
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT="origin/${BASE_REF}"
+          fi
+
+          mapfile -t CHART_FILES < <(find charts -name "Chart.yaml" -type f | sort)
+          if [[ "${#CHART_FILES[@]}" -eq 0 ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          LOCAL_CHART_NAMES=$(for file in "${CHART_FILES[@]}"; do yq -r '.name // ""' "$file"; done | grep -v '^$' | sort -u)
+
+          restore_scalar() {
+            local chart_file="$1"
+            local base_file="$2"
+            local field="$3"
+            local base_value
+            local current_value
+
+            base_value=$(yq -r ".$field // \"\"" "$base_file")
+            current_value=$(yq -r ".$field // \"\"" "$chart_file")
+            if [[ -n "$base_value" && "$base_value" != "$current_value" ]]; then
+              yq -i ".$field = \"$base_value\"" "$chart_file"
+              echo "  ↩️ $chart_file .$field: $current_value -> $base_value"
+            fi
+          }
+
+          for chart_file in "${CHART_FILES[@]}"; do
+            if ! git cat-file -e "$BASE_COMMIT:$chart_file" 2>/dev/null; then
+              continue
+            fi
+
+            base_file=$(mktemp)
+            git show "$BASE_COMMIT:$chart_file" > "$base_file"
+
+            restore_scalar "$chart_file" "$base_file" "version"
+            restore_scalar "$chart_file" "$base_file" "appVersion"
+
+            for chart_name in $LOCAL_CHART_NAMES; do
+              base_dep_version=$(yq -r ".dependencies[]? | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))) | .version" "$base_file" | head -n 1)
+              current_dep_version=$(yq -r ".dependencies[]? | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))) | .version" "$chart_file" | head -n 1)
+              if [[ -n "$base_dep_version" && "$base_dep_version" != "$current_dep_version" ]]; then
+                yq -i "(.dependencies[] | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))).version) = \"$base_dep_version\"" "$chart_file" 2>/dev/null || true
+                echo "  ↩️ $chart_file dependency $chart_name: $current_dep_version -> $base_dep_version"
+              fi
+            done
+
+            rm -f "$base_file"
+          done
+
+          if git diff --quiet -- charts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No chart bump fields needed cleanup"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Commit changes to PR branch ────────────────────────────────────
       - name: 📤 Commit version bump
-        if: (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        if: steps.helm-labels.outputs.undo_charts != 'true' && (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
         id: commit
+        env:
+          BUMP_CHARTS: ${{ steps.helm-labels.outputs.bump_charts }}
+          FINAL_VERSION: ${{ steps.update.outputs.final_version }}
+          RELEASE_VERSION: ${{ steps.release-check.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git add pyproject.toml uv.lock CHANGELOG.md docs/docusaurus.config.ts docs/src/pages/index.tsx || true
 
-          if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
+          if [[ "$BUMP_CHARTS" == "true" ]]; then
             find charts -name "Chart.yaml" -type f -exec git add {} +
           fi
 
-          TAG="${{ steps.update.outputs.final_version || steps.release-check.outputs.version }}"
+          TAG="${FINAL_VERSION:-$RELEASE_VERSION}"
           git commit -m "chore: bump version to $TAG"
           git push
 
           echo "✅ Committed version bump to $TAG"
+
+      - name: 📤 Commit chart bump cleanup
+        if: steps.chart-cleanup.outputs.changed == 'true'
+        id: chart-cleanup-commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          find charts -name "Chart.yaml" -type f -exec git add {} +
+          git commit -m "chore: remove Helm chart bump"
+          git push
+
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Removed Helm chart bump changes"
 
       - name: ❌ Require branch update before merge
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
@@ -472,7 +708,7 @@ jobs:
       always() &&
       needs.version-bump.outputs.should_prebuild == 'true' &&
       needs.version-bump.outputs.new_commit != 'true' &&
-      (needs.version-bump.result == 'success' || startsWith(github.head_ref, 'prebuild/'))
+      (needs.version-bump.result == 'success' || startsWith(github.event.pull_request.head.ref, 'prebuild/'))
     uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}
