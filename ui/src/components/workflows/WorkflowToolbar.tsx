@@ -172,17 +172,15 @@ export function WorkflowToolbar({
             </Button>
           )}
 
-          {!readOnly && (
           <Button
             size="sm"
             onClick={onSave}
-            disabled={isSaving || !name || stepCount === 0}
+            disabled={isSaving || !name || stepCount === 0 || readOnly}
             className="gap-1.5 h-8 text-xs px-4 gradient-primary text-white"
           >
             <Save className="h-3.5 w-3.5" />
             {isSaving ? "Saving..." : "Save"}
           </Button>
-          )}
         </div>
       </div>
     </div>

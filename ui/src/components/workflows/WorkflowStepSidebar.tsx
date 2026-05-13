@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   Code,
+  Lock,
   Loader2,
   MousePointerClick,
   Plus,
@@ -371,8 +372,18 @@ export function WorkflowStepSidebar({
         </Button>
       </div>
 
+      {/* Read-only banner for config-driven workflows */}
+      {readOnly && (
+        <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 shrink-0">
+          <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            This workflow is seeded from config and is not editable.
+          </p>
+        </div>
+      )}
+
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <fieldset disabled={!!readOnly} className="flex-1 overflow-y-auto p-4 space-y-4 disabled:opacity-60">
         {/* Agent */}
         <div className="space-y-2">
           <Label className="text-xs font-semibold">Agent</Label>
@@ -526,7 +537,7 @@ export function WorkflowStepSidebar({
             </div>
           )}
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }
