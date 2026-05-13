@@ -1,5 +1,4 @@
 name: "[Docs] New Release Post (skeleton)"
-description: "Create a skeleton release blog post for a human to fill in"
 
 on:
   workflow_dispatch:

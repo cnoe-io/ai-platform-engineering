@@ -1,5 +1,4 @@
 name: "[Docs] Snapshot & Prune Versions"
-description: "On semver tag push: snapshot current docs as the new version, prune old snapshots, open a PR"
 
 on:
   push:
