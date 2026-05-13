@@ -931,6 +931,11 @@ class AgentRuntime:
         config["metadata"]["agent_config_id"] = self.config.id
         config["metadata"]["agent_name"] = self.config.name
 
+        # Derive Langfuse session_id: group workflow steps by run_id, normal chats by conversation_id
+        workflow_match = re.match(r"^(workflow-.+)-step-\d+$", session_id)
+        langfuse_session_id = workflow_match.group(1) if workflow_match else session_id
+        config["metadata"]["langfuse_session_id"] = langfuse_session_id
+
         if trace_id:
             config["metadata"]["trace_id"] = trace_id
         else:

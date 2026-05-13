@@ -299,7 +299,7 @@ async function executeSteps(
 
     // Build the full enriched prompt with workflow context wrapping the step instruction
     const enrichedPrompt = buildWorkflowContextPrefix(
-      workflowName, workflowDescription, completedSteps, i, steps.length, renderedPrompt,
+      workflowName, workflowDescription, completedSteps, i, steps.length, renderedPrompt, step.agent_id,
     );
 
     // Execute with retry support
@@ -675,6 +675,7 @@ function buildWorkflowContextPrefix(
   stepIndex: number,
   totalSteps: number,
   stepPrompt: string,
+  agentId: string,
 ): string {
   let ctx = "";
 
@@ -696,7 +697,7 @@ function buildWorkflowContextPrefix(
 
   // --- Critical: Reporting failure ---
   ctx += "## Critical: Reporting Failure\n";
-  ctx += `If you determine this step has failed or you cannot complete the task, write a brief explanation to \`workflow-state/step-${stepIndex + 1}--{your-agent-id}/error.txt\` using \`write_file\`.\n`;
+  ctx += `If you determine this step has failed or you cannot complete the task, write a brief explanation to \`workflow-state/step-${stepIndex + 1}--${agentId}/error.txt\` using \`write_file\`.\n`;
   ctx += "The workflow engine will detect this file and mark the step as failed.\n\n";
 
   // --- Workflow identity ---
@@ -748,18 +749,24 @@ async function checkAgentErrorFile(
   agentId: string,
   authHeaders: Record<string, string>,
 ): Promise<string | null> {
-  const path = `workflow-state/step-${stepIndex + 1}--${agentId}/error.txt`;
-  try {
-    const res = await fetch(
-      `${DA_SERVER_BASE_URL}/api/v1/files/content?fs_namespace=${encodeURIComponent(JSON.stringify(fsNamespace))}&path=${encodeURIComponent(path)}`,
-      { headers: authHeaders },
-    );
-    if (res.ok) {
-      const body = await res.json();
-      return body?.content || "Agent reported failure (no details)";
+  // Check both with and without leading slash (agents may write either way)
+  const paths = [
+    `workflow-state/step-${stepIndex + 1}--${agentId}/error.txt`,
+    `/workflow-state/step-${stepIndex + 1}--${agentId}/error.txt`,
+  ];
+  for (const path of paths) {
+    try {
+      const res = await fetch(
+        `${DA_SERVER_BASE_URL}/api/v1/files/content?fs_namespace=${encodeURIComponent(JSON.stringify(fsNamespace))}&path=${encodeURIComponent(path)}`,
+        { headers: authHeaders },
+      );
+      if (res.ok) {
+        const body = await res.json();
+        return body?.content || "Agent reported failure (no details)";
+      }
+    } catch {
+      // File not found or network error — continue to next path
     }
-  } catch {
-    // File not found or network error — not an agent error
   }
   return null;
 }
