@@ -761,9 +761,9 @@ def handle_message_events(body, say, client):
 
   channel_config = config.channels[channel_id]
 
-  # Skip threaded user replies (handled by @mention); bots can post in threads
+  # Skip thread replies; only root messages trigger the agent.
   is_thread = event.get("thread_ts") is not None
-  if is_thread and not is_bot:
+  if is_thread:
     return
 
   # Skip @mentions — handled by handle_mention
