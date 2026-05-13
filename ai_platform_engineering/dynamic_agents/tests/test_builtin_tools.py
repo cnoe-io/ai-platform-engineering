@@ -44,10 +44,10 @@ def test_create_curl_tool_blocks_disallowed_domain() -> None:
         importlib.import_module("dynamic_agents.services.builtin_tools"),
         "create_curl_tool",
     )
-    curl_tool = create_curl_tool(allowed_domains="*.example.com")
-    result = curl_tool.invoke({"command": "curl -s https://evil.com/api"})
+    curl_tool = create_curl_tool(allowed_domains="*.allowed.com")
+    result = curl_tool.invoke({"command": "curl -s https://example.com/api"})
     assert "ERROR" in result
-    assert "evil.com" in result
+    assert "example.com" in result
 
 
 def test_create_curl_tool_success() -> None:
