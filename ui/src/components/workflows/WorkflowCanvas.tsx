@@ -584,6 +584,7 @@ function WorkflowCanvasInner({
         isSaving={isSaving}
         isEditing={!!existingConfig}
         stepCount={steps.length}
+        readOnly={existingConfig?.config_driven}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -626,6 +627,7 @@ function WorkflowCanvasInner({
           agents={sidebarAgents}
           agentsLoading={agentsLoading}
           totalSteps={steps.length}
+          readOnly={existingConfig?.config_driven}
         />
       </div>
 

@@ -20,6 +20,7 @@ interface WorkflowToolbarProps {
   isSaving: boolean;
   isEditing: boolean;
   stepCount: number;
+  readOnly?: boolean;
 }
 
 export function WorkflowToolbar({
@@ -36,6 +37,7 @@ export function WorkflowToolbar({
   isSaving,
   isEditing,
   stepCount,
+  readOnly,
 }: WorkflowToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +86,7 @@ export function WorkflowToolbar({
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="Workflow name..."
               className="h-8 text-sm font-semibold"
+              readOnly={readOnly}
             />
           </div>
 
@@ -96,6 +99,7 @@ export function WorkflowToolbar({
               onChange={(e) => onDescriptionChange(e.target.value)}
               placeholder="Description (optional)"
               className="h-8 text-sm"
+              readOnly={readOnly}
             />
           </div>
         </div>
@@ -121,7 +125,7 @@ export function WorkflowToolbar({
               Export
             </Button>
           )}
-          {onImport && (
+          {onImport && !readOnly && (
             <>
               <Button
                 variant="outline"
@@ -143,7 +147,7 @@ export function WorkflowToolbar({
             </>
           )}
 
-          {onDelete && isEditing && (
+          {onDelete && isEditing && !readOnly && (
             <Button
               variant="outline"
               size="sm"
@@ -168,6 +172,7 @@ export function WorkflowToolbar({
             </Button>
           )}
 
+          {!readOnly && (
           <Button
             size="sm"
             onClick={onSave}
@@ -177,6 +182,7 @@ export function WorkflowToolbar({
             <Save className="h-3.5 w-3.5" />
             {isSaving ? "Saving..." : "Save"}
           </Button>
+          )}
         </div>
       </div>
     </div>

@@ -22,6 +22,7 @@ import {
   Filter,
   Search,
   X,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -804,6 +805,9 @@ function WorkflowsTab({
               <span className="text-sm font-medium text-foreground truncate flex-1">
                 {config.name}
               </span>
+              {config.config_driven && (
+                <Lock className="h-3 w-3 text-muted-foreground shrink-0 ml-1" />
+              )}
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
                 <button
                   onClick={(e) => {
@@ -825,6 +829,7 @@ function WorkflowsTab({
                 >
                   <Copy className="h-3 w-3" />
                 </button>
+                {!config.config_driven && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -835,6 +840,7 @@ function WorkflowsTab({
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
+                )}
               </div>
             </div>
             {config.description && (

@@ -67,6 +67,8 @@ export interface WorkflowConfig {
   visibility: WorkflowConfigVisibility;
   /** Team IDs when visibility is "team" */
   shared_with_teams?: string[] | null;
+  /** Whether this workflow was seeded from app-config.yaml (read-only in UI) */
+  config_driven?: boolean;
   /** Creation timestamp */
   created_at: Date | string;
   /** Last update timestamp */

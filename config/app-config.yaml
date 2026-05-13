@@ -74,3 +74,19 @@ agents: []
   #   allowed_tools: {}
   #   subagents: []
   #   enabled: true
+
+# ── Workflow Configs ──────────────────────────────────────────────
+workflow_configs: []
+  # - id: "wf-deploy-pipeline"
+  #   name: "Deploy Pipeline"
+  #   description: "Builds, tests, and deploys the service"
+  #   visibility: "global"
+  #   steps:
+  #     - display_text: "Run unit tests"
+  #       agent_id: "agent-test-runner"
+  #       prompt: "Run all unit tests and report results"
+  #       on_error: "abort"
+  #     - display_text: "Deploy to staging"
+  #       agent_id: "agent-deployer"
+  #       prompt: "Deploy the service to staging using {{ steps[0].output }}"
+  #       on_error: "abort"

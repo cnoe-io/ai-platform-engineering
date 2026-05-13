@@ -50,6 +50,7 @@ interface WorkflowStepSidebarProps {
   agentsLoading: boolean;
   /** Total number of steps in the workflow (for template variable chips) */
   totalSteps: number;
+  readOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +246,7 @@ export function WorkflowStepSidebar({
   agents,
   agentsLoading,
   totalSteps,
+  readOnly,
 }: WorkflowStepSidebarProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [configOverrideJson, setConfigOverrideJson] = useState(
@@ -316,7 +318,7 @@ export function WorkflowStepSidebar({
 
   if (!step) {
     // No steps at all — prompt to add first step
-    if (totalSteps === 0 && onAddStep) {
+    if (totalSteps === 0 && onAddStep && !readOnly) {
       return (
         <div className="w-[624px] border-l border-border bg-card/50 flex items-center justify-center">
           <div className="text-center px-6">
@@ -362,6 +364,7 @@ export function WorkflowStepSidebar({
           className="h-7 gap-1 text-xs text-destructive border-destructive/30 hover:bg-destructive hover:text-destructive-foreground"
           onClick={() => onDelete(stepIndex)}
           title="Delete step"
+          disabled={readOnly}
         >
           <Trash2 className="h-3 w-3" />
            Delete Step

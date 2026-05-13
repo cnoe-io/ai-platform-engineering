@@ -215,6 +215,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (existing.owner_id !== user.email && user.role !== "admin") {
       throw new ApiError("You don't have permission to update this workflow config", 403);
     }
+    if ((existing as any).config_driven) {
+      throw new ApiError("Cannot modify a config-driven workflow. Edit app-config.yaml instead.", 403);
+    }
 
     if (body.steps) {
       validateSteps(body.steps);
@@ -259,6 +262,9 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     }
     if (existing.owner_id !== user.email && user.role !== "admin") {
       throw new ApiError("You don't have permission to delete this workflow config", 403);
+    }
+    if ((existing as any).config_driven) {
+      throw new ApiError("Cannot delete a config-driven workflow. Remove it from app-config.yaml instead.", 403);
     }
 
     await collection.deleteOne({ _id: id as any });
