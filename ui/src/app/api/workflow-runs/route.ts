@@ -127,7 +127,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     name: user.name,
   })).toString("base64");
 
-  const runId = await startWorkflowRun(config, user_context || null, authHeaders, trigger_info || null);
+  // Enrich trigger_info with user context
+  const enrichedTriggerInfo = {
+    ...(trigger_info || {}),
+    triggered_by: trigger_info?.triggered_by || "webui",
+    user: { email: user.email, name: user.name },
+  };
+
+  const runId = await startWorkflowRun(config, user_context || null, authHeaders, enrichedTriggerInfo);
 
   return NextResponse.json({ run_id: runId, status: "running" }, { status: 201 });
 });
