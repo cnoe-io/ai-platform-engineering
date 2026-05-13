@@ -301,9 +301,15 @@ function WorkflowCanvasInner({
   // Node click handler — handles both step selection and "+" button clicks
   // -----------------------------------------------------------------------
 
+  const isReadOnly = !!existingConfig?.config_driven;
+
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
       if (node.type === "addButton") {
+        if (isReadOnly) {
+          toast("This workflow is config-driven and cannot be edited", "warning");
+          return;
+        }
         const insertIndex = (node.data as unknown as AddButtonNodeData).insertIndex;
         markDirty();
         const newStep = createBlankStep();
@@ -319,7 +325,7 @@ function WorkflowCanvasInner({
         setSelectedStepIndex(d.stepIndex);
       }
     },
-    [markDirty],
+    [markDirty, isReadOnly, toast],
   );
 
   // Clicking on the canvas background deselects
@@ -618,7 +624,7 @@ function WorkflowCanvasInner({
           stepIndex={selectedStepIndex}
           onChange={handleStepChange}
           onDelete={handleDeleteStep}
-          onAddStep={() => {
+          onAddStep={isReadOnly ? undefined : () => {
             markDirty();
             const newStep = createBlankStep();
             setSteps((prev) => [...prev, newStep]);
