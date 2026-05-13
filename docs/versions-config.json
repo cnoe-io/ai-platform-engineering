@@ -1,0 +1,20 @@
+{
+  "lastVersion": "0.4.9",
+  "versions": {
+    "current": {
+      "label": "main 🚧",
+      "path": "next",
+      "badge": true
+    },
+    "0.4.9": {
+      "label": "0.4.11 (Latest)",
+      "path": "",
+      "badge": false
+    },
+    "0.4.8": {
+      "label": "0.4.8",
+      "path": "0.4.8",
+      "badge": false
+    }
+  }
+}
