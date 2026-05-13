@@ -1,3 +1,32 @@
+## 0.4.12 (2026-05-13)
+
+### Fix
+
+- **docs**: update Meeting Recordings link to CNOE YouTube channel
+- security fix
+
+## 0.4.11-dev.2 (2026-05-12)
+
+### Feat
+
+- **dynamic-agents**: expose agent id in self identity
+
+## 0.4.11-dev.1 (2026-05-12)
+
+### Feat
+
+- make finops workflow image theme-aware
+- improve litellm finops report exports
+- add litellm finops mcp deployment
+- add litellm mcp server
+- **ci**: do not bump chart versions for ANY PR until approved
+- **ci**: allow manual prebuild trigger for PRs with merge conflicts
+
+### Fix
+
+- **ci**: use local tags for version lookup
+- avoid secret-like litellm examples
+
 ## 0.4.11 (2026-05-12)
 
 ## 0.4.10-dev.4 (2026-05-12)
