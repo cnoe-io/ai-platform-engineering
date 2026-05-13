@@ -31,8 +31,9 @@ import type {
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { isFileToolName, isTodoToolName } from "@/lib/streaming/types";
+import { isFileToolName, isTodoToolName, isWorkflowToolName } from "@/lib/streaming/types";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { WorkflowRunCard } from "./WorkflowRunCard";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -76,6 +77,54 @@ function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Extract workflow run IDs from tool segments that called workflow tools.
+ * Looks at tool result (for start_workflow_run → {run_id}) and args (for get_workflow_run_status → {run_id}).
+ */
+function extractWorkflowRunIds(segments: TimelineSegment[]): { runId: string; workflowConfigId?: string }[] {
+  const seen = new Set<string>();
+  const runs: { runId: string; workflowConfigId?: string }[] = [];
+
+  function extract(tools: ToolInfo[]) {
+    for (const tool of tools) {
+      if (!isWorkflowToolName(tool.name)) continue;
+      let runId: string | undefined;
+      let configId: string | undefined;
+
+      // Try to get run_id from result (start_workflow_run returns it)
+      if (tool.result) {
+        try {
+          const parsed = JSON.parse(tool.result);
+          if (parsed.run_id) runId = parsed.run_id;
+          if (parsed.workflow_config_id) configId = parsed.workflow_config_id;
+        } catch { /* not JSON */ }
+      }
+      // Also check args (get_workflow_run_status passes run_id as arg)
+      if (!runId && tool.args) {
+        if (typeof tool.args.run_id === "string") runId = tool.args.run_id;
+        if (typeof tool.args.workflow_config_id === "string") configId = tool.args.workflow_config_id;
+      }
+
+      if (runId && !seen.has(runId)) {
+        seen.add(runId);
+        runs.push({ runId, workflowConfigId: configId });
+      }
+    }
+  }
+
+  for (const segment of segments) {
+    if (segment.type === "tool") extract([segment.data]);
+    if (segment.type === "tool-group") extract(segment.tools);
+    if (segment.type === "subagent") {
+      const nested = extractWorkflowRunIds(segment.segments);
+      for (const r of nested) {
+        if (!seen.has(r.runId)) { seen.add(r.runId); runs.push(r); }
+      }
+    }
+  }
+  return runs;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -204,6 +253,8 @@ export function AgentTimeline({
   // Determine if tasks/files sections will actually be shown
   const showTasksSection = tasks.length > 0 && hasTodoToolsInSegments(segments) && (isStreaming || tasks.some(t => t.status !== "completed"));
   const showFilesSection = files.length > 0 && hasFileToolsInSegments(segments);
+  const workflowRuns = extractWorkflowRunIds(segments);
+  const showWorkflowSection = workflowRuns.length > 0;
 
   // Check if we have meaningful timeline segments (tools, subagents, content, warnings, errors)
   // "done" and "status" segments don't count - they're just markers
@@ -221,7 +272,7 @@ export function AgentTimeline({
   const showFinalAnswerOutside = !isStreaming && finalAnswer;
 
   // If there's nothing to show at all, render nothing
-  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection;
+  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection || showWorkflowSection;
 
   // If streaming but nothing to show yet, show thinking indicator
   if (isStreaming && !hasAnythingToShow) {
@@ -324,6 +375,11 @@ export function AgentTimeline({
             isDeleting={isDeletingFile}
             deletingPath={deletingFilePath}
           />
+        )}
+
+        {/* Workflow runs section */}
+        {showWorkflowSection && (
+          <WorkflowRunCard runs={workflowRuns} />
         )}
 
         {/* Final answer - only shown after streaming completes */}

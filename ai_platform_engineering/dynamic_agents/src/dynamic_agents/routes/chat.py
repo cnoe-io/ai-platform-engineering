@@ -477,9 +477,7 @@ async def cancel_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    logger.info(
-        f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
-    )
+    logger.info(f"[cancel] Cancel request received: agent={request.agent_id}, user={user.email}")
 
     # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)

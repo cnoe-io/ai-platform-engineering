@@ -2,13 +2,19 @@
 
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import { useParams } from "next/navigation";
-import { CheckCircle2, XCircle, Loader2, Clock, MessageSquare, FolderOpen } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { CheckCircle2, XCircle, Loader2, Clock, MessageSquare, FolderOpen, Info } from "lucide-react";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { WorkflowRunTimeline } from "@/components/workflows/WorkflowRunTimeline";
 import { WorkflowProgressMap } from "@/components/workflows/WorkflowProgressMap";
 import { useWorkflowExecStore } from "@/store/workflow-exec-store";
 import type { WfRunStatus } from "@/store/workflow-exec-store";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const RUN_STATUS_CONFIG: Record<WfRunStatus, { label: string; color: string; icon: React.ReactNode }> = {
   pending: { label: "Pending", color: "text-muted-foreground bg-muted/50", icon: <Clock className="h-4 w-4" /> },
@@ -131,10 +137,24 @@ export default function WorkflowRunPage() {
           </span>
         </div>
         {run?.started_at && (
-          <span className="text-xs text-muted-foreground">
-            Started: {new Date(run.started_at).toLocaleString()}
+          <span className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+            <span>Started {formatRelativeTime(run.started_at)}</span>
             {run.completed_at && (
-              <> | Completed: {new Date(run.completed_at).toLocaleString()}</>
+              <span>| Completed {formatRelativeTime(run.completed_at)}</span>
+            )}
+            {run.trigger_info?.triggered_by && (
+              <span className="inline-flex items-center gap-1">
+                | Triggered by: <span className="font-medium">{run.trigger_info.triggered_by}</span>
+                <span className="relative group">
+                  <Info className="h-3 w-3 text-muted-foreground/60 cursor-help" />
+                  <div className="hidden group-hover:block absolute top-full right-0 mt-1 z-50 w-[28rem] p-4 bg-popover border border-border rounded-md shadow-lg">
+                    <p className="text-xs font-semibold text-foreground mb-2">Trigger Information</p>
+                    <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed text-muted-foreground overflow-auto max-h-72">
+{JSON.stringify(run.trigger_info, null, 2)}
+                    </pre>
+                  </div>
+                </span>
+              </span>
             )}
           </span>
         )}

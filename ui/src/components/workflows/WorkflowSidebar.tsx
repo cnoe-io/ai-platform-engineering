@@ -50,7 +50,7 @@ import {
   type WfRunStatus,
 } from "@/store/workflow-exec-store";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import type { WorkflowConfig } from "@/types/workflow-config";
 
 // ---------------------------------------------------------------------------
@@ -91,16 +91,6 @@ const STATUS_COLOR: Record<WfRunStatus, string> = {
   failed: "border-red-500/40 text-red-500",
 };
 
-function formatTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 // Animation variants — horizontal slide only, no vertical shift
 const tabContentVariants = {
@@ -1020,7 +1010,7 @@ function RunsTab({
                 <span>
                   {completedSteps}/{run.steps.length} steps
                 </span>
-                {run.started_at && <span>{formatTimeAgo(run.started_at)}</span>}
+                {run.started_at && <span>{formatRelativeTime(run.started_at)}</span>}
               </div>
             </div>
             <button

@@ -54,6 +54,11 @@ export interface WorkflowStepRun {
   interrupt: ConsumeResult["interrupt"] | null;
 }
 
+export interface WorkflowRunTriggerInfo {
+  triggered_by: "agent" | "webui" | string;
+  context?: Record<string, unknown>;
+}
+
 export interface WorkflowRunDocument {
   _id: string;
   workflow_config_id: string;
@@ -61,6 +66,7 @@ export interface WorkflowRunDocument {
   steps: WorkflowStepRun[];
   current_step_index: number;
   user_context: string | null;
+  trigger_info?: WorkflowRunTriggerInfo | null;
   started_at: Date;
   completed_at: Date | null;
 }
@@ -87,6 +93,7 @@ export async function startWorkflowRun(
   config: WorkflowConfig,
   userContext: string | null,
   authHeaders: Record<string, string>,
+  triggerInfo?: WorkflowRunTriggerInfo | null,
 ): Promise<string> {
   const runId = generateRunId();
   const flatSteps = flattenStepEntries(config.steps);
@@ -113,6 +120,7 @@ export async function startWorkflowRun(
     steps: stepRuns,
     current_step_index: 0,
     user_context: userContext,
+    trigger_info: triggerInfo || null,
     started_at: new Date(),
     completed_at: null,
   };

@@ -37,6 +37,7 @@ import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
+import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
 import { gradientThemes } from "@/lib/gradient-themes";
 import { AgentAvatar } from "./AgentAvatar";
 
@@ -218,6 +219,7 @@ function AdvancedStep({
   setInterruptOn,
   allowedTools,
   builtinTools,
+  setBuiltinTools,
   features,
   setFeatures,
   availableModels,
@@ -232,6 +234,7 @@ function AdvancedStep({
   setInterruptOn: (v: InterruptOn) => void;
   allowedTools: Record<string, string[]>;
   builtinTools?: BuiltinToolsConfig;
+  setBuiltinTools: (v: BuiltinToolsConfig) => void;
   features: FeaturesConfig | undefined;
   setFeatures: (v: FeaturesConfig | undefined) => void;
   availableModels: { model_id: string; name: string; provider: string }[];
@@ -243,6 +246,7 @@ function AdvancedStep({
     (sum, tools) => sum + Object.keys(tools).length, 0
   );
   const middlewareCount = features?.middleware?.length ?? 0;
+  const workflowCount = builtinTools?.workflows?.length ?? 0;
 
   return (
     <div className="space-y-4 pt-2">
@@ -290,6 +294,24 @@ function AdvancedStep({
           disabled={loading}
           availableModels={availableModels}
           onError={setMiddlewareError}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Workflows"
+        description="Allow this agent to trigger and monitor workflows"
+        badge={`${workflowCount} workflow${workflowCount !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <WorkflowToolsPicker
+          value={builtinTools?.workflows ?? []}
+          onChange={(ids) => {
+            setBuiltinTools({
+              ...builtinTools,
+              workflows: ids.length > 0 ? ids : undefined,
+            } as BuiltinToolsConfig);
+          }}
+          disabled={loading}
         />
       </CollapsibleSection>
     </div>
@@ -1591,6 +1613,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               setInterruptOn={setInterruptOn}
               allowedTools={allowedTools}
               builtinTools={builtinTools}
+              setBuiltinTools={(v) => setBuiltinTools(v)}
               features={features}
               setFeatures={setFeatures}
               availableModels={availableModels}

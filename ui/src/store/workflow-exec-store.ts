@@ -67,6 +67,7 @@ export interface WfRun {
   current_step_index?: number | null;
   steps: WfStepRun[];
   user_context?: string | null;
+  trigger_info?: { triggered_by: string; context?: Record<string, unknown> } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +145,10 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
   executeWorkflow: async (workflowConfigId, userContext) => {
     set({ isLoading: true, error: null, run: null, stepEvents: {} });
     try {
-      const body: Record<string, unknown> = { workflow_config_id: workflowConfigId };
+      const body: Record<string, unknown> = {
+        workflow_config_id: workflowConfigId,
+        trigger_info: { triggered_by: "webui" },
+      };
       if (userContext) body.user_context = userContext;
 
       const res = await fetch("/api/workflow-runs", {

@@ -43,6 +43,7 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    WorkflowApiClient,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_format_file_tool,
@@ -50,6 +51,7 @@ from dynamic_agents.services.builtin_tools import (
     create_self_identity_tool,
     create_user_info_tool,
     create_wait_tool,
+    create_workflow_tools,
 )
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
@@ -235,6 +237,10 @@ class AgentRuntime:
         self._failed_servers_error: str = ""  # Error message for display
         self._failed_skills: list[str] = []  # Skill IDs that failed to load
         self._failed_skills_error: str = ""  # Error message for display
+        self._failed_workflows: list[str] = []  # Workflow config IDs not found
+        self._failed_workflows_error: str = ""  # Error message for display
+        self._valid_workflow_configs: list[str] = []  # Validated workflow config IDs
+        self._workflow_prompt_addendum: str = ""  # System prompt addendum with workflow info
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
         self._mcp_servers_updated_at: datetime = max(
@@ -437,6 +443,73 @@ class AgentRuntime:
                 self._failed_skills = list(self.config.skills)
                 self._failed_skills_error = f"Skills loading failed: {e}"
 
+        # 8. Workflows — validate configured workflow IDs against MongoDB
+        if self.config.builtin_tools and self.config.builtin_tools.workflows:
+            try:
+                mongo_client = self._mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
+                db = mongo_client[self.settings.mongodb_database]
+                wf_col = db["workflow_configs"]
+                requested_ids = list(self.config.builtin_tools.workflows)
+                found_docs = list(
+                    wf_col.find({"_id": {"$in": requested_ids}}, {"_id": 1, "name": 1, "description": 1, "steps": 1})
+                )
+                found_ids = {doc["_id"] for doc in found_docs}
+                missing = [wid for wid in requested_ids if wid not in found_ids]
+                if missing:
+                    self._failed_workflows = missing
+                    self._failed_workflows_error = f"Workflow config IDs not found in database: {', '.join(missing)}"
+                    logger.warning(f"Agent '{self.config.name}': {self._failed_workflows_error}")
+                self._valid_workflow_configs = [wid for wid in requested_ids if wid in found_ids]
+                # Build system prompt addendum with workflow details
+                if found_docs:
+                    lines = ["\n\n## Available Workflows\n"]
+                    lines.append("You have access to workflow tools. The following workflows are available:\n")
+                    for doc in found_docs:
+                        name = doc.get("name", doc["_id"])
+                        desc = doc.get("description", "No description")
+                        steps = doc.get("steps", [])
+                        step_summary = ", ".join(
+                            f"{i + 1}. {s.get('agent_name', 'unknown agent')}" for i, s in enumerate(steps)
+                        )
+                        lines.append(f"- **{name}** (`{doc['_id']}`): {desc}")
+                        if step_summary:
+                            lines.append(f"  Steps: {step_summary}")
+                    lines.append(
+                        "\nUse `start_workflow_run` to trigger a workflow, `list_workflow_runs` to see past runs, and `get_workflow_run_status` to check progress."
+                    )
+                    self._workflow_prompt_addendum = "\n".join(lines)
+            except Exception as e:
+                logger.warning(f"Agent '{self.config.name}': failed to validate workflow configs: {e}", exc_info=True)
+                self._failed_workflows = list(self.config.builtin_tools.workflows)
+                self._failed_workflows_error = f"Workflow validation failed: {e}"
+
+        # 8b. Add workflow tools (must be after validation populates _valid_workflow_configs)
+        if self._valid_workflow_configs:
+            client = WorkflowApiClient(
+                base_url=self.settings.caipe_api_url,
+                token_url=self.settings.oauth2_token_url,
+                client_id=self.settings.oauth2_client_id,
+                client_secret=self.settings.oauth2_client_secret,
+                scope=self.settings.oauth2_scope,
+                audience=self.settings.oauth2_audience,
+            )
+            wf_tools = create_workflow_tools(
+                client,
+                self._valid_workflow_configs,
+                trigger_context={
+                    "agent_name": self.config.name,
+                    "agent_id": self.config.id,
+                    "conv_id": self._session_id,
+                    "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
+                    "client_context": self._client_context.model_dump() if self._client_context else None,
+                },
+            )
+            tools.extend(wf_tools)
+            logger.info(
+                f"Agent '{self.config.name}': added {len(wf_tools)} workflow tools "
+                f"for workflows: {self._valid_workflow_configs}"
+            )
+
         # 9. Build middleware stack
         middleware_stack = build_middleware(
             self.config.features,
@@ -450,6 +523,10 @@ class AgentRuntime:
 
         # 10. Interrupt config
         interrupt_config = self._build_interrupt_config(tools, builtin_tool_names)
+
+        # 10b. Append workflow details to system prompt (after section 8 validates workflows)
+        if self._workflow_prompt_addendum:
+            system_prompt += self._workflow_prompt_addendum
 
         # 11. Create agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
@@ -873,7 +950,7 @@ class AgentRuntime:
 
         logger.info(
             f"[stream] Starting stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"agent_id={self.config.id}, user={user_id}, "
             f"user_context={self._user}, client_context={self._client_context}"
         )
 
@@ -895,6 +972,13 @@ class AgentRuntime:
             ):
                 yield frame
 
+        if self._failed_workflows:
+            for frame in encoder.on_warning(
+                f"{len(self._failed_workflows)} workflow(s) not found: {', '.join(self._failed_workflows)}. "
+                f"{self._failed_workflows_error}",
+            ):
+                yield frame
+
         # ── Core lifecycle: chunks ──
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
@@ -908,10 +992,7 @@ class AgentRuntime:
             subgraphs=True,
         ):
             if self._cancelled:
-                logger.info(
-                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
-                    f"conv={session_id}, user={user_id}"
-                )
+                logger.info(f"[stream] Stream cancelled by user for agent '{self.config.name}': user={user_id}")
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "stream", turn_status)
                 return
@@ -937,7 +1018,7 @@ class AgentRuntime:
         # ── Core lifecycle: run finish ──
         logger.info(
             f"[stream] Completed stream for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
+            f"content_length={len(encoder.get_accumulated_content())}"
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
@@ -1203,7 +1284,7 @@ class AgentRuntime:
 
         logger.info(
             f"[resume] Resuming stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"agent_id={self.config.id}, user={user_id}, "
             f"user_context={self._user}, client_context={self._client_context}"
         )
 
@@ -1224,9 +1305,7 @@ class AgentRuntime:
             subgraphs=True,
         ):
             if self._cancelled:
-                logger.info(
-                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
-                )
+                logger.info(f"[resume] Resume stream cancelled by user for agent '{self.config.name}'")
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "resume", turn_status)
                 return
@@ -1250,7 +1329,7 @@ class AgentRuntime:
         # ── Core lifecycle: run finish ──
         logger.info(
             f"[resume] Completed resume for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
+            f"content_length={len(encoder.get_accumulated_content())}"
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame

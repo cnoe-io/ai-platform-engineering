@@ -103,7 +103,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   const { user } = await getAuthFromBearerOrSession(request);
   const body = await request.json();
-  const { workflow_config_id, user_context } = body;
+  const { workflow_config_id, user_context, trigger_info } = body;
 
   if (!workflow_config_id) {
     throw new ApiError("workflow_config_id is required", 400);
@@ -127,7 +127,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     name: user.name,
   })).toString("base64");
 
-  const runId = await startWorkflowRun(config, user_context || null, authHeaders);
+  const runId = await startWorkflowRun(config, user_context || null, authHeaders, trigger_info || null);
 
   return NextResponse.json({ run_id: runId, status: "running" }, { status: 201 });
 });
@@ -171,18 +171,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   // Legacy: list runs for user
-  return await withAuth(request, async (_req, user) => {
-    // Fire-and-forget cleanup of expired runs
-    cleanupExpiredRuns().catch(() => {});
+  // Fire-and-forget cleanup of expired runs
+  cleanupExpiredRuns().catch(() => {});
 
-    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
-    const runs = await col
-      .find({})
-      .sort({ started_at: -1 })
-      .limit(100)
-      .toArray();
-    return NextResponse.json(runs) as NextResponse;
-  });
+  const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+  const filter: Record<string, unknown> = {};
+  const workflowConfigId = searchParams.get("workflow_config_id");
+  if (workflowConfigId) {
+    filter.workflow_config_id = workflowConfigId;
+  }
+  const runs = await col
+    .find(filter)
+    .sort({ started_at: -1 })
+    .limit(100)
+    .toArray();
+  return NextResponse.json(runs) as NextResponse;
 });
 
 // ═══════════════════════════════════════════════════════════════

@@ -139,6 +139,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }

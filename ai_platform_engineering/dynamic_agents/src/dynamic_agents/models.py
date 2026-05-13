@@ -297,6 +297,11 @@ class BuiltinToolsConfig(BaseModel):
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
     )
+    workflows: list[str] | None = Field(
+        None,
+        description="List of workflow config IDs this agent can interact with. "
+        "When set, adds list_workflow_runs, get_workflow_run_status, and start_workflow_run tools.",
+    )
 
     @model_validator(mode="before")
     @classmethod
