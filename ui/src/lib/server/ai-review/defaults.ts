@@ -197,8 +197,8 @@ export interface ReviewTargetMeta {
 export const REVIEW_TARGETS: ReviewTargetMeta[] = [
   {
     target: "agent-system-prompt",
-    label: "Dynamic agent system prompt",
-    hint: "Used by the Dynamic Agent editor's Instructions step.",
+    label: "Agent system prompt",
+    hint: "Used by the Agent editor's Instructions step.",
     criteria: AGENT_SYSTEM_PROMPT_CRITERIA,
   },
   {

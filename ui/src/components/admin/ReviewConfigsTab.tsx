@@ -28,8 +28,8 @@ interface TargetTab {
 const TARGETS: TargetTab[] = [
   {
     target: "agent-system-prompt",
-    label: "Dynamic agents",
-    hint: "Used by the Dynamic Agent editor's Instructions step.",
+    label: "Agents",
+    hint: "Used by the Agent editor's Instructions step.",
     icon: Bot,
   },
   {
