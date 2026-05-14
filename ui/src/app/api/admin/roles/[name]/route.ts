@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   getRoleByName,
@@ -16,8 +16,8 @@ export const GET = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ name: string }> }
 ) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
 
     const params = await context.params;
     const roleName = decodeURIComponent(params.name);
@@ -32,15 +32,14 @@ export const GET = withErrorHandler(async (
     );
 
     return successResponse({ role });
-  });
 });
 
 export const DELETE = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ name: string }> }
 ) => {
-  return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const params = await context.params;
     const roleName = decodeURIComponent(params.name);
@@ -56,5 +55,4 @@ export const DELETE = withErrorHandler(async (
     );
 
     return successResponse({ message: "Role deleted successfully" });
-  });
 });

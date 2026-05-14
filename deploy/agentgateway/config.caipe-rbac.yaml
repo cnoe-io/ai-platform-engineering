@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Host-specific Agent Gateway configuration for https://caipe-rbac.outshift.io.
+# The JWKS endpoint stays Docker-internal, but the expected JWT issuer must
+# match the browser-facing Keycloak issuer embedded in tokens.
+
+binds:
+- port: 4000
+  listeners:
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: https://caipe-rbac.outshift.io/realms/caipe
+        audiences: [caipe-platform, agentgateway]
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode:
+            denyWithStatus: 403
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub}'
+        authorization:
+          rules:
+          - allow: 'true'
+      backends:
+      -
+        mcp:
+          targets:
+          - name: rag
+            mcp:
+              host: http://rag-server:9446/mcp
+          - name: jira
+            mcp:
+              host: http://mcp-jira:8000/mcp
+
+config:
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: debug
+    format: json

@@ -605,7 +605,7 @@ describe('POST /api/admin/migrate-conversations', () => {
     const res = await POST(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('requires admin access');
+    expect(body.error).toBe('You do not have permission to perform this action.');
   });
 
   it('returns 503 when MongoDB not configured', async () => {

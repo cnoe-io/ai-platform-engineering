@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
   requireRbacPermission,
@@ -50,8 +50,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    await requireRbacPermission(session, 'admin_ui', 'view');
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
+
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
 
@@ -837,5 +838,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...(slack ? { slack } : {}),
       available_channels: availableChannels.sort(),
     });
-  });
 });

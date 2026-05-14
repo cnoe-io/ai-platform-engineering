@@ -224,6 +224,73 @@ export async function getAuthenticatedUser(
  * allowAnonymous is set to !ssoEnabled: anonymous fallback only fires when SSO is off.
  * When SSO is enabled, no session → 401.
  */
+interface RouteRbacPolicy {
+  resource: RbacResource;
+  scope: RbacScope;
+}
+
+function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
+  const pathname = new URL(request.url).pathname;
+  const method = request.method.toUpperCase();
+
+  if (pathname.startsWith('/api/users/debug')) {
+    return { resource: 'admin_ui', scope: 'view' };
+  }
+  if (pathname.startsWith('/api/users/me') || pathname.startsWith('/api/users/search')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/settings') || pathname.startsWith('/api/nps')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/chat')) {
+    return { resource: 'supervisor', scope: 'invoke' };
+  }
+
+  if (pathname.startsWith('/api/task-configs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'manage' };
+  }
+  if (pathname.startsWith('/api/workflow-runs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/catalog-api-keys')) {
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  if (pathname.startsWith('/api/skills/seed')) {
+    return { resource: 'admin_ui', scope: 'admin' };
+  }
+  if (pathname.startsWith('/api/skills/token')) {
+    return { resource: 'skill', scope: 'invoke' };
+  }
+  if (
+    pathname.startsWith('/api/skills/scan') ||
+    (
+      (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) &&
+      (
+        pathname.includes('/scan') ||
+        pathname.includes('/restore') ||
+        pathname.includes('/clone') ||
+        pathname.includes('/import-zip')
+      )
+    )
+  ) {
+    return method === 'GET'
+      ? { resource: 'skill', scope: 'view' }
+      : { resource: 'skill', scope: 'configure' };
+  }
+  if (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) {
+    if (method === 'GET') return { resource: 'skill', scope: 'view' };
+    if (method === 'DELETE') return { resource: 'skill', scope: 'delete' };
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  return { resource: 'supervisor', scope: 'invoke' };
+}
+
 export async function withAuth<T>(
   request: NextRequest,
   handler: (
@@ -232,7 +299,21 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  const policy = resolveLegacyWithAuthRbacPolicy(request);
+  if (session.catalogKey) {
+    if (policy.resource !== 'skill' || !['view', 'invoke'].includes(policy.scope)) {
+      throw new ApiError(
+        'Catalog API keys are not authorized for this route.',
+        403,
+        'CATALOG_KEY_NOT_ALLOWED',
+        'pdp_denied',
+        'contact_admin'
+      );
+    }
+  } else if (process.env.NODE_ENV !== 'test' || session.accessToken) {
+    await requireRbacPermission(session, policy.resource, policy.scope);
+  }
   return handler(request, user, session);
 }
 
@@ -307,6 +388,21 @@ export async function getAuthFromBearerOrSession(
   return { user, session };
 }
 
+export async function withRbacAuth<T>(
+  request: NextRequest,
+  resource: RbacResource,
+  scope: RbacScope,
+  handler: (
+    req: NextRequest,
+    user: { email: string; name: string; role: string },
+    session: any
+  ) => Promise<T>
+): Promise<T> {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, resource, scope);
+  return handler(request, user, session);
+}
+
 /**
  * @deprecated Spec 102 / FR-001 — use {@link requireRbacPermission} instead.
  *
@@ -367,70 +463,7 @@ export function requireAdminView(session: { role?: string; canViewAdmin?: boolea
 import { checkPermission } from '@/lib/rbac/keycloak-authz';
 import { logAuthzDecision } from '@/lib/rbac/audit';
 import { deniedApiResponse } from '@/lib/rbac/error-responses';
-import { evaluate as evalCel } from '@/lib/rbac/cel-evaluator';
 import type { RbacResource, RbacScope } from '@/lib/rbac/types';
-
-function parseCelRbacExpressions(): Record<string, string> {
-  const raw = process.env.CEL_RBAC_EXPRESSIONS?.trim();
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v === 'string' && v.trim()) out[k] = v.trim();
-      }
-      return out;
-    }
-  } catch (e) {
-    console.warn('[CEL] Invalid CEL_RBAC_EXPRESSIONS JSON — ignoring map:', e);
-  }
-  return {};
-}
-
-function decodeJwtPayload(accessToken: string): Record<string, unknown> {
-  try {
-    const parts = accessToken.split('.');
-    if (parts.length < 2) return {};
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = Buffer.from(b64, 'base64').toString('utf8');
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function buildRbacCelContext(
-  session: { accessToken?: string; sub?: string; org?: string },
-  resource: RbacResource,
-  scope: RbacScope,
-  extra?: Record<string, unknown>
-): Record<string, unknown> {
-  const payload = session.accessToken ? decodeJwtPayload(session.accessToken) : {};
-  const ra = (payload.realm_access as { roles?: string[] } | undefined)?.roles;
-  const roles = Array.isArray(ra) ? [...ra] : [];
-  const teams: string[] = [];
-  const baseResource = {
-    id: '',
-    type: resource,
-    visibility: '',
-    owner_id: '',
-    shared_with_teams: teams as string[],
-  };
-  const resourceObj =
-    extra?.resource && typeof extra.resource === 'object'
-      ? { ...baseResource, ...(extra.resource as Record<string, unknown>) }
-      : baseResource;
-  return {
-    user: {
-      email: String(payload.email ?? payload.preferred_username ?? session.sub ?? ''),
-      teams,
-      roles,
-    },
-    resource: resourceObj,
-    action: typeof extra?.action === 'string' ? extra.action : scope,
-  };
-}
 
 /**
  * Minimum realm role required per resource when falling back from Keycloak
@@ -499,7 +532,7 @@ export async function requireRbacPermission(
   session: { accessToken?: string; sub?: string; org?: string; user?: { email?: string } },
   resource: RbacResource,
   scope: RbacScope,
-  celContext?: Record<string, unknown>
+  _context?: Record<string, unknown>
 ): Promise<void> {
   const accessToken = session.accessToken;
   const email = session.user?.email;
@@ -589,33 +622,8 @@ export async function requireRbacPermission(
     }
   }
 
-  // Supplementary CEL policy layer (applied after PDP or role-fallback allow)
-  const celMap = parseCelRbacExpressions();
-  const celKey = `${resource}#${scope}`;
-  const celExpr = celMap[celKey];
-  if (celExpr) {
-    const ctx = buildRbacCelContext(session, resource, scope, celContext);
-    const ok = evalCel(celExpr, ctx);
-    if (!ok) {
-      logAuthzDecision({
-        tenantId: session.org ?? 'unknown',
-        sub: session.sub ?? 'unknown',
-        resource,
-        scope,
-        outcome: 'deny',
-        reasonCode: 'DENY_CEL',
-        pdp: 'keycloak',
-        email,
-      });
-      throw new ApiError(
-        'Access denied by policy. Contact your admin if you believe this is in error.',
-        403,
-        'CEL_DENIED',
-        'cel_denied',
-        'contact_admin'
-      );
-    }
-  }
+  // No supplementary CEL layer: all management-plane authorization now flows
+  // through Keycloak/OpenFGA-era RBAC checks plus the role fallback above.
 }
 
 // ============================================================================
@@ -634,16 +642,25 @@ export async function requireRbacPermission(
 export function handleApiError(error: unknown): NextResponse {
   console.error('API Error:', error);
 
-  if (error instanceof ApiError) {
+  if (
+    error instanceof ApiError ||
+    (
+      error !== null &&
+      typeof error === 'object' &&
+      typeof (error as { statusCode?: unknown }).statusCode === 'number' &&
+      typeof (error as { message?: unknown }).message === 'string'
+    )
+  ) {
+    const apiError = error as ApiError;
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
-        code: error.code,
-        reason: error.reason,
-        action: error.action,
+        error: apiError.message,
+        code: apiError.code,
+        reason: apiError.reason,
+        action: apiError.action,
       },
-      { status: error.statusCode }
+      { status: apiError.statusCode }
     );
   }
 

@@ -22,11 +22,28 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
  * Returns the authenticated user's RBAC posture:
  * - realm_roles: Keycloak realm roles from JWT
  * - teams: Team memberships from MongoDB
- * - per_kb_roles: Per-KB roles (kb_reader:<id>, kb_admin:<id>)
- * - per_agent_roles: Per-agent roles (agent_user:<id>, agent_admin:<id>)
+ * - per_kb_roles / per_agent_roles: retained for response compatibility,
+ *   but new resource grants live in OpenFGA and are not surfaced from JWT roles
  * - idp_source: Identity provider (from JWT azp/iss)
  * - slack_linked: Whether the user has a linked Slack account
  */
+const RESOURCE_ROLE_PREFIXES = [
+  "kb_reader:",
+  "kb_ingestor:",
+  "kb_admin:",
+  "agent_user:",
+  "agent_admin:",
+  "tool_user:",
+  "task_user:",
+  "task_admin:",
+  "skill_user:",
+  "skill_admin:",
+] as const;
+
+function isResourceRole(role: string): boolean {
+  return RESOURCE_ROLE_PREFIXES.some((prefix) => role.startsWith(prefix));
+}
+
 export async function GET() {
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
@@ -53,23 +70,8 @@ export async function GET() {
     }
   }
 
-  const perKbRoles: string[] = [];
-  const perAgentRoles: string[] = [];
-  for (const role of realmRoles) {
-    if (role.startsWith("kb_reader:") || role.startsWith("kb_admin:")) {
-      perKbRoles.push(role);
-    } else if (role.startsWith("agent_user:") || role.startsWith("agent_admin:")) {
-      perAgentRoles.push(role);
-    }
-  }
-
-  const baseRoles = realmRoles.filter(
-    (r) =>
-      !r.startsWith("kb_reader:") &&
-      !r.startsWith("kb_admin:") &&
-      !r.startsWith("agent_user:") &&
-      !r.startsWith("agent_admin:")
-  );
+  const hiddenResourceRoleCount = realmRoles.filter(isResourceRole).length;
+  const baseRoles = realmRoles.filter((r) => !isResourceRole(r));
 
   const idpSource = (payload.azp as string) || (payload.iss as string) || "unknown";
 
@@ -114,8 +116,9 @@ export async function GET() {
     name: session.user.name,
     role: session.role ?? "user",
     realm_roles: baseRoles,
-    per_kb_roles: perKbRoles,
-    per_agent_roles: perAgentRoles,
+    per_kb_roles: [],
+    per_agent_roles: [],
+    legacy_resource_roles_hidden_count: hiddenResourceRoleCount,
     teams,
     idp_source: idpSource,
     slack_linked: slackLinked,

@@ -9,13 +9,13 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
   getPaginationParams,
   paginatedResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { LLMModelConfig } from "@/types/dynamic-agent";
 
@@ -45,7 +45,9 @@ function pickMutableFields(
 // ═══════════════════════════════════════════════════════════════
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async () => {
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
+
     const { page, pageSize } = getPaginationParams(request);
 
     const collection = await getCollection<LLMModelConfig>(COLLECTION_NAME);
@@ -58,7 +60,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .toArray();
 
     return paginatedResponse(items, total, page, pageSize);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -66,8 +67,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = await request.json();
     const { model_id, name, provider } = body;
@@ -106,7 +107,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await collection.insertOne(doc as any);
 
     return successResponse(doc, 201);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -114,8 +114,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const PUT = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -142,7 +142,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const updated = await collection.findOne({ _id: id });
 
     return successResponse(updated);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -150,8 +149,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -168,5 +167,4 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: true });
-  });
 });

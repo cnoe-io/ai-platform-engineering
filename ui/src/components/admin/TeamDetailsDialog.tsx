@@ -32,6 +32,7 @@ import {
   Search,
 } from "lucide-react";
 import type { Team, TeamMember } from "@/types/teams";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
 import { MultiSelect } from "@/components/ui/multi-select";
 
@@ -69,13 +70,11 @@ interface TeamSlackChannel {
   slack_channel_id: string;
   channel_name: string;
   slack_workspace_id?: string;
-  bound_agent_id: string | null;
 }
 
 interface SlackChannelsPayload {
   team_id: string;
   channels: TeamSlackChannel[];
-  available_agents: ResourceOption[];
 }
 
 interface DiscoveredSlackChannel {
@@ -125,6 +124,20 @@ function getRoleBadgeVariant(role: string) {
     default:
       return "outline" as const;
   }
+}
+
+function getSourceLabel(source: TeamMembershipSource): string {
+  if (source.source_type === "manual") return "Manual";
+  if (source.source_type === "oidc_claim") return "OIDC claim";
+  if (source.source_type === "active_directory") return "AD";
+  if (source.source_type === "okta") return "Okta";
+  return source.source_type.replace(/_/g, " ");
+}
+
+function getSourceBadgeVariant(source: TeamMembershipSource) {
+  if (source.status === "active" && source.source_type === "manual") return "secondary" as const;
+  if (source.status === "active") return "outline" as const;
+  return "destructive" as const;
 }
 
 export function TeamDetailsDialog({
@@ -188,6 +201,7 @@ export function TeamDetailsDialog({
 
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
+  const [membershipSources, setMembershipSources] = useState<TeamMembershipSource[]>([]);
 
   useEffect(() => {
     if (open && team) {
@@ -212,8 +226,32 @@ export function TeamDetailsDialog({
       setDiscoveryMemberOnly(true);
       setManualChannelId("");
       setManualChannelName("");
+      setMembershipSources(team.membership_sources ?? []);
     }
   }, [open, team, mode]);
+
+  useEffect(() => {
+    if (!open || activeMode !== "members" || !currentTeam?._id) return;
+    let cancelled = false;
+    fetch(`/api/admin/identity-group-sync/teams/${currentTeam._id}/membership-sources`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || "Failed to load membership sources");
+        }
+        if (!cancelled) {
+          setMembershipSources((data.data?.sources ?? []) as TeamMembershipSource[]);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load membership sources");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeMode, currentTeam?._id]);
 
   // Spec 104 — load the resources catalog the first time the user opens
   // the tab for a given team. We refetch on every open of the tab so the
@@ -426,7 +464,6 @@ export function TeamDetailsDialog({
           slack_channel_id: c.id,
           channel_name: c.name,
           slack_workspace_id: "unknown",
-          bound_agent_id: null,
         },
       ];
     });
@@ -444,7 +481,6 @@ export function TeamDetailsDialog({
           slack_channel_id: id,
           channel_name: name,
           slack_workspace_id: "unknown",
-          bound_agent_id: null,
         },
       ];
     });
@@ -454,14 +490,6 @@ export function TeamDetailsDialog({
 
   const handleRemoveChannel = (id: string) => {
     setEditedChannels((prev) => prev.filter((c) => c.slack_channel_id !== id));
-  };
-
-  const handleBindAgentChange = (channelId: string, agentId: string | null) => {
-    setEditedChannels((prev) =>
-      prev.map((c) =>
-        c.slack_channel_id === channelId ? { ...c, bound_agent_id: agentId } : c
-      )
-    );
   };
 
   const handleSaveChannels = async () => {
@@ -684,6 +712,16 @@ export function TeamDetailsDialog({
   if (!currentTeam) return null;
 
   const members = currentTeam.members || [];
+  const sourcesByMember = membershipSources.reduce<Record<string, TeamMembershipSource[]>>(
+    (acc, source) => {
+      const key = (source.user_email ?? source.user_subject ?? "").toLowerCase();
+      if (!key) return acc;
+      acc[key] = acc[key] ?? [];
+      acc[key].push(source);
+      return acc;
+    },
+    {}
+  );
   const sortedMembers = [...members].sort((a, b) => {
     const roleOrder = { owner: 0, admin: 1, member: 2 };
     return (roleOrder[a.role as keyof typeof roleOrder] ?? 2) -
@@ -901,45 +939,62 @@ export function TeamDetailsDialog({
                     No members yet. Add members above.
                   </p>
                 ) : (
-                  sortedMembers.map((member) => (
-                    <div
-                      key={member.user_id}
-                      className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
-                          {member.user_id.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm truncate">{member.user_id}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Added {new Date(member.added_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge variant={getRoleBadgeVariant(member.role)} className="gap-1 text-xs">
-                          {getRoleIcon(member.role)}
-                          {member.role}
-                        </Badge>
-                        {member.role !== "owner" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleRemoveMember(member.user_id)}
-                            disabled={removingMember === member.user_id}
-                          >
-                            {removingMember === member.user_id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
+                  sortedMembers.map((member) => {
+                    const memberSources = sourcesByMember[member.user_id.toLowerCase()] ?? [];
+                    return (
+                      <div
+                        key={member.user_id}
+                        className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
+                            {member.user_id.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{member.user_id}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Added {new Date(member.added_at).toLocaleDateString()}
+                            </p>
+                            {memberSources.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {memberSources.map((source) => (
+                                  <Badge
+                                    key={`${source.source_type}-${source.provider_id ?? "local"}-${source.external_group_id ?? "manual"}-${source.relationship}-${source.status}`}
+                                    variant={getSourceBadgeVariant(source)}
+                                    className="text-[10px] capitalize"
+                                  >
+                                    {getSourceLabel(source)}
+                                    {source.status !== "active" ? `: ${source.status}` : ""}
+                                  </Badge>
+                                ))}
+                              </div>
                             )}
-                          </Button>
-                        )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={getRoleBadgeVariant(member.role)} className="gap-1 text-xs">
+                            {getRoleIcon(member.role)}
+                            {member.role}
+                          </Badge>
+                          {member.role !== "owner" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleRemoveMember(member.user_id)}
+                              disabled={removingMember === member.user_id}
+                            >
+                              {removingMember === member.user_id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>
@@ -950,12 +1005,9 @@ export function TeamDetailsDialog({
         {activeMode === "resources" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
-              Grant this team access to agents and tools. Saving creates the
-              matching realm roles in Keycloak (<code className="font-mono">agent_user:&lt;id&gt;</code>,{" "}
-              <code className="font-mono">agent_admin:&lt;id&gt;</code>,{" "}
-              <code className="font-mono">tool_user:&lt;prefix&gt;</code>,{" "}
-              <code className="font-mono">tool_user:*</code>) and assigns them
-              to every team member. For other realm roles see the{" "}
+              Grant this team access to agents and tools. Saving writes OpenFGA
+              relationships for this team; Keycloak no longer mirrors
+              per-resource realm roles. For global realm roles see the{" "}
               <button
                 type="button"
                 className="underline"
@@ -1019,10 +1071,9 @@ export function TeamDetailsDialog({
             <p className="text-xs text-muted-foreground">
               Assign realm roles to every member of this team. Use this for
               global flags (<code className="font-mono">admin_user</code>,{" "}
-              <code className="font-mono">chat_user</code>,{" "}
-              <code className="font-mono">kb_admin</code>), KB-scoped roles
-              (<code className="font-mono">kb_reader:&lt;kb&gt;</code>), or any
-              custom realm role. Agent/tool grants live in the{" "}
+              <code className="font-mono">chat_user</code>), or any custom
+              coarse realm role. Agent, tool, KB, task, and skill grants live
+              in OpenFGA through the{" "}
               <button
                 type="button"
                 className="underline"
@@ -1075,17 +1126,8 @@ export function TeamDetailsDialog({
             <p className="text-xs text-muted-foreground">
               Bind Slack channels to this team. The Slack bot uses{" "}
               <code className="font-mono">channel_team_mappings</code> to
-              decide which team&apos;s RBAC applies to in-channel requests, and
-              optionally <code className="font-mono">channel_agent_mappings</code>{" "}
-              to pick the default agent. Bound agents must already be assigned
-              to the team via the{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => setActiveMode("resources")}
-              >
-                Resources tab
-              </button>.
+              decide which team&apos;s RBAC applies to in-channel requests.
+              Agent and resource access is granted from Security &amp; Policy → OpenFGA ReBAC → Slack Channels.
             </p>
 
             {channelsNotice && (
@@ -1103,7 +1145,6 @@ export function TeamDetailsDialog({
             ) : (
               <SlackChannelsPanel
                 assigned={editedChannels}
-                bindableAgents={channelsData.available_agents}
                 discovery={discovery}
                 discoveryLoading={discoveryLoading}
                 discoveryLoadingMore={discoveryLoadingMore}
@@ -1117,7 +1158,6 @@ export function TeamDetailsDialog({
                 onAddFromDiscovery={handleAddChannelFromDiscovery}
                 onAddManual={handleAddChannelManual}
                 onRemove={handleRemoveChannel}
-                onBindAgent={handleBindAgentChange}
                 manualChannelId={manualChannelId}
                 manualChannelName={manualChannelName}
                 onManualIdChange={setManualChannelId}
@@ -1165,8 +1205,8 @@ export function TeamDetailsDialog({
 
 /**
  * Spec 104 — Agents picker. Each row has two independent checkboxes:
- * "Use" (`agent_user:<id>`) and "Manage" (`agent_admin:<id>`). Manage
- * implies Use in our authz model, so ticking Manage auto-ticks Use; the
+ * "Use" (`can_use agent:<id>`) and "Manage" (`can_manage agent:<id>`).
+ * Manage implies Use in our authz model, so ticking Manage auto-ticks Use; the
  * UI mirrors this so admins don't end up with the visually-confusing
  * state of "manage but cannot use".
  */
@@ -1230,7 +1270,7 @@ function AgentList({
                   <div className="flex items-center gap-3 mt-0.5">
                     <label
                       className="flex items-center cursor-pointer"
-                      title="agent_user:<id> — chat with this agent"
+                      title="OpenFGA can_use agent:<id> — chat with this agent"
                     >
                       <input
                         type="checkbox"
@@ -1245,7 +1285,7 @@ function AgentList({
                     </label>
                     <label
                       className="flex items-center cursor-pointer"
-                      title="agent_admin:<id> — edit/configure this agent"
+                      title="OpenFGA can_manage agent:<id> — edit/configure this agent"
                     >
                       <input
                         type="checkbox"
@@ -1266,10 +1306,9 @@ function AgentList({
 
 /**
  * Spec 104 — Tools picker. A single column of MCP-server prefixes plus a
- * single "All tools" wildcard checkbox at the top that, when ticked,
- * grants `tool_user:*` to members. Wildcard does not visually un-tick the
- * per-server boxes — they stay as a record of intent — but on the backend
- * the wildcard role alone is sufficient for authz.
+ * single "All tools" wildcard checkbox at the top. Wildcard does not visually
+ * un-tick the per-server boxes — they stay as a record of intent — but the
+ * backend writes a single OpenFGA wildcard relationship.
  */
 function ToolList({
   options,
@@ -1307,8 +1346,7 @@ function ToolList({
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">All tools (wildcard)</span>
             <span className="block text-xs text-muted-foreground">
-              Grant <code className="font-mono">tool_user:*</code> — invoke any
-              MCP tool. Use sparingly.
+              Grant this team permission to invoke any MCP tool. Use sparingly.
             </span>
           </span>
         </label>
@@ -1380,7 +1418,6 @@ function ToolList({
  */
 function SlackChannelsPanel({
   assigned,
-  bindableAgents,
   discovery,
   discoveryLoading,
   discoveryLoadingMore,
@@ -1394,14 +1431,12 @@ function SlackChannelsPanel({
   onAddFromDiscovery,
   onAddManual,
   onRemove,
-  onBindAgent,
   manualChannelId,
   manualChannelName,
   onManualIdChange,
   onManualNameChange,
 }: {
   assigned: TeamSlackChannel[];
-  bindableAgents: ResourceOption[];
   discovery: DiscoveryPayload | null;
   discoveryLoading: boolean;
   discoveryLoadingMore: boolean;
@@ -1415,7 +1450,6 @@ function SlackChannelsPanel({
   onAddFromDiscovery: (c: DiscoveredSlackChannel) => void;
   onAddManual: () => void;
   onRemove: (id: string) => void;
-  onBindAgent: (channelId: string, agentId: string | null) => void;
   manualChannelId: string;
   manualChannelName: string;
   onManualIdChange: (v: string) => void;
@@ -1469,25 +1503,6 @@ function SlackChannelsPanel({
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0">
-                      Bound agent
-                    </Label>
-                    <select
-                      value={c.bound_agent_id ?? ""}
-                      onChange={(e) =>
-                        onBindAgent(c.slack_channel_id, e.target.value || null)
-                      }
-                      className="h-7 rounded border bg-background px-2 text-xs flex-1 min-w-0"
-                    >
-                      <option value="">— None (fall through) —</option>
-                      {bindableAgents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name}
-                        </option>
-                      ))}
-                    </select>
                   </div>
                 </li>
               ))}

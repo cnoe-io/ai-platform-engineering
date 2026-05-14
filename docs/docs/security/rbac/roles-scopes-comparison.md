@@ -53,7 +53,7 @@ The rules (enforced by `isValidTeamSlug` and `deriveSlug` in `ui/src/app/api/adm
 
 We use slugs (not display names) inside Keycloak and JWT claims for three reasons:
 
-1. **Stable identifier.** A team can be renamed in MongoDB without breaking every JWT in flight or every CEL rule in AgentGateway.
+1. **Stable identifier.** A team can be renamed in MongoDB without breaking every JWT in flight or every OpenFGA relationship tuple.
 2. **Safe in URLs, headers, and identifiers.** Keycloak client scope names, role names, and JWT claim values shouldn't contain spaces or Unicode.
 3. **One canonical form.** No ambiguity between "Platform Eng" / "platform-eng" / "platform engineering" — the slug is the only string the system actually uses for matching.
 
@@ -89,7 +89,7 @@ The known caveat (documented in `architecture.md` around line 625): with multipl
 
 ---
 
-## Why do we still need `team_member:<slug>` if the JWT already has `active_team`?
+## Why do we still need OpenFGA membership if the JWT already has `active_team`?
 
 Excellent question — and this is the security crux of the design.
 
@@ -97,64 +97,58 @@ The `active_team` claim in the JWT only says **what team this token claims to re
 
 So if we trusted `active_team` alone, an attacker (or a buggy client) who could trigger a token-exchange with `scope=team-finance-prod` would get a token claiming `active_team=finance-prod` — even if they've never been added to the Finance team.
 
-The `team_member:<slug>` realm role is the **proof of membership**. It is a regular Keycloak realm role assigned to the user when an admin adds them to the team in the admin UI (via `ensureRealmRole` + role assignment). Unlike the scope-injected claim, this role is part of the user's identity in Keycloak's database — it can't be self-asserted by manipulating the token request.
+The OpenFGA tuple `user:<sub> member team:<slug>` is the **proof of membership**. It is written by team membership APIs and identity-group sync. Unlike the scope-injected claim, this tuple is stored server-side in the authorization graph and cannot be self-asserted by manipulating the token request.
 
-AgentGateway CEL rules then require **both**:
+AgentGateway now delegates the gateway decision to OpenFGA through `ext_authz`.
+The equivalent relationship facts are represented as tuples:
 
-```cel
-jwt.realm_access.roles.contains("tool_user:" + tool) &&        // role: I have permission for this tool
-jwt.realm_access.roles.contains("team_member:" + jwt.active_team)  // role: I really am a member of the team I'm claiming to act as
+```text
+user:<sub> member team:<slug>
+team:<slug>#member can_call tool:<tool-or-prefix>
 ```
 
-The `active_team` claim says "I want to act as team X." The `team_member:X` role says "Keycloak agrees I'm a member of team X." The conjunction is what makes the system safe.
+The `active_team` claim says "this request is acting as team X." OpenFGA and the team-membership source store now say "this user is actually a member of team X." The conjunction is what makes the system safe.
 
 ### Defense-in-depth recap
 
 | Layer | What it asserts | Who controls it | Can it be forged? |
 |---|---|---|---|
 | `active_team=<slug>` claim | "This request is on behalf of team `<slug>`" | The OBO token-exchange request (via scope binding) | Indirectly — but the slack-bot verifies the returned claim matches the requested scope, raising `OboExchangeError` on mismatch |
-| `team_member:<slug>` role | "Keycloak's user database records this user as a member of team `<slug>`" | The admin who added the user to the team | No — it's signed into the JWT by Keycloak using its private key |
-| `tool_user:<tool>` role | "This user is permitted to invoke `<tool>`" | The admin who granted tool access | No — same JWT signature |
+| `user:<sub> member team:<slug>` tuple | "OpenFGA records this user as a member of team `<slug>`" | Team membership APIs and identity-group sync | No — it is checked server-side in OpenFGA |
+| `team:<slug>#member can_call tool:<tool>` tuple | "Members of this team may invoke `<tool>`" | Team Resources / ReBAC policy authoring | No — OpenFGA evaluates stored tuples, not client-provided claims |
 
 Compromise any one and you still don't get in. That's the point.
 
 ---
 
-## When does `team_member:<slug>` actually land in a JWT?
+## What happens to `team_member:<slug>` now?
 
-There is **no scope, mapper, or runtime injection** for `team_member:<slug>`. Unlike `active_team` (which is a hardcoded-claim mapper on a `team-<slug>` client scope), `team_member:<slug>` is a **standard Keycloak realm role**. It enters the JWT the same way `chat_user` and `admin_user` do: it's assigned to the user in Keycloak's user database, and Keycloak automatically embeds all of the user's realm roles into `realm_access.roles` on every JWT it mints for that user.
+`team_member:<slug>` is now a **temporary compatibility role**, not the source of truth for new writes. Unlike `active_team` (which is a hardcoded-claim mapper on a `team-<slug>` client scope), `team_member:<slug>` is just a standard Keycloak realm role. Existing assignments may still appear in `realm_access.roles`, but new manual team membership writes no longer create or assign the role.
 
 So the question has two parts.
 
-### When is the role *assigned to the user*?
+### What is written when a user joins a team?
 
-When an admin adds the user to a team via `POST /api/admin/teams/<id>/members`. The handler at `ui/src/app/api/admin/teams/[id]/members/route.ts` calls `syncKeycloakTeamRole`, which:
+When an admin adds the user to a team via `POST /api/admin/teams/<id>/members`, the handler at `ui/src/app/api/admin/teams/[id]/members/route.ts`:
 
-1. Looks up the Keycloak user by email.
-2. **Lazily creates** the realm role `team_member:<slug>` if it doesn't exist yet (so the very first member of a team triggers the role's creation).
-3. Calls `assignRealmRolesToUser` → `POST /admin/realms/{realm}/users/{userId}/role-mappings/realm` to bind the role to the user.
+1. Updates MongoDB `teams.members` for the product UI.
+2. Resolves the Keycloak `sub` for the user's email when the user exists.
+3. Stores a manual team-membership source record.
+4. Writes an OpenFGA tuple: `user:<sub> member team:<slug>`.
 
-The mirror happens on remove: `removeRealmRolesFromUser` → `DELETE` on the same endpoint.
+The mirror happens on remove: after the last active source is gone, the route deletes the OpenFGA membership tuple. It does not remove or create Keycloak `team_member:<slug>` assignments.
 
-This is why the team-creation handler doesn't create `team_member:<slug>` itself — there's no point creating an empty role with no members. The role is created lazily on first member-add and persists once it exists (we don't garbage-collect orphaned roles when the last member leaves).
+Existing `team_member:<slug>` roles can remain until every older consumer is gone, but they should not be used for new authorization design.
 
-### When does the role *appear in a JWT*?
+### What appears in the JWT?
 
-On the very next token issuance for that user, after the role assignment commits in Keycloak.
+New access is represented in OpenFGA, not in `realm_access.roles`. The next token issued for the user still carries coarse roles such as `chat_user` or `admin_user`, plus the signed `active_team` claim when a team context is requested. It does not need a new resource or team-membership role to make the OpenFGA check work.
 
 - **Web UI (`caipe-platform`)** — on the next NextAuth login, or on the next refresh-token grant. Practically: the user sees the new role after their session refreshes (or after they log out and back in).
 - **Slack bot (`caipe-slack-bot`)** — on the next OBO token-exchange. The bot does a fresh exchange on every Slack message and doesn't cache OBO tokens across requests, so the role appears on the user's *next* Slack message.
 - **Other flows** — on the next `client_credentials` or password grant for that user.
 
-There is **no cached realm-role list** in any of these clients. Keycloak reads `realm_access.roles` from its database at token-mint time and signs it into the JWT. So role-to-token latency is essentially "the time between the admin's role-assignment write committing in Keycloak and the user's next token request."
-
-### Important nuance: the admin UI is *not* blocking
-
-`syncKeycloakTeamRole` wraps the Keycloak call in `try { ... } catch (err) { console.warn(...) }`. The doc-comment at line 47–48 makes this explicit:
-
-> "Best-effort — logs warnings on failure so that MongoDB membership is never blocked by Keycloak issues."
-
-If Keycloak is briefly unavailable when an admin adds a user to a team, the user shows up in the team in the admin UI immediately, but they will be **denied at AgentGateway** until the role sync succeeds (because their JWT won't carry `team_member:<slug>`). There is currently **no automatic retry/reconciler** — recovery depends on operator awareness from the warning logs. Adding a periodic reconciler that compares MongoDB team membership to Keycloak realm-role assignments and repairs drift is a known follow-up.
+There is **no cached realm-role list** in the clients. Keycloak reads `realm_access.roles` from its database at token-mint time, but OpenFGA relationship updates take effect as soon as the tuple write succeeds.
 
 ### Summary table
 
@@ -162,21 +156,18 @@ If Keycloak is briefly unavailable when an admin adds a user to a team, the user
 |---|---|---|
 | 1. Admin clicks "Add member" in team UI | `POST /api/admin/teams/<id>/members` | `ui/src/app/api/admin/teams/[id]/members/route.ts` |
 | 2. Mongo `teams.members` updated | source of truth for the admin UI | `teams` collection |
-| 3. `syncKeycloakTeamRole(email, teamId, 'assign')` called | best-effort, non-blocking | same file, lines 50–81 |
-| 4. Realm role `team_member:<slug>` lazily created if missing | `createRealmRole` → `POST /admin/realms/{realm}/roles` | `ui/src/lib/rbac/keycloak-admin.ts` |
-| 5. Role assigned to user | `assignRealmRolesToUser` → `POST /admin/realms/{realm}/users/{userId}/role-mappings/realm` | same |
-| 6. Next token mint for that user | Keycloak embeds all of the user's realm roles into `realm_access.roles` | Keycloak internals |
-| 7. AgentGateway CEL evaluates | `jwt.realm_access.roles.contains("team_member:" + jwt.active_team)` | AGW config |
+| 3. Keycloak user is resolved by email | gives the stable `sub` used in OpenFGA subjects | `ui/src/lib/rbac/keycloak-admin.ts` |
+| 4. OpenFGA membership tuple is written | `user:<sub> member team:<slug>` | `ui/src/app/api/admin/teams/[id]/members/route.ts` |
+| 5. Next team-scoped token mint | Keycloak signs `active_team=<slug>` when requested | Keycloak client scope mapper |
+| 6. AgentGateway ext_authz evaluates | OpenFGA checks the subject/resource tuple graph | `deploy/openfga-experiment/bridge/main.py` |
 
 ---
 
-## Are *all* of the user's `team_member:<slug>` roles in the token, or just the active one?
+## Are team memberships embedded in the token?
 
-**All of them. Every team membership the user has is embedded in every JWT issued for that user, regardless of the active team or the requesting client.**
+**Not for new writes.** Existing `team_member:<slug>` compatibility roles may still appear in `realm_access.roles`, but the authoritative membership set now lives in OpenFGA and the team-membership source store.
 
-This is a fundamental property of how Keycloak handles realm roles: the entire user's role set lives in `realm_access.roles` on every token mint. There is no filtering by active team or by scope. Each call to `assignRealmRolesToUser` binds one role; the user accumulates them additively.
-
-So a user who belongs to teams `platform-eng`, `security-ops`, and `infra` will have a JWT that looks like:
+A user who belongs to teams `platform-eng`, `security-ops`, and `infra` should have a compact JWT like:
 
 ```json
 {
@@ -185,20 +176,18 @@ So a user who belongs to teams `platform-eng`, `security-ops`, and `infra` will 
   "aud": "agentgateway",
   "realm_access": {
     "roles": [
-      "chat_user",
-      "tool_user:jira_search_issues",
-      "tool_user:github_*",
-      "agent_user:test-april-2025",
-      "team_member:platform-eng",
-      "team_member:security-ops",
-      "team_member:infra"
+      "chat_user"
     ]
   },
   "active_team": "platform-eng"
 }
 ```
 
-All three `team_member:*` roles are present simultaneously, but only **one** `active_team` claim — the one corresponding to the team the bot requested via the `team-<slug>` scope on this specific token-exchange.
+Only **one** `active_team` claim is present — the one corresponding to the team the bot requested via the `team-<slug>` scope on this specific token-exchange. The fact that the user belongs to `platform-eng` is stored as an OpenFGA tuple:
+
+```text
+user:<sub> member team:platform-eng
+```
 
 ### Why this is correct (and intentional)
 
@@ -206,31 +195,30 @@ The two pieces of information have different lifetimes and different semantics:
 
 | Property | What it represents | When it changes | Cardinality on a token |
 |---|---|---|---|
-| `team_member:<slug>` realm roles | "Keycloak's record of which teams this user belongs to" | Only when an admin adds/removes the user from a team | **N — one per team the user is in** |
+| OpenFGA membership tuples | "The relationship graph records which teams this user belongs to" | When team membership APIs or identity sync reconcile | **0 in the token — stored in OpenFGA** |
 | `active_team` claim | "Which team this single request is on behalf of" | On every token-exchange (every Slack message, potentially) | **1 — exactly one value** |
 
-The CEL rule at AgentGateway is what reduces N memberships to a single allow/deny decision:
+The OpenFGA relationship check at AgentGateway is what reduces N memberships to a single allow/deny decision:
 
-```cel
-jwt.realm_access.roles.contains("tool_user:" + tool) &&
-jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+```text
+check(user:<sub>, can_call, tool:<tool>)
 ```
 
-That `+ jwt.active_team` is the key bit. CEL doesn't ask "is the user a member of any team?" — it asks "is the user a member of *this specific* team that the JWT claims to be acting as right now?" The `active_team` claim selects which of the user's memberships is being exercised; the role list is the universe of what the user *could* exercise.
+The selected team context is the key bit. OpenFGA doesn't ask "is the user a member of any team?" — it asks whether the user, through the current team/resource relationship graph, can call *this specific* tool. The `active_team` claim selects which of the user's memberships is being exercised; the relationship tuples are the universe of what the user *could* exercise.
 
 ### Implications
 
-1. **Token size grows with team count.** A user in 50 teams will have ~50 `team_member:*` entries in their JWT. Realm roles in Keycloak are simple strings and `realm_access.roles` is a JSON array — Keycloak does not paginate this. In practice tokens stay well under typical 8–16 KB header limits, but it's a soft upper bound to be aware of for users in extreme numbers of teams.
+1. **Token size does not grow with team count.** Membership fan-out is stored in OpenFGA instead of `realm_access.roles`.
 
-2. **The "last mapper wins" caveat is about `active_team`, not `team_member:*`.** With multiple `team-<slug>` scopes bound as defaults on `agentgateway`, every hardcoded mapper fires on every token and the *last one wins* (Keycloak does not guarantee mapper ordering). Even though the user has all their `team_member:*` roles, the `active_team` claim may not match what the bot requested. The slack-bot's `obo_exchange.impersonate_user` **verifies** the returned `active_team` matches the requested team and raises `OboExchangeError` on mismatch — that verification is the load-bearing security control, not the scope-binding mechanism itself.
+2. **The "last mapper wins" caveat is only about `active_team`.** With multiple `team-<slug>` scopes bound as defaults on `agentgateway`, every hardcoded mapper fires on every token and the *last one wins* (Keycloak does not guarantee mapper ordering). The slack-bot's `obo_exchange.impersonate_user` **verifies** the returned `active_team` matches the requested team and raises `OboExchangeError` on mismatch.
 
-3. **AGW gets the right answer regardless.** Even if Keycloak's mapper ordering produced a "wrong" `active_team`, AGW would still require `team_member:<that-team>`, so a user is never granted access to a team they're not in. The mismatch check exists for a subtler attack: a user in *both* `team-finance-prod` (sensitive) and `team-engineering-staging` (sandbox) requesting staging context. If Keycloak's mappers minted `active_team=finance-prod` instead, AGW would happily allow it because the user is also in finance-prod. The bot's pre-flight check (requested ≠ returned → reject) is what prevents this privilege upgrade.
+3. **AGW gets the right answer from OpenFGA.** If Keycloak minted a wrong `active_team`, the OpenFGA check would evaluate the wrong team context. The bot's pre-flight check (requested != returned -> reject) is what prevents that privilege confusion.
 
-4. **CEL doesn't iterate; it dereferences.** A common newcomer expectation is "CEL loops through `team_member:*` and checks if any match the active team." It doesn't — `realm_access.roles.contains("team_member:" + jwt.active_team)` is a single string lookup against the role array. O(N) in role count, but N is small enough that it's effectively O(1) for any realistic deployment.
+4. **There is no CEL or role-array iteration.** AgentGateway delegates to OpenFGA through `ext_authz`, and OpenFGA checks stored tuples.
 
 ### Mental model in one line
 
-> The role list says **what hats you own.** The `active_team` claim says **which hat you're wearing right now.** AGW checks both: the hat must be in your closet (`team_member:X`) and you must be wearing it (`active_team == X`).
+> OpenFGA says **what hats you own.** The `active_team` claim says **which hat you're wearing right now.** AGW checks the relationship graph for that selected context.
 
 ---
 
@@ -243,10 +231,10 @@ Realm roles (carried in `jwt.realm_access.roles`) are assigned to users. They an
 | Tier | Examples | Meaning |
 |---|---|---|
 | **Coarse identity** | `chat_user`, `admin_user` | Default user / global admin. `admin_user` bypasses every tool/agent/team gate. |
-| **Resource-scoped** (Spec 104) | `tool_user:jira_search_issues`, `tool_user:jira_*`, `tool_user:*`, `agent_user:test-april-2025`, `agent_admin:test-april-2025` | Permission to invoke a specific MCP tool / chat with / admin a specific dynamic agent. Format: `<category>:<id>`. |
-| **Team membership** | `team_member:<slug>` | This user belongs to that team. Required alongside `tool_user:*` to actually invoke a tool in team context. |
+| **Resource-scoped** (legacy compatibility) | `tool_user:jira_search_issues`, `tool_user:jira_*`, `tool_user:*`, `agent_user:test-april-2025`, `agent_admin:test-april-2025` | Transitional JWT role shape. New grants are OpenFGA relationships, not new Keycloak realm roles. |
+| **Team membership** (legacy compatibility) | `team_member:<slug>` | Older JWT role shape for membership. New writes use OpenFGA `user:<sub> member team:<slug>` tuples. |
 
-**Materialization:** when the admin UI grants a user permission to use a tool/agent or adds them to a team, `ensureRealmRole` (in `ui/src/lib/rbac/keycloak-admin.ts` lines 565–610) idempotently creates the role in Keycloak if missing, then assigns it to the user.
+**Materialization:** Team membership and Team Resources now write OpenFGA tuples. Keycloak remains responsible for coarse bootstrap/global roles and the `active_team` client-scope claim.
 
 ### Scopes — *which team context the token represents*
 
@@ -262,20 +250,17 @@ Client scopes are **not** permissions. They are per-team claim injectors that de
 
 ### How they combine — the actual gate at AgentGateway
 
-A typical CEL rule for a tool call:
+A typical relationship check for a tool call:
 
-```cel
-jwt.realm_access.roles.contains("admin_user") ||
-(jwt.active_team == "__personal__" && jwt.realm_access.roles.contains("tool_user:" + tool)) ||
-(jwt.realm_access.roles.contains("tool_user:" + tool) &&
- jwt.realm_access.roles.contains("team_member:" + jwt.active_team))
+```text
+check(user:<sub>, can_call, tool:<name>)
 ```
 
 A request is allowed only if **all three line up**:
 
-1. **Role** says you're permitted to use this specific tool (`tool_user:<name>`).
-2. **Role** says you're a member of the team you claim to be acting as (`team_member:<slug>`).
-3. **Scope** caused the JWT to carry `active_team=<slug>` matching that team.
+1. **Identity facts** say who the caller is (`sub`, email, realm roles).
+2. **OpenFGA tuples** say the caller is related to the team/resource being used.
+3. **Scope** caused the JWT to carry `active_team=<slug>` when a team context is required.
 
 If a user belongs to teams A and B, the Slack bot picks the team via OBO — `obo_exchange.impersonate_user(active_team=...)` adds `scope=openid team-<slug>` to the exchange — and then **verifies** the returned JWT's `active_team` claim matches. Mismatch raises `OboExchangeError` (load-bearing security invariant).
 
@@ -296,9 +281,9 @@ End-to-end flow when an admin POSTs to `/api/admin/teams` (`ui/src/app/api/admin
 
 What is **not** done at team creation:
 
-- **No realm role is created.** No `team_member:<slug>` role is auto-created at team-creation time — that's lazy: it's created the first time a user is added to the team, via `ensureRealmRole("team_member:" + slug)`.
+- **No realm role is created.** No `team_member:<slug>` role is auto-created at team-creation time, and new membership writes do not create one either.
 - **No client roles are created.**
-- **No users are auto-assigned to anything.** The team has zero members from Keycloak's perspective until you assign them.
+- **No users are auto-assigned to anything.** The team has zero members until MongoDB membership and OpenFGA tuples are written.
 
 ### TL;DR mental model
 
@@ -306,23 +291,23 @@ What is **not** done at team creation:
 - **Scope = context tag.** Bound to clients. Answers "which team is this token speaking on behalf of?"
 - **Slug = the team's machine name.** Lowercase, hyphenated, ASCII. Used everywhere internal.
 - **Team creation** = new client scope (so a JWT can be minted with `active_team=<slug>`).
-- **Team membership** = new role assignment (`team_member:<slug>`) on the user.
-- **Tool/agent permission** = new resource-scoped role (`tool_user:<id>` / `agent_user:<id>`) assigned to the user.
+- **Team membership** = OpenFGA tuple `user:<sub> member team:<slug>`.
+- **Tool/agent permission** = OpenFGA tuple such as `team:<slug>#member can_call tool:<id>` or `team:<slug>#member can_use agent:<id>`.
 
 ---
 
 ## Entity diagram — how roles, scopes, JWTs, and resources relate
 
-The data model in one picture. Everything below the dashed lines is owned by Keycloak; the diagram intentionally omits the IdP itself, the JWKS publishing channel, and the CEL/auth-rule code (those live in the [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below) so the entities you can point at in admin or in a JWT payload stand out.
+The data model in one picture. Everything below the dashed lines is owned by Keycloak; the diagram intentionally omits the IdP itself, the JWKS publishing channel, and the OpenFGA bridge code (those live in the [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below) so the entities you can point at in admin or in a JWT payload stand out.
 
 ```mermaid
 erDiagram
-    USER          ||--o{ REALM_ROLE   : "is granted"
-    USER          }o--o{ TEAM         : "is member of (encoded as team_member:slug role)"
+    USER          ||--o{ REALM_ROLE   : "has coarse role"
+    USER          }o--o{ TEAM         : "is member of (OpenFGA tuple)"
     TEAM          ||--|| CLIENT_SCOPE : "1:1 — scope injects active_team=slug"
 
-    REALM_ROLE    ||--o| TOOL         : "tool_user:id permits"
-    REALM_ROLE    ||--o| AGENT        : "agent_user:id permits"
+    TEAM          ||--o{ TOOL         : "team members can_call"
+    TEAM          ||--o{ AGENT        : "team members can_use"
 
     USER          ||--o{ JWT          : "is issued"
     JWT           }o--|| CLIENT_SCOPE : "active_team claim sourced from"
@@ -333,7 +318,7 @@ erDiagram
       string slack_user_id
     }
     REALM_ROLE {
-      string name "admin_user | tool_user:tool | agent_user:id | team_member:slug"
+      string name "admin_user | chat_user | compatibility roles"
     }
     TEAM {
       string slug
@@ -354,15 +339,15 @@ erDiagram
 
 ### How to read it
 
-- A **`USER` is granted `REALM_ROLE`s** directly. The role *name* encodes what the role permits: `admin_user` (bypass), `tool_user:<id>` (per-tool), `agent_user:<id>` (per-agent), `team_member:<slug>` (per-team).
-- A **`USER` is a member of a `TEAM`** by virtue of holding the `team_member:<slug>` role — so "team membership" and "having a team_member role" are the same fact, viewed from two angles.
+- A **`USER` is granted `REALM_ROLE`s** directly only for coarse/bootstrap behavior such as `admin_user` or `chat_user`.
+- A **`USER` is a member of a `TEAM`** through an OpenFGA tuple `user:<sub> member team:<slug>`.
 - A **`TEAM` has a 1:1 `CLIENT_SCOPE`** named `team-<slug>` whose only job is to inject `active_team=<slug>` into JWTs minted with that scope. The team and the scope are paired but live in different Keycloak collections (teams are in MongoDB; scopes are Keycloak objects).
 - A **`JWT`** carries (a) the user's full role list at `realm_access.roles` and (b) at most one `active_team` claim sourced from whichever team scope was bound to the request.
-- **`TOOL` and `AGENT`** are the resource entities. They never appear in Keycloak directly; they're referenced *by name* inside the role names (`tool_user:jira_search`, `agent_user:test-april-2025`).
+- **`TOOL` and `AGENT`** are resource entities in OpenFGA. Team/resource relationships, not role names, grant access.
 
-### Why both `team_member:<slug>` AND `active_team`?
+### Why both OpenFGA membership AND `active_team`?
 
-This is the security crux and the only "redundancy" in the model worth keeping. See [Why do we still need `team_member:<slug>` if the JWT already has `active_team`?](#why-do-we-still-need-team_memberslug-if-the-jwt-already-has-active_team) above. Briefly: the role is *Keycloak's record* of who you are, the claim is the *request's assertion* of which hat you're wearing — both are needed so a user can't grant themselves team access by manipulating the token request.
+This is the security crux and the only "redundancy" in the model worth keeping. OpenFGA stores who belongs to the team, while the JWT claim is the request's assertion of which team context is active. Both are needed so a caller cannot grant themselves team access by manipulating the token request.
 
 ### What's deliberately not in this diagram
 
@@ -370,7 +355,7 @@ This is the security crux and the only "redundancy" in the model worth keeping. 
 |---|---|---|
 | Keycloak (the IdP itself) | It owns every other entity above; drawing it as a node adds clutter without information. | Implicit. Mentioned in [Component 1](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | JWKS / signing keys | Cryptographic plumbing — concerns key rotation, not data shape. | [Workflows — JWT validation](./workflows.md). |
-| CEL rules / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, and `deploy/agentgateway/config.yaml`. |
+| AgentGateway ext_authz / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, `deploy/agentgateway/config.yaml`, and `deploy/openfga-experiment/bridge/main.py`. |
 | OIDC clients (`caipe-platform`, `caipe-slack-bot`, `agentgateway`) | The client mostly affects audience and which scopes are bound by default, not the per-request decision shape. | [Component 1 — OIDC clients table](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | `ROLE_ASSIGNMENT` / `TEAM_MEMBERSHIP` join tables | These are mechanical M:N joins that the ER notation already represents with the relationship line. | n/a. |
 
@@ -385,20 +370,21 @@ flowchart LR
     JWT[/"JWT<br/>realm_access.roles<br/>active_team"/] --> AGW
     JWT --> DA
 
-    subgraph PEP_PDP_today["PEP + PDP today (decisions are inline)"]
-      AGW["AgentGateway<br/>CEL on jwt + mcp.tool"]
+    subgraph PEP_PDP_today["PEP + PDP today"]
+      AGW["AgentGateway<br/>jwtAuth + ext_authz"]
+      FGA["OpenFGA bridge<br/>relationship checks"]
       DA["Dynamic Agents<br/>per-agent auth on jwt + agent_id"]
     end
 
-    AGW -->|allow| MCP["MCP tool"]
+    AGW --> FGA
+    FGA -->|allow| MCP["MCP tool"]
+    FGA -->|deny| AGW_403["403"]
     AGW -->|deny| AGW_403["403"]
     DA -->|allow| AGT["Agent runtime"]
     DA -->|deny| DA_403["403"]
 ```
 
-Two PEPs (Policy Enforcement Points), each evaluating its rules inline against the JWT — there is no separate PDP service in the architecture today. AGW evaluates ~5 CEL rules; Dynamic Agents evaluate per-agent role assignments. Both are fast (no extra network hops) and both depend on the JWT being trustworthy (signed by Keycloak, verified against JWKS).
-
-If we ever introduce a **remote PDP** (e.g. OpenFGA, OPA, Cedar — see [`feasibility-pdp-options.md`](./feasibility-pdp-options.md)), the picture above gains one box: AGW would call the PDP via Envoy ext_authz instead of evaluating CEL inline. The data model above doesn't have to change for that to happen — only the role/team facts would also be projected as PDP-native records (e.g. OpenFGA tuples).
+AgentGateway is the MCP PEP: it validates the Keycloak JWT locally and then calls the OpenFGA bridge through Envoy-compatible `ext_authz`. Dynamic Agents still enforce per-agent route checks before forwarding user tokens downstream. Both depend on the JWT being trustworthy (signed by Keycloak, verified against JWKS), but gateway tool authorization is now relationship-backed rather than CEL-authored.
 
 ---
 
@@ -426,26 +412,26 @@ sequenceDiagram
     Note right of KC: caipe-platform has no team scope
 
     User->>UI: Click "Use Jira search issues"
-    UI->>UI: CEL gate (cel-js) checks current user
-    alt CEL allows
+    UI->>UI: BFF checks route permission / ReBAC access
+    alt BFF allows
         UI->>SUP: HTTPS + Bearer JWT
         SUP->>AGW: Forward Bearer JWT
         AGW->>AGW: jwtAuth verifies signature against JWKS
-        AGW->>AGW: Evaluate CEL allow rules
+        AGW->>AGW: ext_authz calls OpenFGA bridge
         Note over AGW: Web UI tokens have no active_team claim
-        Note over AGW: Only admin_user or a team-less tool rule passes
-        alt CEL allows
+        Note over AGW: OpenFGA relationship tuples determine access
+        alt OpenFGA allows
             AGW->>MCP: Forward request
             MCP-->>User: Result
-        else CEL denies
+        else OpenFGA denies
             AGW-->>User: 403 Forbidden
         end
-    else CEL denies
+    else BFF denies
         UI-->>User: UI hides action or 403
     end
 ```
 
-**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs ship **without** an `active_team` claim. Web UI callers therefore rely on the `admin_user` bypass or on tool rules that don't require team context. Team-scoped tool invocation from the Web UI is on the Spec 104 follow-up list (active-team picker → optional scope on `caipe-platform`).
+**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs usually ship **without** an `active_team` claim. Web UI authorization is therefore mediated by BFF route gates and OpenFGA relationship checks rather than by editing AgentGateway rules.
 
 ### 2. Slack user posting in a channel
 
@@ -477,18 +463,17 @@ sequenceDiagram
 
     Bot->>SUP: A2A call + Bearer JWT
     SUP->>AGW: Forward Bearer JWT (per-request)
-    AGW->>AGW: jwtAuth verifies, CEL evaluates
-    Note over AGW: CEL requires tool_user for the tool
-    Note over AGW: AND team_member for jwt.active_team
-    alt User has both roles
+    AGW->>AGW: jwtAuth verifies, ext_authz calls OpenFGA
+    Note over AGW: OpenFGA checks user/team/resource tuples
+    alt Relationship graph allows
         AGW->>MCP: Forward request
         MCP-->>SlackUser: Result (via bot)
-    else Missing tool_user OR not in team
+    else Missing team/resource relationship
         AGW-->>SlackUser: 403 (bot surfaces structured error)
     end
 ```
 
-**Key point about Slack channels:** the channel ID determines the team via MongoDB (`channel_team_resolver`), and the bot trusts Keycloak to enforce that the user actually belongs to that team. If the user isn't in the team, OBO still succeeds (because the user *can* request `scope=team-platform-eng`), but AGW denies because the user lacks `team_member:platform-eng`.
+**Key point about Slack channels:** the channel ID determines the team via MongoDB (`channel_team_resolver`), and the bot pre-checks team membership before OBO. AgentGateway then checks the OpenFGA tuple graph for the resulting user/team/resource relationship.
 
 ### 3. Slack user in a DM (1:1 with the bot)
 
@@ -521,19 +506,18 @@ sequenceDiagram
 
     Bot->>SUP: A2A call + Bearer JWT
     SUP->>AGW: Forward Bearer JWT
-    AGW->>AGW: jwtAuth, then CEL evaluation
-    Note over AGW: Personal sentinel triggers short-circuit
-    Note over AGW: Only the per-tool tool_user role is required
-    Note over AGW: No team_member check on personal context
-    alt User has tool_user role
+    AGW->>AGW: jwtAuth, then ext_authz calls OpenFGA
+    Note over AGW: Personal sentinel maps to user-scoped relationships
+    Note over AGW: No channel team membership is required
+    alt User has the required tool relationship
         AGW->>MCP: Forward request
         MCP-->>SlackUser: Result
-    else No tool_user role
+    else No matching relationship
         AGW-->>SlackUser: 403
     end
 ```
 
-**Key point about DMs:** the `__personal__` sentinel says "no team — this user is acting as themselves." CEL has an explicit short-circuit for `active_team == "__personal__"` that requires only the per-tool role, no `team_member` check. This is what lets a user invoke tools in a DM without first being added to a team.
+**Key point about DMs:** the `__personal__` sentinel says "no channel team — this user is acting as themselves." AgentGateway still delegates the decision to OpenFGA, but the bridge evaluates user-scoped relationships instead of requiring a channel team membership.
 
 ---
 
@@ -541,7 +525,7 @@ sequenceDiagram
 
 | Caller | `active_team` claim | Required roles to invoke `tool_user:<X>` | Source of team context |
 |---|---|---|---|
-| **Web UI user (non-admin)** | ❌ absent | `admin_user`, **or** the tool's CEL rule must allow team-less tokens | (no team context today; Spec 104 follow-up) |
+| **Web UI user (non-admin)** | ❌ absent | Matching OpenFGA relationship, usually via BFF-mediated resource access | (no team context today; Spec 104 follow-up) |
 | **Web UI user (admin)** | ❌ absent | `admin_user` (bypasses everything) | n/a — global admin |
 | **Slack channel user** | ✅ `<team-slug>` | `tool_user:<X>` **AND** `team_member:<team-slug>` | MongoDB `channel_team_resolver` (channel ID → team slug) |
 | **Slack DM user** | ✅ `__personal__` | `tool_user:<X>` only | sentinel `__personal__` (no team) |

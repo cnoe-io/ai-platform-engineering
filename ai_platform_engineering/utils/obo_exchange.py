@@ -3,9 +3,9 @@ OAuth 2.0 Token Exchange (RFC 8693) for supervisor on-behalf-of delegation.
 
 The supervisor receives the user's access token from the A2A SDK client and
 exchanges it for an OBO token via Keycloak.  The OBO token carries
-``sub`` = user and ``act.sub`` = supervisor service account, so AG CEL rules
-see the real user's roles while downstream services know the request was
-delegated.
+``sub`` = user and ``act.sub`` = supervisor service account, so
+AgentGateway/OpenFGA sees the real user while downstream services know the
+request was delegated.
 
 Environment variables:
   KEYCLOAK_URL           -- Keycloak base URL (e.g. ``http://keycloak:7080``)

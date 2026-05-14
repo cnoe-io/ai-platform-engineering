@@ -476,7 +476,7 @@ Authorization check: can user:alice invoke tool:data-access?
 | **Prompt injection resistant** | ⚠️ Via external auth | ❌ No | ❌ No | ✅ YES (intent parser + fixed tuples) | ❌ No | ❌ No | ❌ No |
 | **MCP-native** | ✅ YES (aggregates MCP) | ❌ No | ❌ No | ⚠️ Via OpenFGA | ⚠️ Via custom code | ❌ No | ❌ No |
 | **Determinism** | ⚠️ Policy-dependent | ✅ Formal verification | ✅ Four-valued logic | ✅ Intent + OpenFGA tuples | ✅ Deterministic tuples | ✅ Predictable | ⚠️ Flexible |
-| **Latency** | ⚠️ Variable (gateway overhead) | ✅ <1ms | ✅ Nanosecond–µs | ✅ ~9ms (LLM + check) | ✅ Sub-millisecond | ✅ <1ms | ⚠️ 1–100ms |
+| **Latency** | ⚠️ Variable (gateway overhead) | ✅ &lt;1ms | ✅ Nanosecond–µs | ✅ ~9ms (LLM + check) | ✅ Sub-millisecond | ✅ &lt;1ms | ⚠️ 1–100ms |
 | **Self-hosted** | ✅ Binary/Docker/K8s | ✅ Cedar Agent + OPAL | ✅ Embedded library | ✅ OpenFGA service | ✅ Postgres-backed service | ✅ Embedded library | ✅ OPA daemon |
 | **Policy storage** | ⚠️ Delegates to external auth | 🟡 Bring-your-own | 🟡 Bring-your-own | ✅ OpenFGA tuples | ✅ Built-in (Postgres) | ✅ Built-in adapters | ✅ Built-in (bundles) |
 | **Readability** | ✅ YAML + CEL | ✅ High (PARC) | ✅ High (SQL-like) | ✅ High (intent parsing) | ✅ High (tuples) | ✅ Config-based | ❌ Steep (Datalog) |
@@ -517,7 +517,7 @@ Agent → AgentGateway (MCP proxy)
 - You want **formal verification** of policies before deploy
 - You can self-host via Cedar Agent + OPAL or use AWS Verified Permissions
 - Team is comfortable with AWS ecosystem or investing in newer tech
-- **Latency is critical** (<1ms decision time)
+- **Latency is critical** (&lt;1ms decision time)
 
 **Integration pattern with Keycloak:**
 ```

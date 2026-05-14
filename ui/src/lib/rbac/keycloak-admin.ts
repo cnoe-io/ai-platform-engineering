@@ -563,16 +563,15 @@ export async function deleteIdpMapper(alias: string, mapperId: string): Promise<
 export { getAdminToken as getKeycloakAdminToken };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spec 104 helpers — team-scoped RBAC role materialization.
+// Spec 104 helpers — Keycloak admin conveniences used during ReBAC sync.
 //
-// `ensureRealmRole` is idempotent: callers that need to bind a `tool_user:<id>`
-// or `agent_user:<id>` role to users don't have to know whether the role
-// already exists. We try to fetch first and only POST when missing because
-// `createRealmRole` returns 409 on duplicates and we'd rather not log noise.
+// `ensureRealmRole` is retained for coarse/bootstrap role administration only.
+// Per-resource grants such as `agent_user:<id>` and `tool_user:<id>` belong in
+// OpenFGA relationships and should not be created here for new flows.
 //
 // `findUserIdByEmail` is a thin convenience around `searchRealmUsers` for the
 // common "I have an email, give me the Keycloak `sub`" case used when
-// reconciling team membership → realm-role assignments.
+// reconciling team membership → OpenFGA tuples.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function ensureRealmRole(
@@ -878,7 +877,7 @@ async function deleteClientScope(scopeId: string): Promise<void> {
  * Validate a slug for a Keycloak client-scope name. Keycloak itself accepts a
  * fairly permissive set of characters but we keep this strict (lowercase
  * alphanumerics + hyphen) so the resulting `active_team` value renders cleanly
- * in JWTs, AGW logs, and CEL policies. Callers should reject invalid slugs
+ * in JWTs, AGW logs, and OpenFGA relationship object IDs. Callers should reject invalid slugs
  * before trying to materialize a scope; this function is the canonical regex.
  */
 export function isValidTeamSlug(slug: string): boolean {

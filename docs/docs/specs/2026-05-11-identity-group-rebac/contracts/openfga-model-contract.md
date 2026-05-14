@@ -10,7 +10,7 @@ This contract documents the target relationship model that the implementation mu
 - `team:<team-slug>#member`
 - `team:<team-slug>#admin`
 - `external_group:<provider-id>/<group-id>#member`
-- `slack_channel:<workspace-id>/<channel-id>#member`
+- `slack_channel:<workspace-id>--<channel-id>#member`
 - `service_account:<id>`
 - `anonymous:*` only when explicitly intended and documented.
 
@@ -80,11 +80,11 @@ task:<id>#can_invoke <- team:<slug>#member
 ### Slack Channel Access
 
 ```text
-slack_channel:<workspace>/<channel>#member <- user:<subject>
-slack_channel:<workspace>/<channel>#admin <- team:<slug>#admin
-slack_channel:<workspace>/<channel>#allowed_agent <- agent:<id>
-slack_channel:<workspace>/<channel>#allowed_tool <- tool:<id>
-slack_channel:<workspace>/<channel>#allowed_knowledge_base <- knowledge_base:<id>
+slack_channel:<workspace>--<channel>#member <- user:<subject>
+slack_channel:<workspace>--<channel>#admin <- team:<slug>#admin
+slack_channel:<workspace>--<channel>#allowed_agent <- agent:<id>
+slack_channel:<workspace>--<channel>#allowed_tool <- tool:<id>
+slack_channel:<workspace>--<channel>#allowed_knowledge_base <- knowledge_base:<id>
 ```
 
 Runtime checks must combine:

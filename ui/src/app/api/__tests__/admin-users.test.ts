@@ -22,6 +22,15 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
+const mockCheckPermission = jest.fn();
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
 const mockCollections: Record<string, { find: jest.Mock; findOne: jest.Mock }> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
@@ -65,6 +74,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
     role: 'admin' as const,
+    accessToken: 'admin-token',
   };
 }
 
@@ -72,6 +82,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user' as const,
+    accessToken: 'user-token',
   };
 }
 
@@ -85,6 +96,8 @@ function resetMocks() {
   mockListUsersWithRole.mockReset();
   mockListRealmRoleMappingsForUser.mockReset();
   mockGetUserFederatedIdentities.mockReset();
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
   mockListRealmRoleMappingsForUser.mockResolvedValue([{ name: 'user' }]);
   mockGetUserFederatedIdentities.mockResolvedValue([]);
 }
@@ -148,6 +161,9 @@ describe('GET /api/admin/users — Keycloak list', () => {
     mockListRealmRoleMappingsForUser.mockResolvedValue([
       { name: 'admin' },
       { name: 'offline_access' },
+      { name: 'default-roles-caipe' },
+      { name: 'team_member:manual-u2-1778604473704-qjkzq' },
+      { name: 'agent_admin:1-april-2025' },
     ]);
 
     const res = await GET(makeRequest('/api/admin/users'));
@@ -157,8 +173,31 @@ describe('GET /api/admin/users — Keycloak list', () => {
     expect(body.users[0]).toMatchObject({
       id: 'u1',
       email: 'alice@example.com',
-      roles: ['admin', 'offline_access'],
+      roles: ['admin'],
+      raw_roles: [
+        'admin',
+        'offline_access',
+        'default-roles-caipe',
+        'team_member:manual-u2-1778604473704-qjkzq',
+        'agent_admin:1-april-2025',
+      ],
+      hidden_role_count: 4,
     });
+    expect(body.users[0].role_classifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'offline_access', kind: 'system' }),
+        expect.objectContaining({
+          role: 'team_member:manual-u2-1778604473704-qjkzq',
+          kind: 'team',
+          transition_state: 'transitional',
+        }),
+        expect.objectContaining({
+          role: 'agent_admin:1-april-2025',
+          kind: 'resource',
+          resource_type: 'agent',
+        }),
+      ])
+    );
     expect(body.total).toBe(1);
     expect(body.page).toBe(1);
     expect(body.pageSize).toBe(20);

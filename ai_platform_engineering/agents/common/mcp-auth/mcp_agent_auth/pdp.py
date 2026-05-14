@@ -11,7 +11,7 @@ short TTL so tool calls don't pay the latency on every request.
 
 The check is intended for **embedded MCPs** (e.g. inside a Python
 agent process) that do NOT sit behind agentgateway and therefore
-miss its CEL-based RBAC gate. MCPs already routed through
+miss its gateway/OpenFGA RBAC gate. MCPs already routed through
 agentgateway should leave this off and rely on the gateway's
 centralised policy evaluation.
 

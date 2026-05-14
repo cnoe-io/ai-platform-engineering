@@ -24,7 +24,7 @@ Keep this **off in production**.
 
 ## Optional per-MCP RBAC check
 
-Most standalone MCPs are already protected by AgentGateway CEL policies. For
+Most standalone MCPs are already protected by AgentGateway ext_authz/OpenFGA. For
 those, leave the PDP extension disabled.
 
 For embedded MCPs that do **not** sit behind AgentGateway, you can enable an

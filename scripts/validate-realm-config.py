@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate that deploy/keycloak/realm-config(.extras).json match the runtime catalog.
+"""Validate that the tracked Keycloak realm seed matches the runtime catalog.
 
 Spec 102 (FR-006). Hard-gate run in CI; non-zero exit on drift.
 
@@ -7,7 +7,7 @@ Checks:
   1. ``ui/src/lib/rbac/resource-catalog.generated.ts`` (produced by
      ``scripts/extract-rbac-resources.py``) is up-to-date — every (resource, scope)
      pair the runtime references is declared in
-     ``deploy/keycloak/realm-config.json`` ``authorizationSettings.resources[].scopes``.
+     ``deploy/keycloak/realm-config.example.json`` ``authorizationSettings.resources[].scopes``.
   2. ``deploy/keycloak/realm-config-extras.json`` validates against
      ``contracts/realm-config-extras.schema.json``:
        - `version: 1`
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REALM_PATH = REPO_ROOT / "deploy" / "keycloak" / "realm-config.json"
+REALM_PATH = REPO_ROOT / "deploy" / "keycloak" / "realm-config.example.json"
 EXTRAS_PATH = REPO_ROOT / "deploy" / "keycloak" / "realm-config-extras.json"
 CATALOG_TS = REPO_ROOT / "ui" / "src" / "lib" / "rbac" / "resource-catalog.generated.ts"
 

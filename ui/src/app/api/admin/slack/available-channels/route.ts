@@ -34,7 +34,7 @@
 
 import { NextRequest } from "next/server";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
   requireRbacPermission,
@@ -168,8 +168,8 @@ function applyCursor(
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, user, session) => {
-    await requireRbacPermission(session, "admin_ui", "view");
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
 
     const token = process.env.SLACK_BOT_TOKEN?.trim();
     if (!token) {
@@ -238,5 +238,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       fetched_at: fetchedAt,
       query: { q, member_only: memberOnly, limit },
     });
-  });
 });

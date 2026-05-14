@@ -147,7 +147,7 @@ Each mutation calls the Keycloak Admin API to create/delete realm roles and role
 
 - **Backward compatibility**: existing `chat_user`/`team_member`/`kb_admin`/`admin` rules remain in AG. No user loses access on rollout.
 - **Audit**: every role grant/revoke from the Admin UI is logged with admin email, target user/team, role, timestamp.
-- **Performance**: AG CEL evaluation is in-process; the added rules add <1ms per request. Keycloak Admin API mutations from the UI are async with optimistic UI.
+- **Performance**: AG CEL evaluation is in-process; the added rules add &lt;1ms per request. Keycloak Admin API mutations from the UI are async with optimistic UI.
 - **Security**: only `admin_user` (or the legacy `admin`) can grant roles. The Admin UI checks this server-side. `BOOTSTRAP_ADMIN_EMAILS` remains the emergency bypass and must be removed in prod once a real admin exists.
 
 ## Migration Notes

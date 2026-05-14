@@ -142,22 +142,22 @@ seed_personas_main() {
   PASS_DAVE="${DAVE_NO_ROLE_PASSWORD:-test-password-123}"
   PASS_EVE="${EVE_DYNAMIC_AGENT_USER_PASSWORD:-test-password-123}"
 
-  ALICE_ID=$(upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin")
+  ALICE_ID=$(upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin" | tail -n 1)
   assign_realm_role "${ALICE_ID}" "admin"
 
-  BOB_ID=$(upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser")
+  BOB_ID=$(upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser" | tail -n 1)
   assign_realm_role "${BOB_ID}" "chat_user"
 
-  CAROL_ID=$(upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor")
+  CAROL_ID=$(upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor" | tail -n 1)
   assign_realm_role "${CAROL_ID}" "chat_user"
   # KB ingestor role is granted via the team_kb_ownership document in MongoDB
   # (Phase 7 RAG hybrid model — see plan.md §Phase 4). Realm role chat_user is
   # the baseline; KB-scoped permissions are layered on top by spec-098 ACL.
 
-  DAVE_ID=$(upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole")
+  DAVE_ID=$(upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole" | tail -n 1)
   # No additional roles — intentionally; default-roles-caipe (offline_access) is auto-applied.
 
-  EVE_ID=$(upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent")
+  EVE_ID=$(upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent" | tail -n 1)
   assign_realm_role "${EVE_ID}" "chat_user"
 
   echo "[init-idp] [spec-102] persona seeding done. Verify with:"
@@ -169,10 +169,9 @@ seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (se
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec 104: Team-scoped RBAC seed
 #
-# Creates resource-scoped realm roles (`tool_user:<name>`, `agent_user:<id>`,
-# `team_member:<id>`, `admin_user`) and assigns the demo bundle to every email
-# in BOOTSTRAP_ADMIN_EMAILS. This unblocks the test-april-2025 + jira demo
-# without waiting for the Admin UI flow (Story 4 of spec 104).
+# Creates only coarse bootstrap realm roles. Resource-scoped grants
+# (`tool_user:<name>`, `agent_user:<id>`, `agent_admin:<id>`) are modeled in
+# OpenFGA and should not be materialized into Keycloak tokens for new installs.
 #
 # All operations are idempotent. Re-running the job adds nothing if roles
 # and assignments already exist.
@@ -242,33 +241,18 @@ seed_spec104_main() {
       || echo "[init-idp] [spec-104]   = ${EMAIL} → ${ROLE_NAME} (already assigned)"
   }
 
-  # Demo team / agent / wildcard / superuser roles
-  local SP104_ROLES="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
-
-  # Per-tool roles for every MCP server we ship with the dev compose.
-  # Keep this list aligned with deploy/agentgateway/config.yaml MCP targets and
-  # the agents/*/mcp servers. The Admin UI (spec-104 story 4) will create
-  # additional tool_user:<name> roles on demand.
-  local SP104_TOOL_PREFIXES="jira github argocd confluence pagerduty backstage komodor weather petstore rag"
-  local prefix
-  for prefix in ${SP104_TOOL_PREFIXES}; do
-    # Wildcard form per-MCP. Today we don't enumerate every single tool name
-    # because LangChain naming is `<server>_<tool>` and the per-tool list is
-    # large and version-dependent. Instead we seed the wildcard
-    # `tool_user:<server>_*` and the AG CEL rule supports both exact match
-    # and (in a future iteration) glob — for now grant via tool_user:* on
-    # admin users and tool_user:<server>_<tool> on team users.
-    SP104_ROLES="${SP104_ROLES} tool_user:${prefix}_*"
-  done
+  # Coarse identity/bootstrap roles only. Team membership remains for the
+  # transition-era active_team claim; resource grants are OpenFGA tuples.
+  local SP104_ROLES="admin_user team_member:demo-team"
 
   # Realm role creation (idempotent).
   for r in ${SP104_ROLES}; do
     _sp104_ensure_role "${r}"
   done
 
-  # Bootstrap admins → admin_user + tool_user:* + every demo role.
+  # Bootstrap admins → coarse admin + demo-team membership.
   if [ -n "${BOOTSTRAP_ADMIN_EMAILS:-}" ]; then
-    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user tool_user:* team_member:demo-team agent_user:test-april-2025 agent_admin:test-april-2025"
+    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user team_member:demo-team"
     # Split BOOTSTRAP_ADMIN_EMAILS on comma. We must restore IFS before the
     # inner space-separated loop over ADMIN_ROLES_FOR_BOOTSTRAP, otherwise the
     # whole role string is treated as one token.
@@ -717,13 +701,38 @@ create_mapper_if_missing "${ALIAS}-groups-importer" "$(cat <<ENDJSON
   "identityProviderAlias": "${ALIAS}",
   "identityProviderMapper": "oidc-user-attribute-idp-mapper",
   "config": {
-    "syncMode": "INHERIT",
+    "syncMode": "FORCE",
     "claim": "groups",
     "user.attribute": "idp_groups"
   }
 }
 ENDJSON
 )"
+
+GROUPS_IMPORTER_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/identity-provider/instances/${ALIAS}/mappers" 2>/dev/null \
+  | python3 -c "import sys,json
+data=json.load(sys.stdin)
+print(next((m.get('id','') for m in data if m.get('name') == '${ALIAS}-groups-importer'), ''))" 2>/dev/null || true)
+if [ -n "${GROUPS_IMPORTER_ID}" ]; then
+  echo "[init-idp]   Ensuring '${ALIAS}-groups-importer' uses syncMode=FORCE ..."
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/identity-provider/instances/${ALIAS}/mappers/${GROUPS_IMPORTER_ID}" \
+    -d "$(cat <<ENDJSON
+{
+  "id": "${GROUPS_IMPORTER_ID}",
+  "name": "${ALIAS}-groups-importer",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": {
+    "syncMode": "FORCE",
+    "claim": "groups",
+    "user.attribute": "idp_groups"
+  }
+}
+ENDJSON
+)" || echo "[init-idp]   WARNING: failed to update '${ALIAS}-groups-importer'"
+fi
 
 create_mapper_if_missing "${ALIAS}-email-mapper" "$(cat <<ENDJSON
 {
@@ -1106,7 +1115,7 @@ fi
 # history flipped it to flat `roles`. We force the standard form here.
 # assisted-by claude composer-2-fast
 # -------------------------------------------------------------------
-echo "[init-idp] Ensuring 'roles' client scope writes nested 'realm_access.roles' (AGW CEL compatibility) ..."
+echo "[init-idp] Ensuring 'roles' client scope writes nested 'realm_access.roles' (gateway RBAC compatibility) ..."
 ROLES_SCOPE_ID=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
   | python3 -c "import sys,json
 for s in json.load(sys.stdin):
@@ -1229,8 +1238,57 @@ if [ -n "${UI_CLIENT_ID}" ]; then
         }
       }' && echo "[init-idp]   Mapper created."
   fi
+
+  UI_GROUPS_MAPPER_ID=$(echo "${UI_MAPPERS}" | python3 -c "import sys,json
+data=json.load(sys.stdin)
+print(next((m.get('id','') for m in data if m.get('name') == 'idp-groups-to-groups'), ''))" 2>/dev/null || true)
+  if [ -n "${UI_GROUPS_MAPPER_ID}" ]; then
+    echo "[init-idp]   Updating mapper 'idp-groups-to-groups' on caipe-ui ..."
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models/${UI_GROUPS_MAPPER_ID}" \
+      -d "$(cat <<ENDJSON
+{
+  "id":"${UI_GROUPS_MAPPER_ID}",
+  "name":"idp-groups-to-groups",
+  "protocol":"openid-connect",
+  "protocolMapper":"oidc-usermodel-attribute-mapper",
+  "config":{
+    "user.attribute":"idp_groups",
+    "claim.name":"groups",
+    "multivalued":"true",
+    "aggregate.attrs":"true",
+    "jsonType.label":"String",
+    "userinfo.token.claim":"true",
+    "id.token.claim":"true",
+    "access.token.claim":"false",
+    "introspection.token.claim":"false"
+  }
+}
+ENDJSON
+)" && echo "[init-idp]   Mapper updated."
+  else
+    echo "[init-idp]   Creating mapper 'idp-groups-to-groups' on caipe-ui ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" \
+      -d '{
+        "name":"idp-groups-to-groups",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-usermodel-attribute-mapper",
+        "config":{
+          "user.attribute":"idp_groups",
+          "claim.name":"groups",
+          "multivalued":"true",
+          "aggregate.attrs":"true",
+          "jsonType.label":"String",
+          "userinfo.token.claim":"true",
+          "id.token.claim":"true",
+          "access.token.claim":"false",
+          "introspection.token.claim":"false"
+        }
+      }' && echo "[init-idp]   Mapper created."
+  fi
 else
-  echo "[init-idp]   WARNING: caipe-ui client not found — skipping audience mapper."
+  echo "[init-idp]   WARNING: caipe-ui client not found — skipping audience and groups mappers."
 fi
 
 

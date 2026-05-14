@@ -121,7 +121,7 @@ class DataSourceInfo(BaseModel):
     ...,
     description=(
       "Unique, immutable identifier for the data source. Used as the stable key "
-      "in Milvus filters, RBAC CEL rules, document metadata, and ingestor jobs. "
+      "in Milvus filters, RBAC rules, document metadata, and ingestor jobs. "
       "Auto-derived from the source URL/space and is opaque on purpose."
     ),
   )

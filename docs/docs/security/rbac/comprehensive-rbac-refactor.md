@@ -10,16 +10,18 @@ Comprehensive RBAC makes **Keycloak the identity and role issuer**,
 **AgentGateway the MCP policy enforcement point**, and **OpenFGA the relationship
 policy engine**.
 
-Today, enforcement is hybrid:
+Today, enforcement is split by responsibility:
 
-- **Keycloak JWT roles** still drive most fine-grained decisions.
-- **AgentGateway** validates JWTs, calls **OpenFGA** first, then runs CEL rules
-  per MCP tool.
-- **Admin UI Team Resources** writes both Keycloak roles and OpenFGA tuples from
-  one place.
-- **OpenFGA currently gates MCP access coarsely** with
-  `user:<sub> can_call document:mcp`; richer team, agent, tool, and KB tuples are
-  modeled and written so they can become authoritative per-resource checks.
+- **Keycloak JWT roles** still provide signed identity facts and management-plane
+  fallback checks.
+- **AgentGateway** validates JWTs and delegates MCP authorization to **OpenFGA**
+  through `ext_authz`.
+- **Admin UI Team Resources** writes Keycloak roles for transition compatibility
+  and OpenFGA tuples for relationship decisions.
+- **OpenFGA** owns the relationship graph for user/team/tool, agent, and KB
+  access. The current AgentGateway bridge uses OpenFGA for the gateway decision
+  and defaults to the configured coarse MCP object unless deployed with a more
+  specific relation/object mapping.
 
 ## Big Picture
 
@@ -28,7 +30,7 @@ flowchart TD
   User[User / Slack User] --> UI[CAIPE UI / Slack Bot]
 
   UI --> KC[Keycloak]
-  KC --> JWT[Signed JWT<br/>sub, email, roles, active_team]
+  KC --> JWT[Signed JWT<br/>sub, email, coarse roles, active_team]
 
   UI --> DA[Dynamic Agents Runtime]
   Slack[Slack Bot] --> OBO[Keycloak Token Exchange<br/>OBO token with act.sub + active_team]
@@ -41,12 +43,11 @@ flowchart TD
   ExtAuthz --> Bridge[openfga-authz-bridge]
   Bridge --> FGA[OpenFGA PDP]
 
-  JWTAuth --> CEL[AgentGateway CEL<br/>tool_user, team_member, admin_user]
   FGA --> AGW
-  CEL --> MCP[MCP Servers<br/>Jira, RAG, GitHub, ArgoCD]
+  AGW --> MCP[MCP Servers<br/>Jira, RAG, GitHub, ArgoCD]
 
   Admin[Admin UI<br/>Teams / Resources] --> Mongo[(MongoDB<br/>teams, resources)]
-  Admin --> KCRoles[Keycloak Admin API<br/>materialize realm roles]
+  Admin --> KCScopes[Keycloak Admin API<br/>client scopes + coarse roles]
   Admin --> FGATuples[OpenFGA tuple writer]
   FGATuples --> FGA
 ```
@@ -56,13 +57,12 @@ flowchart TD
 1. A user logs in through Keycloak, usually brokered from an enterprise IdP such
    as Duo SSO or Okta.
 2. Keycloak issues a signed JWT.
-3. The JWT carries identity and roles such as `admin`, `chat_user`,
-   `team_member:platform-engineering`, and `tool_user:jira_*`.
+3. The JWT carries identity, coarse roles such as `admin` and `chat_user`, and
+   request context such as `active_team`.
 4. Dynamic Agents forwards the user JWT to AgentGateway when calling MCP tools.
 5. AgentGateway verifies the JWT with Keycloak JWKS.
 6. AgentGateway calls OpenFGA through gRPC `extAuthz`.
-7. If OpenFGA allows, AgentGateway evaluates CEL tool rules.
-8. If CEL allows, the MCP request reaches Jira, RAG, GitHub, ArgoCD, or another
+7. If OpenFGA allows, the MCP request reaches Jira, RAG, GitHub, ArgoCD, or another
    backend MCP server.
 
 ```mermaid
@@ -77,7 +77,6 @@ sequenceDiagram
   AGW->>KC: Validate JWT signature, issuer, audience, expiry
   AGW->>FGA: gRPC extAuthz Check with jwt.sub
   FGA-->>AGW: allow / deny
-  AGW->>AGW: Evaluate CEL mcpAuthorization rules
   AGW->>MCP: Forward allowed request
 ```
 
@@ -85,7 +84,6 @@ Failure behavior:
 
 - JWT validation fails: AgentGateway returns `401`.
 - OpenFGA denies or is unavailable: AgentGateway returns `403`.
-- CEL denies: the request never reaches the MCP server.
 
 ## Keycloak Role Model
 
@@ -95,24 +93,25 @@ Keycloak owns authentication, JWT issuance, and realm-role materialization.
 |------|---------|
 | `chat_user` | Basic authenticated CAIPE user |
 | `admin` | Admin UI access |
-| `kb_admin` | Knowledge base administration |
+| `kb_admin` | Legacy coarse knowledge base administration |
 | `admin_user` | Spec 104 superuser for resource checks |
-| `team_member:<slug>` | User belongs to a team |
-| `team_admin:<slug>` | User can manage a team |
-| `agent_user:<agent_id>` | User can chat with a dynamic agent |
-| `agent_admin:<agent_id>` | User can manage that agent |
-| `tool_user:<tool>` | User can call one MCP tool |
-| `tool_user:<server>_*` | User can call all tools from one MCP server, for example `tool_user:jira_*` |
-| `tool_user:*` | User can call all MCP tools |
+| `team_member:<slug>` | Temporary compatibility role; new membership writes use OpenFGA |
+| `team_admin:<slug>` | Temporary compatibility role; team admin grants should move to OpenFGA |
+| `agent_user:<agent_id>` | Legacy compatibility role; new agent use grants are OpenFGA tuples |
+| `agent_admin:<agent_id>` | Legacy compatibility role; new agent manage grants are OpenFGA tuples |
+| `tool_user:<tool>` | Legacy compatibility role; new tool grants are OpenFGA tuples |
+| `tool_user:<server>_*` | Legacy compatibility role; new server-prefix grants are OpenFGA tuples |
+| `tool_user:*` | Legacy compatibility role; new wildcard tool grants are OpenFGA tuples |
 
 The `active_team` JWT claim tells AgentGateway which team context is active for
-the request. Team slugs, not Mongo ObjectIds, are used in team-scoped roles.
+the request. Team slugs, not Mongo ObjectIds, are used in client scopes and
+OpenFGA relationship objects.
 
 ## AgentGateway
 
 AgentGateway is the central policy enforcement point for MCP traffic. It is not
 the identity store and it does not mint tokens. It validates Keycloak-issued
-JWTs, delegates relationship checks to OpenFGA, then applies local CEL rules.
+JWTs, then delegates relationship checks to OpenFGA.
 
 AgentGateway policy order:
 
@@ -120,9 +119,7 @@ AgentGateway policy order:
    and JWKS signature.
 2. `extAuthz`: gRPC call to `openfga-authz-bridge`, passing verified `jwt.sub`
    metadata.
-3. `authorization` and `mcpAuthorization`: CEL checks over JWT claims and MCP
-   tool context.
-4. MCP proxy: forwards the request to the configured backend server only after
+3. MCP proxy: forwards the request to the configured backend server only after
    all policy layers allow.
 
 ## OpenFGA Rules
@@ -155,7 +152,7 @@ The Admin UI has two human-facing ReBAC surfaces:
 
 - **Team Resources** is the source-of-truth editor for team grants. Admins choose
   which agents and MCP tool prefixes a team can use, and the BFF materializes the
-  change into Keycloak roles, OpenFGA tuples, and Mongo intent.
+  change into OpenFGA tuples and Mongo intent.
 - **OpenFGA ReBAC** is the relationship workbench. It provides a guided tuple
   builder, effective-access preview, full-screen all-relationship graph viewing,
   drag/drop policy/resource graph editing, and advanced tuple inspector without
@@ -165,25 +162,22 @@ When an admin saves team resources:
 
 ```mermaid
 flowchart LR
-  Save[Admin saves Team Resources] --> KC[Keycloak role reconciliation]
-  Save --> FGA[OpenFGA tuple reconciliation]
+  Save[Admin saves Team Resources] --> FGA[OpenFGA tuple reconciliation]
   Save --> Mongo[Mongo team.resources]
 
-  KC --> JWT[Future JWT role stamps]
   FGA --> Graph[Relationship graph]
   Mongo --> UI[Admin UI source of truth]
 ```
 
-Example: granting `platform-engineering` access to Jira writes both:
+Example: granting `platform-engineering` access to Jira writes:
 
-- Keycloak role assignment: `tool_user:jira_*`
 - OpenFGA tuple: `team:platform-engineering#member can_call tool:jira_*`
 
 Most admins should use Team Resources. Platform admins can use OpenFGA ReBAC for
 one-off relationship creation, graph-based staging/review, checks,
 visualization, and safe tuple cleanup.
 MongoDB keeps the UI-level intent, Keycloak gets JWT-compatible role
-materialization, and OpenFGA gets the relationship graph.
+context, and OpenFGA gets the relationship graph.
 
 ## Slack Path
 
@@ -211,7 +205,7 @@ user/team context as the web UI path.
 | Keycloak | Identity, JWT signing, realm roles, OBO token exchange | MCP proxying, OpenFGA relationships |
 | Admin UI | Human policy authoring, team resources, Mongo source of intent | JWT validation for MCP traffic |
 | Dynamic Agents | Agent runtime, tool loading, forwarding user JWT to MCP path | Final MCP authorization |
-| AgentGateway | JWT validation, OpenFGA `extAuthz`, CEL, MCP proxying | User database, token minting |
+| AgentGateway | JWT validation, OpenFGA `extAuthz`, MCP proxying | User database, token minting, policy storage |
 | OpenFGA | Relationship graph and PDP decisions | JWT validation, traffic proxying |
 | MCP servers | Domain APIs such as Jira, RAG, GitHub, ArgoCD | Primary centralized authorization |
 

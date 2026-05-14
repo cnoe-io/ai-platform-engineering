@@ -34,7 +34,7 @@ The complete one-time login sequence (Browser → Keycloak → upstream IdP → 
 
 ## Per-Request Authorization (End to End)
 
-This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, supervisor middleware, AgentGateway `extAuthz` / OpenFGA evaluation, local CEL evaluation, and into the MCP server. Three independent timelines run alongside (policy sync, JWKS refresh, one-time login) and the diagram shows how they converge.
+This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, supervisor middleware, AgentGateway `extAuthz` / OpenFGA evaluation, and into the MCP server. JWKS refresh and one-time login timelines run alongside the hot path and the diagram shows how they converge.
 
 ```mermaid
 sequenceDiagram
@@ -47,18 +47,8 @@ sequenceDiagram
     participant SUP as Supervisor A2A
     participant AG as AgentGateway :4000
     participant FGA as OpenFGA PDP<br/>(via ext_authz bridge)
-    participant AGB as ag-config-bridge
-    participant MDB as MongoDB<br/>(ag_mcp_policies)
+    participant MDB as MongoDB<br/>(team memberships + ReBAC tuples)
     participant RAG as RAG MCP :9446
-
-    rect rgb(245, 245, 252)
-      note over AGB, MDB: Policy sync path (out-of-band, every ~5s)
-      AGB->>MDB: find({}) on ag_mcp_policies + ag_mcp_backends
-      MDB-->>AGB: [ {tool_pattern, expression, enabled}, ... ]
-      AGB->>AGB: render config.yaml.j2 → sha256 changed?
-      AGB->>AG: atomic write /etc/agentgateway/config.yaml
-      note over AG: File watcher reloads CEL rules + jwtAuth config<br/>(no restart needed)
-    end
 
     rect rgb(245, 252, 245)
       note over AG, KC: JWKS refresh (out-of-band, on TTL or unknown kid)
@@ -76,9 +66,12 @@ sequenceDiagram
       User-->>Duo: authenticated
       Duo-->>KC: auth code → /token → id_token + userinfo<br/>(email, firstname, lastname)
 
-      note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>First login also creates local user + assigns<br/>default realm role chat_user
-      KC-->>UI: CAIPE JWT<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>realm_access.roles=[chat_user, argocd-admin]
+      note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>and refresh upstream groups into idp_groups
+      KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users],<br/>realm_access.roles=[chat_user, argocd-admin]
       note over UI: NextAuth stores JWT in<br/>encrypted server-side session cookie
+      opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=true
+        UI->>MDB: Best-effort reconcile Alice's<br/>memberOf/groups claims into managed<br/>team_membership_sources + OpenFGA tuples
+      end
       UI-->>User: logged in (Duo identity never leaves KC boundary)
     end
 
@@ -104,10 +97,6 @@ sequenceDiagram
       AG->>FGA: Check(user:alice, can_call, document:mcp)
       FGA-->>AG: allowed=true
 
-      note over AG: Local CEL authorization: per-route + per-tool
-      AG->>AG: route rule:<br/>true (listener jwtAuth already enforced)
-      AG->>AG: mcpAuthorization rule for tool "rag_query":<br/>jwt.realm_access.roles.contains("chat_user") && tool.name.startsWith("rag_query") → ALLOW
-
       AG->>RAG: proxied POST /mcp<br/>Authorization: Bearer OBO_JWT (untouched)
       note over RAG: MCP does its own JWKS validation<br/>(defense in depth)
       RAG->>KC: (optional) JWKS fetch if cache miss
@@ -121,12 +110,12 @@ sequenceDiagram
 
 **Read this diagram as four independent timelines that happen to converge:**
 
-1. **Policy timeline** — admins edit CEL rules in the UI (`/admin/rbac/ag-policies`), which writes to MongoDB. `ag-config-bridge` polls MongoDB and re-renders `config.yaml` on change. AG hot-reloads via its file watcher. OpenFGA relationships are the remote PDP input and are checked on every MCP request. **Mean time from admin save to CEL enforcement: ≤10s.**
+1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. **Duo is not on the request hot path** — it is only touched on login. This is why AG's CEL rules can assume a JWT exists without ever needing to understand what Duo is.
-4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a misconfigured CEL rule doesn't leave the MCP open; a compromised AG doesn't let tokens past MCP without signature check.
+3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
-> **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** (steps ~5–13) and note "this happens once per day". Then trace through the **Request timeline** (steps ~14–28) and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
+> **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once per day". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
 
 ---
 
@@ -188,8 +177,8 @@ sequenceDiagram
     note over SUP: LangGraph selects RAG tool
     SUP->>AG: POST /rag/v1/query  Authorization: Bearer OBO_JWT
 
-    note over AG: CEL policy evaluation
-    AG->>AG: roles.exists(r, r=="chat_user") → ALLOW
+    note over AG: ext_authz / OpenFGA authorization
+    AG->>AG: Check user/team/resource tuple graph → ALLOW
 
     AG->>MCP: POST /v1/query  Authorization: Bearer OBO_JWT
     note over MCP: JWKS validation
@@ -262,42 +251,46 @@ All log lines that reference a Slack profile email run it through `mask_email()`
 
 ---
 
-## Channel → Dynamic Agent Routing
+## Slack Channel → Team + Agent ReBAC
 
-> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns each line a specific expert agent (like routing IT tickets to the right tier). When a user calls in, the operator checks the channel's routing table, verifies the user has clearance for that agent, then patches them through. The routing decision and access check happen *before* the message reaches the agent.
+> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns the line to a team and grants one or more resources to that line. When a user calls in, the operator checks both the channel grant and the user's team/resource relationship before patching them through.
 
 ### How It Works
 
-Every Slack channel can be mapped to exactly one dynamic agent (1:1 mapping). When a message arrives, the Slack bot resolves the target agent:
+Slack channel routing now separates "which team owns this channel?" from "which resources may be used here?" When a message arrives, the Slack bot resolves the selected agent from Slack bot configuration/thread ownership, then verifies the selected agent against OpenFGA:
 
-1. **Lookup**: query `channel_agent_mappings` in MongoDB by `slack_channel_id`
-2. **Existence check**: verify the mapped agent exists in `dynamic_agents` and `enabled = true`
-3. **RBAC check** (basic):
-   - `visibility = global` → allow any authenticated user
-   - `visibility = team` → require `team_member:<team>` Keycloak realm role for one of the agent's `shared_with_teams`
-   - `visibility = private` → deny (private agents are not appropriate for channel routing)
-4. **Route**: pass the resolved `agent_id` to the chat/stream call; fallback to YAML config default if no mapping exists
+1. **Team lookup**: query `channel_team_mappings` in MongoDB by `slack_channel_id`.
+2. **Active team minting**: mint the user's OBO token with the channel team's `active_team` claim.
+3. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace>--<channel> can_use agent:<id>` and the user's active team/resource relationship.
+4. **Route**: dispatch to the selected `agent_id` only after both the channel grant and user/resource grant allow the request.
 
-The Slack YAML config still registers which channels the bot listens to, but
-RBAC mode does **not** require an agent binding in that YAML. A valid active
-MongoDB `channel_agent_mappings` row is enough to dispatch the message to the
-dynamic agent.
+The Slack YAML config still registers which channels the bot listens to and which agents can be selected by message matching. Relationship authorization lives in `slack_channel_grants`, so one channel can be granted many agents, tools, tasks, skills, and knowledge bases.
+
+## Keycloak Role → ReBAC Transition Check
+
+The transition comparison flow is intentionally read-only:
+
+1. Admin opens **OpenFGA ReBAC → Enforcement Status**.
+2. UI calls `/api/admin/rebac/enforcement-status` to list each resource type's migration state.
+3. Admin submits a subject/action/resource plus observed Keycloak realm roles.
+4. `/api/rbac/enforcement-comparison` classifies matching realm roles and checks the same relationship in OpenFGA.
+5. If the resource type is `rebac_enforced`, matching per-resource roles are reported as ignored and the effective decision comes only from ReBAC.
 
 ### Admin UI
 
-Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings**.
+Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/resource grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
 
-- Dropdown lists only routable dynamic agents (`global` or `team`). Private agents are intentionally excluded and the API rejects them because channel messages represent shared channel context, not the agent owner's private workspace.
-- Upsert semantics: creating a new mapping for an already-mapped channel replaces the old mapping
-- Deactivating a mapping (soft delete) falls back to the YAML config default agent
+- Channel/team ownership is exclusive: a channel cannot be actively mapped to two teams.
+- Channel/resource grants are many-to-many: a channel can have multiple agent grants plus tool/KB/task/skill grants.
+- Removing a grant denies that resource in the channel even if the user has access elsewhere.
 
-### MongoDB Collection: `channel_agent_mappings`
+### MongoDB Collection: `channel_team_mappings`
 
 ```json
 {
   "_id": ObjectId,
   "slack_channel_id": "C0123456789",
-  "agent_id": "my-k8s-agent",
+  "team_id": "6612...",
   "channel_name": "#k8s-support",
   "slack_workspace_id": "T0123456789",
   "created_by": "admin@example.com",
@@ -306,7 +299,22 @@ Admins configure mappings in **CAIPE UI → Admin → Channel-to-agent mappings*
 }
 ```
 
-The `agent_id` field is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
+### MongoDB Collection: `slack_channel_grants`
+
+```json
+{
+  "workspace_id": "T0123456789",
+  "channel_id": "C0123456789",
+  "resource": { "type": "agent", "id": "my-k8s-agent" },
+  "actions": ["use"],
+  "source_type": "manual",
+  "status": "active",
+  "created_by": "admin@example.com",
+  "created_at": "2026-05-12T00:00:00.000Z"
+}
+```
+
+The agent grant itself lives in `slack_channel_grants`; the `resource.id` value is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
 
 ---
 
@@ -339,7 +347,7 @@ STEP 2: Supervisor Ingestion  (A2A + LangGraph)
 STEP 3: Policy Enforcement  (AgentGateway)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   POST /argocd/...  Authorization: Bearer OBO_JWT
-    → CEL: roles.exists(r, r=="chat_user") → ALLOW
+    → ext_authz: OpenFGA check for caller/team/tool relationship → ALLOW
     → Proxy to ArgoCD MCP Server
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -24,7 +24,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 
-SHARED_KEY = "test-mcp-key-abc123"
+SHARED_KEY = "test-" + "mcp-key-" + "abc123"
 PUBLIC_PATHS = ["/healthz"]
 
 

@@ -22,11 +22,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MATRIX="${REPO_ROOT}/tests/rbac/rbac-matrix.yaml"
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "[check-no-new-requireAdmin] ripgrep (rg) is required but not installed" >&2
-  exit 2
-fi
-
 if [[ ! -f "${MATRIX}" ]]; then
   echo "[check-no-new-requireAdmin] matrix not found: ${MATRIX}" >&2
   exit 2
@@ -41,19 +36,39 @@ trap 'rm -f "${PENDING_TMP}" "${HITS_TMP:-}"' EXIT
 
 python3 - <<'PYEOF' >"${PENDING_TMP}"
 from pathlib import Path
-import yaml
-data = yaml.safe_load(Path("tests/rbac/rbac-matrix.yaml").read_text()) or {}
+
+# Keep this parser dependency-free: the CI cheap lane invokes system python3
+# here before the uv environment is active for this shell script.
 seen = set()
-for r in data.get("routes", []) or []:
-    if r.get("surface") != "ui_bff":
+entry: dict[str, str] = {}
+
+
+def flush() -> None:
+    if entry.get("surface") != "ui_bff":
+        return
+    if entry.get("migration_status") != "pending":
+        return
+    path = entry.get("path", "").lstrip("/")
+    if path:
+        seen.add(f"ui/src/app/{path}/route.ts")
+
+
+for raw_line in Path("tests/rbac/rbac-matrix.yaml").read_text(encoding="utf-8").splitlines():
+    stripped = raw_line.strip()
+    if stripped.startswith("- id:"):
+        flush()
+        entry = {}
         continue
-    if r.get("migration_status") != "pending":
+    if ":" not in stripped:
         continue
-    p = (r.get("path") or "").lstrip("/")
-    if p:
-        seen.add(f"ui/src/app/{p}/route.ts")
-for s in sorted(seen):
-    print(s)
+    key, value = stripped.split(":", maxsplit=1)
+    if key in {"surface", "path", "migration_status"}:
+        entry[key] = value.strip().strip('"').strip("'")
+
+flush()
+
+for item in sorted(seen):
+    print(item)
 PYEOF
 
 PENDING_COUNT=$(wc -l <"${PENDING_TMP}" | tr -d ' ')
@@ -64,26 +79,31 @@ PENDING_COUNT=$(wc -l <"${PENDING_TMP}" | tr -d ' ')
 #    be migrated, but they're a different audit surface and are reported by
 #    `make test-rbac-lint` directly via the matrix linter.
 HITS_TMP="$(mktemp)"
-( cd "${REPO_ROOT}" && \
-  rg --files-with-matches --no-heading --no-line-number \
-     --glob 'ui/src/app/api/**/route.ts' \
-     -e "from ['\"]@/lib/api-middleware['\"]" \
-     . \
-   | sed 's|^\./||' \
-   | sort -u \
-   | while IFS= read -r f; do
-       # Keep the file only if it imports requireAdmin* from api-middleware
-       # and calls it from within a function body (not just declares its own).
-       if rg -q -e '\brequireAdmin(View)?\b' "${f}" 2>/dev/null \
-          && ! rg -q -e '^(async\s+)?function\s+requireAdmin' "${f}" 2>/dev/null; then
-         echo "${f}"
-       elif rg -q -e '\brequireAdmin(View)?\b' "${f}" 2>/dev/null \
-          && rg -q -e 'requireAdmin\s*[,}]' "${f}" 2>/dev/null \
-          && rg -q -e '^(async\s+)?function\s+requireAdmin' "${f}" 2>/dev/null; then
-         # File both imports the shared helper AND defines a local one; flag it.
-         echo "${f}"
-       fi
-     done ) >"${HITS_TMP}" || true
+python3 - <<'PYEOF' >"${HITS_TMP}"
+from pathlib import Path
+import re
+
+root = Path("ui/src/app/api")
+if not root.exists():
+    raise SystemExit(0)
+
+imports_api_middleware = re.compile(r"from ['\"]@/lib/api-middleware['\"]")
+references_require_admin = re.compile(r"\brequireAdmin(View)?\b")
+defines_local_require_admin = re.compile(r"^(async\s+)?function\s+requireAdmin", re.MULTILINE)
+imports_shared_require_admin = re.compile(r"requireAdmin\s*[,}]")
+
+for path in sorted(root.rglob("route.ts")):
+    text = path.read_text(encoding="utf-8")
+    if not imports_api_middleware.search(text):
+        continue
+    if not references_require_admin.search(text):
+        continue
+
+    has_local_definition = defines_local_require_admin.search(text) is not None
+    has_shared_import = imports_shared_require_admin.search(text) is not None
+    if not has_local_definition or has_shared_import:
+        print(path.as_posix())
+PYEOF
 
 if [[ ! -s "${HITS_TMP}" ]]; then
   echo "[check-no-new-requireAdmin] OK — no route.ts files reference requireAdmin / requireAdminView"
@@ -105,7 +125,18 @@ if [[ "${VIOL_COUNT}" -gt 0 ]]; then
   echo "                            outside the pending-migration allowlist:"
   while IFS= read -r v; do
     [[ -z "${v}" ]] && continue
-    line="$(rg -n -e '\brequireAdmin\b' -e '\brequireAdminView\b' "${v}" 2>/dev/null | head -1 || true)"
+    line="$(python3 - "${v}" <<'PYEOF'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+for lineno, text in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    if re.search(r"\brequireAdmin(View)?\b", text):
+        print(f"{lineno}:{text}")
+        break
+PYEOF
+)"
     echo "    ${v}    ${line}"
   done <"${VIOLATIONS_TMP}"
   echo ""

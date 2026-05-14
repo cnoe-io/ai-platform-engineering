@@ -1,7 +1,13 @@
-# Agent Gateway configuration — rendered by config-bridge from MongoDB policies.
-# DO NOT EDIT DIRECTLY. Manage policies via Admin UI > Security & Policy > AG MCP Policies.
+# Agent Gateway configuration template for ext_authz-only deployments.
+# AgentGateway authorization is delegated to OpenFGA through ext_authz; this
+# template intentionally does not render CEL mcpAuthorization rules.
 # Template: deploy/agentgateway/config.yaml.j2
 # Generation: {{ generation }}
+#
+# ReBAC migration boundary:
+# - jwtAuth authenticates the caller.
+# - extAuthz asks the OpenFGA bridge for the authorization decision.
+# - AgentGateway does not maintain or proxy CEL authorization policies.
 
 binds:
 - port: 4000
@@ -30,19 +36,7 @@ binds:
           - deny: 'has(jwt.org) && has(request.headers.x_tenant_id) && jwt.org != request.headers.x_tenant_id'
           - allow: 'has(jwt.sub)'
       backends:
-      - policies:
-          mcpAuthorization:
-            rules:
-            {% for policy in policies %}
-            {% if policy.enabled %}
-            # {{ policy.description | default(policy.backend_id + "/" + policy.tool_pattern, true) }}
-            - |
-              {{ policy.expression }} &&
-              has(mcp.tool) &&
-              mcp.tool.name.startsWith("{{ policy.tool_pattern }}")
-            {% endif %}
-            {% endfor %}
-
+      -
         mcp:
           targets:
           {% for backend in backends %}

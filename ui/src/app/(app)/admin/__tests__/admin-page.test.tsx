@@ -204,8 +204,6 @@ const allGatesOpen = {
   health: true,
   audit_logs: true,
   action_audit: true,
-  policy: true,
-  ag_policies: true,
   openfga: true,
 };
 
@@ -437,6 +435,18 @@ describe('Admin Dashboard Page', () => {
       expect(within(table).getByText('Name')).toBeInTheDocument();
       expect(within(table).getByText('Email')).toBeInTheDocument();
       expect(within(table).getByText('Roles')).toBeInTheDocument();
+    });
+
+    it('does not expose the retired CEL Policy tab', async () => {
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText('Security & Policy'));
+      expect(screen.queryByRole('tab', { name: /^Policy$/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toBeInTheDocument();
     });
 
     it('shows Keycloak role badges for listed users', async () => {

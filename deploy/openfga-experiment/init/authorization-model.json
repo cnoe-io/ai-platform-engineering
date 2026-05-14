@@ -6,7 +6,15 @@
       "relations": {}
     },
     {
-      "type": "team",
+      "type": "service_account",
+      "relations": {}
+    },
+    {
+      "type": "anonymous",
+      "relations": {}
+    },
+    {
+      "type": "external_group",
       "relations": {
         "member": {
           "this": {}
@@ -25,21 +33,100 @@
       }
     },
     {
-      "type": "agent",
+      "type": "team",
       "relations": {
-        "can_use": {
+        "member": {
           "this": {}
         },
-        "can_manage": {
+        "admin": {
           "this": {}
         }
       },
       "metadata": {
         "relations": {
-          "can_use": {
+          "member": {
             "directly_related_user_types": [
               {
+                "type": "user"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "admin": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "organization",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
                 "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
                 "relation": "member"
               }
             ]
@@ -47,8 +134,567 @@
           "can_manage": {
             "directly_related_user_types": [
               {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "slack_workspace",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
                 "type": "team",
                 "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "slack_channel",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "agent",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "mcp_server",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_invoke": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_invoke": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           }
@@ -58,17 +704,152 @@
     {
       "type": "tool",
       "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
         "can_call": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
           "this": {}
         }
       },
       "metadata": {
         "relations": {
-          "can_call": {
+          "can_discover": {
             "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
               {
                 "type": "team",
                 "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_call": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           }
@@ -78,7 +859,16 @@
     {
       "type": "knowledge_base",
       "relations": {
+        "can_discover": {
+          "this": {}
+        },
         "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_write": {
           "this": {}
         },
         "can_ingest": {
@@ -86,31 +876,156 @@
         },
         "can_admin": {
           "this": {}
+        },
+        "can_audit": {
+          "this": {}
         }
       },
       "metadata": {
         "relations": {
-          "can_read": {
+          "can_discover": {
             "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
               {
                 "type": "team",
                 "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           },
           "can_ingest": {
             "directly_related_user_types": [
               {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
                 "type": "team",
                 "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
               }
             ]
           },
           "can_admin": {
             "directly_related_user_types": [
               {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
                 "type": "team",
-                "relation": "member"
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           }
@@ -120,16 +1035,1019 @@
     {
       "type": "document",
       "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_delete": {
+          "this": {}
+        },
+        "can_share": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        },
         "can_call": {
           "this": {}
         }
       },
       "metadata": {
         "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_delete": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_share": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
           "can_call": {
             "directly_related_user_types": [
               {
                 "type": "user"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "skill",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "slack_channel"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "task",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "conversation",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_share": {
+          "this": {}
+        },
+        "can_delete": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_share": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_delete": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "admin_surface",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "policy",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_approve": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_approve": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "audit_log",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "secret_ref",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read_metadata": {
+          "this": {}
+        },
+        "can_use": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read_metadata": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_use": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "system_config",
+      "relations": {
+        "can_discover": {
+          "this": {}
+        },
+        "can_read": {
+          "this": {}
+        },
+        "can_write": {
+          "this": {}
+        },
+        "can_manage": {
+          "this": {}
+        },
+        "can_audit": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "can_discover": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_read": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_write": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_manage": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_audit": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           }

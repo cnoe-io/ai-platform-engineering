@@ -78,8 +78,7 @@ export type AuditReasonCode =
   | "DENY_SCOPE"
   | "DENY_TENANT"
   | "DENY_UNLINKED"
-  | "DENY_PDP_UNAVAILABLE"
-  | "DENY_CEL";
+  | "DENY_PDP_UNAVAILABLE";
 
 /** Structured audit event for authorization decisions (FR-005, data-model.md) */
 export interface AuditEvent {
@@ -137,11 +136,12 @@ export interface UnifiedAuditEvent {
   source: AuditEventSource;
 }
 
-/** Admin dashboard tab keys for CEL-based visibility (US2, FR-004) */
+/** Admin dashboard tab keys for RBAC-based visibility */
 export type AdminTabKey =
   | "users"
   | "teams"
   | "roles"
+  | "identity_group_sync"
   | "slack"
   | "skills"
   | "feedback"
@@ -151,52 +151,10 @@ export type AdminTabKey =
   | "health"
   | "audit_logs"
   | "action_audit"
-  | "policy"
-  | "ag_policies"
   | "openfga";
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
-
-/** A single CEL policy row stored in MongoDB admin_tab_policies */
-export interface AdminTabPolicy {
-  tab_key: AdminTabKey;
-  expression: string;
-  updated_by?: string;
-  updated_at?: string;
-}
-
-/** AG MCP policy — CEL rule for a specific MCP backend + tool pattern (FR-039) */
-export interface AgMcpPolicy {
-  _id?: string;
-  backend_id: string;
-  tool_pattern: string;
-  expression: string;
-  description?: string;
-  enabled: boolean;
-  updated_by: string;
-  updated_at: string;
-}
-
-/** AG MCP backend target stored in `ag_mcp_backends` collection (FR-039) */
-export interface AgMcpBackend {
-  _id?: string;
-  id: string;
-  upstream_url: string;
-  description: string;
-  enabled: boolean;
-  updated_by: string;
-  updated_at: string;
-}
-
-/** AG config sync state — tracks generation counters for hot-reload (FR-039) */
-export interface AgSyncState {
-  _id: 'current';
-  policy_generation: number;
-  bridge_generation: number;
-  bridge_last_sync: string;
-  bridge_error?: string;
-}
 
 /** Per-KB permission level for team-KB ownership (FR-038) */
 export type KbPermission = 'read' | 'ingest' | 'admin';

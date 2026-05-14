@@ -61,7 +61,7 @@ Deliver **enterprise RBAC** consistent across **Slack, CAIPE Admin UI, Superviso
 | IX. Security by default | **Pass** | Deny by default, audit records, least privilege, no cross-team tool edits, HTTPS-only linking URLs |
 | X. Simplicity | **Pass (with justification)** | Keycloak is a new required service but consolidates OIDC brokering, OBO, PDP, and identity link storage — avoiding a custom `caipe-authorization-server`. AG is required upstream infrastructure for MCP/A2A security. See Complexity Tracking below. |
 
-**Post–Phase 1 re-check**: Design artifacts ([data-model.md](./data-model.md), [contracts/](./contracts/)) align with dual-PDP model. No unjustified new microservice beyond Keycloak (required broker) and AG (required gateway).
+**Post–Phase 1 re-check**: Design artifacts ([data-model.md](./data-model.md), [contracts/rbac-authorization-v1.md](./contracts/rbac-authorization-v1.md)) align with dual-PDP model. No unjustified new microservice beyond Keycloak (required broker) and AG (required gateway).
 
 **Post–Phase 10 addition (Session 2026-03-24)**: RAG server Keycloak JWT integration (FR-026) and per-KB access control (FR-027) added as Phase 10 / User Story 7 (P1). Defense-in-depth: BFF coarse AuthZ + RAG server fine-grained per-KB enforcement + query-time filtering. See [architecture.md § Map RAG RBAC to Keycloak](./architecture.md#map-rag-rbac-to-keycloak--per-kb-access-control-architecture-overview).
 

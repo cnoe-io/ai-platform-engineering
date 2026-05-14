@@ -5,7 +5,7 @@ description: "Task list for spec 102 — Comprehensive RBAC Tests + Completion o
 # Tasks: Comprehensive RBAC Tests + Completion of 098
 
 **Input**: Design documents from `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/`
-**Prerequisites**: [`spec.md`](./spec.md), [`plan.md`](./plan.md), [`call-sequences.md`](./call-sequences.md), [`research.md`](./research.md), [`data-model.md`](./data-model.md), [`quickstart.md`](./quickstart.md), [`contracts/`](./contracts/)
+**Prerequisites**: [`spec.md`](./spec.md), [`plan.md`](./plan.md), [`call-sequences.md`](./call-sequences.md), [`research.md`](./research.md), [`data-model.md`](./data-model.md), [`quickstart.md`](./quickstart.md), [`contracts/python-rbac-helper.md`](./contracts/python-rbac-helper.md)
 
 **Tests**: REQUIRED throughout. The whole point of this spec is comprehensive automated tests; every implementation task ships with the matrix entry and parameterised test that exercise it. Test tasks are NOT optional here.
 
@@ -295,7 +295,7 @@ description: "Task list for spec 102 — Comprehensive RBAC Tests + Completion o
 
 ### BFF gate (TS)
 
-- [ ] T098 [US6] Modify `ui/src/app/api/v1/chat/stream/start/route.ts`: parse `agent_id` from request body before any DA call; call `await requireRbacPermission(session, \`dynamic_agent:${agent_id}\`, 'invoke')`; on deny, return 403 without opening the SSE stream
+- [ ] T098 [US6] Modify `ui/src/app/api/v1/chat/stream/start/route.ts`: parse `agent_id` from request body before any DA call; call `await requireRbacPermission(session, 'dynamic_agent:' + agent_id, 'invoke')`; on deny, return 403 without opening the SSE stream
 - [ ] T099 [P] [US6] Modify `ui/src/lib/da-proxy.ts`: remove `userContext` base64 construction from `authenticateRequest()`; `proxySSEStream()` no longer adds `X-User-Context` header; pass through `Authorization: Bearer <session.accessToken>` header instead. Update the function signature to accept `{ bearer: string }` instead of `{ userContext: string }`
 - [ ] T100 [US6] Update jest test `ui/src/app/api/__tests__/da-proxy.test.ts` (create if missing): asserts the outbound request to DA has `Authorization` header but NOT `X-User-Context`
 
@@ -356,7 +356,7 @@ description: "Task list for spec 102 — Comprehensive RBAC Tests + Completion o
 
 **Goal**: `docs/docs/security/rbac/` accurately reflects the post-migration state. File map is auto-validated.
 
-**Independent Test**: A junior reviewer answers a 10-question quiz auto-generated from the file map and component sections; passes 9/10 in <5 min.
+**Independent Test**: A junior reviewer answers a 10-question quiz auto-generated from the file map and component sections; passes 9/10 in &lt;5 min.
 
 **Maps to**: Story 8, FR-014, SC-007.
 

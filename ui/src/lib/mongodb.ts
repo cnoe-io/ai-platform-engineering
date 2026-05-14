@@ -286,14 +286,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'authorization_decision_records', { outcome: 1, ts: -1 }),
     safeCreateIndex(db, 'authorization_decision_records', { correlation_id: 1 }),
 
-    // 098 FR-039: AG dynamic CEL policy management
-    safeCreateIndex(db, 'ag_mcp_policies', { backend_id: 1, tool_pattern: 1 }, { unique: true }),
-    safeCreateIndex(db, 'ag_mcp_policies', { backend_id: 1 }),
-    safeCreateIndex(db, 'ag_mcp_policies', { enabled: 1 }),
-    safeCreateIndex(db, 'ag_mcp_backends', { id: 1 }, { unique: true }),
-
     // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
     safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),

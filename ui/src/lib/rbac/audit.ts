@@ -124,3 +124,80 @@ export function logAuthzDecision(params: LogAuthzDecisionParams): AuditEvent {
   persistToUnifiedAuditEvents(event, params.email);
   return event;
 }
+
+export type RbacAdminAuditEventKind =
+  | "identity_group_sync"
+  | "policy_change"
+  | "graph_query"
+  | "access_check"
+  | "slack_channel_rebac";
+
+export interface LogRbacAdminAuditEventParams {
+  tenantId: string;
+  sub: string;
+  actorSub?: string;
+  kind: RbacAdminAuditEventKind;
+  operation: string;
+  outcome?: AuditOutcome;
+  reasonCode?: AuditReasonCode;
+  resourceRef?: string;
+  correlationId?: string;
+  email?: string;
+}
+
+function adminAuditResource(kind: RbacAdminAuditEventKind): RbacResource {
+  return kind === "slack_channel_rebac" ? "slack" : "admin_ui";
+}
+
+function adminAuditScope(kind: RbacAdminAuditEventKind, operation: string): string {
+  if (kind === "graph_query" || kind === "access_check") return "view";
+  if (operation.startsWith("dry_run") || operation.startsWith("preview")) return "view";
+  return kind === "slack_channel_rebac" ? "manage" : "admin";
+}
+
+export function logRbacAdminAuditEvent(params: LogRbacAdminAuditEventParams): AuditEvent {
+  const resourceRef = params.resourceRef ?? `${params.kind}:${params.operation}`;
+  return logAuthzDecision({
+    tenantId: params.tenantId,
+    sub: params.sub,
+    actorSub: params.actorSub,
+    resource: adminAuditResource(params.kind),
+    scope: adminAuditScope(params.kind, params.operation),
+    outcome: params.outcome ?? "allow",
+    reasonCode: params.reasonCode ?? "OK",
+    pdp: "local",
+    resourceRef,
+    correlationId: params.correlationId,
+    email: params.email,
+  });
+}
+
+export function logIdentityGroupSyncAuditEvent(
+  params: Omit<LogRbacAdminAuditEventParams, "kind">
+): AuditEvent {
+  return logRbacAdminAuditEvent({ ...params, kind: "identity_group_sync" });
+}
+
+export function logPolicyChangeAuditEvent(
+  params: Omit<LogRbacAdminAuditEventParams, "kind">
+): AuditEvent {
+  return logRbacAdminAuditEvent({ ...params, kind: "policy_change" });
+}
+
+export function logGraphQueryAuditEvent(
+  params: Omit<LogRbacAdminAuditEventParams, "kind">
+): AuditEvent {
+  return logRbacAdminAuditEvent({ ...params, kind: "graph_query" });
+}
+
+export function logAccessCheckAuditEvent(
+  params: Omit<LogRbacAdminAuditEventParams, "kind">
+): AuditEvent {
+  return logRbacAdminAuditEvent({ ...params, kind: "access_check" });
+}
+
+export function logSlackChannelRebacAuditEvent(
+  params: Omit<LogRbacAdminAuditEventParams, "kind">
+): AuditEvent {
+  return logRbacAdminAuditEvent({ ...params, kind: "slack_channel_rebac" });
+}

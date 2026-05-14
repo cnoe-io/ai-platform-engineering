@@ -6,6 +6,7 @@ import { NextRequest } from 'next/server';
 import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
+const mockCheckPermission = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
@@ -13,6 +14,12 @@ jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
   isBootstrapAdmin: jest.fn().mockReturnValue(false),
   REQUIRED_ADMIN_GROUP: '',
+}));
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
 }));
 
 let mockNpsEnabled = true;
@@ -70,11 +77,13 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
 const adminSession = {
   user: { email: 'admin@example.com', name: 'Admin' },
   role: 'admin',
+  accessToken: 'admin-token',
 };
 
 const userSession = {
   user: { email: 'user@example.com', name: 'User' },
   role: 'user',
+  accessToken: 'user-token',
 };
 
 describe('POST /api/admin/nps/campaigns', () => {
@@ -83,6 +92,9 @@ describe('POST /api/admin/nps/campaigns', () => {
   beforeEach(async () => {
     jest.resetModules();
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
+    mockGetCollection.mockClear();
+    mockCheckPermission.mockReset();
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockNpsEnabled = true;
     mockIsMongoDBConfigured = true;
 
@@ -131,6 +143,7 @@ describe('POST /api/admin/nps/campaigns', () => {
 
   it('returns 403 when user is not admin (viewer can\'t create)', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     const res = await POST(
       makeRequest('/api/admin/nps/campaigns', {
         method: 'POST',
@@ -138,6 +151,9 @@ describe('POST /api/admin/nps/campaigns', () => {
       })
     );
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.reason).toBe('pdp_denied');
+    expect(body.code).toBe('admin_ui#admin');
   });
 
   it('returns 400 when name is missing', async () => {
@@ -273,6 +289,9 @@ describe('GET /api/admin/nps/campaigns', () => {
   beforeEach(async () => {
     jest.resetModules();
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
+    mockGetCollection.mockClear();
+    mockCheckPermission.mockReset();
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockNpsEnabled = true;
     mockIsMongoDBConfigured = true;
 
@@ -304,21 +323,16 @@ describe('GET /api/admin/nps/campaigns', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 200 for authenticated non-admin (GET lists campaigns)', async () => {
+  it('returns 403 for authenticated users without admin_ui#view', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
-    const campaignsCol = createMockCollection();
-    campaignsCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['nps_campaigns'] = campaignsCol;
-    mockCollections['nps_responses'] = createMockCollection();
+    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     const res = await GET(makeRequest('/api/admin/nps/campaigns'));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.data.campaigns).toEqual([]);
+    expect(body.reason).toBe('pdp_denied');
+    expect(body.code).toBe('admin_ui#view');
+    expect(mockGetCollection).not.toHaveBeenCalledWith('nps_campaigns');
+    expect(mockGetCollection).not.toHaveBeenCalledWith('nps_responses');
   });
 
   it('returns empty campaigns array when none exist', async () => {
@@ -371,8 +385,9 @@ describe('GET /api/admin/nps/campaigns', () => {
     expect(body.data.campaigns[0].status).toBeDefined();
   });
 
-  it('authenticated non-admin user can list campaigns', async () => {
+  it('authenticated user with admin_ui#view can list campaigns', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    mockCheckPermission.mockResolvedValueOnce({ allowed: true, reason: 'OK' });
     const campaignsCol = createMockCollection();
     campaignsCol.find.mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -450,6 +465,9 @@ describe('PATCH /api/admin/nps/campaigns', () => {
   beforeEach(async () => {
     jest.resetModules();
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
+    mockGetCollection.mockClear();
+    mockCheckPermission.mockReset();
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockNpsEnabled = true;
     mockIsMongoDBConfigured = true;
 
@@ -490,11 +508,15 @@ describe('PATCH /api/admin/nps/campaigns', () => {
 
   it('returns 403 when user is not admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     const res = await PATCH(makeRequest('/api/admin/nps/campaigns', {
       method: 'PATCH',
       body: JSON.stringify({ campaign_id: new ObjectId().toString() }),
     }));
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.reason).toBe('pdp_denied');
+    expect(body.code).toBe('admin_ui#admin');
   });
 
   it('returns 400 when campaign_id is missing', async () => {

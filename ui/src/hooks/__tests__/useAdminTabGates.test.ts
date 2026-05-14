@@ -47,7 +47,7 @@ describe('useAdminTabGates', () => {
           health: false,
           audit_logs: false,
           action_audit: false,
-          policy: false,
+          openfga: false,
         },
       }),
     });
@@ -84,7 +84,7 @@ describe('useAdminTabGates', () => {
           health: false,
           audit_logs: false,
           action_audit: false,
-          policy: false,
+          openfga: false,
         },
       }),
     });

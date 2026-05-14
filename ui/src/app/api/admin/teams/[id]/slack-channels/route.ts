@@ -2,20 +2,13 @@
  * Spec 098 US9 — Team-scoped Slack channel assignment.
  *
  * GET  /api/admin/teams/[id]/slack-channels
- *   Returns the channels currently assigned to the team plus the catalog of
- *   agents the team can bind a channel to (sourced from `team.resources.agents`
- *   so we don't accidentally let admins bind a channel to an agent the team
- *   doesn't otherwise have access to).
+ *   Returns the Slack channels currently assigned to the team.
  *
  * PUT  /api/admin/teams/[id]/slack-channels
- *   body: { channels: Array<{ slack_channel_id, channel_name, slack_workspace_id?, bound_agent_id? }> }
+ *   body: { channels: Array<{ slack_channel_id, channel_name, slack_workspace_id? }> }
  *
- *   Idempotent full-replace. We persist into TWO collections so the existing
- *   Slack-bot reader code (`channel_team_mappings` + `channel_agent_mappings`)
- *   keeps working unchanged:
- *
- *     channel_team_mappings   — channel → team (gates which team's RBAC applies)
- *     channel_agent_mappings  — channel → agent (which agent answers in-channel)
+ *   Idempotent full-replace. We persist the channel → team binding only.
+ *   Agent/resource access belongs to Slack channel ReBAC grants in OpenFGA.
  *
  *   Channels that were previously assigned to *this* team but not present in
  *   the new payload are deactivated (`active: false`) — but only if their
@@ -30,10 +23,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
@@ -51,28 +43,10 @@ interface ChannelTeamMappingDoc {
   updated_at?: Date;
 }
 
-interface ChannelAgentMappingDoc {
-  _id?: ObjectId;
-  slack_channel_id: string;
-  agent_id: string;
-  slack_workspace_id?: string;
-  channel_name?: string;
-  created_by?: string;
-  created_at?: Date;
-  active?: boolean;
-}
-
-interface DynamicAgentLite {
-  _id: string;
-  name?: string;
-  description?: string;
-}
-
 interface SlackChannelInput {
   slack_channel_id: string;
   channel_name: string;
   slack_workspace_id?: string;
-  bound_agent_id?: string | null;
 }
 
 function requireMongoDB() {
@@ -128,16 +102,10 @@ function parseChannelInput(value: unknown, idx: number): SlackChannelInput {
       ? v.slack_workspace_id.trim()
       : "unknown";
 
-  let boundAgentId: string | null = null;
-  if (typeof v.bound_agent_id === "string" && v.bound_agent_id.trim()) {
-    boundAgentId = v.bound_agent_id.trim();
-  }
-
   return {
     slack_channel_id: slackChannelId,
     channel_name: channelName,
     slack_workspace_id: workspaceId,
-    bound_agent_id: boundAgentId,
   };
 }
 
@@ -150,8 +118,8 @@ export const GET = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "view");
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "view");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -162,62 +130,26 @@ export const GET = withErrorHandler(
       if (!team) throw new ApiError("Team not found", 404);
 
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
-      const agentCol = await getCollection<ChannelAgentMappingDoc>("channel_agent_mappings");
-      const dynAgentsCol = await getCollection<DynamicAgentLite>("dynamic_agents");
 
       const teamMappings = await teamCol
         .find({ team_id: teamIdStr, active: { $ne: false } } as never)
         .sort({ channel_name: 1 })
         .toArray();
 
-      // Fetch the matching agent bindings in one query.
-      const channelIds = teamMappings.map((m) => m.slack_channel_id);
-      const agentMappings =
-        channelIds.length > 0
-          ? await agentCol
-              .find({ slack_channel_id: { $in: channelIds }, active: { $ne: false } } as never)
-              .toArray()
-          : [];
-      const agentByChannel = new Map<string, string>();
-      for (const am of agentMappings) {
-        agentByChannel.set(am.slack_channel_id, am.agent_id);
-      }
-
-      // Catalog of agents the team can bind (only agents this team has
-      // `agent_user:<id>` for — otherwise binding the channel would
-      // immediately fail authz when the bot tried to call the agent).
-      const allowedAgentIds = team.resources?.agents ?? [];
-      const allowedAgentDocs =
-        allowedAgentIds.length > 0
-          ? await dynAgentsCol
-              .find({ _id: { $in: allowedAgentIds } } as never, {
-                projection: { _id: 1, name: 1, description: 1 },
-              })
-              .toArray()
-              .catch(() => [] as DynamicAgentLite[])
-          : [];
-
       const channels = teamMappings.map((m) => ({
         slack_channel_id: m.slack_channel_id,
         channel_name: m.channel_name ?? m.slack_channel_id,
         slack_workspace_id: m.slack_workspace_id ?? "unknown",
-        bound_agent_id: agentByChannel.get(m.slack_channel_id) ?? null,
       }));
 
       console.log(
-        `[Admin TeamSlackChannels] GET team=${teamIdStr} channels=${channels.length} bindable_agents=${allowedAgentDocs.length} by=${user.email}`
+        `[Admin TeamSlackChannels] GET team=${teamIdStr} channels=${channels.length} by=${user.email}`
       );
 
       return successResponse({
         team_id: teamIdStr,
         channels,
-        available_agents: allowedAgentDocs.map((a) => ({
-          id: a._id,
-          name: a.name ?? a._id,
-          description: a.description ?? "",
-        })),
       });
-    });
   }
 );
 
@@ -234,9 +166,8 @@ export const PUT = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "admin");
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -265,22 +196,7 @@ export const PUT = withErrorHandler(
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
 
-      // Validate every bound_agent_id is in this team's agent allowlist.
-      // (Empty/null is fine — that's a "team-scoped channel with no default
-      // agent", which is still useful: the channel inherits team RBAC but the
-      // user invokes an agent explicitly via supervisor/`@agent`.)
-      const allowedAgents = new Set(team.resources?.agents ?? []);
-      for (const c of next) {
-        if (c.bound_agent_id && !allowedAgents.has(c.bound_agent_id)) {
-          throw new ApiError(
-            `bound_agent_id "${c.bound_agent_id}" for channel ${c.slack_channel_id} is not in this team's assigned agents. Add it via the Resources tab first.`,
-            400
-          );
-        }
-      }
-
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
-      const agentCol = await getCollection<ChannelAgentMappingDoc>("channel_agent_mappings");
 
       // Defence against double-assignment: a channel can only belong to one
       // team. Reject if any of the new channel IDs are already actively
@@ -323,10 +239,6 @@ export const PUT = withErrorHandler(
           { slack_channel_id: { $in: removedChannelIds }, team_id: teamIdStr } as never,
           { $set: { active: false, updated_at: now } }
         );
-        await agentCol.updateMany(
-          { slack_channel_id: { $in: removedChannelIds } } as never,
-          { $set: { active: false } }
-        );
       }
 
       // ── 2. Upsert the active set.
@@ -350,33 +262,6 @@ export const PUT = withErrorHandler(
           { upsert: true }
         );
 
-        if (c.bound_agent_id) {
-          await agentCol.updateOne(
-            { slack_channel_id: c.slack_channel_id } as never,
-            {
-              $set: {
-                slack_channel_id: c.slack_channel_id,
-                agent_id: c.bound_agent_id,
-                slack_workspace_id: c.slack_workspace_id ?? "unknown",
-                channel_name: c.channel_name,
-                active: true,
-                updated_at: now,
-              },
-              $setOnInsert: {
-                created_by: user.email,
-                created_at: now,
-              },
-            },
-            { upsert: true }
-          );
-        } else {
-          // No bound agent → deactivate any existing agent mapping for this
-          // channel so the bot falls back to its default routing logic.
-          await agentCol.updateMany(
-            { slack_channel_id: c.slack_channel_id, active: { $ne: false } } as never,
-            { $set: { active: false } }
-          );
-        }
       }
 
       // ── 3. Denormalise count onto team document.
@@ -388,7 +273,6 @@ export const PUT = withErrorHandler(
               slack_channel_id: c.slack_channel_id,
               channel_name: c.channel_name,
               slack_workspace_id: c.slack_workspace_id ?? "unknown",
-              bound_agent_id: c.bound_agent_id ?? null,
             })),
             updated_at: now,
           },
@@ -404,6 +288,5 @@ export const PUT = withErrorHandler(
         channels: next,
         removed_channel_ids: removedChannelIds,
       });
-    });
   }
 );

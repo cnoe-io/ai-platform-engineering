@@ -4,6 +4,8 @@
  */
 
 import { getKeycloakAdminToken } from "@/lib/rbac/keycloak-admin";
+import { listRebacEnforcementStatuses } from "@/lib/rbac/enforcement-status";
+import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 const TASK_SCOPES = ["view", "invoke", "configure", "delete"] as const;
 const SKILL_SCOPES = ["view", "invoke", "configure", "delete"] as const;
@@ -82,10 +84,18 @@ async function syncCaipeResource(
     resourceName: string;
     displayName: string;
     type: string;
+    rebacResourceType: UniversalRebacResourceType;
     scopes: readonly string[];
     attributes: Record<string, string[]>;
   }
 ): Promise<void> {
+  if (action === "create" && (await isResourceTypeRebacEnforced(opts.rebacResourceType))) {
+    console.log(
+      `[KeycloakResourceSync] ${opts.rebacResourceType} is ReBAC-enforced — skip Keycloak resource ${opts.resourceName}`
+    );
+    return;
+  }
+
   const baseUrl = getKeycloakAdminBase();
   if (!baseUrl) {
     console.log("[KeycloakResourceSync] KEYCLOAK_URL unset — skip resource sync");
@@ -136,6 +146,18 @@ async function syncCaipeResource(
   }
 }
 
+async function isResourceTypeRebacEnforced(resourceType: UniversalRebacResourceType): Promise<boolean> {
+  try {
+    const statuses = await listRebacEnforcementStatuses();
+    return statuses.some(
+      (status) =>
+        status.resource_type === resourceType && status.enforcement_status === "rebac_enforced"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Register or remove a Task Builder config as Keycloak resource `task:<taskId>`.
  */
@@ -154,6 +176,7 @@ export async function syncTaskResource(
     resourceName,
     displayName: taskName,
     type: "caipe:task",
+    rebacResourceType: "task",
     scopes: action === "create" ? TASK_SCOPES : [],
     attributes: attrs,
   });
@@ -177,6 +200,7 @@ export async function syncSkillResource(
     resourceName,
     displayName: skillName,
     type: "caipe:skill",
+    rebacResourceType: "skill",
     scopes: action === "create" ? SKILL_SCOPES : [],
     attributes: attrs,
   });

@@ -143,7 +143,7 @@ Previews whether a Slack user can invoke a selected resource from a channel.
 Slack bot runtime must perform these checks for a message or slash command:
 
 1. Resolve Slack user to a Keycloak user subject.
-2. Resolve Slack channel to `slack_channel:<workspace_id>/<channel_id>`.
+2. Resolve Slack channel to `slack_channel:<workspace_id>--<channel_id>`.
 3. Resolve selected agent/tool/knowledge base resource.
 4. Check user access to the Slack channel.
 5. Check channel access to the selected resource.

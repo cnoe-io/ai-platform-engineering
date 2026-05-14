@@ -1,5 +1,7 @@
 // Team types for team management and sharing
 
+import type { TeamMembershipSource } from "./identity-group-sync";
+
 export interface Team {
   _id: string;
   /**
@@ -13,36 +15,40 @@ export interface Team {
   slug: string;
   name: string;
   description?: string;
+  source?: 'manual' | 'identity_sync' | 'bootstrap' | 'migration';
+  status?: 'active' | 'archived' | 'pending_review' | 'disabled';
   owner_id: string; // User email who created the team
+  created_by?: string;
+  updated_by?: string;
   created_at: Date;
   updated_at: Date;
   members: TeamMember[];
+  membership_sources?: TeamMembershipSource[];
   keycloak_roles?: string[];
   /**
    * Spec 104 team-scoped RBAC: agents the team can chat with and tools the
    * team can invoke. Persisted on the team document and materialized into
-   * Keycloak realm roles (`agent_user:<id>`, `tool_user:<id>`) and, when
-   * enabled, OpenFGA team-resource tuples on every member when resources change.
+   * OpenFGA team-resource tuples. Keycloak no longer mirrors per-resource roles
+   * such as `agent_user:<id>` or `tool_user:<id>`.
    */
   resources?: {
-    agents?: string[];        // dynamic_agents._id values → agent_user:<id>
-    agent_admins?: string[];  // dynamic_agents._id values → agent_admin:<id>
-    tools?: string[];         // tool prefixes (e.g. `jira_*`) → tool_user:<prefix>
-    tool_wildcard?: boolean;  // true → grant tool_user:* (all tools)
+    agents?: string[];        // dynamic_agents._id values → team can_use agent:<id>
+    agent_admins?: string[];  // dynamic_agents._id values → team can_manage agent:<id>
+    tools?: string[];         // tool prefixes (e.g. `jira_*`) → team can_call tool:<prefix>
+    knowledge_bases?: string[];
+    skills?: string[];
+    tasks?: string[];
+    tool_wildcard?: boolean;  // true -> grant all tools through OpenFGA wildcard
   };
   /**
    * Spec 098 US9 — Slack channels assigned to this team. Each row mirrors a
-   * `channel_team_mappings` document and (optionally) a paired
-   * `channel_agent_mappings` document so the UI can manage both bindings
-   * in one place. Only the `slack_channels` count is denormalised onto the
-   * team document for cheap card-rendering; the source of truth still lives
-   * in the dedicated mapping collections (which the Slack bot reads).
+   * `channel_team_mappings` document. Agent/resource access is managed by
+   * Slack channel ReBAC grants rather than a single bound agent.
    */
   slack_channels?: Array<{
     slack_channel_id: string;
     channel_name: string;
     slack_workspace_id?: string;
-    bound_agent_id?: string | null;
   }>;
   metadata?: {
     department?: string;

@@ -27,8 +27,8 @@ Optional per-MCP RBAC scope check
 Set ``MCP_PDP_ENABLED=true`` (and ``MCP_PDP_SCOPE`` / ``MCP_PDP_RESOURCE``,
 plus the standard ``KEYCLOAK_*`` env vars) to add a Keycloak PDP check
 *after* JWT validation. This is useful for embedded MCPs that don't
-sit behind agentgateway and therefore don't get its CEL-based RBAC
-gate. The check is skipped when ``MCP_AUTH_MODE`` is ``none`` /
+sit behind agentgateway and therefore don't get the gateway/OpenFGA
+RBAC gate. The check is skipped when ``MCP_AUTH_MODE`` is ``none`` /
 ``shared_key`` because both bypass per-user identity.
 """
 

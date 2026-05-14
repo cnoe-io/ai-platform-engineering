@@ -12,7 +12,7 @@ dependencies = [
   "httpx==0.28.1",
   "keyring==25.6.0",
   "mcp==1.26.0",
-  "mcp-agent-auth",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "pydantic==2.12.5",
   "python-dateutil==2.9.0.post0",
   "python-dotenv==1.2.1",

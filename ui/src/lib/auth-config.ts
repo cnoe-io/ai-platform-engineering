@@ -22,6 +22,8 @@ import { decodeJwt } from "jose";
  * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
+ * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "true" to reconcile signed-in user's OIDC group claims
+ * - IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: Provider id for claim-derived sync rules (default: "oidc-claims")
  */
 
 // Check if refresh token support should be enabled
@@ -100,7 +102,7 @@ function addGroupsFromValue(value: unknown, groups: Set<string>): void {
  * @param profile - OIDC profile/claims object
  * @returns Array of unique group names
  */
-function extractGroups(profile: Record<string, unknown>): string[] {
+export function extractGroups(profile: Record<string, unknown>): string[] {
   const allGroups = new Set<string>();
 
   // If specific claim(s) configured, use only those
@@ -129,6 +131,27 @@ function extractGroups(profile: Record<string, unknown>): string[] {
   }
 
   return Array.from(allGroups);
+}
+
+function reconcileLoginGroupsFromClaims(input: {
+  subject?: string;
+  email?: string;
+  displayName?: string;
+  groups: string[];
+}): void {
+  if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED !== "true") return;
+  if (!input.subject || input.groups.length === 0) return;
+
+  void import("@/lib/rbac/oidc-claim-reconciler")
+    .then(({ reconcileOidcClaimGroupsForUser }) =>
+      reconcileOidcClaimGroupsForUser({
+        ...input,
+        providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
+      })
+    )
+    .catch((error) => {
+      console.warn("[Auth] OIDC claim identity sync reconciliation failed:", error);
+    });
 }
 
 // Helper to check if user has required group
@@ -626,6 +649,15 @@ export const authOptions: NextAuthOptions = {
         if (token.org) {
           console.log('[Auth JWT] Org (tenant):', token.org);
         }
+
+        reconcileLoginGroupsFromClaims({
+          subject: (profileData.sub as string | undefined) ?? (token.sub as string | undefined),
+          email,
+          displayName:
+            (profileData.name as string | undefined) ??
+            (profileData.preferred_username as string | undefined),
+          groups,
+        });
       }
 
       // NOTE: When trigger === "update" (from updateSession() or refetchInterval),

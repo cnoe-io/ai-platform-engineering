@@ -6,8 +6,7 @@
 #      the BFF startup auto-sync — restart caipe-ui first; this script just
 #      verifies).
 #   2. Ensures the `team_member:<slug>` realm role exists (slug-keyed to
-#      match AgentGateway CEL, which evaluates
-#      `team_member:<jwt.active_team>` and `active_team` carries the slug).
+#      match the signed `active_team` claim and OpenFGA team tuples).
 #   3. For each member email, looks up the Keycloak user; if found, assigns
 #      the team_member realm role. Members who have not yet logged in via
 #      SSO are listed at the end as "needs SSO login" — they will get their
@@ -29,6 +28,10 @@
 #   MONGO_CONTAINER=caipe-mongodb-dev \
 #   MONGO_URI="mongodb://admin:changeme@localhost:27017/caipe?authSource=admin" \
 #     scripts/reconcile-keycloak-from-mongo.sh
+#
+# Optional cleanup knobs:
+#   CLEAN_STALE_TEAM_ROLES=true      # remove team_member:* assignments not backed by a Mongo team slug
+#   DELETE_STALE_TEAM_ROLES=true     # also delete now-unused stale team_member:* realm roles
 
 set -euo pipefail
 
@@ -38,6 +41,8 @@ KC_ADMIN="${KC_ADMIN:-admin}"
 KC_ADMIN_PASSWORD="${KC_ADMIN_PASSWORD:-admin}"
 MONGO_CONTAINER="${MONGO_CONTAINER:-caipe-mongodb-dev}"
 MONGO_URI="${MONGO_URI:-mongodb://admin:changeme@localhost:27017/caipe?authSource=admin}"
+CLEAN_STALE_TEAM_ROLES="${CLEAN_STALE_TEAM_ROLES:-false}"
+DELETE_STALE_TEAM_ROLES="${DELETE_STALE_TEAM_ROLES:-false}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -75,7 +80,12 @@ bold "[3/4] Reconciling realm roles + assignments"
 # Use python to drive the per-team work — easier JSON handling than bash.
 # Heredoc is quoted ('PY') so bash does NOT interpret < > $ inside; we pass
 # the variables in via the environment instead.
-TEAMS_JSON="${TEAMS_JSON}" KC_ADMIN_BASE="${KC_ADMIN_BASE}" ADMIN_TOKEN="${ADMIN_TOKEN}" python3 - <<'PY'
+TEAMS_JSON="${TEAMS_JSON}" \
+KC_ADMIN_BASE="${KC_ADMIN_BASE}" \
+ADMIN_TOKEN="${ADMIN_TOKEN}" \
+CLEAN_STALE_TEAM_ROLES="${CLEAN_STALE_TEAM_ROLES}" \
+DELETE_STALE_TEAM_ROLES="${DELETE_STALE_TEAM_ROLES}" \
+python3 - <<'PY'
 import json
 import os
 import subprocess
@@ -86,6 +96,8 @@ teams = json.loads(os.environ["TEAMS_JSON"])
 kc_base = os.environ["KC_ADMIN_BASE"]
 token = os.environ["ADMIN_TOKEN"]
 auth_header = f"Authorization: Bearer {token}"
+clean_stale_team_roles = os.environ.get("CLEAN_STALE_TEAM_ROLES", "").lower() == "true"
+delete_stale_team_roles = os.environ.get("DELETE_STALE_TEAM_ROLES", "").lower() == "true"
 
 def curl(method, path, body=None, expect_codes=(200, 201, 204, 409)):
     cmd = [
@@ -103,11 +115,16 @@ def curl(method, path, body=None, expect_codes=(200, 201, 204, 409)):
     return code, out
 
 needs_login = []  # list of (team_name, email) waiting for SSO
+valid_team_role_names = {
+    f"team_member:{str(t.get('slug') or '').strip()}"
+    for t in teams
+    if str(t.get("slug") or "").strip()
+}
 
 # --- Migration step: rename any legacy team_member:<ObjectId> roles to
 #     team_member:<slug>. The previous BFF + reconcile script keyed roles
-#     on the Mongo ObjectId, but AgentGateway's CEL evaluates
-#     `team_member:<jwt.active_team>` where `active_team` is the slug.
+#     on the Mongo ObjectId, but OpenFGA and downstream team-scope checks use
+#     `active_team` where the signed claim is the slug.
 #     A Keycloak role rename via PUT preserves the role's UUID and all
 #     existing user assignments — no re-add needed.
 print("\n  --- Migrating legacy team_member:<ObjectId> roles to team_member:<slug> ---")
@@ -149,7 +166,7 @@ for t in teams:
         print(f"    ! team {tid} has no slug — skipping (run BFF startup auto-sync to backfill)")
         continue
 
-    # Slug-keyed to match AGW CEL: jwt.realm_access.roles.contains("team_member:" + jwt.active_team)
+    # Slug-keyed to match the signed active_team claim and OpenFGA team tuples.
     role_name = f"team_member:{slug}"
     enc = urllib.parse.quote(role_name, safe="")
 
@@ -185,6 +202,42 @@ for t in teams:
         curl("POST", f"/users/{uid}/role-mappings/realm", body=body, expect_codes=(204,))
         print(f"    + {email} ({uid[:8]}…) assigned {role_name}")
 
+if clean_stale_team_roles:
+    print("\n  --- Removing stale team_member:* roles not backed by Mongo team slugs ---")
+    _, roles_body = curl("GET", "/roles?max=1000")
+    all_roles = json.loads(roles_body)
+    stale_roles = sorted(
+        r for r in all_roles
+        if isinstance(r.get("name"), str)
+        and r["name"].startswith("team_member:")
+        and r["name"] not in valid_team_role_names
+    )
+    if not stale_roles:
+        print("    = no stale team_member:* roles found")
+    for stale in stale_roles:
+        role_name = stale["name"]
+        enc = urllib.parse.quote(role_name, safe="")
+        _, users_body = curl("GET", f"/roles/{enc}/users?max=1000")
+        assigned_users = json.loads(users_body)
+        for user in assigned_users:
+            uid = user["id"]
+            email = user.get("email") or user.get("username") or uid
+            curl(
+                "DELETE",
+                f"/users/{uid}/role-mappings/realm",
+                body=json.dumps([stale]),
+                expect_codes=(204,),
+            )
+            print(f"    - removed {role_name} from {email} ({uid[:8]}…)")
+        if delete_stale_team_roles:
+            curl("DELETE", f"/roles-by-id/{urllib.parse.quote(stale['id'], safe='')}", expect_codes=(204,))
+            print(f"    x deleted stale role {role_name}")
+        elif not assigned_users:
+            print(f"    = {role_name} has no assignments (set DELETE_STALE_TEAM_ROLES=true to delete it)")
+else:
+    print("\n  --- Stale team_member:* cleanup skipped ---")
+    print("    Set CLEAN_STALE_TEAM_ROLES=true to remove assignments not backed by Mongo team slugs.")
+
 print("\n=== Reconcile complete ===")
 if needs_login:
     print("\nUsers who must log in via SSO before they will receive their team_member role:")
@@ -195,4 +248,4 @@ PY
 
 bold "[4/4] Done"
 info "Tip: also run 'make rbac-reinit' to re-apply the BOOTSTRAP_ADMIN_EMAILS bundle"
-info "(admin_user, tool_user:*, agent_user:test-april-2025, etc.) for any newly-logged-in admins."
+info "(admin_user plus transition team membership; resource grants are managed in OpenFGA)."

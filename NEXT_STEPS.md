@@ -31,17 +31,17 @@ docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe --eval "d
 
 ---
 
-## Issue 2: Channel→Agent Mapping UI
+## Issue 2: Slack Channel ReBAC UI
 
 **Current State:**
-- `SlackChannelMappingTab.tsx` component exists (admin panel, line 33 of admin/page.tsx)
-- API endpoint exists: `/api/admin/slack/channel-mappings` (GET/POST/DELETE)
-- Backend mapper exists: `channel_agent_mapper.py` with RBAC checks
+- Legacy channel→agent mapping UI/API has been retired.
+- Channel→team ownership is managed from each team's Slack Channels tab.
+- Channel→agent/tool/KB grants are managed from OpenFGA ReBAC → Slack Channels.
 
 **Likely Causes:**
 1. UI not showing agents dropdown (Dynamic Agents endpoint returning empty?)
 2. Admin user doesn't have permissions to see admin panel
-3. Channel mappings created but not being used by slack-bot
+3. Slack channel grants missing or not active in OpenFGA/Mongo
 
 **Verification Steps:**
 ```bash
@@ -49,14 +49,12 @@ docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe --eval "d
 docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe \
   --eval "db.dynamic_agents.find({}, {name: 1, visibility: 1}).toArray()"
 
-# 2. Try creating a mapping via API
-curl -X POST http://localhost:3000/api/admin/slack/channel-mappings \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"slack_channel_id": "C123456", "agent_id": "github-pr-reviewer"}'
+# 2. Verify Slack channel grants
+docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe \
+  --eval "db.slack_channel_grants.find({status:'active'}).toArray()"
 
-# 3. Verify slack-bot uses mapping
-docker compose -f docker-compose.dev.yaml logs caipe-supervisor 2>&1 | grep "channel_agent"
+# 3. Verify slack-bot runs channel ReBAC checks
+docker compose -f docker-compose.dev.yaml logs caipe-supervisor 2>&1 | grep "Slack ReBAC"
 ```
 
 ---
@@ -139,7 +137,7 @@ Bot calls: POST /api/slack/turns?conversation_id=...
 | Task | Files |
 |------|-------|
 | MCP Tools | `ui/src/lib/seed-config.ts`, `/api/mcp-servers`, MCP endpoint |
-| Channel Mapping | `ui/src/components/admin/SlackChannelMappingTab.tsx`, `/api/admin/slack/channel-mappings` |
+| Slack ReBAC | `ui/src/components/admin/rebac/SlackChannelRebacPanel.tsx`, `/api/admin/slack/channels/*` |
 | Slack API | Create new `/api/slack/*` routes, update `slack_bot/app.py` |
 
 ---

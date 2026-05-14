@@ -15,22 +15,18 @@
  *
  * Why a separate endpoint from /resources:
  *   /resources is a high-level picker scoped to agents + tools. /roles is the
- *   catch-all for "assign realm role X to all members of this team" — covers
- *   bare global roles like `admin_user`, `kb_admin`, `chat_user`, KB-scoped
- *   roles like `kb_reader:kb-platform`, and any custom realm role an admin
- *   has created. Resources writes `team.resources`; this writes
- *   `team.keycloak_roles`. Together they fan out into the same KC user role
- *   bindings — which AgentGateway and Dynamic Agents authorize against.
+ *   catch-all for "assign global realm role X to all members of this team".
+ *   Resource-scoped roles (`agent_user:*`, `tool_user:*`, `kb_reader:*`, ...)
+ *   now belong in OpenFGA relationships and are always hidden/rejected here.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
@@ -52,6 +48,24 @@ const SYSTEM_ROLE_BLACKLIST = new Set([
   "offline_access",
   "uma_authorization",
 ]);
+
+const RESOURCE_ROLE_PREFIXES = [
+  "agent_user:",
+  "agent_admin:",
+  "tool_user:",
+  "kb_reader:",
+  "kb_ingestor:",
+  "kb_admin:",
+  "task_user:",
+  "task_admin:",
+  "skill_user:",
+  "skill_admin:",
+] as const;
+const RESOURCE_ROLE_NAMES = new Set(["kb_admin"]);
+
+function isResourceScopedRole(name: string): boolean {
+  return RESOURCE_ROLE_NAMES.has(name) || RESOURCE_ROLE_PREFIXES.some((prefix) => name.startsWith(prefix));
+}
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -106,8 +120,8 @@ export const GET = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "view");
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "view");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -118,15 +132,14 @@ export const GET = withErrorHandler(
 
       const teamRoles = Array.isArray(team.keycloak_roles) ? team.keycloak_roles : [];
 
-      // Catalog: every realm role except system roles. We let the UI group
-      // by category (split on ":"). Includes the agent_user/tool_user/team_member
-      // roles too — admins can use this tab as a fallback if they prefer raw
-      // role assignment to the curated /resources picker.
+      // Catalog: every global/coarse realm role except system and resource
+      // roles. Resource grants are authored as OpenFGA relationships.
       let catalog: RoleCatalogEntry[] = [];
       try {
         const all = await listRealmRoles();
         catalog = all
           .filter((r) => !SYSTEM_ROLE_BLACKLIST.has(r.name))
+          .filter((r) => !isResourceScopedRole(r.name))
           .map((r) => ({
             name: r.name,
             description: r.description,
@@ -152,7 +165,6 @@ export const GET = withErrorHandler(
         roles: teamRoles,
         available: catalog,
       });
-    });
   }
 );
 
@@ -177,6 +189,12 @@ function parseStringArray(value: unknown, field: string): string[] {
     if (SYSTEM_ROLE_BLACKLIST.has(trimmed)) {
       throw new ApiError(`Cannot assign system role: ${trimmed}`, 400);
     }
+    if (isResourceScopedRole(trimmed)) {
+      throw new ApiError(
+        `Resource-scoped role "${trimmed}" is managed by OpenFGA relationships, not Keycloak team roles`,
+        400
+      );
+    }
     out.push(trimmed);
   }
   return Array.from(new Set(out));
@@ -187,9 +205,8 @@ export const PUT = withErrorHandler(
     const mongoCheck = requireMongoDB();
     if (mongoCheck) return mongoCheck;
 
-    return withAuth(request, async (_req, user, session) => {
-      await requireRbacPermission(session, "admin_ui", "admin");
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -274,6 +291,5 @@ export const PUT = withErrorHandler(
         members_updated: updatedMembers,
         members_skipped: skippedMembers,
       });
-    });
   }
 );

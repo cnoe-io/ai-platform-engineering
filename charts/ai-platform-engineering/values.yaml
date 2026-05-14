@@ -387,44 +387,10 @@ agent-argocd:
     port: 8000
     # Route MCP traffic through agentgateway proxy (requires global.agentgateway.enabled).
     # When enabled, subagent MCP calls go through the agentgateway proxy which can
-    # enforce JWT validation and CEL-based access control on MCP tools.
+    # enforce JWT validation and ext_authz decisions backed by OpenFGA.
     agentgateway:
       enabled: false
       protocol: StreamableHTTP # SSE or StreamableHTTP
-      # policy: (optional) AgentgatewayPolicy for this MCP backend.
-      #   Creates an AgentgatewayPolicy resource attached to the HTTPRoute.
-      #   Uses CEL expressions evaluated against jwt.* claims and mcp.tool.name.
-      #   See https://agentgateway.dev/docs/kubernetes/latest/reference/cel/
-      #
-      # policy:
-      #   mcpAuthorization:
-      #     action: Allow  # Allow (default) or Deny
-      #     rules:
-      #       # --- Team/group-based access ---
-      #       # Only users in the "sre-team" group can use any tool:
-      #       # - '"sre-team" in jwt.groups'
-      #
-      #       # Only users in "sre-team" OR "platform-team" can use any tool:
-      #       # - '"sre-team" in jwt.groups || "platform-team" in jwt.groups'
-      #
-      #       # --- User-based access ---
-      #       # Only a specific user (by email) can use any tool:
-      #       # - 'jwt.email == "admin@example.com"'
-      #
-      #       # --- Tool-level filtering ---
-      #       # Allow all authenticated users to list/read, but restrict writes:
-      #       # - 'mcp.tool.name.startsWith("get_") || mcp.tool.name.startsWith("list_")'
-      #       # - '"sre-team" in jwt.groups && mcp.tool.name.startsWith("sync_")'
-      #
-      #       # --- Combined: team + tool ---
-      #       # Read-only tools for everyone, write tools only for sre-team:
-      #       # - 'mcp.tool.name.startsWith("get_") || mcp.tool.name.startsWith("list_")'
-      #       # - '"sre-team" in jwt.groups'
-      #
-      #       # Deny mode example (block specific tools for everyone except admins):
-      #       # action: Deny
-      #       # rules:
-      #       #   - 'mcp.tool.name == "delete_application" && !("admin" in jwt.groups)'
 
 agent-backstage:
   nameOverride: "agent-backstage"

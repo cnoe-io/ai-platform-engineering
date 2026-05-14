@@ -121,9 +121,6 @@ ROUTES: list[tuple[str, Method, str, str, str]] = [
     ("/api/admin/slack/users", "GET", "admin_ui", "admin", "TODO migrate"),
     ("/api/admin/slack/users/[id]", "POST", "admin_ui", "admin", "TODO migrate"),
     ("/api/admin/slack/users/[id]", "DELETE", "admin_ui", "admin", "TODO migrate"),
-    ("/api/admin/slack/channel-mappings", "GET", "admin_ui", "view", "TODO migrate"),
-    ("/api/admin/slack/channel-mappings", "POST", "admin_ui", "admin", "TODO migrate"),
-    ("/api/admin/slack/channel-mappings", "DELETE", "admin_ui", "admin", "TODO migrate"),
     # Roles + role-mappings
     ("/api/admin/roles", "GET", "admin_ui", "view", "TODO migrate"),
     ("/api/admin/roles", "POST", "admin_ui", "admin", "TODO migrate"),

@@ -62,8 +62,7 @@ RBAC_PATHS: tuple[str, ...] = (
     # Slack bot Keycloak / JIT path
     "ai_platform_engineering/agents/slack/agent_slack/keycloak_admin.py",
     "ai_platform_engineering/agents/slack/agent_slack/jit_user.py",
-    # Agent Gateway policy seed
-    "deploy/agentgateway/config-bridge.py",
+    # Agent Gateway ext_authz configuration
     "deploy/agentgateway/config.yaml.j2",
     # BFF auth surface
     "ui/src/lib/api-middleware.ts",

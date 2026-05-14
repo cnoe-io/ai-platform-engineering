@@ -2,16 +2,19 @@
 
 **Audience:** Junior engineers getting oriented + security architects reviewing the design.
 
-This is the canonical reference for how authentication and authorization work in CAIPE. It is split into four focused docs (plus this index) so you don't have to read end-to-end to find what you need:
+This is the canonical reference for how authentication and authorization work in CAIPE. Start with the feature guide if you need one linear explanation, then use the focused docs for deeper reference:
 
 | If you want to… | Read |
 |---|---|
+| Explain the feature front to back to CAIPE users, admins, operators, or security reviewers | [Enterprise RBAC and ReBAC Feature Guide](./feature-guide.md) |
 | Understand each component (Keycloak, UI, Supervisor, AgentGateway, Dynamic Agents) and how they're wired | [Architecture](./architecture.md) |
 | Get the short end-to-end summary of the Comprehensive RBAC refactor, including Keycloak roles, AgentGateway, and OpenFGA | [Comprehensive RBAC Refactor](./comprehensive-rbac-refactor.md) |
+| Understand how JWT identity and OpenFGA relationship checks work together | [JWT and OpenFGA](./jwt-and-openfga.md) |
 | Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |
 | Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
 | Understand the difference between Keycloak **roles** and **client scopes**, what a slug is, and what happens when you create a team | [Roles vs Scopes](./roles-scopes-comparison.md) |
+| Install or upgrade the RBAC/OpenFGA refactor with Helm, including current chart gaps for Keycloak, AgentGateway, and OpenFGA | [Helm installation and upgrade guide](./helm-install-upgrade.md) |
 | **Install CAIPE on a real K8s cluster** — bootstrap admin, IdP, and slack-bot client secrets via dev defaults, manual K8s Secrets, or ESO (Vault / AWS-SM / GCP-SM) | [Secrets bootstrap](./secrets-bootstrap.md) |
 
 Every component-level doc opens with a **badge analogy** to build intuition, followed by the precise technical detail. Read the analogy first, then the technical section — they describe the same thing at different levels of abstraction.
@@ -24,8 +27,10 @@ Think of CAIPE like a **secure corporate office building**:
 
 - **Keycloak** is HR + the front desk. It issues ID badges, manages who works here, and verifies contractors through a partner agency (your enterprise IdP — typically **Okta** or **Duo SSO**).
 - **Every service** is a room with its own badge reader. You prove who you are once at the front desk, get a badge, and that badge is checked at every door — no calling HR again each time.
-- **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint calls **OpenFGA** for the remote PDP decision before applying its local per-tool CEL rulebook.
+- **AgentGateway** is the armed security checkpoint between the office and the server room. Everyone must show their badge, and the checkpoint calls **OpenFGA** through `ext_authz` for the PDP decision before proxying.
 - **Team Resources** and **OpenFGA ReBAC** in the Admin UI are the rich ReBAC authoring surfaces: admins assign agents and MCP tool prefixes to a team, preview effective OpenFGA access, inspect all relationships in a full-screen graph, edit relationships on a drag/drop graph canvas, and inspect materialized tuples.
+- **CEL policy editing is retired** for the management plane. Admins use OpenFGA/ReBAC relationships instead of editing AgentGateway or admin-tab CEL rules.
+- **Identity Group Sync** maps enterprise groups into CAIPE team memberships using a hybrid source model: `memberOf` / `groups` claims refresh the signed-in user's memberships at login, while direct Okta directory queries power full admin dry-runs, removals, and drift detection.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 
 Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT bearer tokens** for stateless authorization across all service boundaries. There is one token issuer (Keycloak), and every service verifies tokens against Keycloak's published JWKS public keys — no shared secrets, no per-hop re-authentication.
@@ -45,7 +50,7 @@ Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT b
 │                                                                              │
 │  ┌──────────────────────────────────────────────────────────────────────┐    │
 │  │                 AgentGateway  (Policy Enforcement Point)             │    │
-│  │            port 4000 · ext_authz→OpenFGA · CEL · JWT passthrough     │    │
+│  │            port 4000 · ext_authz→OpenFGA · JWT passthrough           │    │
 │  └──────────────────────────────────────────────────────────────────────┘    │
 │             │                         │                                      │
 │             ▼                         │                                      │
@@ -74,7 +79,8 @@ Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT b
 | Policy enforcement is centralised | AgentGateway is the single PEP for all MCP tool calls; tools don't implement their own authz |
 | Remote PDP for relationships | AgentGateway `extAuthz` calls OpenFGA before proxying MCP traffic |
 | Admin-configured ReBAC | Team Resources saves write OpenFGA `team`/`agent`/`tool` tuples from the same source of truth as Keycloak roles; OpenFGA ReBAC provides guided tuple creation, checks, full-screen all-relationship graph viewing, drag/drop graph editing, and tuple inspection |
-| Least privilege at tool layer | OpenFGA handles coarse ReBAC; CEL policies on AgentGateway still enforce per-tool, per-role access rules |
+| Group-to-team provenance | Identity Group Sync records whether a membership came from login claims, Okta sync, manual admin action, bootstrap, or policy rules |
+| Least privilege at tool layer | OpenFGA ReBAC is the authoritative AgentGateway policy path; service-side checks provide defense in depth |
 | Tenant isolation | `tenant` claim in JWT scopes data visible to the MCP server |
 
 ---
@@ -113,7 +119,7 @@ Key fields for security architects:
 | `iss` | Token issuer — services reject tokens from unknown issuers | Dynamic agents JWKS validation, RAG server |
 | `sub` | Opaque user ID (Keycloak UUID) — stable, not guessable | Conversation ownership, audit logs |
 | `email` | Human-readable identity — used for display and Slack linking | UI, supervisor user context |
-| `realm_access.roles` | Realm-level role assignments | AgentGateway CEL, dynamic agents `is_admin` |
+| `realm_access.roles` | Realm-level role assignments | Dynamic agents `is_admin`, BFF fallback checks, service-side defense in depth |
 | `exp` | Token expiry — enforced cryptographically | All JWKS validators, NextAuth refresh |
 | `act.sub` | Delegation chain — set on OBO tokens only | Audit: proves bot acted on behalf of user |
 | `tenant` | Multi-tenant data scoping | RAG server query isolation |
@@ -131,7 +137,7 @@ Key fields for security architects:
 | Token theft from browser | NextAuth stores tokens in httpOnly server-side session cookie; raw JWT never in JS context |
 | Bot impersonating arbitrary user via OBO | Keycloak's `token-exchange` permission must be explicitly granted to the bot client; not available by default |
 | Privilege escalation via claim manipulation | JWT is signed; any claim modification invalidates the RS256 signature |
-| Tenant data leakage | `tenant` claim in JWT used for query scoping at MCP layer; enforced by CEL policy per-route |
+| Tenant data leakage | `tenant` claim in JWT used for query scoping at MCP layer and service-side filters |
 | PDP outage fail-open | AgentGateway `extAuthz.failureMode.denyWithStatus=403` fails closed if OpenFGA/bridge is unavailable |
 | Unlinked Slack users bypassing RBAC | `rbac_global_middleware` blocks all unlinked users before the supervisor is called |
 | `AUTH_ENABLED=false` in production | Startup log emits a `WARNING` when auth is disabled; also documented in [Architecture › Dynamic Agents env vars](./architecture.md#key-environment-variables-2) |

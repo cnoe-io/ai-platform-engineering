@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   getPaginationParams,
   paginatedResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
@@ -44,8 +44,9 @@ function readSlackId(attrs: unknown): string | undefined {
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     const { page, pageSize, skip } = getPaginationParams(request);
     const status = (request.nextUrl.searchParams.get("status") || "all").toLowerCase();
 
@@ -210,5 +211,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
 
     return paginatedResponse(items, total, page, pageSize);
-  });
 });

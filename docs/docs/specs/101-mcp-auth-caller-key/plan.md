@@ -14,7 +14,7 @@ All 10 first-party MCP servers have zero HTTP-level authentication. This plan ad
 **Testing**: pytest + starlette TestClient (same pattern as `tests/test_dual_auth_middleware.py`)  
 **Target Platform**: Linux containers (Kubernetes), also macOS for dev  
 **Project Type**: library (shared package) + modifications to 10 existing services  
-**Performance Goals**: Auth check <5ms p99 (shared_key: constant-time string compare; oauth2: cached JWKS, PyJWT decode ~1ms)  
+**Performance Goals**: Auth check &lt;5ms p99 (shared_key: constant-time string compare; oauth2: cached JWKS, PyJWT decode ~1ms)
 **Constraints**: Zero breaking changes to STDIO mode; no new required env vars for existing deployments  
 **Scale/Scope**: 10 MCP servers; ~4 new files + ~21 modified files
 

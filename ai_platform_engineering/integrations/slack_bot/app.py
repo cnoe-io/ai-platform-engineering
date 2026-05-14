@@ -35,7 +35,7 @@ from utils.hitl_handler import HITLCallbackHandler
 from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
-from utils.config_models import AgentBinding, UsersConfig, get_escalation_config
+from utils.config_models import get_escalation_config
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -60,21 +60,22 @@ if RBAC_ENABLED:
         should_preauth_prompt,
         mark_preauth_prompted,
     )
-    from utils.channel_agent_mapper import resolve_channel_agent
     from utils.channel_team_resolver import (
         resolve_channel_team,
         is_dm_channel,
         PERSONAL_ACTIVE_TEAM,
     )
     from utils.obo_exchange import impersonate_user, OboExchangeError
+    from utils.slack_rebac import get_slack_channel_rebac_evaluator
+    from utils.rbac_middleware import format_slack_channel_rebac_denial
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
 
         Returns 'unlinked', ('deny', message), or 'ok'.
-        Sets context['channel_agent_id'] when a channel→agent mapping exists.
-        When *require_mapping* is False (e.g. @mentions), a missing mapping
-        is not a hard deny — the request proceeds using config/default agent.
+        Stores team/workspace context for downstream OpenFGA channel checks.
+        Channel→agent routing is now relationship-based: the selected Slack
+        agent is authorized later against the channel's ReBAC grants.
         """
         keycloak_user_id = await resolve_slack_user(slack_user_id)
         if keycloak_user_id is None:
@@ -92,21 +93,13 @@ if RBAC_ENABLED:
         if channel_id:
             context["slack_channel_id"] = channel_id
 
-        resolution = await resolve_channel_agent(channel_id, keycloak_user_id)
-        if resolution.agent_id:
-            context["channel_agent_id"] = resolution.agent_id
-            logger.info(
-                "Channel %s mapped to agent %s for user %s",
-                channel_id, resolution.agent_id, keycloak_user_id,
-            )
-        elif require_mapping:
-            return ("deny", resolution.user_denial_message or
-                    "This channel has no agent mapping. Ask your admin to configure one.")
-        else:
-            logger.debug(
-                "No agent mapping for channel=%s user=%s — proceeding with default agent",
-                channel_id, slack_user_id,
-            )
+        workspace_id = (
+            body.get("team_id")
+            or body.get("event", {}).get("team")
+            or os.environ.get("SLACK_WORKSPACE_ID")
+            or "unknown"
+        )
+        context["slack_workspace_id"] = str(workspace_id)
 
         # Spec 104: every OBO token now carries a signed `active_team` claim.
         # Resolve which team the channel belongs to (or use the personal
@@ -146,9 +139,9 @@ if RBAC_ENABLED:
             )
         except OboExchangeError as e:
             # Spec 104: failing the OBO exchange is a HARD failure now —
-            # there is no SA fallback that would give the user the right
-            # tools, so we reject the request rather than silently
-            # downgrading to bot identity (which has no `tool_user:*`).
+            # there is no SA fallback that would preserve the user's team and
+            # OpenFGA relationships, so we reject the request rather than
+            # silently downgrading to bot identity.
             logger.error(
                 "OBO impersonation failed for user=%s active_team=%s: %s",
                 keycloak_user_id, active_team, e,
@@ -165,15 +158,38 @@ else:
     logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
 
 
-def _channel_agent_id_from_context(context):
-    """Extract the channel→agent mapping agent_id from Bolt context."""
-    if not RBAC_ENABLED or context is None:
+def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | None) -> str | None:
+    """Return a denial message when channel ReBAC does not allow this agent."""
+    if not RBAC_ENABLED or context is None or not channel_id or not agent_id:
         return None
     try:
-        aid = context.get("channel_agent_id")
-        return aid if isinstance(aid, str) and aid else None
+        active_team = context.get("active_team")
+        if active_team == PERSONAL_ACTIVE_TEAM or is_dm_channel(channel_id):
+            return None
+        workspace_id = context.get("slack_workspace_id") or os.environ.get("SLACK_WORKSPACE_ID") or "unknown"
+        obo_token = context.get("obo_token")
     except AttributeError:
         return None
+
+    decision = get_slack_channel_rebac_evaluator().check_agent_access(
+        workspace_id=str(workspace_id),
+        channel_id=str(channel_id),
+        agent_id=str(agent_id),
+        active_team=str(active_team or ""),
+        obo_token=obo_token if isinstance(obo_token, str) else None,
+    )
+    if decision.allowed:
+        return None
+
+    logger.info(
+        "Slack ReBAC denied channel=%s agent=%s reason=%s channel_allowed=%s user_allowed=%s",
+        channel_id,
+        agent_id,
+        decision.reason,
+        decision.channel_allowed,
+        decision.user_allowed,
+    )
+    return format_slack_channel_rebac_denial()
 
 
 def _obo_token_from_context(context):
@@ -320,20 +336,6 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       matched.append(agent)
   return matched
-
-
-def _rbac_agent_match(context, *, listen: str = "message") -> AgentBinding | None:
-  """Return a synthetic agent binding for a MongoDB channel→agent mapping.
-
-  RBAC channel routing is configured in MongoDB, not the legacy Slack YAML.
-  The channel still needs to be registered in YAML so the bot knows which
-  channels to listen to, but the actual target agent can come entirely from
-  the RBAC middleware.
-  """
-  rbac_agent_id = _channel_agent_id_from_context(context)
-  if not rbac_agent_id:
-    return None
-  return AgentBinding(agent_id=rbac_agent_id, users=UsersConfig(listen=listen))
 
 
 def _resolve_escalation(channel_config, agent_id: str | None = None):
@@ -689,15 +691,6 @@ def handle_mention(event, say, client, context=None):
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
-    # Spec 098 RBAC: when SLACK_RBAC_ENABLED=true, the per-channel agent
-    # mapping persisted in MongoDB (surfaced into the Bolt context by
-    # `_rbac_enrich_context`) wins over the static config-file match.
-    # When RBAC is off this is a no-op — `_channel_agent_id_from_context`
-    # returns None and `agent_id` keeps the value computed from `_match_agents`.
-    rbac_agent_id = _channel_agent_id_from_context(context)
-    if rbac_agent_id:
-      agent_id = rbac_agent_id
-
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
       agent_id=agent_id,
@@ -725,6 +718,11 @@ def handle_mention(event, say, client, context=None):
         logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
+
+    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    if denial:
+      say(text=denial, thread_ts=thread_ts)
+      return
 
     overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
@@ -854,10 +852,9 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
   unified channel→dynamic-agent routing, and main's multi-agent
   dispatcher (`_match_agents`) is the single dispatch point now.
 
-  `context` is the Slack Bolt request context — needed by the
-  spec-098 RBAC `_channel_agent_id_from_context()` override and by
-  `_bind_obo_for_handler()` so OBO tokens flow into MCP calls. Both
-  default to no-ops when RBAC is disabled.
+  `context` is the Slack Bolt request context — needed by the channel ReBAC
+  authorization check and by `_bind_obo_for_handler()` so OBO tokens flow into
+  MCP calls. Both default to no-ops when RBAC is disabled.
   """
   try:
     t0 = time.monotonic()
@@ -890,14 +887,10 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
 
     agent_id = agent_match.agent_id
 
-    # Spec 098 RBAC: when SLACK_RBAC_ENABLED=true, the per-channel agent
-    # mapping persisted in MongoDB (surfaced into the Bolt context by
-    # `_rbac_enrich_context`) wins over the static config-file match.
-    # When RBAC is off this is a no-op — `_channel_agent_id_from_context`
-    # returns None and `agent_id` keeps the value from `agent_match`.
-    rbac_agent_id = _channel_agent_id_from_context(context)
-    if rbac_agent_id:
-      agent_id = rbac_agent_id
+    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    if denial:
+      say(text=denial, thread_ts=thread_ts)
+      return
 
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
@@ -1241,18 +1234,12 @@ def handle_message_events(body, say, client, context=None):
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
   if not matches:
-    rbac_match = _rbac_agent_match(context, listen="message")
-    if not rbac_match:
-      return
-    logger.info(
-      f"[{event.get('ts')}] Routing via RBAC channel mapping to agent={rbac_match.agent_id}"
-    )
-    matches = [rbac_match]
+    return
 
   # First-match wins: config order is the priority order. Only one agent responds
   # per event so that thread memory stays coherent on follow-ups.
-  # `context` is plumbed through so _route_to_agent can apply the spec-098
-  # RBAC channel→agent override and bind the OBO bearer for downstream MCP calls.
+  # `context` is plumbed through so _route_to_agent can authorize the selected
+  # agent against channel ReBAC and bind the OBO bearer for downstream MCP calls.
   _route_to_agent(event, say, client, channel_config, matches[0], is_bot=is_bot, bot_username=bot_username, context=context)
 
 

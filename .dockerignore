@@ -51,7 +51,13 @@ ai_platform_engineering/cli/**
 # even if a previous ignore pattern would have excluded it.
 !ai_platform_engineering/knowledge_bases/*
 
+/volumes
+/volumes/
+volumes
+volumes/
 volumes/**
+docker-compose/volumes
+docker-compose/volumes/
 docker-compose/volumes/**
 docs/**
 workshop/**

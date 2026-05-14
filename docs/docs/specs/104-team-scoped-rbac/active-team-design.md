@@ -427,4 +427,4 @@ The change is done when **all** of these are true:
 - [Spec 098 — Enterprise RBAC + Slack UI](../098-enterprise-rbac-slack-ui/spec.md)
 - [Spec 102 — Comprehensive RBAC tests and completion](../102-comprehensive-rbac-tests-and-completion/spec.md)
 - [How RBAC works (canonical reference)](../098-enterprise-rbac-slack-ui/how-rbac-works.md)
-- [AgentGateway CEL config](/Users/sraradhy/outshift/caipe/ai-platform-engineering-feat-comprehensive-rbac/deploy/agentgateway/config.yaml)
+- AgentGateway CEL config: `deploy/agentgateway/config.yaml`

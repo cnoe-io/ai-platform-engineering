@@ -5,9 +5,14 @@
 import type { Mock } from 'jest-mock';
 
 const mockGetKeycloakAdminToken = jest.fn();
+const mockListRebacEnforcementStatuses = jest.fn();
 
 jest.mock('@/lib/rbac/keycloak-admin', () => ({
   getKeycloakAdminToken: () => mockGetKeycloakAdminToken(),
+}));
+
+jest.mock('@/lib/rbac/enforcement-status', () => ({
+  listRebacEnforcementStatuses: () => mockListRebacEnforcementStatuses(),
 }));
 
 describe('keycloak-resource-sync', () => {
@@ -16,6 +21,7 @@ describe('keycloak-resource-sync', () => {
   beforeEach(() => {
     jest.resetModules();
     mockGetKeycloakAdminToken.mockReset();
+    mockListRebacEnforcementStatuses.mockResolvedValue([]);
     process.env = { ...originalEnv };
     (global.fetch as unknown as Mock) = jest.fn();
   });
@@ -78,5 +84,18 @@ describe('keycloak-resource-sync', () => {
     await expect(
       syncSkillResource('create', 's1', 'Skill', 'team')
     ).resolves.toBeUndefined();
+  });
+
+  it('syncTaskResource skips Keycloak resource creation once task is ReBAC-enforced', async () => {
+    process.env.KEYCLOAK_URL = 'http://keycloak';
+    mockListRebacEnforcementStatuses.mockResolvedValue([
+      { resource_type: 'task', enforcement_status: 'rebac_enforced' },
+    ]);
+
+    const { syncTaskResource } = await import('../keycloak-resource-sync');
+    await expect(syncTaskResource('create', 'tid', 'Task Name', 'global')).resolves.toBeUndefined();
+
+    expect(mockGetKeycloakAdminToken).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

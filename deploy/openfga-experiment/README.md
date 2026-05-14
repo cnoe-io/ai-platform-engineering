@@ -18,14 +18,16 @@ Published host ports are bound to localhost only: **18080** (OpenFGA HTTP),
 **18081** (gRPC), **13002** (Playground), **9100** (bridge). Override them with
 `OPENFGA_HTTP_PORT`, `OPENFGA_GRPC_PORT`, or `OPENFGA_PLAYGROUND_PORT` if needed.
 
-## Important: two gates
+## Important: gateway authorization
 
-With the default `deploy/agentgateway/config.yaml`, **every** MCP request must pass:
+With the default `deploy/agentgateway/config.yaml`, **every** MCP request is
+authorized by AgentGateway `extAuthz`:
 
-1. **`extAuthz`** → OpenFGA `user:<sub> can_call document:mcp`
-2. **Existing `mcpAuthorization` CEL** (spec 104 rules)
+1. `jwtAuth` validates the Keycloak-issued token.
+2. `extAuthz` asks the bridge to run an OpenFGA `Check`.
 
-So you need **both** a seeded OpenFGA tuple **and** normal Keycloak realm roles for your user.
+The AgentGateway path no longer maintains CEL `mcpAuthorization` rules or a
+Mongo-backed config bridge.
 
 ## ReBAC model
 
@@ -43,6 +45,39 @@ When `OPENFGA_RECONCILE_ENABLED=true` on `caipe-ui`, saving
 `Admin → Teams → Resources` writes the corresponding team/resource tuples before
 persisting the Mongo team document. The writer checks tuples before writes/deletes
 so repeated saves are idempotent.
+
+Slack channel grants use OpenFGA-safe channel subject ids:
+`slack_channel:<workspace_id>--<channel_id>`. Avoid embedding a second `:` in the
+object id portion because OpenFGA treats `type:id` as a structured user string and
+rejects malformed users.
+
+## Migration and backfill
+
+Existing Mongo team memberships, team resource assignments, and one-agent-per-channel
+Slack mappings can be converted into ReBAC provenance records with:
+
+```bash
+MONGODB_URI='mongodb://...' MONGODB_DATABASE=caipe \
+  npx ts-node -P tsconfig.scripts.json scripts/backfill-universal-rebac.ts
+
+APPLY=true MONGODB_URI='mongodb://...' MONGODB_DATABASE=caipe \
+  npx ts-node -P tsconfig.scripts.json scripts/backfill-universal-rebac.ts
+```
+
+The script defaults to dry-run and prints the number of membership source records,
+relationship records, Slack channel grant records, and skipped Slack mappings it
+would upsert. Slack mappings without a workspace id are skipped so they do not
+collapse into a shared synthetic subject. Use `APPLY=true` only after reviewing
+the counts. Roll back source-scoped membership sources, relationship records, and
+Slack channel grant records with:
+
+```bash
+SOURCE_ID=backfill-universal-rebac MONGODB_URI='mongodb://...' MONGODB_DATABASE=caipe \
+  npx ts-node -P tsconfig.scripts.json scripts/rollback-universal-rebac-tuples.ts
+
+APPLY=true SOURCE_ID=backfill-universal-rebac MONGODB_URI='mongodb://...' MONGODB_DATABASE=caipe \
+  npx ts-node -P tsconfig.scripts.json scripts/rollback-universal-rebac-tuples.ts
+```
 
 ## Quick start
 

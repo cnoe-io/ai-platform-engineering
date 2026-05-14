@@ -1,10 +1,10 @@
 import { type NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   getRoleByName,
@@ -44,24 +44,24 @@ export const POST = withErrorHandler(
     request: NextRequest,
     context: { params: Promise<{ id: string }> }
   ) => {
-    return withAuth(request, async (req, _user, session) => {
-      requireAdmin(session);
-      const params = await context.params;
-      const id = params.id;
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
-      let body: unknown;
-      try {
-        body = await req.json();
-      } catch {
-        throw new ApiError("Invalid JSON body", 400);
-      }
+    const params = await context.params;
+    const id = params.id;
 
-      const names = parseRolesBody(body);
-      const resolved = await Promise.all(names.map((name) => getRoleByName(name)));
-      await assignRealmRolesToUser(id, resolved);
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new ApiError("Invalid JSON body", 400);
+    }
 
-      return successResponse({ ok: true });
-    });
+    const names = parseRolesBody(body);
+    const resolved = await Promise.all(names.map((name) => getRoleByName(name)));
+    await assignRealmRolesToUser(id, resolved);
+
+    return successResponse({ ok: true });
   }
 );
 
@@ -70,23 +70,23 @@ export const DELETE = withErrorHandler(
     request: NextRequest,
     context: { params: Promise<{ id: string }> }
   ) => {
-    return withAuth(request, async (req, _user, session) => {
-      requireAdmin(session);
-      const params = await context.params;
-      const id = params.id;
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
-      let body: unknown;
-      try {
-        body = await req.json();
-      } catch {
-        throw new ApiError("Invalid JSON body", 400);
-      }
+    const params = await context.params;
+    const id = params.id;
 
-      const names = parseRolesBody(body);
-      const resolved = await Promise.all(names.map((name) => getRoleByName(name)));
-      await removeRealmRolesFromUser(id, resolved);
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new ApiError("Invalid JSON body", 400);
+    }
 
-      return successResponse({ ok: true });
-    });
+    const names = parseRolesBody(body);
+    const resolved = await Promise.all(names.map((name) => getRoleByName(name)));
+    await removeRealmRolesFromUser(id, resolved);
+
+    return successResponse({ ok: true });
   }
 );

@@ -25,7 +25,7 @@
  *          — clear an override. Optional ``reason`` for the audit row.
  *
  * Both gates:
- *   - ``requireAdmin(session)`` (write action; 403 for non-admin)
+ *   - ``admin_ui#admin`` RBAC permission (write action; 403 for non-admin)
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== "false"`` (env-flag escape
  *     hatch; 503 with a message pointing operators to the env var)
  *   - Mongo configured (503 if not — overrides only make sense for
@@ -50,10 +50,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
+  requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
@@ -138,7 +138,7 @@ function triggerSupervisorRefresh(auth?: {
  * pasting an entire scanner report into the doc).
  *
  * Preconditions:
- *   - Admin role (``requireAdmin``).
+ *   - ``admin_ui#admin`` RBAC permission.
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== false``.
  *   - Mongo configured.
  *   - Skill exists in ``agent_skills``.
@@ -176,8 +176,8 @@ export const POST = withErrorHandler(
       throw new ApiError("Skill source_id is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       // Body validation. We accept reason up to 4096 chars — long
       // enough for a paragraph, short enough that an accidental
@@ -185,7 +185,7 @@ export const POST = withErrorHandler(
       // audit row.
       let body: unknown;
       try {
-        body = await req.json();
+        body = await request.json();
       } catch {
         throw new ApiError("Request body must be valid JSON.", 400);
       }
@@ -297,7 +297,7 @@ export const POST = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -310,7 +310,6 @@ export const POST = withErrorHandler(
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 
@@ -355,16 +354,16 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Skill source_id is required in the URL.", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
-      requireAdmin(session);
+    const { user, session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       // Optional reason on clear. Tolerate "no body" and "body but
       // no reason field" cleanly.
       let reason: string | undefined;
       try {
-        const ct = req.headers.get("content-type") ?? "";
+        const ct = request.headers.get("content-type") ?? "";
         if (ct.includes("application/json")) {
-          const body = (await req.json()) as { reason?: unknown };
+          const body = (await request.json()) as { reason?: unknown };
           if (typeof body?.reason === "string") {
             const trimmed = body.reason.trim();
             if (trimmed.length > 0 && trimmed.length <= 4096) {
@@ -443,7 +442,7 @@ export const DELETE = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -453,7 +452,6 @@ export const DELETE = withErrorHandler(
         scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
-    });
   },
 );
 
