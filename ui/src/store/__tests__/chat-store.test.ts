@@ -1996,4 +1996,359 @@ describe('chat-store', () => {
     });
   });
 
+  // --------------------------------------------------------------------------
+  // loadAutonomousConversationsFromService
+  // --------------------------------------------------------------------------
+  //
+  // Mocks the autonomous api but lets the real synth module run so we
+  // exercise the integration between synth and the chat-store dedup +
+  // floor pass. Synth is pure, so this is safe.
+
+  describe('loadAutonomousConversationsFromService', () => {
+    let mockListTasks: jest.Mock;
+    let mockListRuns: jest.Mock;
+
+    beforeEach(() => {
+      jest.useRealTimers(); // dynamic import + Promise.all need real timers
+      mockListTasks = jest.fn();
+      mockListRuns = jest.fn();
+      jest.doMock('@/components/autonomous/api', () => ({
+        autonomousApi: {
+          listTasks: (...args: unknown[]) => mockListTasks(...args),
+          listRuns: (...args: unknown[]) => mockListRuns(...args),
+        },
+      }));
+    });
+
+    afterEach(() => {
+      jest.dontMock('@/components/autonomous/api');
+    });
+
+    function makeAutonomousTask(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 't1',
+        name: 'Cron task',
+        description: null,
+        agent: null,
+        prompt: 'do the thing',
+        llm_provider: null,
+        trigger: { type: 'cron', schedule: '0 9 * * *' },
+        enabled: true,
+        timeout_seconds: null,
+        max_retries: null,
+        // No chat_conversation_id — exercises the uuid5 fallback.
+        ...overrides,
+      };
+    }
+
+    function makeRun(overrides: Record<string, unknown> = {}) {
+      return {
+        run_id: 'r1',
+        task_id: 't1',
+        task_name: 'Cron task',
+        status: 'success',
+        started_at: '2026-05-13T10:00:00.000Z',
+        finished_at: '2026-05-13T10:01:00.000Z',
+        response_full: 'done',
+        events: [],
+        ...overrides,
+      };
+    }
+
+    it('synthesises the autonomous conversation under its canonical id', async () => {
+      mockListTasks.mockResolvedValue([makeAutonomousTask({ id: 't1' })]);
+      mockListRuns.mockResolvedValue([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+
+      const conversations = useChatStore.getState().conversations;
+      // uuid5('task:t1', _AUTONOMOUS_NS) — pinned by the synth fixture test.
+      expect(conversations).toHaveLength(1);
+      expect(conversations[0].id).toBe('a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8');
+      expect(conversations[0].source).toBe('autonomous');
+      expect(conversations[0].task_id).toBe('t1');
+    });
+
+    it('filter-switch resync (same task, same runs) does not bump updatedAt', async () => {
+      mockListTasks.mockResolvedValue([makeAutonomousTask()]);
+      mockListRuns.mockResolvedValue([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const firstTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+
+      // Simulate filter switch: same payload, second sync.
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const secondTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+
+      expect(secondTs).toBe(firstTs);
+    });
+
+    it('monotonic floor — first sighting of a no-signal task mints Date.now() and reuses it across resyncs', async () => {
+      mockListTasks.mockResolvedValue([makeAutonomousTask({ id: 't1' })]);
+      mockListRuns.mockResolvedValue([]); // no runs, no signals
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const firstTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+      // Floor must NOT be the synth NEVER (epoch 0); it's Date.now() on first sighting.
+      expect(firstTs).toBeGreaterThan(1_000_000_000_000);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const secondTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+
+      expect(secondTs).toBe(firstTs);
+    });
+
+    it('new-run signals lift updatedAt above the previous value', async () => {
+      mockListTasks.mockResolvedValue([makeAutonomousTask()]);
+      mockListRuns.mockResolvedValueOnce([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const firstTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+
+      mockListRuns.mockResolvedValueOnce([
+        makeRun(),
+        makeRun({
+          run_id: 'r2',
+          started_at: '2026-05-14T09:00:00.000Z',
+          finished_at: '2026-05-14T09:01:00.000Z',
+        }),
+      ]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const secondTs = useChatStore.getState().conversations[0].updatedAt.getTime();
+
+      expect(secondTs).toBeGreaterThan(firstTs);
+      expect(new Date(secondTs).toISOString()).toBe('2026-05-14T09:01:00.000Z');
+    });
+
+    it('two autonomous tasks with the same title remain distinct (id-based merge)', async () => {
+      mockListTasks.mockResolvedValue([
+        makeAutonomousTask({ id: 't1', name: 'Cleanup' }),
+        makeAutonomousTask({ id: 't2', name: 'Cleanup' }),
+      ]);
+      mockListRuns.mockResolvedValue([]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const ids = useChatStore.getState().conversations.map((c) => c.id);
+      expect(new Set(ids).size).toBe(2);
+    });
+
+    it('manual user turns saved to the conversation survive a resync (merge contract)', async () => {
+      mockListTasks.mockResolvedValue([makeAutonomousTask()]);
+      mockListRuns.mockResolvedValue([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+      const canonicalId = useChatStore.getState().conversations[0].id;
+
+      // Append a manually-typed user turn (id is foreign to synth so
+      // it must be preserved across resync).
+      useChatStore.setState((s) => ({
+        conversations: s.conversations.map((c) =>
+          c.id === canonicalId
+            ? {
+                ...c,
+                messages: [
+                  ...c.messages,
+                  makeMessage({
+                    id: 'msg-typed-by-user',
+                    role: 'user',
+                    content: 'follow-up question',
+                    timestamp: new Date('2026-05-13T11:00:00.000Z'),
+                  }),
+                ],
+              }
+            : c,
+        ),
+      }));
+
+      // Resync.
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+
+      const conv = useChatStore.getState().conversations[0];
+      expect(conv.messages.find((m) => m.id === 'msg-typed-by-user')).toBeDefined();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // onRehydrateStorage — legacy autonomous id cleanup (localStorage only)
+  // --------------------------------------------------------------------------
+
+  describe('onRehydrateStorage — legacy autonomous id cleanup', () => {
+    // Rehydrate only runs when persist() is enabled (localStorage mode).
+    // Uses jest.isolateModules to re-import the store with that flag.
+    function legacyPayload() {
+      return {
+        state: {
+          conversations: [
+            {
+              id: 'autonomous-some-task', // legacy non-UUID id
+              source: 'autonomous',
+              title: 'Legacy task',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+              messages: [],
+            },
+            {
+              id: 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8', // canonical UUIDv5
+              source: 'autonomous',
+              title: 'Canonical task',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+              messages: [],
+            },
+            {
+              // Non-UUID web row — must survive (non-autonomous rows
+              // own their ids, the rehydrate filter is autonomous-only).
+              id: 'web-non-uuid-id',
+              source: 'web',
+              title: 'Web conv',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+              messages: [],
+            },
+          ],
+          // Stale pointer at the dropped legacy row — must be cleared.
+          activeConversationId: 'autonomous-some-task',
+          selectedTurnIdsArray: [],
+        },
+        version: 0,
+      };
+    }
+
+    it('drops legacy autonomous-${task.id} rows on rehydrate, keeps canonical UUIDv5 rows and non-autonomous rows', () => {
+      jest.isolateModules(() => {
+        // Persist key must match chat-store config; update both if it changes.
+        localStorage.setItem(
+          'caipe-chat-history',
+          JSON.stringify(legacyPayload()),
+        );
+
+        (global as any).__mockStorageMode = 'localStorage';
+        jest.doMock('@/lib/storage-config', () => ({
+          getStorageMode: () => 'localStorage',
+          shouldUseLocalStorage: () => true,
+        }));
+
+        const { useChatStore: freshStore } =
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require('../chat-store') as typeof import('../chat-store');
+
+        const { conversations, activeConversationId } = freshStore.getState();
+        const ids = conversations.map((c) => c.id);
+
+        expect(ids).not.toContain('autonomous-some-task');
+        expect(ids).toContain('a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8');
+        expect(ids).toContain('web-non-uuid-id');
+        expect(activeConversationId).toBeNull();
+
+        localStorage.removeItem('caipe-chat-history');
+        (global as any).__mockStorageMode = 'mongodb';
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // loadMessagesFromServer — a2aEvents preservation for autonomous
+  // --------------------------------------------------------------------------
+
+  describe('loadMessagesFromServer — a2aEvents preservation', () => {
+    it('does NOT overwrite a2aEvents/streamEvents for source=autonomous', async () => {
+      // Synth-aggregated events span multiple runs; the right-side
+      // debug panel reads conv.a2aEvents.
+      const synthEvents = [
+        { id: 'evt-run1-0', type: 'task' } as any,
+        { id: 'evt-run2-0', type: 'task' } as any,
+      ];
+      const conv = makeConversation({
+        id: 'autonomous-canonical-1',
+        messages: [
+          makeMessage({
+            id: 'task:t1:creation_intent',
+            role: 'user',
+            content: 'created',
+          }),
+          makeMessage({
+            id: 'run:r1:response',
+            role: 'assistant',
+            content: 'done',
+            events: [{ id: 'evt-run1-only', type: 'task' } as any],
+          }),
+        ],
+      });
+      (conv as any).source = 'autonomous';
+      conv.a2aEvents = synthEvents;
+      useChatStore.setState({ conversations: [conv] });
+
+      // MongoDB returns last-turn events only — the reducer would
+      // shrink conv.a2aEvents from "all runs" to "last run" if the
+      // autonomous-source guard regressed.
+      mockApiClient.getMessages.mockResolvedValueOnce({
+        items: [
+          {
+            message_id: 'task:t1:creation_intent',
+            role: 'user',
+            content: 'created',
+            created_at: new Date().toISOString(),
+            a2a_events: [],
+          },
+          {
+            message_id: 'run:r1:response',
+            role: 'assistant',
+            content: 'done',
+            created_at: new Date().toISOString(),
+            a2a_events: [{ id: 'evt-run1-only', type: 'task' }],
+          },
+        ],
+        total: 2,
+      } as any);
+
+      await useChatStore
+        .getState()
+        .loadMessagesFromServer('autonomous-canonical-1', { force: true });
+
+      const updated = useChatStore.getState().conversations[0];
+      expect(updated.a2aEvents).toEqual(synthEvents);
+    });
+
+    it('DOES overwrite a2aEvents for non-autonomous conversations (existing behaviour)', async () => {
+      const conv = makeConversation({
+        id: 'web-conv-1',
+        messages: [
+          makeMessage({ id: 'msg-1', role: 'user', content: 'hi' }),
+          makeMessage({ id: 'msg-2', role: 'assistant', content: 'hello' }),
+        ],
+      });
+      conv.a2aEvents = [{ id: 'old-evt', type: 'task' } as any];
+      useChatStore.setState({ conversations: [conv] });
+
+      mockApiClient.getMessages.mockResolvedValueOnce({
+        items: [
+          {
+            message_id: 'msg-1',
+            role: 'user',
+            content: 'hi',
+            created_at: new Date().toISOString(),
+            a2a_events: [],
+          },
+          {
+            message_id: 'msg-2',
+            role: 'assistant',
+            content: 'hello',
+            created_at: new Date().toISOString(),
+            a2a_events: [{ id: 'new-evt', type: 'task' }],
+          },
+        ],
+        total: 2,
+      } as any);
+
+      await useChatStore
+        .getState()
+        .loadMessagesFromServer('web-conv-1', { force: true });
+
+      const updated = useChatStore.getState().conversations[0];
+      expect(updated.a2aEvents).toHaveLength(1);
+      expect(updated.a2aEvents?.[0].id).toBe('new-evt');
+    });
+  });
+
 });

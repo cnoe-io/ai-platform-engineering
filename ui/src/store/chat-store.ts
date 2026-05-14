@@ -1067,7 +1067,10 @@ const storeImplementation = (set: any, get: any) => ({
         // Lazy import keeps the autonomous-only deps out of the chat
         // store's main module load, and avoids a circular import
         // between chat-store -> autonomous-api at startup.
-        const [{ autonomousApi }, { synthesizeConversationForTask }] = await Promise.all([
+        const [
+          { autonomousApi },
+          { synthesizeConversationForTask, NEVER },
+        ] = await Promise.all([
           import('@/components/autonomous/api'),
           import('@/components/autonomous/synthesize-conversation'),
         ]);
@@ -1124,7 +1127,32 @@ const storeImplementation = (set: any, get: any) => ({
 
           const merged = synthesized.map((freshConv) => {
             const existing = existingAutonomous.get(freshConv.id);
-            if (!existing) return freshConv;
+
+            // Monotonic floor for synth `updatedAt`. Synth returns NEVER
+            // when a task has no real signals; without a floor those
+            // rows would sink to the bottom of the sidebar each resync.
+            //   - signals + existing → max of the two (monotonic)
+            //   - signals + no existing → take it as-is
+            //   - NEVER + existing → keep the prior floor
+            //   - NEVER + no existing → mint Date.now() once (the only
+            //     place Date.now() enters the autonomous updatedAt path;
+            //     regenerates on hard refresh — a stable backend
+            //     `task.created_at` would close that gap).
+            let nextUpdatedAt = freshConv.updatedAt;
+            if (nextUpdatedAt.getTime() === NEVER.getTime()) {
+              nextUpdatedAt = existing?.updatedAt ?? new Date();
+            } else if (existing) {
+              nextUpdatedAt = new Date(
+                Math.max(
+                  nextUpdatedAt.getTime(),
+                  existing.updatedAt.getTime(),
+                ),
+              );
+            }
+
+            if (!existing) {
+              return { ...freshConv, updatedAt: nextUpdatedAt };
+            }
 
             const synthIds = new Set(freshConv.messages.map((m) => m.id));
             const userTyped = existing.messages.filter((m) => !synthIds.has(m.id));
@@ -1134,6 +1162,7 @@ const storeImplementation = (set: any, get: any) => ({
 
             return {
               ...freshConv,
+              updatedAt: nextUpdatedAt,
               messages,
               a2aEvents: existing.a2aEvents,
               streamEvents: existing.streamEvents,
@@ -1618,14 +1647,22 @@ const storeImplementation = (set: any, get: any) => ({
                 return serverMsg;
               });
 
+              // Autonomous convs: synth aggregates events across ALL
+              // runs; reducing to last-turn-only would shrink the debug
+              // panel. Keep existing a2aEvents/streamEvents, refresh
+              // only `messages`.
+              const isAutonomous =
+                (existingConv as { source?: string } | undefined)?.source ===
+                'autonomous';
+
               return {
                 conversations: state.conversations.map((c: Conversation) =>
                   c.id === conversationId
                     ? {
                         ...c,
                         messages: mergedMessages,
-                        a2aEvents: lastTurnA2AEvents,
-                        streamEvents: lastTurnStreamEvents,
+                        a2aEvents: isAutonomous ? c.a2aEvents : lastTurnA2AEvents,
+                        streamEvents: isAutonomous ? c.streamEvents : lastTurnStreamEvents,
                       }
                     : c
                 ),
@@ -1845,6 +1882,26 @@ export const useChatStore = shouldUseLocalStorage()
         }),
         onRehydrateStorage: () => (state) => {
           if (state) {
+            // One-time migration: drop legacy `autonomous-${task.id}`
+            // rows so the next sync resynthesises them under canonical
+            // UUIDv5 ids that match the publisher (services/chat_history.py)
+            // and merge into a single sidebar entry. Non-autonomous
+            // rows are untouched — their non-UUID ids are valid.
+            const UUID_RE =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            state.conversations = state.conversations.filter(
+              (c) => c.source !== 'autonomous' || UUID_RE.test(c.id),
+            );
+            // Clear stale activeConversationId pointing at a dropped row.
+            if (
+              state.activeConversationId &&
+              !state.conversations.some(
+                (c) => c.id === state.activeConversationId,
+              )
+            ) {
+              state.activeConversationId = null;
+            }
+
             state.conversations = state.conversations.map((conv) => ({
               ...conv,
               createdAt: new Date(conv.createdAt),

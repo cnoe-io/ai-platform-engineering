@@ -151,11 +151,14 @@ export function ChatContainer() {
           setFetchDone(true);
 
           if (storageMode === 'mongodb') {
-            // Autonomous-task threads are synthesised into chat-store and do
-            // not have a normal MongoDB conversation row to sync.
-            if ((localConv as { source?: string }).source === 'autonomous') {
-              // No-op: the autonomous polling path keeps these fresh.
-            } else if (isDA) {
+            // Autonomous threads have real MongoDB rows (publisher in
+            // services/chat_history.py) and accept manually-typed turns
+            // via saveMessagesToServer; they must round-trip through
+            // loadMessagesFromServer like Dynamic Agents do, otherwise
+            // typed messages disappear on refresh / chat switch.
+            const isAutonomous =
+              (localConv as { source?: string }).source === 'autonomous';
+            if (isDA || isAutonomous) {
               loadMessagesFromServer(uuid).catch((err) => {
                 console.warn('[ChatContainer] Failed to sync messages from server:', err);
               });
@@ -168,7 +171,9 @@ export function ChatContainer() {
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            if (isDA) {
+            const isAutonomous =
+              (localConv as { source?: string }).source === 'autonomous';
+            if (isDA || isAutonomous) {
               await loadMessagesFromServer(uuid, { force: true });
             } else {
               await loadTurnsFromServer(uuid);

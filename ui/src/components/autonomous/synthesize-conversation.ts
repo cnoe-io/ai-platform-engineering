@@ -19,7 +19,23 @@
  * next_run_marker, run_request, run_response, run_error) so a future
  * UI affordance for those kinds can drop in without forking this
  * adapter.
+ *
+ * Invariants (do NOT regress):
+ *   1. Conversation id is deterministic: `task.chat_conversation_id` if
+ *      present, else `uuid5("task:" + task.id, AUTONOMOUS_NS)`. The
+ *      namespace MUST match Python `_AUTONOMOUS_NS` in
+ *      services/chat_history.py — drift produces duplicate sidebar rows.
+ *   2. `updatedAt` derives ONLY from real lifecycle signals
+ *      (run.started_at / run.finished_at / task.last_ack.ack_at). Never
+ *      `new Date()` — that reorders the sidebar on every filter switch.
+ *      When no signals exist, returns NEVER; chat-store lifts to a
+ *      monotonic floor on first sighting.
+ *   3. Marker timestamps (`nextRunMarker` / `preflightAck` /
+ *      `creationIntent`) are decorative — stamped from real ISO fields
+ *      or NEVER. They do NOT contribute to `updatedAt`.
  */
+
+import { v5 as uuidv5 } from "uuid";
 
 import type { A2AEvent, ChatMessage, Conversation } from "@/types/a2a";
 import { buildParticipants } from "@/types/a2a";
@@ -29,14 +45,68 @@ import type { AutonomousTask, TaskRun } from "./types";
 
 const TURN_PREFIX = "autonomous-task";
 
-function isoToDate(value?: string | null, fallback?: Date): Date {
-  if (!value) return fallback ?? new Date();
+/**
+ * UUID5 namespace for deterministic conversation ids. MUST equal
+ * `_AUTONOMOUS_NS` in services/chat_history.py — a jest fixture pins
+ * this for a known task_id.
+ */
+const AUTONOMOUS_NS = "4b2c0d6e-5b71-4f4a-9b4d-7c1e9f0a2b8e";
+
+/**
+ * Sentinel for "no real timestamp available". Used for synthetic
+ * markers and for synth `updatedAt` when no signals exist (chat-store
+ * lifts to a monotonic floor on first sighting).
+ */
+export const NEVER = new Date(0);
+
+/**
+ * Canonical conversation id for an autonomous task. Prefers the
+ * backend-published `chat_conversation_id`; falls back to uuid5 so
+ * synth matches the publisher even before the backend populates it.
+ */
+export function canonicalConversationId(task: AutonomousTask): string {
+  return (
+    task.chat_conversation_id ?? uuidv5(`task:${task.id}`, AUTONOMOUS_NS)
+  );
+}
+
+/**
+ * Latest real-signal timestamp for a task+runs pair, or `null` if none.
+ * `task.next_run` is deliberately excluded — it describes future, not
+ * history. Single source of truth for synth `updatedAt`.
+ */
+export function computeUpdatedAtFromSignals(
+  task: AutonomousTask,
+  runs: TaskRun[],
+): Date | null {
+  const ts: number[] = [];
+  for (const r of runs) {
+    const v = r.finished_at || r.started_at;
+    if (v) {
+      const t = new Date(v).getTime();
+      if (!Number.isNaN(t)) ts.push(t);
+    }
+  }
+  if (task.last_ack?.ack_at) {
+    const t = new Date(task.last_ack.ack_at).getTime();
+    if (!Number.isNaN(t)) ts.push(t);
+  }
+  return ts.length > 0 ? new Date(Math.max(...ts)) : null;
+}
+
+/**
+ * Parses an ISO timestamp. `fallback` is required so callers can't let
+ * `new Date()` leak into the `updatedAt` path (invariant #2). Pass
+ * `NEVER` for synthetic timestamps; an explicit Date otherwise.
+ */
+function isoToDate(value: string | null | undefined, fallback: Date): Date {
+  if (!value) return fallback;
   try {
     const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return fallback ?? new Date();
+    if (Number.isNaN(d.getTime())) return fallback;
     return d;
   } catch {
-    return fallback ?? new Date();
+    return fallback;
   }
 }
 
@@ -73,7 +143,7 @@ function creationIntent(task: AutonomousTask): ChatMessage {
     id: `task:${task.id}:creation_intent`,
     role: "user",
     content: lines.join("\n"),
-    timestamp: isoToDate(task.last_ack?.ack_at, new Date(0)),
+    timestamp: isoToDate(task.last_ack?.ack_at, NEVER),
     events: [],
     isFinal: true,
     turnId: `${TURN_PREFIX}-${task.id}-creation`,
@@ -88,6 +158,9 @@ function creationIntent(task: AutonomousTask): ChatMessage {
 function preflightAck(task: AutonomousTask): ChatMessage | null {
   const ack = task.last_ack;
   if (!ack) return null;
+  // No ack_at → no chronological position; skip rather than fabricate
+  // `new Date()` (invariant #2).
+  if (!ack.ack_at) return null;
 
   const statusEmoji = {
     ok: "✓",
@@ -112,7 +185,7 @@ function preflightAck(task: AutonomousTask): ChatMessage | null {
     id: `task:${task.id}:preflight_ack`,
     role: "assistant",
     content: lines.join("\n"),
-    timestamp: isoToDate(ack.ack_at, new Date()),
+    timestamp: isoToDate(ack.ack_at, NEVER),
     events: [],
     isFinal: true,
     turnId: `${TURN_PREFIX}-${task.id}-creation`,
@@ -120,9 +193,10 @@ function preflightAck(task: AutonomousTask): ChatMessage | null {
 }
 
 /**
- * Build the next_run_marker — informational message at the *end* of the
- * thread that tells the operator when the next scheduled fire is.
- * Returns null for disabled / webhook tasks (no scheduled run).
+ * Informational marker at the end of the thread. Disabled / webhook
+ * branches stamp NEVER (decorative — see invariant #3). Returns null
+ * only for the transient case of an enabled cron/interval task whose
+ * `next_run` is unset (mid scheduler restart).
  */
 function nextRunMarker(task: AutonomousTask): ChatMessage | null {
   if (!task.enabled) {
@@ -130,7 +204,7 @@ function nextRunMarker(task: AutonomousTask): ChatMessage | null {
       id: `task:${task.id}:next_run_marker`,
       role: "system" as unknown as "assistant",
       content: "_Task is disabled. Enable it to resume the schedule._",
-      timestamp: new Date(),
+      timestamp: NEVER,
       events: [],
       isFinal: true,
       turnId: `${TURN_PREFIX}-${task.id}-marker`,
@@ -141,19 +215,19 @@ function nextRunMarker(task: AutonomousTask): ChatMessage | null {
       id: `task:${task.id}:next_run_marker`,
       role: "system" as unknown as "assistant",
       content: `_Triggered by external webhook → \`POST /api/v1/hooks/${task.id}\`._`,
-      timestamp: new Date(),
+      timestamp: NEVER,
       events: [],
       isFinal: true,
       turnId: `${TURN_PREFIX}-${task.id}-marker`,
     };
   }
   if (!task.next_run) return null;
-  const nextDate = isoToDate(task.next_run);
+  const nextDate = isoToDate(task.next_run, NEVER);
   return {
     id: `task:${task.id}:next_run_marker`,
     role: "system" as unknown as "assistant",
     content: `_Next scheduled run: **${nextDate.toLocaleString()}** (${task.next_run})_`,
-    timestamp: new Date(),
+    timestamp: nextDate,
     events: [],
     isFinal: true,
     turnId: `${TURN_PREFIX}-${task.id}-marker`,
@@ -228,7 +302,7 @@ function messagesForRun(task: AutonomousTask, run: TaskRun): ChatMessage[] {
     id: `run:${run.run_id}:request`,
     role: "user",
     content: requestContentForRun(task, run),
-    timestamp: isoToDate(run.started_at),
+    timestamp: isoToDate(run.started_at, NEVER),
     events: [],
     isFinal: true,
     turnId: `${TURN_PREFIX}-${task.id}-run-${run.run_id}`,
@@ -259,7 +333,7 @@ function messagesForRun(task: AutonomousTask, run: TaskRun): ChatMessage[] {
     id: `run:${run.run_id}:response`,
     role: "assistant",
     content: body,
-    timestamp: isoToDate(run.finished_at || run.started_at),
+    timestamp: isoToDate(run.finished_at || run.started_at, NEVER),
     events,
     timelineSegments,
     isFinal: run.status !== "running" && run.status !== "pending",
@@ -299,19 +373,17 @@ export function synthesizeMessagesForTask(
 }
 
 /**
- * Build a fully-populated chat-store Conversation for an autonomous task.
- * Conversation id is the task's chat_conversation_id (deterministic
- * UUIDv5) so a re-fetch of the same task always lands on the same
- * Conversation row in the store and the right pane stays selected.
+ * Build a chat-store Conversation for an autonomous task. Id is
+ * canonical (invariant #1); `updatedAt` is signal-derived (invariant
+ * #2) and falls back to NEVER for chat-store to floor.
  */
 export function synthesizeConversationForTask(
   task: AutonomousTask,
   runs: TaskRun[],
 ): Conversation {
-  const conversationId = task.chat_conversation_id ?? `autonomous-${task.id}`;
+  const conversationId = canonicalConversationId(task);
   const messages = synthesizeMessagesForTask(task, runs);
-  const lastMessage = messages[messages.length - 1];
-  const updatedAt = lastMessage?.timestamp ?? new Date();
+  const computedUpdatedAt = computeUpdatedAtFromSignals(task, runs);
 
   // Spec #099 Phase B — aggregate all per-run A2A events onto the
   // conversation's ``a2aEvents`` list so the right-side A2A debug panel
@@ -327,8 +399,11 @@ export function synthesizeConversationForTask(
   return {
     id: conversationId,
     title: `${task.name}`,
-    createdAt: messages[0]?.timestamp ?? new Date(),
-    updatedAt,
+    createdAt:
+      sortedRuns.length > 0
+        ? isoToDate(sortedRuns[0].started_at, NEVER)
+        : isoToDate(task.last_ack?.ack_at, NEVER),
+    updatedAt: computedUpdatedAt ?? NEVER,
     messages,
     a2aEvents: allEvents,
     streamEvents: [],
