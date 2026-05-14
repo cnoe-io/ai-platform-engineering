@@ -40,6 +40,7 @@ def test_create_curl_tool_blocks_http() -> None:
 
 
 def test_create_curl_tool_blocks_disallowed_domain() -> None:
+    # assisted-by Codex Codex-sonnet-4-6
     create_curl_tool = getattr(
         importlib.import_module("dynamic_agents.services.builtin_tools"),
         "create_curl_tool",
@@ -47,7 +48,7 @@ def test_create_curl_tool_blocks_disallowed_domain() -> None:
     curl_tool = create_curl_tool(allowed_domains="*.allowed.com")
     result = curl_tool.invoke({"command": "curl -s https://example.com/api"})
     assert "ERROR" in result
-    assert "example.com" in result
+    assert result == "ERROR: Domain 'example.com' is not allowed. Allowed patterns: *.allowed.com"
 
 
 def test_create_curl_tool_success() -> None:
