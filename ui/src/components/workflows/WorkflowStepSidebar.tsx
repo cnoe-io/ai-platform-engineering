@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { StepToolOverridePicker } from "./StepToolOverridePicker";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
 import { useTheme } from "next-themes";
 import type { WorkflowStep } from "@/types/workflow-config";
@@ -317,6 +318,28 @@ export function WorkflowStepSidebar({
     [onChange],
   );
 
+  /** Called by StepToolOverridePicker — merges tool keys into config_override */
+  const handleToolOverrideChange = useCallback(
+    (toolOverride: Record<string, unknown> | null) => {
+      if (!toolOverride) {
+        // Remove tool keys from existing override
+        const existing = step?.config_override ? { ...step.config_override } : null;
+        if (existing) {
+          delete (existing as Record<string, unknown>).allowed_tools;
+          delete (existing as Record<string, unknown>).disabled_builtin_tools;
+          const cleaned = Object.keys(existing).length > 0 ? existing : null;
+          onChange({ config_override: cleaned });
+          setConfigOverrideJson(cleaned ? JSON.stringify(cleaned, null, 2) : "");
+        }
+      } else {
+        const merged = { ...(step?.config_override || {}), ...toolOverride };
+        onChange({ config_override: merged });
+        setConfigOverrideJson(JSON.stringify(merged, null, 2));
+      }
+    },
+    [step?.config_override, onChange],
+  );
+
   if (!step) {
     // No steps at all — prompt to add first step
     if (totalSteps === 0 && onAddStep && !readOnly) {
@@ -503,14 +526,22 @@ export function WorkflowStepSidebar({
           )}
         </div>
 
-        {/* Advanced (collapsible) */}
+        {/* Tool Access (collapsible) */}
+        <StepToolOverridePicker
+          agentId={step.agent_id}
+          configOverride={step.config_override as Record<string, unknown> | null}
+          onConfigOverrideChange={handleToolOverrideChange}
+          readOnly={readOnly}
+        />
+
+        {/* Additional Overrides (Advanced, collapsible) */}
         <div>
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <Code className="h-3 w-3" />
-            Advanced
+            Additional Overrides
             {showAdvanced ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </button>
           {showAdvanced && (
@@ -519,7 +550,7 @@ export function WorkflowStepSidebar({
               <Textarea
                 value={configOverrideJson}
                 onChange={(e) => handleConfigOverrideChange(e.target.value)}
-                placeholder='{"system_prompt": "...", "allowed_tools": {...}}'
+                placeholder='{"system_prompt": "...", "model": {...}}'
                 className={cn(
                   "text-xs font-mono min-h-[100px] resize-y",
                   configOverrideError && "border-destructive focus-visible:ring-destructive",
@@ -532,7 +563,8 @@ export function WorkflowStepSidebar({
                 </p>
               )}
               <p className="text-[10px] text-muted-foreground">
-                Override system_prompt, allowed_tools, model for this step.
+                Override system_prompt, model, or other config for this step.
+                Setting allowed_tools here takes precedence over the Tool Access picker above.
               </p>
             </div>
           )}

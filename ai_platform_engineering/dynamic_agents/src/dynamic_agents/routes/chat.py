@@ -55,6 +55,7 @@ def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, 
 
     Raises:
         HTTPException(400): If rejected fields are present in the override.
+        HTTPException(400): If allowed_tools override is not a subset of base.
     """
     rejected = _REJECTED_OVERRIDE_FIELDS & set(config_override.keys())
     if rejected:
@@ -63,10 +64,76 @@ def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, 
             detail=f"config_override contains disallowed fields: {sorted(rejected)}",
         )
 
+    # Validate allowed_tools subset constraint before merging
+    if "allowed_tools" in config_override:
+        _validate_allowed_tools_subset(agent.allowed_tools, config_override["allowed_tools"])
+
     # Convert agent to dict, deep merge, reconstruct
     agent_dict = agent.model_dump(by_alias=True)
     merged = _deep_merge(agent_dict, config_override)
     return DynamicAgentConfig.model_validate(merged)
+
+
+def _validate_allowed_tools_subset(
+    base: dict[str, list[str] | bool],
+    override: dict[str, list[str] | bool],
+) -> None:
+    """Ensure override allowed_tools is a strict subset of base config.
+
+    Rules:
+    - Cannot add servers not in base
+    - Cannot enable a server that is disabled (False) in base
+    - Cannot add tools not in base's tool list (when base has a specific list)
+    - Setting False (disable) is always allowed
+    - Setting True (all) is allowed if base allows the server
+
+    Raises:
+        HTTPException(400): If override violates subset constraint.
+    """
+    if not isinstance(override, dict):
+        return
+
+    for server_id, override_val in override.items():
+        if server_id not in base:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"config_override.allowed_tools adds server '{server_id}' which is not configured on the base agent"
+                ),
+            )
+
+        base_val = base[server_id]
+
+        # Cannot re-enable a server that is explicitly disabled in base
+        if base_val is False and override_val is not False:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"config_override.allowed_tools enables server '{server_id}' "
+                    f"which is disabled in the base agent config"
+                ),
+            )
+
+        # Disabling is always fine
+        if override_val is False:
+            continue
+
+        # "All tools" is fine if base allows the server at all
+        if override_val is True:
+            continue
+
+        # Override is a specific list — validate each tool
+        if isinstance(override_val, list) and isinstance(base_val, list):
+            extra = set(override_val) - set(base_val)
+            if extra:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"config_override.allowed_tools['{server_id}'] includes tools "
+                        f"not in base config: {sorted(extra)}"
+                    ),
+                )
+        # override is list, base is True — any subset is fine (all tools available)
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
