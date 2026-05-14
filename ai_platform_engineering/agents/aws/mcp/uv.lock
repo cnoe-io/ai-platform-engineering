@@ -46,15 +46,15 @@ wheels = [
 
 [[package]]
 name = "authlib"
-version = "1.7.0"
+version = "1.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
     { name = "joserfc" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/82/4d0603f30c1b4629b1f091bb266b0d7986434891d6940a8c87f8098db24e/authlib-1.7.0.tar.gz", hash = "sha256:b3e326c9aa9cc3ea95fe7d89fd880722d3608da4d00e8a27e061e64b48d801d5", size = 175890, upload-time = "2026-04-18T11:00:28.559Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/98/7d93f30d029643c0275dbc0bd6d5a6f670661ee6c9a94d93af7ab4887600/authlib-1.7.2.tar.gz", hash = "sha256:2cea25fefcd4e7173bdf1372c0afc265c8034b23a8cd5dcb6a9164b826c64231", size = 176511, upload-time = "2026-05-06T08:10:23.116Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/48/c954218b2a250e23f178f10167c4173fecb5a75d2c206f0a67ba58006c26/authlib-1.7.0-py2.py3-none-any.whl", hash = "sha256:e36817afb02f6f0b6bf55f150782499ddd6ddf44b402bb055d3263cc65ac9ae0", size = 258779, upload-time = "2026-04-18T11:00:26.64Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/95/adcb68e20c34162e9135f370d6e31737719c2b6f94bc953fe7ed1f10fe21/authlib-1.7.2-py2.py3-none-any.whl", hash = "sha256:3e1faedc9d87e7d56a164eca3ccb6ace0d61b94abe83e92242f8dc8bba9b4a9f", size = 259548, upload-time = "2026-05-06T08:10:21.436Z" },
 ]
 
 [[package]]
@@ -557,7 +557,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==3.2.3" },
     { name = "mcp", specifier = "==1.26.0" },
     { name = "pydantic", specifier = "==2.12.5" },
-    { name = "python-dotenv", specifier = "==1.2.1" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
 ]
 
 [[package]]
@@ -785,20 +785,20 @@ wheels = [
 
 [[package]]
 name = "python-dotenv"
-version = "1.2.1"
+version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f0/26/19cadc79a718c5edbec86fd4919a6b6d3f681039a2f6d66d14be94e75fb9/python_dotenv-1.2.1.tar.gz", hash = "sha256:42667e897e16ab0d66954af0e60a9caa94f0fd4ecf3aaf6d2d260eec1aa36ad6", size = 44221, upload-time = "2025-10-26T15:12:10.434Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl", hash = "sha256:b81ee9561e9ca4004139c6cbba3a238c32b03e4894671e181b671e8cb8425d61", size = 21230, upload-time = "2025-10-26T15:12:09.109Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
 ]
 
 [[package]]
 name = "python-multipart"
-version = "0.0.27"
+version = "0.0.28"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/69/9b/f23807317a113dc36e74e75eb265a02dd1a4d9082abc3c1064acd22997c4/python_multipart-0.0.27.tar.gz", hash = "sha256:9870a6a8c5a20a5bf4f07c017bd1489006ff8836cff097b6933355ee2b49b602", size = 44043, upload-time = "2026-04-27T10:51:26.649Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/54/a85eb421fbdd5007bc5af39d0f4ed9fa609e0fedbfdc2adcf0b34526870e/python_multipart-0.0.28.tar.gz", hash = "sha256:8550da197eac0f7ab748961fc9509b999fa2662ea25cef857f05249f6893c0f8", size = 45314, upload-time = "2026-05-10T11:05:16.596Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/78/4126abcbdbd3c559d43e0db7f7b9173fc6befe45d39a2856cc0b8ec2a5a6/python_multipart-0.0.27-py3-none-any.whl", hash = "sha256:6fccfad17a27334bd0193681b369f476eda3409f17381a2d65aa7df3f7275645", size = 29254, upload-time = "2026-04-27T10:51:24.997Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/a2/43bbc5860b5034e2af4ef99a0e04d726ff329c43e192ef3abaa8d7ecfce5/python_multipart-0.0.28-py3-none-any.whl", hash = "sha256:10faac07eb966c3f48dc415f9dee46c04cb10d58d30a35677db8027c825ed9b6", size = 29438, upload-time = "2026-05-10T11:05:15.052Z" },
 ]
 
 [[package]]
