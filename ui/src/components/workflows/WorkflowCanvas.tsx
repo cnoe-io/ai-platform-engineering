@@ -53,7 +53,9 @@ const NODE_X = 300;
 const NODE_WIDTH = 220; // matches w-[220px] in WorkflowStepNode
 const NODE_CENTER_X = NODE_X + NODE_WIDTH / 2; // 410
 const NODE_VERTICAL_GAP = 140;
+const NODE_VERTICAL_GAP_WITH_BADGE = 160; // extra space when on_error badge is shown
 const ADD_BUTTON_Y_OFFSET = 80; // position of "+" button below the step node
+const ADD_BUTTON_Y_OFFSET_WITH_BADGE = 100; // when step has on_error badge
 const ADD_BUTTON_APPEND_SIZE = 28; // w-7
 const ADD_BUTTON_INSERT_SIZE = 20; // w-5
 
@@ -120,10 +122,11 @@ function buildNodes(steps: WorkflowStep[], agents: AgentInfo[]): Node[] {
   const nodes: Node[] = [];
   const agentMap = new Map(agents.map((a) => [a.value, a]));
 
+  let yPos = 0;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     const agentInfo = agentMap.get(step.agent_id);
-    const yPos = i * NODE_VERTICAL_GAP;
+    const hasBadge = step.on_error && step.on_error !== "abort";
 
     nodes.push({
       id: `step-${i}`,
@@ -143,10 +146,11 @@ function buildNodes(steps: WorkflowStep[], agents: AgentInfo[]): Node[] {
     // "+" button after each step
     const isLastStep = i === steps.length - 1;
     const btnSize = isLastStep ? ADD_BUTTON_APPEND_SIZE : ADD_BUTTON_INSERT_SIZE;
+    const btnYOffset = hasBadge ? ADD_BUTTON_Y_OFFSET_WITH_BADGE : ADD_BUTTON_Y_OFFSET;
     nodes.push({
       id: `add-${i}`,
       type: "addButton",
-      position: { x: NODE_CENTER_X - btnSize / 2, y: yPos + ADD_BUTTON_Y_OFFSET },
+      position: { x: NODE_CENTER_X - btnSize / 2, y: yPos + btnYOffset },
       selectable: false,
       draggable: false,
       data: {
@@ -155,6 +159,9 @@ function buildNodes(steps: WorkflowStep[], agents: AgentInfo[]): Node[] {
         onAdd: () => {},
       } satisfies AddButtonNodeData,
     });
+
+    // Advance Y for next step
+    yPos += hasBadge ? NODE_VERTICAL_GAP_WITH_BADGE : NODE_VERTICAL_GAP;
   }
 
   // If no steps, show a single "+" button
@@ -177,7 +184,7 @@ function buildNodes(steps: WorkflowStep[], agents: AgentInfo[]): Node[] {
 }
 
 function buildEdges(steps: WorkflowStep[]): Edge[] {
-  return steps.slice(0, -1).map((_, i) => ({
+  const edges: Edge[] = steps.slice(0, -1).map((_, i) => ({
     id: `edge-${i}-${i + 1}`,
     source: `step-${i}`,
     target: `step-${i + 1}`,
@@ -189,6 +196,25 @@ function buildEdges(steps: WorkflowStep[]): Edge[] {
       strokeDasharray: "5 5",
     },
   }));
+
+  // Connector from last step to the trailing "+" button
+  if (steps.length > 0) {
+    const lastIdx = steps.length - 1;
+    edges.push({
+      id: `edge-${lastIdx}-add`,
+      source: `step-${lastIdx}`,
+      target: `add-${lastIdx}`,
+      type: "default",
+      animated: true,
+      style: {
+        stroke: "hsl(var(--muted-foreground))",
+        strokeWidth: 2,
+        strokeDasharray: "5 5",
+      },
+    });
+  }
+
+  return edges;
 }
 
 // ---------------------------------------------------------------------------

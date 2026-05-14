@@ -124,6 +124,7 @@ function AddButtonNodeComponent({ data }: NodeProps) {
       )}
       title="Add step"
     >
+      <Handle type="target" position={Position.Top} className="!opacity-0 !w-0 !h-0" />
       <Plus className={isInsert ? "h-2.5 w-2.5" : "h-3.5 w-3.5"} strokeWidth={2.5} />
     </div>
   );
