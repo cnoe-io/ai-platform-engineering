@@ -83,6 +83,7 @@ import { useChatStore } from "@/store/chat-store";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import { LastReviewBadge } from "@/components/ai-review";
 import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
 import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
@@ -1314,6 +1315,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                             {!workflowRunnerEnabled ? (
@@ -1389,6 +1391,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />
@@ -1493,6 +1496,7 @@ export function SkillsGallery({
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />

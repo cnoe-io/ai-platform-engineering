@@ -139,6 +139,18 @@ vpa:
     memory: 128Mi
   maxAllowed: {}
 
+# Additional init containers for the Deployment.
+# Runs before the main container starts. Useful for pre-creating directories
+# needed by subPath volume mounts on runtimes (e.g. kind) that do not
+# auto-create missing parent paths.
+initContainers: []
+# - name: init-skill-dirs
+#   image: busybox:1.36
+#   command: ["sh", "-c", "mkdir -p /data/skills/my-skill"]
+#   volumeMounts:
+#     - name: skill-data-dir
+#       mountPath: /data
+
 # Additional volumes on the output Deployment definition.
 volumes: []
 # - name: foo

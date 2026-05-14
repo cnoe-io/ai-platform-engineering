@@ -61,13 +61,11 @@ jobs:
           NEW_VERSION: ${{ steps.meta.outputs.new_version }}
           PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
         run: |
-          # Git log for reference in the PR body
           git log "${PREV_VERSION}..${NEW_VERSION}" \
             --oneline --no-merges \
             | grep -vE '^[a-f0-9]+ (chore|ci|test|refactor)' \
             | head -80 > /tmp/git-log.txt || true
 
-          # CHANGELOG section
           sed -n "/^## ${NEW_VERSION}/,/^## ${PREV_VERSION}/p" CHANGELOG.md 2>/dev/null \
             | head -100 > /tmp/changelog.txt || true
 
@@ -79,69 +77,68 @@ jobs:
           BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
         run: |
           mkdir -p docs/releases
-          cat > "$BLOG_FILE" << EOF
----
-slug: release-${NEW_VERSION}
-title: "Release ${NEW_VERSION} — "
-date: ${TAG_DATE}
-authors: [sriaradhyula]
-tags: [release]
----
-
-## Highlights
-
-<!-- TODO: 2-4 sentences summarising the most impactful changes for operators -->
-
-<!-- truncate -->
-
-## What's New
-
-<!-- TODO: group by feature area, link PRs -->
-
-## Bug Fixes
-
-<!-- TODO: list bug fixes with PR links -->
-
-## Breaking Changes
-
-No breaking changes. Drop-in upgrade from ${PREV_VERSION}.
-
-## Known Issues
-
-None known at this time.
-
----
-
-## Upgrade Guide: ${PREV_VERSION} → ${NEW_VERSION}
-
-### Overview
-
-<!-- TODO: one paragraph — drop-in or requires values.yaml edits? -->
-
-### Helm Values Changes
-
-<!-- TODO: paste any breaking/new/removed keys; or delete this section if no changes -->
-
-No Helm values changes. Drop-in upgrade.
-
-### Upgrade Runbook
-
-\`\`\`bash
-helm upgrade ai-platform-engineering \\
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\
-  --version ${NEW_VERSION} \\
-  -f your-values.yaml
-\`\`\`
-
-\`\`\`bash
-kubectl get pods -n <namespace>
-\`\`\`
-EOF
+          {
+            echo "---"
+            echo "slug: release-${NEW_VERSION}"
+            echo "title: \"Release ${NEW_VERSION} — \""
+            echo "date: ${TAG_DATE}"
+            echo "authors: [sriaradhyula]"
+            echo "tags: [release]"
+            echo "---"
+            echo ""
+            echo "## Highlights"
+            echo ""
+            echo "<!-- TODO: 2-4 sentences summarising the most impactful changes for operators -->"
+            echo ""
+            echo "<!-- truncate -->"
+            echo ""
+            echo "## What's New"
+            echo ""
+            echo "<!-- TODO: group by feature area, link PRs -->"
+            echo ""
+            echo "## Bug Fixes"
+            echo ""
+            echo "<!-- TODO: list bug fixes with PR links -->"
+            echo ""
+            echo "## Breaking Changes"
+            echo ""
+            echo "No breaking changes. Drop-in upgrade from ${PREV_VERSION}."
+            echo ""
+            echo "## Known Issues"
+            echo ""
+            echo "None known at this time."
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Upgrade Guide: ${PREV_VERSION} → ${NEW_VERSION}"
+            echo ""
+            echo "### Overview"
+            echo ""
+            echo "<!-- TODO: one paragraph — drop-in or requires values.yaml edits? -->"
+            echo ""
+            echo "### Helm Values Changes"
+            echo ""
+            echo "No Helm values changes. Drop-in upgrade."
+            echo ""
+            echo "### Upgrade Runbook"
+            echo ""
+            echo '```bash'
+            echo "helm upgrade ai-platform-engineering \\"
+            echo "  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\"
+            echo "  --version ${NEW_VERSION} \\"
+            echo "  -f your-values.yaml"
+            echo '```'
+            echo ""
+            echo '```bash'
+            echo "kubectl get pods -n <namespace>"
+            echo '```'
+          } > "$BLOG_FILE"
           echo "Skeleton created at $BLOG_FILE"
 
       - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ steps.meta.outputs.new_version }}
           PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
           BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
@@ -155,36 +152,37 @@ EOF
           git commit -m "docs: skeleton release post for ${NEW_VERSION}"
           git push origin "$BRANCH"
 
-          gh pr create \
+          {
+            echo "## Release ${NEW_VERSION} Blog Post"
+            echo ""
+            echo "Skeleton created by the \`docs-release\` workflow. **Fill in the TODOs before merging.**"
+            echo ""
+            echo "### Commits since ${PREV_VERSION}"
+            echo ""
+            echo '```'
+            cat /tmp/git-log.txt
+            echo '```'
+            echo ""
+            echo "### CHANGELOG.md excerpt"
+            echo ""
+            echo '```'
+            cat /tmp/changelog.txt
+            echo '```'
+            echo ""
+            echo "### Checklist"
+            echo ""
+            echo "- [ ] Title subtitle filled in"
+            echo "- [ ] Highlights paragraph written"
+            echo "- [ ] What's New sections complete (link PRs)"
+            echo "- [ ] Bug Fixes section complete"
+            echo "- [ ] Breaking Changes accurate (or confirmed drop-in)"
+            echo "- [ ] Upgrade Guide / Helm values diff verified"
+          } > /tmp/pr-body.md
+
+          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
             --title "docs: release ${NEW_VERSION} blog post" \
             --base main \
             --head "$BRANCH" \
-            --body "$(cat <<EOF
-## Release ${NEW_VERSION} Blog Post
-
-Skeleton created by the \`docs-release\` workflow. **Fill in the TODOs before merging.**
-
-### Commits since ${PREV_VERSION}
-
-\`\`\`
-$(cat /tmp/git-log.txt)
-\`\`\`
-
-### CHANGELOG.md excerpt
-
-\`\`\`
-$(cat /tmp/changelog.txt)
-\`\`\`
-
-### Checklist
-
-- [ ] Title subtitle filled in
-- [ ] Highlights paragraph written
-- [ ] What's New sections complete (link PRs)
-- [ ] Bug Fixes section complete
-- [ ] Breaking Changes accurate (or confirmed drop-in)
-- [ ] Upgrade Guide / Helm values diff verified
-EOF
-          )"
+            --body-file /tmp/pr-body.md
 
           echo "PR opened: $BRANCH"

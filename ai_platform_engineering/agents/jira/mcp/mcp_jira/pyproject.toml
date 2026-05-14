@@ -5,7 +5,7 @@ description = "An MCP (Model Context Protocol) server that integrates with the J
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "python-dotenv==1.2.1",
+    "python-dotenv==1.2.2",
     "httpx==0.28.1",
     "mcp[cli]==1.26.0",
     "pydantic==2.12.5",

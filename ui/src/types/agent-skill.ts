@@ -240,6 +240,10 @@ export interface AgentSkill {
   scan_override?: ScanOverride;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** Compact AI Review verdict from the last save. Drives the grade badge
+   *  next to the scanner badge on skill cards. Optional — skills created
+   *  before AI Review was wired up have this missing. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -266,6 +270,8 @@ export interface CreateAgentSkillInput {
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -292,6 +298,8 @@ export interface UpdateAgentSkillInput {
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
