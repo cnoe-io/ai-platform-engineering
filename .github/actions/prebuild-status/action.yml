@@ -113,6 +113,7 @@ runs:
       run: |
         set -euo pipefail
 
+        payload_file="$(mktemp)"
         jq -n \
           --argjson pr_number "${{ inputs.pr_number }}" \
           --arg head_sha "${{ inputs.head_sha }}" \
@@ -122,5 +123,15 @@ runs:
               pr_number: $pr_number,
               head_sha: $head_sha
             }
-          }' \
-          | gh api --method POST /repos/${{ github.repository }}/dispatches --input -
+          }' > "${payload_file}"
+
+        for attempt in 1 2 3; do
+          if gh api --method POST /repos/${{ github.repository }}/dispatches --input "${payload_file}"; then
+            exit 0
+          fi
+
+          echo "::warning::Failed to dispatch prebuild artifact status update (attempt ${attempt}/3)."
+          sleep $((attempt * 20))
+        done
+
+        echo "::warning::Prebuild status artifact was uploaded, but comment reconciliation dispatch failed after retries."
