@@ -822,5 +822,62 @@ class TestMigratedAgentConstants(unittest.TestCase):
             self.assertIn("METRICS_ENABLED", src, f"Missing METRICS_ENABLED in {path}")
 
 
+# ---------------------------------------------------------------------------
+# Unit tests – OAuth2 security_scheme advertisement (env-conditional)
+# ---------------------------------------------------------------------------
+
+class TestA2AServerOAuth2SecurityScheme(unittest.TestCase):
+    """`A2A_AUTH_OAUTH2=true` plus TOKEN_ENDPOINT advertises OAuth2 on AgentCard."""
+
+    def test_oauth2_disabled_default(self):
+        """Default env keeps security=public, no security_schemes."""
+        s = _make_server()
+        self.assertEqual(s.agent_card.security, [{"public": []}])
+        # security_schemes can be None or absent depending on AgentCard version
+        self.assertIn(s.agent_card.security_schemes, (None, {}))
+
+    @patch.dict(os.environ, {"A2A_AUTH_OAUTH2": "true"}, clear=False)
+    def test_oauth2_enabled_without_token_endpoint_falls_back_to_public(self):
+        """A2A_AUTH_OAUTH2=true alone is insufficient — needs TOKEN_ENDPOINT."""
+        # Make sure TOKEN_ENDPOINT is NOT set
+        os.environ.pop("TOKEN_ENDPOINT", None)
+        s = _make_server()
+        self.assertEqual(s.agent_card.security, [{"public": []}])
+
+    @patch.dict(
+        os.environ,
+        {
+            "A2A_AUTH_OAUTH2": "true",
+            "TOKEN_ENDPOINT": "https://idp.example/realms/test/protocol/openid-connect/token",
+            "ISSUER": "https://idp.example/realms/test",
+            "AUDIENCE": "myagent",
+        },
+        clear=False,
+    )
+    def test_oauth2_enabled_advertises_scheme(self):
+        """Env fully configured → AgentCard.security uses 'oauth2' requirement."""
+        s = _make_server()
+        self.assertEqual(s.agent_card.security, [{"oauth2": []}])
+        self.assertIsNotNone(s.agent_card.security_schemes)
+        self.assertIn("oauth2", s.agent_card.security_schemes)
+
+    @patch.dict(
+        os.environ,
+        {
+            "A2A_AUTH_OAUTH2": "true",
+            "TOKEN_ENDPOINT": "https://idp.example/token",
+        },
+        clear=False,
+    )
+    def test_oauth2_scheme_carries_token_url(self):
+        """Advertised scheme exposes the configured token URL to clients."""
+        s = _make_server()
+        scheme = s.agent_card.security_schemes["oauth2"].root
+        self.assertEqual(
+            scheme.flows.client_credentials.token_url,
+            "https://idp.example/token",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
