@@ -2889,13 +2889,17 @@ import importlib, json, sys, os
 # In the ai-platform-engineering image, each agent package lives under:
 #   /app/ai_platform_engineering/agents/<name>/agent_<name>/
 # For "from agent_github.tools import ..." to work (as used in deep_agent_single.py),
-# the parent directory must be in sys.path. Add all agent parent dirs so that
-# single-node mode can import agent_github, agent_backstage, etc. directly.
+# the parent directory must be in sys.path. Only add agent dirs that contain an
+# agent_<name>/ sub-package; pure MCP-server dirs (e.g. agents/litellm/ which only
+# has mcp/__init__.py) must be skipped because their sub-dirs shadow PyPI packages.
 _agents_base = "/app/ai_platform_engineering/agents"
 if os.path.isdir(_agents_base):
     for _agent_name in os.listdir(_agents_base):
         _agent_dir = os.path.join(_agents_base, _agent_name)
-        if os.path.isdir(_agent_dir) and _agent_dir not in sys.path:
+        if not os.path.isdir(_agent_dir) or _agent_dir in sys.path:
+            continue
+        if any(d.startswith("agent_") and os.path.isdir(os.path.join(_agent_dir, d))
+               for d in os.listdir(_agent_dir)):
             sys.path.insert(0, _agent_dir)
 
 # ── Fix 1: OpenAI Responses API strict schema ──
