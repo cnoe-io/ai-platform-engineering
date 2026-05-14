@@ -5,6 +5,7 @@ When you need to change something in the auth path, this table tells you which f
 | What you want to change | File |
 |-------------------------|------|
 | Short primer: Keycloak JWTs prove identity/context while OpenFGA proves relationship access | `docs/docs/security/rbac/jwt-and-openfga.md` |
+| Helm installation and upgrade runbook for the RBAC/OpenFGA refactor, including current chart gaps for Keycloak, AgentGateway, OpenFGA, and OpenFGA bridge | `docs/docs/security/rbac/helm-install-upgrade.md` |
 | Keycloak realm: roles, clients, test users | `deploy/keycloak/realm-config.json` |
 | Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper, IdP group import and `caipe-ui` groups claim mapper | `deploy/keycloak/init-idp.sh` |
 | Export client secrets to env/dotenv/K8s Secret | `deploy/keycloak/export-client-secrets.sh` |

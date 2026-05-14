@@ -713,7 +713,9 @@ Expected health checks:
 
 ### Kubernetes and Helm
 
-Kubernetes support exists for core CAIPE deployment pieces through Helm charts, including Keycloak and AgentGateway-related configuration. For this RBAC feature, validate the following before calling a Kubernetes deployment production-ready:
+Kubernetes support exists for core CAIPE deployment pieces through Helm charts, but the RBAC refactor currently has a split packaging model. The Keycloak subchart exists but is not wired as an umbrella-chart dependency, the parent chart renders AgentGateway route resources but not the AgentGateway controller/proxy workload, and OpenFGA plus the OpenFGA bridge are not charted in this repo yet. Use the [Helm installation and upgrade guide](./helm-install-upgrade.md) for the current install path and the remaining chart work.
+
+For this RBAC feature, validate the following before calling a Kubernetes deployment production-ready:
 
 - Keycloak realm initialization includes the required clients, roles, mappers, token exchange, and IdP broker settings.
 - CAIPE UI has the RBAC and IdP environment variables set.

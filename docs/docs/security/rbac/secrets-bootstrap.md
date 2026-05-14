@@ -4,6 +4,11 @@
 > running `docker-compose.dev.yaml` you can skip this — the `.env` file
 > already covers everything.
 
+For the full RBAC/OpenFGA Kubernetes install and upgrade sequence, including
+which services are charted today and which services remain external
+prerequisites, start with the
+[Helm installation and upgrade guide](./helm-install-upgrade.md).
+
 The Keycloak subchart needs **three** secrets to bootstrap a clean
 realm:
 
