@@ -31,7 +31,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="fetch_url",
             name="Fetch URL",
-            description="Fetches content from web pages, APIs, or documentation sites",
+            description="Simple tool to fetch web pages.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
@@ -49,7 +49,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="curl",
             name="Curl",
-            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs. WARNING: enabling this tool allows the agent to make write requests (PUT/PATCH/DELETE) that may modify or delete data.",
+            description="Uses curl in a shell to execute HTTP requests. Use with caution.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
