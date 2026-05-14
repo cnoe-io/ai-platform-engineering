@@ -220,7 +220,7 @@ runs:
         fi
 
         echo "Changed files:"
-        echo "$CHANGED_FILES" | head -20
+        sed -n '1,20p' <<< "$CHANGED_FILES"
 
         # ── Paths that affect image builds (triggers full version bump) ──
         # Keep in sync with pr-version-bump.yml paths filter.
@@ -232,12 +232,12 @@ runs:
 
         if [[ -n "$OTHER_FILES" ]]; then
           echo "🔇 Ignored (no build impact):"
-          echo "$OTHER_FILES" | head -10
+          sed -n '1,10p' <<< "$OTHER_FILES"
         fi
 
         if [[ -n "$IMAGE_FILES" ]]; then
           echo "📦 Image-affecting changes detected:"
-          echo "$IMAGE_FILES" | head -10
+          sed -n '1,10p' <<< "$IMAGE_FILES"
           echo "chart_only=false" >> $GITHUB_OUTPUT
         elif [[ -n "$CHART_FILES" ]]; then
           echo "✅ Only chart changes detected — chart-only"
