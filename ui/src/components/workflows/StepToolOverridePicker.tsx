@@ -48,12 +48,22 @@ function getEnabledBuiltinTools(builtinTools?: BuiltinToolsConfig | null): strin
   return enabled;
 }
 
+/** Extract disabled builtin tool IDs from a builtin_tools override object */
+function getDisabledFromBuiltinOverride(
+  builtinOverride: Record<string, { enabled?: boolean }> | undefined,
+): string[] {
+  if (!builtinOverride) return [];
+  return Object.entries(builtinOverride)
+    .filter(([, v]) => v && typeof v === "object" && v.enabled === false)
+    .map(([k]) => k);
+}
+
 /** Count summary for the header */
 function buildSummary(
   overrideAllowed: Record<string, string[] | boolean> | undefined,
-  overrideBuiltin: string[] | undefined,
+  disabledBuiltinCount: number,
 ): string | null {
-  if (!overrideAllowed && !overrideBuiltin) return null;
+  if (!overrideAllowed && disabledBuiltinCount === 0) return null;
 
   let serverCount = 0;
   let toolCount = 0;
@@ -70,12 +80,10 @@ function buildSummary(
     }
   }
 
-  const builtinCount = overrideBuiltin?.length ?? 0;
-
   const parts: string[] = [];
   if (serverCount > 0) parts.push(`${serverCount} server${serverCount !== 1 ? "s" : ""}`);
   if (toolCount > 0) parts.push(`${toolCount} tool${toolCount !== 1 ? "s" : ""}`);
-  if (builtinCount > 0) parts.push(`${builtinCount} builtin disabled`);
+  if (disabledBuiltinCount > 0) parts.push(`${disabledBuiltinCount} builtin disabled`);
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
@@ -157,12 +165,16 @@ export function StepToolOverridePicker({
     },
     [configOverride],
   );
-  const overrideBuiltinDisabled = useMemo(
-    () => configOverride?.disabled_builtin_tools as string[] | undefined,
+  const overrideBuiltinTools = useMemo(
+    () => configOverride?.builtin_tools as Record<string, { enabled?: boolean }> | undefined,
     [configOverride],
   );
+  const overrideBuiltinDisabled = useMemo(
+    () => getDisabledFromBuiltinOverride(overrideBuiltinTools),
+    [overrideBuiltinTools],
+  );
 
-  const mode: "inherit" | "restrict" = overrideAllowedTools || overrideBuiltinDisabled ? "restrict" : "inherit";
+  const mode: "inherit" | "restrict" = overrideAllowedTools || overrideBuiltinDisabled.length > 0 ? "restrict" : "inherit";
 
   // ── Fetch agent config ──
   useEffect(() => {
@@ -232,15 +244,21 @@ export function StepToolOverridePicker({
   const updateOverride = useCallback(
     (allowedTools: Record<string, string[] | boolean> | undefined, disabledBuiltin: string[] | undefined) => {
       const next = { ...(configOverride || {}) };
+      // Remove legacy field if present
+      delete next.disabled_builtin_tools;
       if (allowedTools && Object.keys(allowedTools).length > 0) {
         next.allowed_tools = allowedTools;
       } else {
         delete next.allowed_tools;
       }
       if (disabledBuiltin && disabledBuiltin.length > 0) {
-        next.disabled_builtin_tools = disabledBuiltin;
+        const builtinObj: Record<string, { enabled: boolean }> = {};
+        for (const toolId of disabledBuiltin) {
+          builtinObj[toolId] = { enabled: false };
+        }
+        next.builtin_tools = builtinObj;
       } else {
-        delete next.disabled_builtin_tools;
+        delete next.builtin_tools;
       }
       onConfigOverrideChange(Object.keys(next).length > 0 ? next : null);
     },
@@ -275,7 +293,7 @@ export function StepToolOverridePicker({
       } else {
         current[serverId] = false;
       }
-      updateOverride(current, overrideBuiltinDisabled);
+      updateOverride(current, overrideBuiltinDisabled.length > 0 ? overrideBuiltinDisabled : undefined);
     },
     [readOnly, overrideAllowedTools, baseAllowedTools, overrideBuiltinDisabled, updateOverride],
   );
@@ -311,7 +329,7 @@ export function StepToolOverridePicker({
         }
       }
 
-      updateOverride(current, overrideBuiltinDisabled);
+      updateOverride(current, overrideBuiltinDisabled.length > 0 ? overrideBuiltinDisabled : undefined);
     },
     [readOnly, overrideAllowedTools, baseAllowedTools, probeResults, overrideBuiltinDisabled, updateOverride],
   );
@@ -319,7 +337,7 @@ export function StepToolOverridePicker({
   const toggleBuiltinTool = useCallback(
     (toolId: string) => {
       if (readOnly) return;
-      const current = [...(overrideBuiltinDisabled || [])];
+      const current = [...overrideBuiltinDisabled];
       const idx = current.indexOf(toolId);
       if (idx >= 0) {
         current.splice(idx, 1);
@@ -332,7 +350,7 @@ export function StepToolOverridePicker({
   );
 
   // ── Summary for header ──
-  const summary = buildSummary(overrideAllowedTools, overrideBuiltinDisabled);
+  const summary = buildSummary(overrideAllowedTools, overrideBuiltinDisabled.length);
 
   // ── Don't render if no agent selected ──
   if (!agentId) return null;
@@ -530,7 +548,7 @@ export function StepToolOverridePicker({
                       </div>
                       <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-1">
                         {baseBuiltinTools.map((toolId) => {
-                          const isDisabled = overrideBuiltinDisabled?.includes(toolId) ?? false;
+                          const isDisabled = overrideBuiltinDisabled.includes(toolId);
                           return (
                             <div key={toolId} className="flex items-center gap-2 py-0.5">
                               <input

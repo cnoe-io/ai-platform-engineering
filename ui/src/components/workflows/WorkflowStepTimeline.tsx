@@ -111,9 +111,11 @@ export function WorkflowStepTimeline({
     return Math.round((end - start) / 1000);
   }, [step.started_at, step.completed_at]);
 
+  const hasRetries = (step.attempts || 1) > 1;
+
   return (
     <div id={`workflow-step-${step.index}`}>
-      {/* Step header — node-like card to match editor style */}
+      {/* Step header */}
       <div className={cn(
         "flex items-center gap-2.5 mb-3 px-3 py-2 rounded-lg border transition-colors",
         step.status === "running" && "border-blue-500/40 bg-blue-500/5",
@@ -133,6 +135,11 @@ export function WorkflowStepTimeline({
           {step.display_text}
         </span>
         <div className="flex-1" />
+        {hasRetries && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium shrink-0">
+            {step.attempts} attempts
+          </span>
+        )}
         {durationSec !== undefined && (
           <span className="text-[10px] text-muted-foreground font-mono shrink-0">
             {durationSec}s

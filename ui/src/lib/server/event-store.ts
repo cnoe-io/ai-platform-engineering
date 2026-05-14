@@ -90,16 +90,31 @@ export async function readEventsByRun(
       source_type: "workflow_step",
       source_id: { $regex: `^${prefix}` },
     })
+    .sort({ _id: 1 })
     .toArray();
 
   const result = new Map<number, StreamEvent[]>();
   for (const doc of docs) {
-    // source_id format: "wfrun-xxx-step-0", "wfrun-xxx-step-1", etc.
+    // source_id format: "wfrun-xxx-step-0-a1", "wfrun-xxx-step-0-a2", etc.
     const stepStr = doc.source_id.slice(prefix.length);
     const stepIndex = parseInt(stepStr, 10);
-    if (!isNaN(stepIndex)) {
-      result.set(stepIndex, doc.events);
+    if (isNaN(stepIndex)) continue;
+    const attemptMatch = stepStr.match(/-a(\d+)$/);
+    const attempt = attemptMatch ? parseInt(attemptMatch[1], 10) : 1;
+
+    const existing = result.get(stepIndex) || [];
+    if (attempt > 1) {
+      existing.push({
+        id: `retry-${stepIndex}-a${attempt}`,
+        timestamp: new Date(),
+        type: "warning",
+        raw: null,
+        namespace: [],
+        warningData: { message: `Retrying step — attempt ${attempt}`, code: "retry" },
+      } as StreamEvent);
     }
+    existing.push(...doc.events);
+    result.set(stepIndex, existing);
   }
 
   return result;

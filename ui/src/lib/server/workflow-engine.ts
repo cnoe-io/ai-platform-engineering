@@ -55,6 +55,7 @@ export interface WorkflowStepRun {
   attempts: number;
   error: string | null;
   interrupt: ConsumeResult["interrupt"] | null;
+  conversation_id?: string;
 }
 
 export interface WorkflowRunTriggerInfo {
@@ -256,7 +257,6 @@ async function executeSteps(
 
   for (let i = startFrom; i < steps.length; i++) {
     const step = steps[i];
-    const sourceId = `${runId}-step-${i}`;
 
     // Mark step running
     await col.updateOne(
@@ -277,7 +277,7 @@ async function executeSteps(
       renderedPrompt = renderPrompt(step.prompt, templateCtx);
     } catch (err) {
       await markStepFailed(col, runId, i, `Template error: ${(err as Error).message}`);
-      if (step.on_error === "abort") {
+      if (step.on_error !== "skip") {
         await markRunFailed(col, runId);
         return;
       }
@@ -306,8 +306,22 @@ async function executeSteps(
     // Execute with retry support
     const maxAttempts = step.on_error === "retry" ? (step.retry?.max_attempts ?? 3) : 1;
     let result: ConsumeResult | null = null;
+    let stepError: string | null = null;
+    let stepFilesWritten: string[] | undefined;
+    let lastConversationId = "";
+    let sourceId = "";
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const previousError = stepError; // preserve for retry context
+      stepError = null;
+      sourceId = `${runId}-step-${i}-a${attempt}`;
+
+      // On retry attempts, clean up previous attempt's state
+      if (attempt > 1) {
+        const fsNamespace = [workflowConfigId, runId, "filesystem"];
+        await deleteStepArtifacts(fsNamespace, i, step.agent_id, authHeaders);
+      }
+
       await col.updateOne(
         { _id: runId },
         { $set: { [`steps.${i}.attempts`]: attempt } },
@@ -316,13 +330,20 @@ async function executeSteps(
       const abortController = new AbortController();
       activeAbortControllers.set(runId, abortController);
 
-      // Build conversation_id for checkpoint isolation
-      const conversationId = `workflow-${runId}-step-${i}`;
+      // Each attempt gets a fresh conversation
+      const conversationId = `wf-${runId}-s${i}-a${attempt}`;
+      lastConversationId = conversationId;
+
+      // On retries, prepend context about the previous failure
+      let attemptPrompt = enrichedPrompt;
+      if (attempt > 1 && previousError) {
+        attemptPrompt = `⚠️ RETRY CONTEXT: This is attempt ${attempt} of ${maxAttempts}. Your previous attempt failed with:\n${previousError}\n\nPlease try a different approach if possible.\n\n---\n\n${enrichedPrompt}`;
+      }
 
       result = await consumeAgentStream({
         url: `${DA_SERVER_BASE_URL}/api/v1/chat/stream/start`,
         body: {
-          message: enrichedPrompt,
+          message: attemptPrompt,
           conversation_id: conversationId,
           agent_id: step.agent_id,
           protocol: "agui",
@@ -348,8 +369,27 @@ async function executeSteps(
 
       activeAbortControllers.delete(runId);
 
-      // If no error or interrupted, break retry loop
-      if (!result.error || result.interrupted) break;
+      // If interrupted, break immediately (not retriable)
+      if (result.interrupted) break;
+
+      // Check for stream/infra error
+      if (result.error) {
+        stepError = result.error;
+      } else {
+        // Stream succeeded — extract artifacts and check for agent-reported error.txt
+        const fsNamespace = [workflowConfigId, runId, "filesystem"];
+        const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
+        await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
+        stepFilesWritten = filesWritten;
+
+        const agentError = await checkAgentErrorFile(fsNamespace, i, step.agent_id, authHeaders);
+        if (agentError) {
+          stepError = agentError;
+        }
+      }
+
+      // No error — success, break out
+      if (!stepError) break;
 
       // If last attempt, don't retry
       if (attempt === maxAttempts) break;
@@ -361,9 +401,8 @@ async function executeSteps(
       return;
     }
 
-    // Handle result
+    // Handle interrupt (pauses execution)
     if (result.interrupted) {
-      // Write artifacts collected so far (partial step)
       const fsNamespace = [workflowConfigId, runId, "filesystem"];
       const { toolCalls, fullOutput } = await extractStepArtifacts(sourceId);
       await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
@@ -376,64 +415,46 @@ async function executeSteps(
             [`steps.${i}.status`]: "waiting_for_input",
             [`steps.${i}.interrupt`]: result.interrupt,
             [`steps.${i}.response`]: result.text || null,
+            [`steps.${i}.conversation_id`]: lastConversationId,
           },
         },
       );
       return; // Execution pauses until resume
     }
 
-    if (result.error) {
-      await markStepFailed(col, runId, i, result.error);
-      // Always write artifacts (even on abort/failure)
-      const fsNamespace = [workflowConfigId, runId, "filesystem"];
-      const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
-      await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
+    // Handle failure (after all retries exhausted)
+    if (stepError) {
+      await markStepFailed(col, runId, i, stepError);
 
-      if (step.on_error === "abort") {
-        await markRunFailed(col, runId);
-        return;
+      // Write artifacts if we haven't already (stream-level errors)
+      if (!stepFilesWritten) {
+        const fsNamespace = [workflowConfigId, runId, "filesystem"];
+        const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
+        await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
+        stepFilesWritten = filesWritten;
       }
 
-      // skip: continue to next step
-      completedSteps.push({
-        output: null,
-        display_text: step.display_text,
-        agent_id: step.agent_id,
-        status: "failed",
-        index: i,
-        error: result.error,
-        filesWritten,
-      });
-      await col.updateOne(
-        { _id: runId },
-        { $set: { [`steps.${i}.status`]: "skipped" } },
-      );
-      continue;
-    }
-
-    // Stream completed without infrastructure error — extract artifacts
-    const fsNamespace = [workflowConfigId, runId, "filesystem"];
-    const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
-    await writeStepArtifactsToFs(fsNamespace, i, step.agent_id, renderedPrompt, toolCalls, fullOutput, authHeaders);
-
-    // Check if agent self-reported failure via error.txt
-    const agentError = await checkAgentErrorFile(fsNamespace, i, step.agent_id, authHeaders);
-    if (agentError) {
-      await markStepFailed(col, runId, i, agentError);
-      if (step.on_error === "abort") {
-        await markRunFailed(col, runId);
-        return;
+      if (step.on_error === "skip") {
+        // Only "skip" continues to next step
+        completedSteps.push({
+          output: result.text,
+          display_text: step.display_text,
+          agent_id: step.agent_id,
+          status: "failed",
+          index: i,
+          error: stepError,
+          filesWritten: stepFilesWritten,
+        });
+        await col.updateOne(
+          { _id: runId },
+          { $set: { [`steps.${i}.status`]: "skipped" } },
+        );
+        continue;
       }
-      completedSteps.push({
-        output: result.text,
-        display_text: step.display_text,
-        agent_id: step.agent_id,
-        status: "failed",
-        index: i,
-        error: agentError,
-        filesWritten,
-      });
-      continue;
+
+      // "abort" and "retry" (after exhaustion) both terminate the workflow
+      await markRunFailed(col, runId);
+      return;
     }
 
     // Success
@@ -455,7 +476,7 @@ async function executeSteps(
       status: "completed",
       index: i,
       error: null,
-      filesWritten,
+      filesWritten: stepFilesWritten,
     });
   }
 
@@ -479,8 +500,10 @@ async function resumeAndContinue(
 ): Promise<void> {
   const col = await getCollection<WorkflowRunDocument>(RUNS_COLLECTION);
   const step = steps[stepIndex];
-  const sourceId = `${runId}-step-${stepIndex}`;
-  const conversationId = `workflow-${runId}-step-${stepIndex}`;
+  const runDoc = await col.findOne({ _id: runId });
+  const attempt = runDoc!.steps[stepIndex].attempts || 1;
+  const sourceId = `${runId}-step-${stepIndex}-a${attempt}`;
+  const conversationId = runDoc!.steps[stepIndex].conversation_id!;
 
   // Mark running again
   await col.updateOne(
@@ -543,28 +566,30 @@ async function resumeAndContinue(
 
   if (result.error) {
     await markStepFailed(col, runId, stepIndex, result.error);
-    // Re-write artifacts with full output (pre-interrupt + post-resume)
     const fsNamespace = [workflowConfigId, runId, "filesystem"];
-    const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
-    const promptSent = (await col.findOne({ _id: runId }))?.steps[stepIndex]?.prompt_sent || "";
+    const { toolCalls, fullOutput } = await extractStepArtifacts(sourceId);
+    const promptSent = runDoc!.steps[stepIndex]?.prompt_sent || "";
     await writeStepArtifactsToFs(fsNamespace, stepIndex, step.agent_id, promptSent, toolCalls, fullOutput, authHeaders);
 
-    if (step.on_error === "abort") {
+    if (step.on_error === "skip") {
+      // Continue to remaining steps
+    } else {
       await markRunFailed(col, runId);
       return;
     }
   } else {
-    // Re-write artifacts with full output (pre-interrupt + post-resume)
     const fsNamespace = [workflowConfigId, runId, "filesystem"];
-    const { toolCalls, filesWritten, fullOutput } = await extractStepArtifacts(sourceId);
-    const promptSent = (await col.findOne({ _id: runId }))?.steps[stepIndex]?.prompt_sent || "";
+    const { toolCalls, fullOutput } = await extractStepArtifacts(sourceId);
+    const promptSent = runDoc!.steps[stepIndex]?.prompt_sent || "";
     await writeStepArtifactsToFs(fsNamespace, stepIndex, step.agent_id, promptSent, toolCalls, fullOutput, authHeaders);
 
     // Check if agent self-reported failure via error.txt
     const agentError = await checkAgentErrorFile(fsNamespace, stepIndex, step.agent_id, authHeaders);
     if (agentError) {
       await markStepFailed(col, runId, stepIndex, agentError);
-      if (step.on_error === "abort") {
+      if (step.on_error === "skip") {
+        // Continue to remaining steps
+      } else {
         await markRunFailed(col, runId);
         return;
       }
@@ -770,6 +795,32 @@ async function checkAgentErrorFile(
     }
   }
   return null;
+}
+
+/** Delete all step artifacts before a retry attempt so only the final attempt's files remain */
+async function deleteStepArtifacts(
+  fsNamespace: string[],
+  stepIndex: number,
+  agentId: string,
+  authHeaders: Record<string, string>,
+): Promise<void> {
+  const prefixes = [
+    `workflow-state/step-${stepIndex + 1}--${agentId}/`,
+    `/workflow-state/step-${stepIndex + 1}--${agentId}/`,
+  ];
+  const filenames = ["error.txt", "user_prompt.txt", "tool_calls.txt", "agent_output.txt"];
+  for (const prefix of prefixes) {
+    for (const filename of filenames) {
+      try {
+        await fetch(
+          `${DA_SERVER_BASE_URL}/api/v1/files/content?fs_namespace=${encodeURIComponent(JSON.stringify(fsNamespace))}&path=${encodeURIComponent(prefix + filename)}`,
+          { method: "DELETE", headers: authHeaders },
+        );
+      } catch {
+        // Ignore — file may not exist
+      }
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

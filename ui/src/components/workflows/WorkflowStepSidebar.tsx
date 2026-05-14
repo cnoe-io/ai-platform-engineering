@@ -291,6 +291,7 @@ export function WorkflowStepSidebar({
         const existing = step?.config_override ? { ...step.config_override } : null;
         if (existing) {
           delete (existing as Record<string, unknown>).allowed_tools;
+          delete (existing as Record<string, unknown>).builtin_tools;
           delete (existing as Record<string, unknown>).disabled_builtin_tools;
           const cleaned = Object.keys(existing).length > 0 ? existing : null;
           onChange({ config_override: cleaned });
