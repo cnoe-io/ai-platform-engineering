@@ -121,6 +121,24 @@ global:
     installIstioCrds: false
     # Port for the agentgateway proxy listener (Gateway resource)
     proxyPort: 8080
+    extAuth:
+      enabled: false
+      serviceName: "ai-platform-engineering-openfga-authz-bridge"
+      serviceNamespace: ""
+      port: 9100
+
+  # OpenFGA service discovery defaults for CAIPE components that perform
+  # relationship-based authorization or reconciliation.
+  openfga:
+    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    storeName: "caipe-openfga"
+
+agentgateway:
+  enabled: false
+  image:
+    repository: cr.agentgateway.dev/agentgateway
+    tag: v1.1.0
+    pullPolicy: IfNotPresent
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
@@ -772,6 +790,15 @@ caipe-ui:
     SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
+    # OpenFGA relationship authorization. Enable reconciliation only after
+    # OpenFGA is installed and the authorization model has been initialized.
+    OPENFGA_HTTP: ""
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    OPENFGA_RECONCILE_ENABLED: "false"
+    # Keycloak Admin API integration for resource/scope synchronization.
+    KEYCLOAK_URL: ""
+    KEYCLOAK_REALM: "caipe"
+    KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
     # NextAuth URL (non-sensitive)
     NEXTAUTH_URL: "http://localhost:3000"
     # Node environment
@@ -1013,6 +1040,41 @@ keycloak:
     limits:
       cpu: "1"
       memory: 1Gi
+
+######### OpenFGA Relationship PDP configuration #########
+# OpenFGA stores team/resource tuples used by the UI and the AgentGateway
+# ext_authz bridge. Enable for RBAC/ReBAC installs.
+openfga:
+  enabled: false
+  image:
+    repository: openfga/openfga
+    tag: v1.15.1
+    pullPolicy: IfNotPresent
+  init:
+    enabled: true
+    storeName: caipe-openfga
+  datastore:
+    engine: memory
+    uriSecretRef:
+      name: ""
+      key: OPENFGA_DATASTORE_URI
+  migrate:
+    enabled: true
+
+######### OpenFGA AgentGateway ext_authz bridge #########
+# The bridge receives Envoy ext_authz checks from AgentGateway and performs
+# OpenFGA Check calls. Enable alongside OpenFGA and AgentGateway.
+openfgaAuthzBridge:
+  enabled: false
+  image:
+    repository: ghcr.io/cnoe-io/openfga-authz-bridge
+    tag: ""
+    pullPolicy: IfNotPresent
+  openfga:
+    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    storeName: caipe-openfga
+    relation: can_call
+    object: document:mcp
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

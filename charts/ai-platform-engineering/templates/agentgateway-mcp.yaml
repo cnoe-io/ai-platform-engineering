@@ -6,7 +6,8 @@ When enabled, the single-node-agent-env ConfigMap redirects the agent's MCP traf
 through the agentgateway proxy instead of connecting directly to the MCP sidecar.
 
 Prerequisites:
-  - global.agentgateway.enabled must be true (installs the agentgateway controller)
+  - global.agentgateway.enabled must be true (renders Gateway API route resources)
+  - an AgentGateway GatewayClass/controller must exist when using the Gateway API path
   - Gateway API CRDs must be installed in the cluster
 */ -}}
 {{- if .Values.global.agentgateway.enabled }}
@@ -38,6 +39,26 @@ spec:
     - name: http
       port: {{ $gatewayPort }}
       protocol: HTTP
+{{- $extAuth := .Values.global.agentgateway.extAuth | default dict }}
+{{- if $extAuth.enabled }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ $gatewayName }}-ext-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $gatewayName }}
+  traffic:
+    extAuth:
+      backendRef:
+        name: {{ $extAuth.serviceName | default (printf "%s-openfga-authz-bridge" .Release.Name) }}
+        namespace: {{ $extAuth.serviceNamespace | default .Release.Namespace }}
+        port: {{ $extAuth.port | default 9100 }}
+      grpc: {}
+{{- end }}
 
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" . | fromYaml) }}
 {{- if $enabled }}

@@ -20,7 +20,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: init-token-exchange
-          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.initImage.pullPolicy }}
           command: ["/bin/sh", "/scripts/init-token-exchange.sh"]
           env:

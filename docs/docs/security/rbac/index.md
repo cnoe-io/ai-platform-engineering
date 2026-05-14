@@ -14,7 +14,7 @@ This is the canonical reference for how authentication and authorization work in
 | Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
 | Understand the difference between Keycloak **roles** and **client scopes**, what a slug is, and what happens when you create a team | [Roles vs Scopes](./roles-scopes-comparison.md) |
-| Install or upgrade the RBAC/OpenFGA refactor with Helm, including current chart gaps for Keycloak, AgentGateway, and OpenFGA | [Helm installation and upgrade guide](./helm-install-upgrade.md) |
+| Install or upgrade the RBAC/OpenFGA refactor with Helm, including optional Keycloak, AgentGateway, OpenFGA, and bridge runtime components | [Helm installation and upgrade guide](./helm-install-upgrade.md) |
 | **Install CAIPE on a real K8s cluster** — bootstrap admin, IdP, and slack-bot client secrets via dev defaults, manual K8s Secrets, or ESO (Vault / AWS-SM / GCP-SM) | [Secrets bootstrap](./secrets-bootstrap.md) |
 
 Every component-level doc opens with a **badge analogy** to build intuition, followed by the precise technical detail. Read the analogy first, then the technical section — they describe the same thing at different levels of abstraction.
@@ -34,6 +34,8 @@ Think of CAIPE like a **secure corporate office building**:
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 
 Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT bearer tokens** for stateless authorization across all service boundaries. There is one token issuer (Keycloak), and every service verifies tokens against Keycloak's published JWKS public keys — no shared secrets, no per-hop re-authentication.
+
+In `0.5.0`, the umbrella Helm chart can deploy the RBAC runtime components (`tags.keycloak`, `openfga.enabled`, `openfgaAuthzBridge.enabled`, and `agentgateway.enabled`) so release consumers do not need separate companion app manifests for the default stack.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐

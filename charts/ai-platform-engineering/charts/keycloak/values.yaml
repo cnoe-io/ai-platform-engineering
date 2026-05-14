@@ -14,8 +14,8 @@ image:
 #
 # Override with --set initImage.repository=… for air-gapped registries.
 initImage:
-  repository: caipe/keycloak-init
-  tag: dev
+  repository: ghcr.io/cnoe-io/keycloak-init
+  tag: ""
   pullPolicy: IfNotPresent
 
 nameOverride: ""

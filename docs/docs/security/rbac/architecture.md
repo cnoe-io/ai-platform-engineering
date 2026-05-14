@@ -7,6 +7,19 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 
 ---
 
+## Helm Runtime Packaging
+
+The `0.5.0` umbrella chart can own the RBAC runtime stack for demo and managed environments:
+
+- `tags.keycloak=true` enables the Keycloak subchart, realm import, and IdP/token-exchange init hooks.
+- `openfga.enabled=true` enables the OpenFGA service and the CAIPE authorization model loader hook.
+- `openfgaAuthzBridge.enabled=true` enables the gRPC `ext_authz` bridge that translates AgentGateway checks into OpenFGA checks.
+- `agentgateway.enabled=true` enables the standalone AgentGateway proxy chart. `global.agentgateway.enabled=true` is still the Gateway API route-resource path for clusters using the AgentGateway controller model.
+
+Production installs must still supply ExternalSecrets and persistent datastore settings; the chart defaults are conservative and disabled by default.
+
+---
+
 ## Component 1: Keycloak — HR & The Front Desk
 
 > **Badge analogy:** HR issues ID badges. The front desk verifies them on entry. Every other door in the building trusts the badge's chip — they don't call HR each time. When a contractor arrives via a partner agency (Duo SSO), the front desk checks with the agency once, creates an internal record, and issues a standard building badge. From that point on, the contractor uses the same badge as everyone else.

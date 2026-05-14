@@ -2,7 +2,7 @@
 
 **Audience:** platform engineers installing the RBAC/OpenFGA refactor on a real Kubernetes cluster.
 
-This guide is intentionally candid about the current chart boundary. The RBAC refactor introduced Keycloak, AgentGateway, OpenFGA, and OpenFGA bridge responsibilities, but not every runtime is packaged by the umbrella Helm chart yet.
+This guide describes the RBAC runtime packaging in the `0.5.0` Helm chart. Keycloak, AgentGateway, OpenFGA, and the OpenFGA bridge are optional chart components; production installs still need externalized secrets and persistent datastores.
 
 ## Current Helm Packaging Status
 
@@ -10,16 +10,16 @@ This guide is intentionally candid about the current chart boundary. The RBAC re
 |-----------|----------------------------------------------|-------------------|
 | CAIPE UI | Yes | `charts/ai-platform-engineering/charts/caipe-ui` includes Deployment, Service, Ingress, ConfigMap, and secret wiring. |
 | Slack bot | Yes | `charts/ai-platform-engineering/charts/slack-bot` includes Deployment and Slack/OBO configuration. |
-| Keycloak | Not by the umbrella chart today | A Keycloak subchart exists at `charts/ai-platform-engineering/charts/keycloak`, but `charts/ai-platform-engineering/Chart.yaml` does not list it as a dependency. Install it as a separate release, or add dependency wiring before claiming umbrella-chart install support. |
-| AgentGateway | Partially | The parent chart can render Gateway API resources in `templates/agentgateway-mcp.yaml`, but it does not install the AgentGateway controller/proxy workload. |
-| OpenFGA | No | Docker Compose and deploy assets exist under `docker-compose.dev.yaml` and `deploy/openfga-experiment`, but there is no OpenFGA Helm subchart in this repo today. |
-| OpenFGA bridge | No | The bridge implementation exists under `deploy/openfga-experiment/bridge`, but it is not charted today. |
+| Keycloak | Yes, optional | Enable with `tags.keycloak=true`. The subchart imports the realm and runs the IdP/token-exchange init hooks. |
+| AgentGateway | Yes, optional | Enable the standalone proxy with `agentgateway.enabled=true`. Gateway API route resources are still controlled by `global.agentgateway.enabled=true`. |
+| OpenFGA | Yes, optional | Enable with `openfga.enabled=true`. The subchart deploys OpenFGA and a model-loader hook for the CAIPE authorization model. |
+| OpenFGA bridge | Yes, optional | Enable with `openfgaAuthzBridge.enabled=true`. The bridge image is published with the release and exposed as an internal gRPC Service. |
 
-Until the chart gap is closed, a production install has three layers:
+For a production install, plan three layers:
 
-1. Install external infrastructure: Gateway API CRDs, AgentGateway controller/proxy, OpenFGA, OpenFGA datastore, and OpenFGA bridge.
-2. Install Keycloak using the Keycloak subchart as a separate release.
-3. Install the CAIPE umbrella chart and point UI, Slack bot, dynamic agents, AgentGateway, and OpenFGA clients at those services.
+1. Prepare external infrastructure: DNS/TLS, External Secrets, and persistent databases for Keycloak and OpenFGA.
+2. Install the CAIPE umbrella chart with `tags.keycloak`, `openfga.enabled`, `openfgaAuthzBridge.enabled`, and `agentgateway.enabled` set for an in-chart RBAC runtime.
+3. Point UI, Slack bot, dynamic agents, and MCP callers at the in-cluster services through values and secrets.
 
 ## Recommended Public Hostnames
 
@@ -42,10 +42,9 @@ Before installing the refactor, prepare:
 - DNS and TLS for `grid.outshift.io` and `idp.grid.outshift.io`.
 - A trusted Ingress controller or Gateway API implementation.
 - Gateway API CRDs if using the chart's AgentGateway route resources.
-- AgentGateway controller/proxy installed by its upstream chart or platform-managed add-on.
-- OpenFGA installed with a production datastore, usually PostgreSQL.
-- OpenFGA model initialization using `deploy/openfga-experiment/model.fga` or the generated `authorization-model.json`.
-- The OpenFGA bridge deployed as an internal service reachable by AgentGateway `ext_authz`.
+- A production OpenFGA datastore, usually PostgreSQL, exposed through a Kubernetes Secret consumed by `openfga.datastore.uriSecretRef`.
+- The OpenFGA model initialized by the `openfga-init` Helm hook.
+- The OpenFGA bridge enabled as an internal service reachable by AgentGateway `ext_authz`.
 - External Secrets Operator or pre-created Kubernetes Secrets for production secrets.
 - A production Keycloak database. The current Keycloak subchart is dev-oriented: it runs `start-dev`, defaults to embedded H2, has no Ingress template, and does not yet expose secret-sourced database environment variables. For production, either harden this subchart first or use a platform-managed Keycloak installation with the same realm import and init job behavior.
 
@@ -120,11 +119,19 @@ kubectl -n caipe create secret generic caipe-keycloak-bot \
   --from-literal=KC_BOT_CLIENT_SECRET="$(openssl rand -hex 32)"
 ```
 
-Install Keycloak as its own release after confirming database credential handling is secure for your environment:
+Enable Keycloak inside the umbrella release after confirming database credential handling is secure for your environment:
+
+```yaml
+tags:
+  keycloak: true
+
+keycloak:
+  # Include the Keycloak values shown above.
+```
 
 ```bash
-helm upgrade --install caipe-keycloak \
-  ./charts/ai-platform-engineering/charts/keycloak \
+helm upgrade --install caipe \
+  ./charts/ai-platform-engineering \
   --namespace caipe \
   --values values-keycloak-prod.yaml
 ```
@@ -191,59 +198,74 @@ Recommended production shape:
 - OpenFGA bridge deployed as an internal service.
 - Network policy allowing AgentGateway to call the bridge and the bridge to call OpenFGA.
 
-Example values depend on the upstream OpenFGA chart you choose. At minimum, record these outputs for the CAIPE install:
+Enable OpenFGA and the bridge through the umbrella chart:
 
-```text
-OPENFGA_HTTP=http://openfga.openfga.svc.cluster.local:8080
-OPENFGA_STORE_NAME=caipe-openfga
-OPENFGA_STORE_ID=<store-id-from-init-job>
-OPENFGA_BRIDGE_GRPC_URL=openfga-authz-bridge.caipe.svc.cluster.local:9100
+```yaml
+openfga:
+  enabled: true
+  datastore:
+    engine: postgres
+    uriSecretRef:
+      name: caipe-openfga-datastore
+      key: OPENFGA_DATASTORE_URI
+  init:
+    enabled: true
+    storeName: caipe-openfga
+
+openfgaAuthzBridge:
+  enabled: true
+  image:
+    repository: ghcr.io/cnoe-io/openfga-authz-bridge
+  openfga:
+    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    storeName: caipe-openfga
 ```
 
 Do not expose OpenFGA publicly unless you have a separate gateway, authentication, rate limiting, and audit controls. CAIPE users do not need browser access to OpenFGA.
 
 ## Install AgentGateway
 
-The CAIPE chart currently assumes the AgentGateway controller and Gateway API CRDs already exist.
-
-Install prerequisites first:
-
-```bash
-kubectl get crd gateways.gateway.networking.k8s.io
-kubectl get gatewayclass agentgateway
-```
-
-Enable AgentGateway routes in CAIPE values only after the controller exists:
+Enable the standalone AgentGateway proxy and configure its JWT and OpenFGA `ext_authz` policy:
 
 ```yaml
-global:
-  agentgateway:
-    enabled: true
-    proxyPort: 8080
-
-agent-jira:
-  mcp:
-    agentgateway:
-      enabled: true
-
-agent-github:
-  mcp:
-    agentgateway:
-      enabled: true
+agentgateway:
+  enabled: true
+  config:
+    binds:
+      - port: 4000
+        listeners:
+          - protocol: HTTP
+            policies:
+              jwtAuth:
+                mode: strict
+                issuer: https://idp.grid.outshift.io/realms/caipe
+                audiences: [caipe-platform, agentgateway]
+                jwks:
+                  url: http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs
+            routes:
+              - policies:
+                  extAuthz:
+                    host: caipe-openfga-authz-bridge:9100
+                    failureMode:
+                      denyWithStatus: 403
+                    protocol:
+                      grpc:
+                        metadata:
+                          caipe.auth: '{"sub": jwt.sub}'
+                  authorization:
+                    rules:
+                      - allow: 'true'
+                backends:
+                  - mcp:
+                      targets: []
 ```
 
-The parent chart then renders:
+If you use the Gateway API controller path instead of standalone config, enable `global.agentgateway.enabled=true`. The parent chart then renders:
 
 - A `Gateway` using `gatewayClassName: agentgateway`.
 - One `AgentgatewayBackend` per enabled MCP backend.
 - One `HTTPRoute` per enabled MCP backend.
-
-The chart does not currently render the AgentGateway proxy Deployment, Service, OpenFGA `ext_authz` config, or admin exposure. Configure those in the platform-managed AgentGateway install. Point its `ext_authz` cluster at the OpenFGA bridge and configure JWT validation against:
-
-```text
-issuer: https://idp.grid.outshift.io/realms/caipe
-jwks:   https://idp.grid.outshift.io/realms/caipe/protocol/openid-connect/certs
-```
+- An optional `AgentgatewayPolicy` when `global.agentgateway.extAuth.enabled=true`.
 
 ## Install CAIPE UI and Services
 

@@ -206,3 +206,20 @@ dependencies:
     version: 0.5.0-rc.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
+  # Keycloak Identity Provider for CAIPE RBAC/OIDC
+  - name: keycloak
+    version: 0.5.0-rc.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - keycloak
+  # OpenFGA relationship authorization service
+  - name: openfga
+    version: 0.5.0-rc.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: openfga.enabled
+  # AgentGateway ext_authz bridge backed by OpenFGA
+  - name: openfga-authz-bridge
+    version: 0.5.0-rc.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: openfgaAuthzBridge.enabled
+  # AgentGateway standalone proxy for RBAC-protected MCP routing.
+  - name: agentgateway
+    version: 0.5.0-rc.6 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: agentgateway.enabled
