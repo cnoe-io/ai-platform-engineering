@@ -4,7 +4,8 @@
  *
  * Retention policy:
  *   - Latest MAX_CURRENT_MINOR (5) versions from the current minor series (e.g. 0.4.x)
- *   - Highest version from each previous minor series (e.g. 0.3.11, 0.2.x)
+ *   - Highest version from the immediately preceding minor series only (e.g. 0.3.11)
+ *   - When a new minor series ships (e.g. 0.5.x), the older series (0.3.x) is dropped
  *
  * Usage (run from repo root):
  *   NEW_VERSION=0.4.12 node docs/scripts/snapshot-and-prune-versions.js
@@ -85,7 +86,9 @@ const sortedMinors = Object.keys(byMinor).sort((a, b) => {
 });
 
 const currentMinor = sortedMinors[0];
-const prevMinors = sortedMinors.slice(1);
+// Only keep the immediately preceding minor series (e.g. 0.3.x when on 0.4.x).
+// When 0.5.x releases, 0.3.x is dropped entirely.
+const prevMinor = sortedMinors[1] || null;
 
 // 4. Compute keep set
 const keep = new Set();
@@ -93,9 +96,9 @@ const keep = new Set();
 // Latest N from current minor
 byMinor[currentMinor].slice(0, MAX_CURRENT_MINOR).forEach(v => keep.add(v));
 
-// Highest from each previous minor
-for (const minor of prevMinors) {
-  keep.add(byMinor[minor][0]);
+// Highest from the immediately preceding minor only
+if (prevMinor) {
+  keep.add(byMinor[prevMinor][0]);
 }
 
 const toPrune = versions.filter(v => !keep.has(v));
