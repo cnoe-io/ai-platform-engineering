@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.0.0
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@40337cb8fa5c8be73ed9bb44b00d0b5b3c2a4f4b  # v6.0.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -193,7 +193,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.0.0
 
       - name: Set up Node ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@40337cb8fa5c8be73ed9bb44b00d0b5b3c2a4f4b  # v6.0.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
