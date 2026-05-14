@@ -29,7 +29,7 @@ dependencies = [
     "uv==0.11.6",
     "rich==14.1.0",
     "sseclient==0.0.27",
-    "cnoe-agent-utils==0.3.14",
+    "cnoe-agent-utils==0.4.0",
     "fastmcp==3.2.3",
 ]
 

@@ -33,7 +33,7 @@ dependencies = [
     "httpx==0.28.1",
     "httpx-sse==0.4.3",
     "python-dotenv==1.2.2",
-    "cnoe-agent-utils==0.3.14",
+    "cnoe-agent-utils==0.4.0",
     "pydantic==2.12.5",
     "prometheus_client==0.23.1",
     "typing-extensions==4.15.0",
@@ -41,7 +41,7 @@ dependencies = [
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2", "starlette==0.50.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2", "starlette==0.50.0", "mcp>=1.23.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

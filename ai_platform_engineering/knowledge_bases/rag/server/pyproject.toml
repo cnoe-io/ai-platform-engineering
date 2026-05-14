@@ -20,7 +20,7 @@ dependencies = [
     # Agent frameworks
     "a2a==0.44",
     "a2a-sdk==0.2.16",
-    "cnoe-agent-utils==0.3.14",
+    "cnoe-agent-utils==0.4.0",
     # Web framework
     "fastapi[standard]==0.122.0",
     "uvicorn==0.37.0",

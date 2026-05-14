@@ -27,7 +27,7 @@ dependencies = [
     "sseclient==0.0.27",
     "httpx==0.28.1",
     "python-dotenv==1.2.2",
-    "cnoe-agent-utils==0.3.14",
+    "cnoe-agent-utils==0.4.0",
     "pydantic==2.12.5",
     "fastmcp==3.2.3",
     "mcp==1.26.0",
