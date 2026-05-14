@@ -423,7 +423,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add pyproject.toml uv.lock CHANGELOG.md || true
+          git add pyproject.toml uv.lock CHANGELOG.md docs/docusaurus.config.ts docs/src/pages/index.tsx || true
 
           if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
             find charts -name "Chart.yaml" -type f -exec git add {} +
