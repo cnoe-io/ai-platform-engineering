@@ -36,19 +36,39 @@ trap 'rm -f "${PENDING_TMP}" "${HITS_TMP:-}"' EXIT
 
 python3 - <<'PYEOF' >"${PENDING_TMP}"
 from pathlib import Path
-import yaml
-data = yaml.safe_load(Path("tests/rbac/rbac-matrix.yaml").read_text()) or {}
+
+# Keep this parser dependency-free: the CI cheap lane invokes system python3
+# here before the uv environment is active for this shell script.
 seen = set()
-for r in data.get("routes", []) or []:
-    if r.get("surface") != "ui_bff":
+entry: dict[str, str] = {}
+
+
+def flush() -> None:
+    if entry.get("surface") != "ui_bff":
+        return
+    if entry.get("migration_status") != "pending":
+        return
+    path = entry.get("path", "").lstrip("/")
+    if path:
+        seen.add(f"ui/src/app/{path}/route.ts")
+
+
+for raw_line in Path("tests/rbac/rbac-matrix.yaml").read_text(encoding="utf-8").splitlines():
+    stripped = raw_line.strip()
+    if stripped.startswith("- id:"):
+        flush()
+        entry = {}
         continue
-    if r.get("migration_status") != "pending":
+    if ":" not in stripped:
         continue
-    p = (r.get("path") or "").lstrip("/")
-    if p:
-        seen.add(f"ui/src/app/{p}/route.ts")
-for s in sorted(seen):
-    print(s)
+    key, value = stripped.split(":", maxsplit=1)
+    if key in {"surface", "path", "migration_status"}:
+        entry[key] = value.strip().strip('"').strip("'")
+
+flush()
+
+for item in sorted(seen):
+    print(item)
 PYEOF
 
 PENDING_COUNT=$(wc -l <"${PENDING_TMP}" | tr -d ' ')
