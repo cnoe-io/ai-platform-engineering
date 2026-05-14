@@ -66,6 +66,7 @@ import {
 } from "@/components/skills/workspace/use-skill-form";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { useAiReview, buildLastReview } from "@/components/ai-review";
 import type { AgentSkill } from "@/types/agent-skill";
 
 import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
@@ -233,6 +234,24 @@ export function SkillWorkspace({
       }
       // For updates we stay on the workspace so the user can keep editing.
     },
+  });
+
+  // -------------------------------------------------------------------
+  // AI Review for SKILL.md
+  //
+  // The review hook lives here (not in `FilesTab`) so the wizard's
+  // Next/Save click handlers can call `review.ensurePassedOrRun()` from
+  // any step. `FilesTab` consumes the same hook result via prop and
+  // renders the button + panel in its toolbar / editor row.
+  // -------------------------------------------------------------------
+  const review = useAiReview({
+    target: "skill-md",
+    content: form.skillContent,
+    context: {
+      name: form.formData.name,
+      skill_description: form.formData.description,
+    },
+    onApplyFix: (next) => form.setSkillContentAndSyncTools(next),
   });
 
   // History tab needs a stable id; for new (unsaved) skills there is no
@@ -490,6 +509,50 @@ export function SkillWorkspace({
   const currentStepIsFullWidth =
     visibleSteps[currentIndex]?.fullWidth ?? false;
 
+  // ---------------------------------------------------------------------
+  // Save / Next gating — when AI Review is configured as `blocking` for
+  // skill-md, both Save buttons (header + footer) and Next-from-files
+  // must run the review first and only proceed when it passes. The hook
+  // caches the last-passing hash so unmodified content doesn't re-trigger
+  // an LLM call.
+  // ---------------------------------------------------------------------
+  const handleSave = useCallback(async () => {
+    if (review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        toast(
+          "AI Review failed — address the comments in the Skill content step before saving.",
+          "error",
+        );
+        return;
+      }
+    }
+    // Stamp the latest in-memory review verdict onto the saved row so the
+    // skills gallery can show a grade badge without re-running the LLM.
+    const lastReview = buildLastReview(review.result, "skill-md");
+    await form.handleSubmit(
+      lastReview ? { last_review: lastReview } : undefined,
+    );
+  }, [review, form, toast]);
+
+  const handleNext = useCallback(async () => {
+    // Only the Files step is gated by skill-md review; advancing from
+    // any other step is unconditional. We still gate Save from any step
+    // (see `handleSave`) so the user can't sidestep the review by
+    // jumping back and clicking Save.
+    if (tab === "files" && review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        toast(
+          "AI Review failed — address the comments before continuing.",
+          "error",
+        );
+        return;
+      }
+    }
+    if (nextStep) setTab(nextStep.id);
+  }, [tab, review, toast, nextStep]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Header */}
@@ -576,7 +639,7 @@ export function SkillWorkspace({
             {!showCloneCta && (
               <Button
                 size="sm"
-                onClick={() => void form.handleSubmit()}
+                onClick={() => void handleSave()}
                 disabled={submitDisabled}
                 className="gap-1.5"
               >
@@ -694,7 +757,7 @@ export function SkillWorkspace({
               <OverviewTab form={form} />
             </TabsContent>
             <TabsContent value="files" className="mt-0 h-full outline-none">
-              <FilesTab form={form} readOnly={readOnly} />
+              <FilesTab form={form} readOnly={readOnly} review={review} />
             </TabsContent>
             <TabsContent value="tools" className="mt-0 outline-none">
               <ToolsTab form={form} />
@@ -765,7 +828,7 @@ export function SkillWorkspace({
             {isFinalStep ? (
               <Button
                 size="sm"
-                onClick={() => void form.handleSubmit()}
+                onClick={() => void handleSave()}
                 disabled={submitDisabled}
                 className="gap-1.5"
                 data-testid="skill-workspace-step-save"
@@ -780,7 +843,7 @@ export function SkillWorkspace({
             ) : (
               <Button
                 size="sm"
-                onClick={() => nextStep && setTab(nextStep.id)}
+                onClick={() => void handleNext()}
                 className="gap-1.5"
                 data-testid="skill-workspace-step-next"
               >

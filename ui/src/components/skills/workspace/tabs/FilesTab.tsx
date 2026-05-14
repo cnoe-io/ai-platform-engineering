@@ -45,6 +45,8 @@ import {
 } from "@/components/skills/ImportSkillZipDialog";
 import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
 import { AiAssistButton } from "@/components/ai-assist";
+import { AiReviewButton, AiReviewPanel } from "@/components/ai-review";
+import type { UseAiReviewResult } from "@/components/ai-review";
 import { parseSkillMd } from "@/lib/skill-md-parser";
 // Variables editor is now hosted inside FilesTab as a collapsible
 // side-panel (toggled from the toolbar) so authors can declare
@@ -111,9 +113,16 @@ export interface FilesTabProps {
   form: UseSkillFormResult;
   /** True for built-in/hub skills the user shouldn't edit. */
   readOnly?: boolean;
+  /**
+   * AI Review hook result, owned by the parent `SkillWorkspace` so the
+   * Next/Save handlers can call `review.ensurePassedOrRun()` from any
+   * step. We only render the button + panel here; gating happens in the
+   * parent.
+   */
+  review?: UseAiReviewResult;
 }
 
-export function FilesTab({ form, readOnly = false }: FilesTabProps) {
+export function FilesTab({ form, readOnly = false, review }: FilesTabProps) {
   const { toast } = useToast();
   const [showImport, setShowImport] = useState(false);
   const [showZipImport, setShowZipImport] = useState(false);
@@ -535,6 +544,10 @@ export function FilesTab({ form, readOnly = false }: FilesTabProps) {
                 "Tighten the wording",
               ]}
             />
+            {/* AI Review — sibling to AI Assist. Hidden when no review
+                config is loaded for this target (the button itself just
+                renders disabled; the panel returns null). */}
+            {review && <AiReviewButton review={review} size="sm" />}
           </>
         )}
       </div>
@@ -568,31 +581,43 @@ export function FilesTab({ form, readOnly = false }: FilesTabProps) {
         </div>
       )}
 
-      {/* Editor area: tree | editor */}
-      <div
-        className={cn(
-          "flex-1 min-h-0 grid grid-cols-[200px_1fr] rounded-md border border-border/60 overflow-hidden bg-background",
-          dragOver && "ring-2 ring-primary",
-        )}
-      >
-        <SkillFileTree
-          ancillaryFiles={form.ancillaryFiles}
-          selected={selected}
-          onSelect={setSelected}
-          onAddFile={handleAddFile}
-          onDeleteFile={handleDeleteFile}
-          onTriggerUpload={readOnly ? undefined : onUploadButton}
-          readOnly={readOnly}
-          className="border-r border-border/50 bg-muted/20"
-        />
-        <div className="min-h-0 overflow-auto p-2 relative">
-          {dragOver && (
-            <div className="absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary pointer-events-none">
-              Drop files to add to this skill
-            </div>
+      {/* Editor area: [tree | editor] | AI Review panel.
+          The AI Review panel sits at the far right and self-collapses to
+          a thin rail (~w-10) when the user clicks its chevron. When no
+          review config exists for this target, the panel returns null
+          and the editor reclaims the full row. */}
+      <div className="flex flex-1 min-h-0 gap-0">
+        <div
+          className={cn(
+            "flex-1 min-h-0 grid grid-cols-[200px_1fr] rounded-md border border-border/60 overflow-hidden bg-background",
+            dragOver && "ring-2 ring-primary",
           )}
-          {editorPane}
+        >
+          <SkillFileTree
+            ancillaryFiles={form.ancillaryFiles}
+            selected={selected}
+            onSelect={setSelected}
+            onAddFile={handleAddFile}
+            onDeleteFile={handleDeleteFile}
+            onTriggerUpload={readOnly ? undefined : onUploadButton}
+            readOnly={readOnly}
+            className="border-r border-border/50 bg-muted/20"
+          />
+          <div className="min-h-0 overflow-auto p-2 relative">
+            {dragOver && (
+              <div className="absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary pointer-events-none">
+                Drop files to add to this skill
+              </div>
+            )}
+            {editorPane}
+          </div>
         </div>
+        {/* AI Review panel — only meaningful while editing SKILL.md. The
+            panel renders null when no config is loaded, so non-configured
+            deployments keep the original full-width layout. */}
+        {review && selected === SKILL_MD && (
+          <AiReviewPanel review={review} className="ml-2 rounded-md" />
+        )}
       </div>
 
       {/* Footer: ancillary size / limit warning */}

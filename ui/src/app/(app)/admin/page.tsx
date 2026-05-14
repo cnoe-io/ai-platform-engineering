@@ -26,6 +26,7 @@ import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
 import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { PolicyTab } from "@/components/admin/PolicyTab";
+import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
@@ -196,7 +197,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -821,8 +822,9 @@ function AdminPage() {
                   + (getConfig('feedbackEnabled') ? 1 : 0)
                   + (getConfig('npsEnabled') ? 1 : 0)
                   + (auditLogsEnabled && isAdmin ? 1 : 0)
+                  + (isAdmin ? 1 : 0)
                   + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10' };
+                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11' };
                 return cols[n] ?? 'grid-cols-6';
               })()}`}>
                 <TabsTrigger value="users" className="gap-2">
@@ -871,6 +873,12 @@ function AdminPage() {
                   <TabsTrigger value="policy" className="gap-2">
                     <Shield className="h-4 w-4" />
                     Policy
+                  </TabsTrigger>
+                )}
+                {isAdmin && (
+                  <TabsTrigger value="ai-review" className="gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    AI Review
                   </TabsTrigger>
                 )}
               </TabsList>
@@ -2515,6 +2523,13 @@ function AdminPage() {
               {isAdmin && (
                 <TabsContent value="policy" className="space-y-4">
                   <PolicyTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {/* AI Review configurations (admin only) */}
+              {isAdmin && (
+                <TabsContent value="ai-review" className="space-y-4">
+                  <ReviewConfigsTab />
                 </TabsContent>
               )}
             </Tabs>
