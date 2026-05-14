@@ -35,7 +35,7 @@ on:
       - 'scripts/validate-rbac-matrix.py'
       - 'scripts/validate-realm-config.py'
       - 'scripts/check-no-new-requireAdmin.sh'
-      - 'deploy/keycloak/realm-config.json'
+      - 'deploy/keycloak/realm-config.example.json'
       - 'deploy/keycloak/realm-config-extras.json'
       - 'docker-compose.dev.yaml'
       - 'Makefile'
