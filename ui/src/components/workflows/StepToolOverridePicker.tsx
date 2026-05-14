@@ -6,7 +6,8 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  Shield,
+  Lock,
+  Server,
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -61,7 +62,7 @@ function buildSummary(
       if (val === false) continue;
       serverCount++;
       if (val === true) {
-        toolCount += 1; // count as "all" (1 indicator)
+        toolCount += 1;
       } else if (Array.isArray(val)) {
         toolCount += val.length || 1;
       }
@@ -73,11 +74,11 @@ function buildSummary(
   const parts: string[] = [];
   if (serverCount > 0) parts.push(`${serverCount} server${serverCount !== 1 ? "s" : ""}`);
   if (toolCount > 0) parts.push(`${toolCount} tool${toolCount !== 1 ? "s" : ""}`);
-  if (builtinCount > 0) parts.push(`${builtinCount} builtin`);
+  if (builtinCount > 0) parts.push(`${builtinCount} builtin disabled`);
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-// Tool display names (best effort)
+// Consistent display names for builtin tools (always use readable labels)
 const BUILTIN_TOOL_LABELS: Record<string, string> = {
   fetch_url: "Fetch URL",
   curl: "Curl",
@@ -88,6 +89,31 @@ const BUILTIN_TOOL_LABELS: Record<string, string> = {
   self_identity: "Self Identity",
   format_file: "Format File",
 };
+
+/**
+ * Normalize a per-server allowed_tools value.
+ * Legacy format used `[]` (empty array) to mean "all tools on this server".
+ * The new canonical format uses `true` for the same meaning.
+ * This converts legacy `[]` → `true` so it never persists in state or config.
+ */
+function normalizeToolsValue(val: string[] | boolean): string[] | boolean {
+  return Array.isArray(val) && val.length === 0 ? true : val;
+}
+
+/** Normalize an entire allowed_tools record */
+function normalizeAllowedTools(
+  tools: Record<string, string[] | boolean>,
+): Record<string, string[] | boolean> {
+  const out: Record<string, string[] | boolean> = {};
+  for (const [k, v] of Object.entries(tools)) {
+    out[k] = normalizeToolsValue(v);
+  }
+  return out;
+}
+
+function getBuiltinToolLabel(toolId: string): string {
+  return BUILTIN_TOOL_LABELS[toolId] || toolId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -112,7 +138,7 @@ export function StepToolOverridePicker({
 
   // ── Derived: base allowed tools & builtin tools from agent ──
   const baseAllowedTools = useMemo(
-    () => agentConfig?.allowed_tools ?? {},
+    () => normalizeAllowedTools(agentConfig?.allowed_tools ?? {}),
     [agentConfig],
   );
   const baseBuiltinTools = useMemo(
@@ -122,7 +148,10 @@ export function StepToolOverridePicker({
 
   // ── Derived: current override values ──
   const overrideAllowedTools = useMemo(
-    () => configOverride?.allowed_tools as Record<string, string[] | boolean> | undefined,
+    () => {
+      const raw = configOverride?.allowed_tools as Record<string, string[] | boolean> | undefined;
+      return raw ? normalizeAllowedTools(raw) : undefined;
+    },
     [configOverride],
   );
   const overrideBuiltinDisabled = useMemo(
@@ -156,7 +185,7 @@ export function StepToolOverridePicker({
   const probeServer = useCallback((serverId: string) => {
     if (probeResults[serverId]?.tools || probeResults[serverId]?.loading) return;
     setProbeResults((prev) => ({ ...prev, [serverId]: { loading: true } }));
-    fetch(`/api/mcp-servers/probe?id=${serverId}`)
+    fetch(`/api/mcp-servers/probe?id=${serverId}`, { method: "POST" })
       .then((r) => r.json())
       .then((json) => {
         if (json.success && json.data?.tools) {
@@ -218,13 +247,12 @@ export function StepToolOverridePicker({
   const setMode = useCallback(
     (newMode: "inherit" | "restrict") => {
       if (newMode === "inherit") {
-        // Remove tool overrides
         updateOverride(undefined, undefined);
       } else {
-        // Initialize with base config (all enabled)
         const initial: Record<string, string[] | boolean> = {};
         for (const [sid, val] of Object.entries(baseAllowedTools)) {
-          if (val !== false) initial[sid] = val;
+          if (val === false) continue;
+          initial[sid] = val;
         }
         updateOverride(
           Object.keys(initial).length > 0 ? initial : undefined,
@@ -240,7 +268,6 @@ export function StepToolOverridePicker({
       if (readOnly) return;
       const current = { ...(overrideAllowedTools || {}) };
       if (current[serverId] === false) {
-        // Re-enable with base value
         current[serverId] = baseAllowedTools[serverId] ?? true;
       } else {
         current[serverId] = false;
@@ -256,28 +283,23 @@ export function StepToolOverridePicker({
       const current = { ...(overrideAllowedTools || {}) };
       const currentVal = current[serverId];
 
-      // Get all tools for this server
       const baseVal = baseAllowedTools[serverId];
       const allTools: string[] = Array.isArray(baseVal)
         ? baseVal
         : (probeResults[serverId]?.tools || []);
 
       if (currentVal === true || (Array.isArray(currentVal) && currentVal.length === 0)) {
-        // Currently "all" — switch to all except this one
         current[serverId] = allTools.filter((t) => t !== toolName);
       } else if (Array.isArray(currentVal)) {
         if (currentVal.includes(toolName)) {
           const filtered = currentVal.filter((t) => t !== toolName);
           if (filtered.length === 0) {
-            // No tools left — disable server
             current[serverId] = false;
           } else {
             current[serverId] = filtered;
           }
         } else {
-          // Add tool back
           const updated = [...currentVal, toolName];
-          // If all tools selected, switch to true
           if (allTools.length > 0 && updated.length === allTools.length) {
             current[serverId] = true;
           } else {
@@ -316,110 +338,136 @@ export function StepToolOverridePicker({
   const activeBaseServers = Object.entries(baseAllowedTools).filter(([, v]) => v !== false);
 
   return (
-    <div className="space-y-2">
+    <div>
       {/* Collapsible header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group"
       >
-        <Shield className="h-3 w-3" />
-        <span>Tool Access</span>
+        <Lock className="h-3 w-3" />
+        <span className="font-medium">Restrict Tool Access</span>
         {summary && (
-          <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+          <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
             {summary}
           </span>
         )}
-        {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        {isExpanded ? (
+          <ChevronDown className="h-3 w-3 ml-auto opacity-50 group-hover:opacity-100" />
+        ) : (
+          <ChevronRight className="h-3 w-3 ml-auto opacity-50 group-hover:opacity-100" />
+        )}
       </button>
 
       {isExpanded && (
-        <div className="mt-2 space-y-3 pl-1">
+        <div className="mt-3 space-y-3">
           {agentLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Loading agent config...
             </div>
           ) : !agentConfig ? (
-            <p className="text-xs text-muted-foreground">Select an agent to configure tool access.</p>
+            <p className="text-xs text-muted-foreground text-center py-4">
+              Select an agent to configure tool access.
+            </p>
           ) : (
-            <>
+            <fieldset disabled={!!readOnly} className="space-y-3">
               {/* Mode toggle */}
-              <fieldset disabled={!!readOnly} className="space-y-3">
-                <div className="flex flex-col gap-1.5">
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input
-                      type="radio"
-                      name="tool-override-mode"
-                      checked={mode === "inherit"}
-                      onChange={() => setMode("inherit")}
-                      className="h-3 w-3"
-                    />
-                    Inherit from agent (default)
-                  </label>
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input
-                      type="radio"
-                      name="tool-override-mode"
-                      checked={mode === "restrict"}
-                      onChange={() => setMode("restrict")}
-                      className="h-3 w-3"
-                    />
-                    Restrict for this step
-                  </label>
-                </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMode("inherit")}
+                  className={cn(
+                    "flex-1 px-3 py-2 rounded-md border text-xs font-medium transition-all",
+                    mode === "inherit"
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                  )}
+                >
+                  All tools in this agent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("restrict")}
+                  className={cn(
+                    "flex-1 px-3 py-2 rounded-md border text-xs font-medium transition-all",
+                    mode === "restrict"
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                  )}
+                >
+                  Restrict for this step
+                </button>
+              </div>
 
-                {mode === "restrict" && (
-                  <div className="space-y-2 border border-border rounded-md p-2">
-                    {/* MCP Servers */}
-                    {activeBaseServers.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+              {mode === "restrict" && (
+                <div className="space-y-3">
+                  {/* MCP Servers */}
+                  {activeBaseServers.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <Server className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                           MCP Servers
-                        </p>
+                        </span>
+                      </div>
+                      <div className="space-y-1.5">
                         {activeBaseServers.map(([serverId, baseVal]) => {
                           const overrideVal = overrideAllowedTools?.[serverId];
                           const isEnabled = overrideVal !== false;
                           const isServerExpanded = expandedServers.has(serverId);
                           const probe = probeResults[serverId];
 
-                          // Determine available tools
                           const knownTools: string[] = Array.isArray(baseVal) && baseVal.length > 0
                             ? baseVal
                             : (probe?.tools || []);
                           const needsProbe = (baseVal === true || (Array.isArray(baseVal) && baseVal.length === 0)) && !probe?.tools;
 
-                          // Determine which tools are selected in override
                           const selectedTools: Set<string> | "all" = (() => {
                             if (!isEnabled) return new Set<string>();
                             if (overrideVal === true || (Array.isArray(overrideVal) && overrideVal.length === 0)) return "all";
                             if (Array.isArray(overrideVal)) return new Set(overrideVal);
-                            // Fallback: use base
                             if (baseVal === true || (Array.isArray(baseVal) && baseVal.length === 0)) return "all";
                             if (Array.isArray(baseVal)) return new Set(baseVal);
                             return "all";
                           })();
 
                           return (
-                            <div key={serverId} className="border border-border/50 rounded p-1.5">
-                              <div className="flex items-center gap-2">
+                            <div
+                              key={serverId}
+                              className={cn(
+                                "rounded-lg border transition-colors",
+                                isEnabled
+                                  ? "border-border bg-card"
+                                  : "border-border/50 bg-muted/30 opacity-60",
+                              )}
+                            >
+                              <div className="flex items-center gap-2 px-3 py-2">
                                 <input
                                   type="checkbox"
                                   checked={isEnabled}
                                   onChange={() => toggleServer(serverId)}
-                                  className="h-3 w-3"
+                                  className="h-3.5 w-3.5 rounded border-border"
                                 />
                                 <button
+                                  type="button"
                                   onClick={() => toggleServerExpand(serverId)}
-                                  className="flex items-center gap-1 flex-1 text-left text-xs font-medium text-foreground hover:text-primary transition-colors"
+                                  className="flex items-center gap-1.5 flex-1 text-left text-xs font-medium text-foreground hover:text-primary transition-colors min-w-0"
                                 >
                                   {isServerExpanded ? (
-                                    <ChevronDown className="h-2.5 w-2.5" />
+                                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                                   ) : (
-                                    <ChevronRight className="h-2.5 w-2.5" />
+                                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
                                   )}
                                   <span className="truncate">{serverId}</span>
                                 </button>
-                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                <span className={cn(
+                                  "text-[10px] shrink-0 px-1.5 py-0.5 rounded-full",
+                                  !isEnabled
+                                    ? "bg-muted text-muted-foreground"
+                                    : selectedTools === "all"
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+                                )}>
                                   {!isEnabled
                                     ? "disabled"
                                     : selectedTools === "all"
@@ -429,32 +477,32 @@ export function StepToolOverridePicker({
                               </div>
 
                               {isServerExpanded && isEnabled && (
-                                <div className="mt-1.5 ml-5 space-y-0.5">
+                                <div className="px-3 pb-2.5 pt-0.5 ml-6 border-t border-border/50">
                                   {probe?.loading ? (
-                                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                                      Probing tools...
+                                    <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-2">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Discovering tools...
                                     </div>
                                   ) : probe?.error ? (
-                                    <p className="text-[10px] text-destructive">{probe.error}</p>
+                                    <p className="text-[11px] text-destructive py-2">{probe.error}</p>
                                   ) : needsProbe ? (
-                                    <p className="text-[10px] text-muted-foreground">Expand to probe tools</p>
+                                    <p className="text-[11px] text-muted-foreground py-2">Loading...</p>
                                   ) : knownTools.length === 0 ? (
-                                    <p className="text-[10px] text-muted-foreground">No tools discovered</p>
+                                    <p className="text-[11px] text-muted-foreground py-2">No tools discovered</p>
                                   ) : (
-                                    <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5">
                                       {knownTools.map((tool) => (
                                         <label
                                           key={tool}
-                                          className="flex items-center gap-1.5 text-[10px] cursor-pointer"
+                                          className="flex items-center gap-1.5 text-[11px] cursor-pointer hover:text-foreground transition-colors py-0.5"
                                         >
                                           <input
                                             type="checkbox"
                                             checked={selectedTools === "all" || selectedTools.has(tool)}
                                             onChange={() => toggleServerTool(serverId, tool)}
-                                            className="h-2.5 w-2.5"
+                                            className="h-3 w-3 rounded border-border"
                                           />
-                                          <span className="font-mono truncate max-w-[140px]">{tool}</span>
+                                          <span className="font-mono truncate">{tool}</span>
                                         </label>
                                       ))}
                                     </div>
@@ -465,50 +513,56 @@ export function StepToolOverridePicker({
                           );
                         })}
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {/* Builtin Tools */}
-                    {baseBuiltinTools.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  {/* Builtin Tools */}
+                  {baseBuiltinTools.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <Wrench className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                           Builtin Tools
-                        </p>
-                        <div className="border border-border/50 rounded p-1.5 space-y-0.5">
-                          {baseBuiltinTools.map((toolId) => {
-                            const isDisabled = overrideBuiltinDisabled?.includes(toolId) ?? false;
-                            return (
-                              <div key={toolId} className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={!isDisabled}
-                                  onChange={() => toggleBuiltinTool(toolId)}
-                                  className="h-3 w-3"
-                                />
-                                <span className="text-xs">
-                                  {BUILTIN_TOOL_LABELS[toolId] || toolId}
-                                </span>
-                                {toolId === "request_user_input" && isDisabled && (
-                                  <span className="flex items-center gap-0.5 text-[10px] text-amber-500">
-                                    <AlertTriangle className="h-2.5 w-2.5" />
-                                    Agent cannot ask questions
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        </span>
                       </div>
-                    )}
+                      <div className="rounded-lg border border-border bg-card px-3 py-2 space-y-1">
+                        {baseBuiltinTools.map((toolId) => {
+                          const isDisabled = overrideBuiltinDisabled?.includes(toolId) ?? false;
+                          return (
+                            <div key={toolId} className="flex items-center gap-2 py-0.5">
+                              <input
+                                type="checkbox"
+                                checked={!isDisabled}
+                                onChange={() => toggleBuiltinTool(toolId)}
+                                className="h-3.5 w-3.5 rounded border-border"
+                              />
+                              <span className={cn(
+                                "text-xs transition-colors",
+                                isDisabled ? "text-muted-foreground line-through" : "text-foreground",
+                              )}>
+                                {getBuiltinToolLabel(toolId)}
+                              </span>
+                              {toolId === "request_user_input" && isDisabled && (
+                                <span className="flex items-center gap-1 text-[10px] text-amber-500 ml-auto">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  Cannot ask questions
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
-                    {activeBaseServers.length === 0 && baseBuiltinTools.length === 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        This agent has no tools configured.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </fieldset>
-            </>
+                  {activeBaseServers.length === 0 && baseBuiltinTools.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      This agent has no tools configured.
+                    </p>
+                  )}
+                </div>
+              )}
+            </fieldset>
           )}
         </div>
       )}
