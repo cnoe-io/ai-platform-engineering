@@ -101,7 +101,7 @@ fi
 
 cleanup_on_exit() {
   # Kill tracked PIDs
-  for pid in "${PF_PIDS[@]:-}"; do
+  for pid in "${PF_PIDS[@]}"; do
     kill "$pid" 2>/dev/null || true
   done
   # Fallback: kill any kubectl port-forward processes started for our services
@@ -5290,7 +5290,7 @@ monitor_port_forwards() {
     local now
     now=$(date +%s)
 
-    for i in "${!PF_PIDS[@]:-}"; do
+    for i in "${!PF_PIDS[@]}"; do
       local _pf_port
       # shellcheck disable=SC2086
       _pf_port=$(echo ${PF_SVCS[$i]} | awk '{print $3}')
