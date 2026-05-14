@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
-MAX_INPUT_CHARS = 4000
+MAX_INPUT_CHARS = 65536
 MAX_OUTPUT_TOKENS = 2000
 
 

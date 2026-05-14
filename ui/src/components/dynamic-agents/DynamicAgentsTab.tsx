@@ -22,6 +22,7 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { toYaml } from "@/lib/yaml-serializer";
+import { LastReviewBadge } from "@/components/ai-review";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -229,7 +230,8 @@ export function DynamicAgentsTab() {
             <div className="grid grid-cols-12 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground px-2">
               <div className="col-span-4">Name</div>
               <div className="col-span-2">Visibility</div>
-              <div className="col-span-2">Tools</div>
+              <div className="col-span-1">Tools</div>
+              <div className="col-span-1">Grade</div>
               <div className="col-span-2">Status</div>
               <div className="col-span-2 text-right">Actions</div>
             </div>
@@ -270,10 +272,14 @@ export function DynamicAgentsTab() {
                   </Badge>
                 </div>
 
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <span className="text-sm text-muted-foreground">
-                    {Object.keys(agent.allowed_tools || {}).length} server(s)
+                    {Object.keys(agent.allowed_tools || {}).length}
                   </span>
+                </div>
+
+                <div className="col-span-1">
+                  <LastReviewBadge review={agent.last_review} />
                 </div>
 
                 <div className="col-span-2">

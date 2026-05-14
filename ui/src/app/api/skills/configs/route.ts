@@ -289,6 +289,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       thumbnail: body.thumbnail,
       input_form: body.input_form,
       ancillary_files: body.ancillary_files,
+      last_review: body.last_review,
     };
 
     const tCreate = Date.now();
