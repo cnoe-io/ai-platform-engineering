@@ -2867,6 +2867,7 @@ patch_deployment_with_ca() {
 #    - PlatformEngineerResponse schema needs additionalProperties:false and
 #      all properties in required for OpenAI gpt-5.x strict mode.
 #    - httpx follow_redirects=True for MCP trailing-slash 307 redirects.
+#    Note: agent sys.path setup is handled in the Dockerfile PYTHONPATH, not here.
 # 2b.   OpenAI response dedup fix (agent-fix ConfigMap, supervisor only)
 #    - Mounts a patched agent.py that sets from_response_format_tool=True
 #      when handle_structured_response parses a PlatformEngineerResponse
@@ -2884,19 +2885,6 @@ _create_agent_patches_configmap() {
   kubectl create configmap agent-patches -n caipe \
     --from-literal=sitecustomize.py='
 import importlib, json, sys, os
-
-# ── Fix 0: Expose standalone agent packages for single-node (all-in-one) mode ──
-# In the ai-platform-engineering image, each agent package lives under:
-#   /app/ai_platform_engineering/agents/<name>/agent_<name>/
-# For "from agent_github.tools import ..." to work (as used in deep_agent_single.py),
-# the parent directory must be in sys.path. Add all agent parent dirs so that
-# single-node mode can import agent_github, agent_backstage, etc. directly.
-_agents_base = "/app/ai_platform_engineering/agents"
-if os.path.isdir(_agents_base):
-    for _agent_name in os.listdir(_agents_base):
-        _agent_dir = os.path.join(_agents_base, _agent_name)
-        if os.path.isdir(_agent_dir) and _agent_dir not in sys.path:
-            sys.path.insert(0, _agent_dir)
 
 # ── Fix 1: OpenAI Responses API strict schema ──
 # PlatformEngineerResponse and nested models need additionalProperties:false
