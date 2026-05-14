@@ -309,6 +309,24 @@ function WorkflowCanvasInner({
   const [isSaving, setIsSaving] = useState(false);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number>(-1);
 
+  // Visibility & sharing
+  const [visibility, setVisibility] = useState<"private" | "team" | "global">(
+    existingConfig?.visibility || "global",
+  );
+  const [sharedWithTeams, setSharedWithTeams] = useState<string[]>(
+    existingConfig?.shared_with_teams || [],
+  );
+  const [availableTeams, setAvailableTeams] = useState<{ _id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/dynamic-agents/teams")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.success && Array.isArray(data.data)) setAvailableTeams(data.data);
+      })
+      .catch(() => {});
+  }, []);
+
   const isDirtyRef = useRef(false);
 
   const markDirty = useCallback(() => {
@@ -466,6 +484,8 @@ function WorkflowCanvasInner({
           name: name.trim(),
           description: description.trim() || undefined,
           steps,
+          visibility,
+          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
         };
         await updateConfig(existingConfig._id, updates);
       } else {
@@ -473,6 +493,8 @@ function WorkflowCanvasInner({
           name: name.trim(),
           description: description.trim() || undefined,
           steps,
+          visibility,
+          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
         };
         await createConfig(input);
       }
@@ -485,7 +507,7 @@ function WorkflowCanvasInner({
     } finally {
       setIsSaving(false);
     }
-  }, [name, description, steps, existingConfig, createConfig, updateConfig, setUnsaved, toast]);
+  }, [name, description, steps, visibility, sharedWithTeams, existingConfig, createConfig, updateConfig, setUnsaved, toast]);
 
   // -----------------------------------------------------------------------
   // Run workflow
@@ -535,9 +557,13 @@ function WorkflowCanvasInner({
   // -----------------------------------------------------------------------
 
   const handleExport = useCallback(() => {
-    const config = {
+    const config: Record<string, unknown> = {
       name,
       description: description || undefined,
+      visibility,
+      ...(visibility === "team" && sharedWithTeams.length > 0
+        ? { shared_with_teams: sharedWithTeams }
+        : {}),
       steps,
     };
     const blob = new Blob([YAML.stringify(config)], { type: "application/x-yaml" });
@@ -547,7 +573,7 @@ function WorkflowCanvasInner({
     a.download = `${name || "workflow"}.yaml`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [name, description, steps]);
+  }, [name, description, steps, visibility, sharedWithTeams]);
 
   const handleImport = useCallback(
     (parsed: unknown) => {
@@ -555,6 +581,12 @@ function WorkflowCanvasInner({
       const obj = parsed as Record<string, unknown>;
       if (typeof obj.name === "string") setName(obj.name);
       if (typeof obj.description === "string") setDescription(obj.description);
+      if (obj.visibility === "private" || obj.visibility === "team" || obj.visibility === "global") {
+        setVisibility(obj.visibility);
+      }
+      if (Array.isArray(obj.shared_with_teams)) {
+        setSharedWithTeams(obj.shared_with_teams as string[]);
+      }
       if (Array.isArray(obj.steps)) {
         setSteps(obj.steps as WorkflowStep[]);
       }
@@ -617,6 +649,11 @@ function WorkflowCanvasInner({
         isEditing={!!existingConfig}
         stepCount={steps.length}
         readOnly={existingConfig?.config_driven}
+        visibility={visibility}
+        onVisibilityChange={(v) => { setVisibility(v); markDirty(); }}
+        sharedWithTeams={sharedWithTeams}
+        onSharedWithTeamsChange={(t) => { setSharedWithTeams(t); markDirty(); }}
+        teams={availableTeams}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -658,7 +695,6 @@ function WorkflowCanvasInner({
           }}
           agents={sidebarAgents}
           agentsLoading={agentsLoading}
-          totalSteps={steps.length}
           readOnly={existingConfig?.config_driven}
         />
       </div>

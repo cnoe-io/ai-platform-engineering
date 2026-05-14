@@ -1,10 +1,17 @@
 "use client";
 
-import React, { useRef } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import YAML from "yaml";
-import { ArrowLeft, Save, Play, Trash2, Download, Upload } from "lucide-react";
+import { ArrowLeft, Save, Play, Trash2, Download, Upload, Lock, Users, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import type { WorkflowConfigVisibility } from "@/types/workflow-config";
+
+interface Team {
+  _id: string;
+  name: string;
+}
 
 interface WorkflowToolbarProps {
   name: string;
@@ -21,6 +28,162 @@ interface WorkflowToolbarProps {
   isEditing: boolean;
   stepCount: number;
   readOnly?: boolean;
+  visibility: WorkflowConfigVisibility;
+  onVisibilityChange: (v: WorkflowConfigVisibility) => void;
+  sharedWithTeams: string[];
+  onSharedWithTeamsChange: (teams: string[]) => void;
+  teams: Team[];
+}
+
+const VISIBILITY_CONFIG: Record<WorkflowConfigVisibility, {
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  color: string;
+}> = {
+  private: {
+    icon: <Lock className="h-3.5 w-3.5" />,
+    label: "Private",
+    description: "Only you can see this workflow",
+    color: "text-amber-500",
+  },
+  team: {
+    icon: <Users className="h-3.5 w-3.5" />,
+    label: "Team",
+    description: "Visible to selected teams",
+    color: "text-blue-500",
+  },
+  global: {
+    icon: <Globe className="h-3.5 w-3.5" />,
+    label: "Global",
+    description: "Visible to all users",
+    color: "text-emerald-500",
+  },
+};
+
+function VisibilityPopover({
+  visibility,
+  onVisibilityChange,
+  sharedWithTeams,
+  onSharedWithTeamsChange,
+  teams,
+  disabled,
+}: {
+  visibility: WorkflowConfigVisibility;
+  onVisibilityChange: (v: WorkflowConfigVisibility) => void;
+  sharedWithTeams: string[];
+  onSharedWithTeamsChange: (teams: string[]) => void;
+  teams: Team[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const config = VISIBILITY_CONFIG[visibility];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen(!open)}
+        disabled={disabled}
+        className={cn(
+          "flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors",
+          "hover:bg-muted/50",
+          disabled && "opacity-50 cursor-not-allowed",
+          config.color,
+        )}
+        title={`Visibility: ${config.label}`}
+      >
+        {config.icon}
+        <span className="hidden sm:inline">{config.label}</span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-1 z-[100] w-64 rounded-lg border border-border bg-card shadow-lg p-2"
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {(["global", "team", "private"] as WorkflowConfigVisibility[]).map((v) => {
+            const opt = VISIBILITY_CONFIG[v];
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  onVisibilityChange(v);
+                  if (v !== "team") setOpen(false);
+                }}
+                className={cn(
+                  "w-full flex items-start gap-2.5 p-2 rounded-md text-left transition-colors",
+                  visibility === v
+                    ? "bg-primary/5 border border-primary/30"
+                    : "hover:bg-muted/50 border border-transparent",
+                )}
+              >
+                <span className={cn("mt-0.5", VISIBILITY_CONFIG[v].color)}>{opt.icon}</span>
+                <div>
+                  <div className="text-xs font-medium">{opt.label}</div>
+                  <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                </div>
+              </button>
+            );
+          })}
+
+          {/* Team selector */}
+          {visibility === "team" && (
+            <div className="mt-2 pt-2 border-t border-border">
+              <div className="text-[10px] font-medium text-muted-foreground mb-1.5 px-1">
+                Share with teams
+              </div>
+              {teams.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground italic px-1">
+                  No teams available.
+                </p>
+              ) : (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {teams.map((team) => (
+                    <label
+                      key={team._id}
+                      className="flex items-center gap-2 px-1 py-0.5 rounded hover:bg-muted/50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={sharedWithTeams.includes(team._id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            onSharedWithTeamsChange([...sharedWithTeams, team._id]);
+                          } else {
+                            onSharedWithTeamsChange(sharedWithTeams.filter((id) => id !== team._id));
+                          }
+                        }}
+                        className="rounded border-muted h-3 w-3"
+                      />
+                      <span className="text-xs">{team.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function WorkflowToolbar({
@@ -38,6 +201,11 @@ export function WorkflowToolbar({
   isEditing,
   stepCount,
   readOnly,
+  visibility,
+  onVisibilityChange,
+  sharedWithTeams,
+  onSharedWithTeamsChange,
+  teams,
 }: WorkflowToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -108,6 +276,16 @@ export function WorkflowToolbar({
         <span className="text-xs text-muted-foreground font-mono shrink-0 bg-muted/50 px-2 py-0.5 rounded">
           {stepCount} step{stepCount !== 1 ? "s" : ""}
         </span>
+
+        {/* Visibility button */}
+        <VisibilityPopover
+          visibility={visibility}
+          onVisibilityChange={onVisibilityChange}
+          sharedWithTeams={sharedWithTeams}
+          onSharedWithTeamsChange={onSharedWithTeamsChange}
+          teams={teams}
+          disabled={readOnly}
+        />
 
         <div className="h-5 w-px bg-border shrink-0" />
 

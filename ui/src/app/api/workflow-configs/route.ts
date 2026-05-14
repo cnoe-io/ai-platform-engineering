@@ -129,6 +129,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const id = searchParams.get("id");
 
   return await withAuth(request, async (_req, user) => {
+    // Admins can see all workflow configs
+    if (user.role === "admin") {
+      const collection = await getCollection<WorkflowConfig>("workflow_configs");
+      if (id) {
+        const config = await collection.findOne({ _id: id as any });
+        if (!config) throw new ApiError("Workflow config not found", 404);
+        return NextResponse.json(config) as NextResponse;
+      }
+      const configs = await collection.find({}).sort({ name: 1 }).toArray();
+      return NextResponse.json(configs) as NextResponse;
+    }
+
     if (id) {
       const config = await getVisibleConfigById(id, user.email);
       if (!config) {
@@ -159,7 +171,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     validateSteps(body.steps);
-    const visibility: WorkflowConfigVisibility = body.visibility || "private";
+    const visibility: WorkflowConfigVisibility = body.visibility || "global";
     validateVisibility(visibility, body.shared_with_teams);
 
     const id = `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

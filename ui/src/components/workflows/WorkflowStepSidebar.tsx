@@ -50,30 +50,8 @@ interface WorkflowStepSidebarProps {
   onAddStep?: () => void;
   agents: SidebarAgent[];
   agentsLoading: boolean;
-  /** Total number of steps in the workflow (for template variable chips) */
-  totalSteps: number;
+
   readOnly?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Template variable chips
-// ---------------------------------------------------------------------------
-
-const ALWAYS_CHIPS = [
-  { label: "previous_output", template: "{{ previous_output }}" },
-  { label: "user_context", template: "{{ user_context }}" },
-];
-
-function buildStepChips(totalSteps: number, currentIndex: number) {
-  const chips: { label: string; template: string }[] = [];
-  for (let i = 0; i < totalSteps; i++) {
-    if (i === currentIndex) continue;
-    chips.push({
-      label: `steps[${i}].output`,
-      template: `{{ steps[${i}].output }}`,
-    });
-  }
-  return chips;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +225,6 @@ export function WorkflowStepSidebar({
   onAddStep,
   agents,
   agentsLoading,
-  totalSteps,
   readOnly,
 }: WorkflowStepSidebarProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -286,18 +263,6 @@ export function WorkflowStepSidebar({
     setConfigOverrideJson(step?.config_override ? JSON.stringify(step.config_override, null, 2) : "");
     setConfigOverrideError(null);
   }
-
-  const insertTemplate = useCallback(
-    (template: string) => {
-      if (!step) return;
-      // Append template at end of prompt (with space if needed)
-      const newPrompt = step.prompt
-        ? step.prompt.trimEnd() + " " + template
-        : template;
-      onChange({ prompt: newPrompt });
-    },
-    [step, onChange],
-  );
 
   const handleConfigOverrideChange = useCallback(
     (value: string) => {
@@ -342,7 +307,7 @@ export function WorkflowStepSidebar({
 
   if (!step) {
     // No steps at all — prompt to add first step
-    if (totalSteps === 0 && onAddStep && !readOnly) {
+    if (onAddStep && !readOnly) {
       return (
         <div className="w-[624px] border-l border-border bg-card/50 flex items-center justify-center">
           <div className="text-center px-6">
@@ -372,7 +337,6 @@ export function WorkflowStepSidebar({
     );
   }
 
-  const stepChips = buildStepChips(totalSteps, stepIndex);
 
   return (
     <div className="w-[624px] border-l border-border bg-card/50 flex flex-col overflow-hidden">
@@ -441,28 +405,6 @@ export function WorkflowStepSidebar({
               }}
               placeholder="e.g. Create a GitHub repo.&#10;Context: {{ previous_output }}"
             />
-          </div>
-
-          {/* Template variable chips */}
-          <div className="flex flex-wrap gap-1">
-            {ALWAYS_CHIPS.map((chip) => (
-              <button
-                key={chip.label}
-                onClick={() => insertTemplate(chip.template)}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              >
-                {chip.template}
-              </button>
-            ))}
-            {stepChips.map((chip) => (
-              <button
-                key={chip.label}
-                onClick={() => insertTemplate(chip.template)}
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
-              >
-                {chip.template}
-              </button>
-            ))}
           </div>
         </div>
 

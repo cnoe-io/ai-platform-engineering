@@ -11,7 +11,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { BuiltinToolsConfig, DynamicAgentConfig } from "@/types/dynamic-agent";
+import type { BuiltinToolsConfig, BuiltinToolDefinition, DynamicAgentConfig } from "@/types/dynamic-agent";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,7 +41,8 @@ function getEnabledBuiltinTools(builtinTools?: BuiltinToolsConfig | null): strin
   for (const [key, value] of Object.entries(builtinTools)) {
     if (key === "workflows") continue; // not a tool
     if (value && typeof value === "object" && "enabled" in value && value.enabled) {
-      enabled.push(key);
+      // Normalize deprecated "sleep" → "wait"
+      enabled.push(key === "sleep" ? "wait" : key);
     }
   }
   return enabled;
@@ -78,18 +79,6 @@ function buildSummary(
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-// Consistent display names for builtin tools (always use readable labels)
-const BUILTIN_TOOL_LABELS: Record<string, string> = {
-  fetch_url: "Fetch URL",
-  curl: "Curl",
-  current_datetime: "Current Date/Time",
-  user_info: "User Info",
-  wait: "Wait",
-  request_user_input: "Request User Input",
-  self_identity: "Self Identity",
-  format_file: "Format File",
-};
-
 /**
  * Normalize a per-server allowed_tools value.
  * Legacy format used `[]` (empty array) to mean "all tools on this server".
@@ -111,10 +100,6 @@ function normalizeAllowedTools(
   return out;
 }
 
-function getBuiltinToolLabel(toolId: string): string {
-  return BUILTIN_TOOL_LABELS[toolId] || toolId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -132,6 +117,23 @@ export function StepToolOverridePicker({
   const [agentConfig, setAgentConfig] = useState<DynamicAgentConfig | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
 
+  // ── Builtin tool definitions from backend (source of truth) ──
+  const [builtinDefs, setBuiltinDefs] = useState<BuiltinToolDefinition[]>([]);
+  useEffect(() => {
+    fetch("/api/dynamic-agents/builtin-tools")
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.data) setBuiltinDefs(json.data);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Map of valid builtin tool IDs → display names (from backend)
+  const builtinLabelMap = useMemo(
+    () => new Map(builtinDefs.map((d) => [d.id, d.name])),
+    [builtinDefs],
+  );
+
   // ── Server probe state (lazy) ──
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
   const [probeResults, setProbeResults] = useState<Record<string, ProbeResult>>({});
@@ -141,9 +143,10 @@ export function StepToolOverridePicker({
     () => normalizeAllowedTools(agentConfig?.allowed_tools ?? {}),
     [agentConfig],
   );
+  // Only show builtin tools that exist in BOTH the backend definitions AND the agent config
   const baseBuiltinTools = useMemo(
-    () => getEnabledBuiltinTools(agentConfig?.builtin_tools),
-    [agentConfig],
+    () => getEnabledBuiltinTools(agentConfig?.builtin_tools).filter((id) => builtinLabelMap.has(id)),
+    [agentConfig, builtinLabelMap],
   );
 
   // ── Derived: current override values ──
@@ -540,7 +543,7 @@ export function StepToolOverridePicker({
                                 "text-xs transition-colors",
                                 isDisabled ? "text-muted-foreground line-through" : "text-foreground",
                               )}>
-                                {getBuiltinToolLabel(toolId)}
+                                {builtinLabelMap.get(toolId) || toolId}
                               </span>
                               {toolId === "request_user_input" && isDisabled && (
                                 <span className="flex items-center gap-1 text-[10px] text-amber-500 ml-auto">

@@ -16,6 +16,7 @@ import {
   successResponse,
   ApiError,
   getAuthFromBearerOrSession,
+  getUserTeamIds,
 } from "@/lib/api-middleware";
 import {
   startWorkflowRun,
@@ -33,6 +34,47 @@ const RETENTION_DAYS = parseInt(process.env.WORKFLOW_RUN_RETENTION_DAYS ?? "7", 
 /** Throttle cleanup to run at most once per 30 minutes */
 let lastCleanupAt = 0;
 const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Access control helper — checks if user can access a workflow config
+// ---------------------------------------------------------------------------
+
+async function userCanAccessConfig(
+  configId: string,
+  userEmail: string,
+  userRole: string,
+): Promise<boolean> {
+  if (userRole === "admin") return true;
+
+  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+  const userTeamIds = await getUserTeamIds(userEmail);
+
+  const config = await configCol.findOne({
+    _id: configId,
+    $or: [
+      { owner_id: userEmail },
+      { visibility: "global" },
+      ...(userTeamIds.length > 0
+        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
+        : []),
+    ],
+  });
+
+  return config !== null;
+}
+
+/** Check if user owns the workflow config (for destructive operations on runs) */
+async function userOwnsConfig(
+  configId: string,
+  userEmail: string,
+  userRole: string,
+): Promise<boolean> {
+  if (userRole === "admin") return true;
+
+  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+  const config = await configCol.findOne({ _id: configId });
+  return config?.owner_id === userEmail;
+}
 
 /**
  * Opportunistic cleanup of expired workflow runs.
@@ -116,6 +158,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError(`Workflow config ${workflow_config_id} not found`, 404);
   }
 
+  // Verify user has access to this workflow config
+  const hasAccess = await userCanAccessConfig(workflow_config_id, user.email, user.role);
+  if (!hasAccess) {
+    throw new ApiError("You don't have access to this workflow config", 403);
+  }
+
   // Build auth headers for DA server calls
   const authHeaders: Record<string, string> = {};
   const authHeader = request.headers.get("Authorization");
@@ -148,7 +196,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  await getAuthFromBearerOrSession(request);
+  const { user } = await getAuthFromBearerOrSession(request);
 
   const { searchParams } = new URL(request.url);
   const runId = searchParams.get("run_id");
@@ -158,6 +206,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
     const run = await col.findOne({ _id: runId });
     if (!run) {
+      throw new ApiError(`Run ${runId} not found`, 404);
+    }
+
+    // Verify user has access to the parent workflow config
+    const hasAccess = await userCanAccessConfig(run.workflow_config_id, user.email, user.role);
+    if (!hasAccess) {
       throw new ApiError(`Run ${runId} not found`, 404);
     }
 
@@ -182,13 +236,52 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   cleanupExpiredRuns().catch(() => {});
 
   const col = await getCollection<WorkflowRunDocument>("workflow_runs");
-  const filter: Record<string, unknown> = {};
   const workflowConfigId = searchParams.get("workflow_config_id");
+
   if (workflowConfigId) {
-    filter.workflow_config_id = workflowConfigId;
+    // Filter by specific config — check access once
+    const hasAccess = await userCanAccessConfig(workflowConfigId, user.email, user.role);
+    if (!hasAccess) {
+      return NextResponse.json([]) as NextResponse;
+    }
+    const runs = await col
+      .find({ workflow_config_id: workflowConfigId })
+      .sort({ started_at: -1 })
+      .limit(100)
+      .toArray();
+    return NextResponse.json(runs) as NextResponse;
   }
+
+  // List all runs — filter to only those whose configs the user can access
+  if (user.role === "admin") {
+    // Admins see all runs
+    const runs = await col.find({}).sort({ started_at: -1 }).limit(100).toArray();
+    return NextResponse.json(runs) as NextResponse;
+  }
+
+  // For non-admins, get accessible config IDs first
+  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+  const userTeamIds = await getUserTeamIds(user.email);
+  const accessibleConfigs = await configCol
+    .find({
+      $or: [
+        { owner_id: user.email },
+        { visibility: "global" },
+        ...(userTeamIds.length > 0
+          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
+          : []),
+      ],
+    })
+    .project({ _id: 1 })
+    .toArray();
+
+  const accessibleIds = accessibleConfigs.map((c) => c._id);
+  if (accessibleIds.length === 0) {
+    return NextResponse.json([]) as NextResponse;
+  }
+
   const runs = await col
-    .find(filter)
+    .find({ workflow_config_id: { $in: accessibleIds } })
     .sort({ started_at: -1 })
     .limit(100)
     .toArray();
@@ -217,6 +310,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const run = await col.findOne({ _id: id });
+    if (!run) {
+      throw new ApiError("Workflow run not found", 404);
+    }
+
+    // Verify user has access to the parent workflow config
+    const hasAccess = await userCanAccessConfig(run.workflow_config_id, user.email, user.role);
+    if (!hasAccess) {
+      throw new ApiError("Workflow run not found", 404);
+    }
+
     await col.updateOne({ _id: id }, { $set: body });
 
     return successResponse({ id, message: "Workflow run updated successfully" });
@@ -243,27 +347,34 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
     // Load run to get workflow_config_id for file cleanup
     const run = await col.findOne({ _id: id });
+    if (!run) {
+      throw new ApiError("Workflow run not found", 404);
+    }
+
+    // Deleting runs requires ownership of the config (or admin)
+    const canDelete = await userOwnsConfig(run.workflow_config_id, user.email, user.role);
+    if (!canDelete) {
+      throw new ApiError("You don't have permission to delete this workflow run", 403);
+    }
 
     // Clean up GridFS files via backend
-    if (run?.workflow_config_id) {
-      try {
-        const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
-        const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
-        await fetch(
-          `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
-          {
-            method: "DELETE",
-            headers: {
-              "X-User-Context": Buffer.from(JSON.stringify({
-                email: user.email,
-                name: user.name,
-              })).toString("base64"),
-            },
+    try {
+      const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+      const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
+      await fetch(
+        `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+        {
+          method: "DELETE",
+          headers: {
+            "X-User-Context": Buffer.from(JSON.stringify({
+              email: user.email,
+              name: user.name,
+            })).toString("base64"),
           },
-        );
-      } catch {
-        // Best-effort file cleanup — don't block run deletion
-      }
+        },
+      );
+    } catch {
+      // Best-effort file cleanup — don't block run deletion
     }
 
     // Clean up stream events

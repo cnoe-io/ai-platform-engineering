@@ -23,8 +23,11 @@ import {
   Search,
   X,
   Lock,
+  Globe,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -808,9 +811,6 @@ function WorkflowsTab({
               <span className="text-sm font-medium text-foreground truncate flex-1">
                 {config.name}
               </span>
-              {config.config_driven && (
-                <Lock className="h-3 w-3 text-muted-foreground shrink-0 ml-1" />
-              )}
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
                 <button
                   onClick={(e) => {
@@ -851,8 +851,35 @@ function WorkflowsTab({
                 {config.description}
               </p>
             )}
-            <div className="text-[10px] text-muted-foreground mt-1">
-              {stepCount} step{stepCount !== 1 ? "s" : ""}
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-1">
+              <span>{stepCount} step{stepCount !== 1 ? "s" : ""}</span>
+              <span className="text-border">·</span>
+              {config.visibility === "private" && (
+                <span className="flex items-center gap-0.5 text-amber-500">
+                  <Lock className="h-2.5 w-2.5" />
+                  Private
+                </span>
+              )}
+              {config.visibility === "team" && (
+                <span className="flex items-center gap-0.5 text-blue-500">
+                  <Users className="h-2.5 w-2.5" />
+                  Team
+                </span>
+              )}
+              {(config.visibility === "global" || !config.visibility) && (
+                <span className="flex items-center gap-0.5 text-emerald-500">
+                  <Globe className="h-2.5 w-2.5" />
+                  Global
+                </span>
+              )}
+              {config.config_driven && (
+                <Badge
+                  variant="outline"
+                  className="text-[9px] px-1 py-0 h-3.5 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
+                >
+                  Config
+                </Badge>
+              )}
             </div>
           </div>
         );
