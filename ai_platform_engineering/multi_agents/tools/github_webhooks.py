@@ -329,7 +329,7 @@ def register_github_webhook(
         f"Webhook registered on {owner}/{name} (hook_id={hook_id}).",
         f"  events: {', '.join(resolved_events)}",
         f"  callback: {resolved_url}",
-        f"  signing: HMAC-SHA256 via X-Hub-Signature-256",
+        "  signing: HMAC-SHA256 via X-Hub-Signature-256",
     ]
     if secret_generated:
         # Surface the secret exactly once so the operator can configure

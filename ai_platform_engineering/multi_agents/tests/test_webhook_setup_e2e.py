@@ -277,7 +277,6 @@ def test_chain_fails_cleanly_when_autonomous_agents_unreachable(monkeypatch):
     human-readable error and the LLM has no callback_url to pass
     forward. Verify register_github_webhook is NOT called (no broken
     half-state on GitHub)."""
-    aa_reached = False
     gh_reached = False
 
     def aa_handler(_request):
