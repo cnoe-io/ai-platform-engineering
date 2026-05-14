@@ -299,7 +299,7 @@ class AgentRuntime:
         # ─────────────────────────────────────────────────────────────────
 
         # 1. Attach MCP servers and tools
-        server_ids = list(self.config.allowed_tools.keys())
+        server_ids = [sid for sid, val in self.config.allowed_tools.items() if val is not False]
         if not server_ids:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
@@ -824,7 +824,7 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
-        server_ids = list(subagent_config.allowed_tools.keys())
+        server_ids = [sid for sid, val in subagent_config.allowed_tools.items() if val is not False]
         if server_ids:
             connections = build_mcp_connections(self.mcp_servers, server_ids)
             if connections:

@@ -314,7 +314,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       name: body.name as string,
       description: (body.description as string) ?? "",
       system_prompt: body.system_prompt as string,
-      allowed_tools: (body.allowed_tools as Record<string, string[]>) ?? {},
+      allowed_tools: (body.allowed_tools as Record<string, string[] | boolean>) ?? {},
       builtin_tools: body.builtin_tools ?? undefined,
       model: body.model as { id: string; provider: string },
       visibility,

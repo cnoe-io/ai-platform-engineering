@@ -457,9 +457,13 @@ class DynamicAgentConfigBase(BaseModel):
     name: str = Field(..., description="Display name")
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
-    allowed_tools: dict[str, list[str]] = Field(
+    allowed_tools: dict[str, list[str] | bool] = Field(
         default_factory=dict,
-        description="Map of server_id -> tool names (empty list = all tools)",
+        description=(
+            "Map of server_id -> tool names or boolean. "
+            "true = all tools from server, false = server disabled, "
+            "list = specific tools only, [] = legacy (treated as true)"
+        ),
     )
     model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")

@@ -232,7 +232,7 @@ function AdvancedStep({
   setSubagents: (v: SubAgentRef[]) => void;
   interruptOn: InterruptOn;
   setInterruptOn: (v: InterruptOn) => void;
-  allowedTools: Record<string, string[]>;
+  allowedTools: Record<string, string[] | boolean>;
   builtinTools?: BuiltinToolsConfig;
   setBuiltinTools: (v: BuiltinToolsConfig) => void;
   features: FeaturesConfig | undefined;
@@ -336,7 +336,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
     source?.shared_with_teams || []
   );
-  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
+  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
   const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(

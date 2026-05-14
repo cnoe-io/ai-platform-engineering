@@ -393,11 +393,15 @@ function AgentInfoContent({
   // Count total tools across all MCP servers
   const toolCount = agent?.allowed_tools
     ? Object.entries(agent.allowed_tools).reduce((sum, [, tools]) => {
+        if (tools === false) return sum;
+        if (tools === true) return sum + 1;
         return sum + (tools.length > 0 ? tools.length : 1);
       }, 0)
     : 0;
 
-  const serverCount = agent?.allowed_tools ? Object.keys(agent.allowed_tools).length : 0;
+  const serverCount = agent?.allowed_tools
+    ? Object.entries(agent.allowed_tools).filter(([, v]) => v !== false).length
+    : 0;
 
   // Format visibility for display
   const visibilityDisplay = agent?.visibility

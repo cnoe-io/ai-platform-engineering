@@ -1,7 +1,20 @@
 # Local seed config for testing
 # Usage: APP_CONFIG_PATH=../config.yaml (from ui/ directory)
 
-models: []
+models:
+  - model_id: "global.anthropic.claude-sonnet-4-6"
+    name: "Claude Sonnet 4.6 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude Sonnet 4.6 via AWS Bedrock (default)"
+  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude Haiku 4.5 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Fast, efficient Claude 4.5 Haiku via AWS Bedrock"
+  - model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    name: "Claude Sonnet 4.5 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Claude Sonnet 4.5 via AWS Bedrock"
+
 dynamic_agents: []
 mcp_servers: []
 

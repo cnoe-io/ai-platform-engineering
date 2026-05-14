@@ -314,7 +314,7 @@ export interface DynamicAgentConfig {
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
+  allowed_tools: Record<string, string[] | boolean>;  // server_id -> tool names, true=all, false=disabled
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model: ModelConfig;  // Required: LLM model configuration
   visibility: VisibilityType;
@@ -337,7 +337,7 @@ export interface DynamicAgentConfigCreate {
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig;  // Required: LLM model configuration
   visibility?: VisibilityType;
@@ -354,7 +354,7 @@ export interface DynamicAgentConfigUpdate {
   name?: string;
   description?: string;
   system_prompt?: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
   visibility?: VisibilityType;
