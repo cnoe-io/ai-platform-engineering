@@ -829,7 +829,7 @@ class WorkflowApiClient:
         self._token_expires_at: float = 0
 
         if self._caipe_api_auth_enabled:
-            logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url}, client_id={client_id})")
+            logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url})")
         else:
             logger.warning("WorkflowApiClient: No OAuth2 credentials configured, requests will be unauthenticated")
 
