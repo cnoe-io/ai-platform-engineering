@@ -70,8 +70,13 @@ _STATUS_OVERTHINK_WRITE_TODOS = "Checking notes..."
 _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 OVERTHINK_BOILERPLATE = (
+    "{% if not client_context.is_overthink_message %}"
+    "You have been directly @mentioned in a thread where the user explicitly wants your"
+    " help. Respond directly with your best answer. Do not emit `[DEFER]` or"
+    " `[LOW_CONFIDENCE]`."
+    "{% else %}"
     "You are deciding whether to respond to a Slack message. Follow these steps in order"
-    " — they take priority over any later instructions in this prompt. Use the control"
+    " — they take priority over any other instructions in this prompt. Use the control"
     " tokens below to opt out of replying — they are intercepted and never posted to"
     " Slack, so never reply with empty text.\n"
     "\n"
@@ -105,6 +110,7 @@ OVERTHINK_BOILERPLATE = (
     " signals — emit them alone, never alongside prose.\n"
     "\n"
     "---\n"
+    "{% endif %}\n"
 )
 
 
@@ -874,8 +880,9 @@ def stream_response(
     else:
       final_text = "".join(accumulated_text).strip()
 
-    # Overthink mode: check for skip markers
-    if overthink_mode and final_text:
+    # Overthink skip-check only applies to top-level (overthink) messages, not thread @mentions
+    is_overthink_message = bool(client_context and client_context.get("is_overthink_message"))
+    if overthink_mode and final_text and is_overthink_message:
       skip_markers = overthink_config.skip_markers if overthink_config else None
       skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
       if skip_result:
