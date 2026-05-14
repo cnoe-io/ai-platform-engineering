@@ -19,7 +19,6 @@ REST API. The tests:
 from __future__ import annotations
 
 import httpx
-import pytest
 
 from ai_platform_engineering.multi_agents.tools import autonomous_tasks as ta
 
