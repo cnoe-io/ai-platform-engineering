@@ -8,7 +8,6 @@
  */
 
 import { useMemo, useCallback, useState } from "react";
-import { Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { AgentTimeline } from "@/components/chat/DynamicAgentTimeline";

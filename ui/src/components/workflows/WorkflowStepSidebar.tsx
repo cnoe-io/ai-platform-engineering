@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { StepToolOverridePicker } from "./StepToolOverridePicker";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
-import { useTheme } from "next-themes";
 import type { WorkflowStep } from "@/types/workflow-config";
 
 // Lazy-load CodeMirror to avoid SSR issues
