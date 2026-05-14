@@ -1,45 +1,17 @@
-"""Single MongoDB service for the Autonomous Agents backend.
+"""MongoDB persistence for the Autonomous Agents backend.
 
-Mirrors the pattern used by ``dynamic_agents/services/mongo.py``: one
-class owns the driver client and all database reads/writes, callers go
-through a process-wide singleton via :func:`get_mongo_service`.
+``MongoService`` owns one AsyncIOMotorClient and all MongoDB reads/writes
+for task definitions, run history, webhook dedup rows, Webex thread
+mappings, and optional chat-history publishing. Callers use the
+process-wide singleton from :func:`get_mongo_service`.
 
-Why this file exists
---------------------
-Before this refactor each of ``task_store.py``, ``run_store.py``, and
-``chat_history.py`` built its *own* ``AsyncIOMotorClient`` inside its
-own factory. Three files, three connection pools against the same
-cluster, three independent ``ensure_indexes`` call sites, and three
-``isinstance(store, MongoXxxStore)`` probes in the lifespan. This file
-collapses all of that to:
+Routes and schedulers depend on small Protocols such as ``TaskStore`` and
+``RunStore``. The adapter classes at the bottom of this module preserve
+those interfaces while delegating to the single ``MongoService`` instance.
 
-* one ``AsyncIOMotorClient`` constructed once in :meth:`MongoService.connect`,
-* one ``_ensure_indexes`` pass covering every collection we touch,
-* one singleton (``get_mongo_service``) all callers reach for.
-
-The existing ``TaskStore`` / ``RunStore`` / ``ChatHistoryPublisher``
-Protocols are preserved so routes, scheduler, and tests are unaffected;
-the concrete Mongo implementations are thin adapters that delegate into
-:class:`MongoService`.
-
-Async driver
-------------
-We keep :mod:`motor` (``AsyncIOMotorClient``) rather than dropping to
-sync ``pymongo`` because this service is FastAPI + APScheduler running
-on a single asyncio loop. A blocking ``pymongo`` call from an async
-handler would stall every concurrent request.
-
-Two databases, one client
--------------------------
-``MongoService`` exposes two database handles:
-
-* ``_primary_db`` -> ``MONGODB_DATABASE`` (task definitions, run history).
-* ``_chat_db``    -> ``CHAT_HISTORY_DATABASE`` if set, else the primary.
-
-Splitting is optional -- in single-DB deployments both names collapse
-to the same handle. Keeping them separate lets CAIPE operators point
-chat-history collections at a different logical DB without needing a
-second Mongo cluster.
+The service uses the configured primary database for autonomous-agent state
+and optionally a separate chat-history database when
+``CHAT_HISTORY_DATABASE`` is set.
 """
 
 from __future__ import annotations
@@ -56,28 +28,17 @@ from autonomous_agents.models import (
 )
 from autonomous_agents.services.chat_history import (
     MessageKind,
-    _conversation_id_for_task,
+    conversation_id_for_task,
 )
 
 logger = logging.getLogger("autonomous_agents")
 
 
-# ======================================================================
-# Protocols + typed exceptions
-# ----------------------------------------------------------------------
-# These used to live in ``services/task_store.py`` and
-# ``services/run_store.py`` alongside the in-memory implementations.
-# After the MongoDB-required refactor those modules are gone and the
-# contracts live next to the single store implementation (below) so
-# scheduler / routes / tests import from exactly one place.
-# ======================================================================
-
-
 class TaskAlreadyExistsError(Exception):
-    """Raised by :meth:`TaskStore.create` when the ``task_id`` is taken.
+    """Raised when creating a task with an id that already exists.
 
-    Lifted to its own type so the API layer can map it to a clean HTTP
-    409 without resorting to string-matching the message.
+    The API layer catches this typed error and returns HTTP 409 without
+    string-matching database error messages.
     """
 
     def __init__(self, task_id: str) -> None:
@@ -86,11 +47,10 @@ class TaskAlreadyExistsError(Exception):
 
 
 class TaskNotFoundError(Exception):
-    """Raised by :meth:`TaskStore.update` / :meth:`delete` for unknown ids.
+    """Raised when updating or deleting a task id that does not exist.
 
-    Lets the API layer turn missing-task errors into HTTP 404 without
-    needing a separate "does it exist?" round-trip first (which would
-    race with concurrent deletes anyway).
+    The API layer catches this typed error and returns HTTP 404 without
+    doing a separate existence check that could race with concurrent deletes.
     """
 
     def __init__(self, task_id: str) -> None:
@@ -107,10 +67,9 @@ class TaskStore(Protocol):
     :meth:`create` / :meth:`update` / :meth:`delete` MUST leave the
     store in its prior state.
 
-    Kept as a Protocol (rather than dropping straight to concrete
-    :class:`MongoService` calls) so unit tests for routes/scheduler
-    can inject tiny in-file fakes without pulling in ``mongomock_motor``
-    for every test that touches the CRUD layer.
+    Production wires this to :class:`MongoTaskStoreAdapter`; tests can
+    inject tiny in-file fakes without pulling in ``mongomock_motor`` for
+    every route or scheduler test.
     """
 
     async def list_all(self) -> list[TaskDefinition]: ...
@@ -130,7 +89,8 @@ class RunStore(Protocol):
     it finishes (status=SUCCESS|FAILED) without the store needing a
     separate "update" path.
 
-    Same test-injection rationale as :class:`TaskStore` above.
+    Production wires this to :class:`MongoRunStoreAdapter`; tests can
+    inject in-file fakes for scheduler and route tests.
     """
 
     async def record(self, run: TaskRun) -> None: ...
@@ -138,8 +98,7 @@ class RunStore(Protocol):
     async def list_all(self, limit: int = 500) -> list[TaskRun]: ...
 
 
-# Collection name defaults. Kept at module level so tests and operators
-# share one canonical string rather than passing it around literally.
+# Collection name defaults shared by settings, tests, and index setup.
 DEFAULT_TASKS_COLLECTION = "autonomous_tasks"
 DEFAULT_RUNS_COLLECTION = "autonomous_runs"
 DEFAULT_CONVERSATIONS_COLLECTION = "conversations"
@@ -195,7 +154,8 @@ class MongoService:
 
         try:
             # Deferred import so ``import autonomous_agents.services.mongo``
-            # (e.g. from a type-only consumer of the Protocols) never
+            # (e.g. from a route importing TaskStore/RunStore for type
+            # annotations) never
             # pays motor's import cost.
             from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -244,8 +204,8 @@ class MongoService:
 
         Accepts ``AsyncMongoMockClient`` (mongomock_motor) or any
         object that answers ``client[db_name]``. Skips the ping +
-        ensure_indexes round-trip because mongomock has no index
-        information that needs priming and some tests assert on a
+        ensure_indexes round-trip because mongomock does not need the
+        production startup index pass and some tests assert on a
         pristine index set.
         """
         self._client = client
@@ -349,8 +309,10 @@ class MongoService:
             await self._conversations().create_index(
                 [("source", 1), ("updated_at", -1)]
             )
-            # ---- Conversations: deep-link by run_id. Sparse so
-            #      non-autonomous conversations don't pay index cost.
+            # ---- Conversations: legacy deep-link by run_id. Current
+            #      autonomous conversations are task-scoped, but older
+            #      documents may still carry run_id; keep the sparse
+            #      index so those lookups remain cheap.
             await self._conversations().create_index(
                 [("run_id", 1)],
                 unique=True,
@@ -412,17 +374,16 @@ class MongoService:
     async def create_task(self, task: TaskDefinition) -> TaskDefinition:
         """Insert ``task`` or raise :class:`TaskAlreadyExistsError`.
 
-        The exception is preserved so the existing CRUD routes map
+        The typed exception lets the CRUD routes map
         duplicates to HTTP 409 without string-matching.
         """
         doc = self._task_to_doc(task)
         try:
             await self._tasks().insert_one(doc)
         except Exception as exc:  # noqa: BLE001 -- translated below
-            # DuplicateKeyError lives in pymongo.errors but importing
-            # eagerly would wire pymongo into the import graph of the
-            # in-memory path. Class-name match is what motor itself
-            # uses internally for cross-version compatibility.
+            # DuplicateKeyError lives in pymongo.errors, but matching by
+            # class name keeps this module import-light for tests and
+            # mirrors motor's own cross-version compatibility pattern.
             if exc.__class__.__name__ == "DuplicateKeyError":
                 raise TaskAlreadyExistsError(task.id) from exc
             raise
@@ -616,15 +577,14 @@ class MongoService:
         task_id: str | None = None,
         conversation_id: str | None = None,
     ) -> None:
-        """Append (run_request, run_response|run_error) for one run.
+        """Append run request/response messages to the task conversation.
 
-        Spec #099 FR-007: each run accumulates as TWO new messages on
-        the per-task thread rather than overwriting the same two slots.
-        Multiple runs of the same task therefore form a chronological
-        history visible in the chat sidebar.
+        Each run adds request and response/error messages to the
+        per-task thread. Multiple runs of the same task therefore form a
+        chronological history visible in the chat sidebar.
         """
         effective_task_id = task_id or run.task_id
-        conv_id = conversation_id or _conversation_id_for_task(effective_task_id)
+        conv_id = conversation_id or conversation_id_for_task(effective_task_id)
         now = datetime.now(timezone.utc)
 
         await self._upsert_conversation(
@@ -635,7 +595,7 @@ class MongoService:
             now=now,
         )
 
-        # -- user: the prompt the supervisor actually saw
+        # -- user: the prompt the selected execution backend actually saw
         await self._upsert_kind_message(
             conversation_id=conv_id,
             message_id=f"run:{run.run_id}:request",
@@ -648,7 +608,7 @@ class MongoService:
             is_final=True,
         )
 
-        # -- assistant: supervisor response / error
+        # -- assistant: execution backend response / error
         if run.status == TaskStatus.FAILED:
             kind: MessageKind = "run_error"
             content = f"Run failed: {error or 'unknown error'}"
@@ -664,7 +624,7 @@ class MongoService:
 
         # +1us offset so assistant sorts AFTER user when both writes
         # land on the same wall-clock millisecond. Preserved from the
-        # old publisher so thread ordering is stable.
+        # earlier publisher so thread ordering is stable.
         assistant_at = (
             now.replace(microsecond=now.microsecond + 1)
             if now.microsecond < 999_999
@@ -688,7 +648,7 @@ class MongoService:
 
     async def publish_creation_intent(self, task: TaskDefinition) -> None:
         """Append (or upsert) the initial ``creation_intent`` message."""
-        conv_id = _conversation_id_for_task(task.id)
+        conv_id = conversation_id_for_task(task.id)
         now = datetime.now(timezone.utc)
         await self._upsert_conversation(conv_id, task=task, now=now)
 
@@ -720,7 +680,7 @@ class MongoService:
         ack_payload: dict[str, Any],
     ) -> None:
         """Append a ``preflight_ack`` assistant message for the task."""
-        conv_id = _conversation_id_for_task(task.id)
+        conv_id = conversation_id_for_task(task.id)
         now = datetime.now(timezone.utc)
         await self._upsert_conversation(conv_id, task=task, now=now)
 
@@ -766,15 +726,10 @@ class MongoService:
     ) -> None:
         now = now or datetime.now(timezone.utc)
         effective_task_id = task.id if task else task_id
-        # Routing target precedence: ``task.dynamic_agent_id`` (custom
-        # agent -> dynamic-agents service) > ``task.agent`` (legacy
-        # supervisor sub-agent hint) > the explicit ``agent`` kwarg
-        # (used by ``publish_run`` which has the scheduler-resolved
-        # value already). This matches the precedence in
-        # ``task_runner._publish_safely`` (``task.dynamic_agent_id or
-        # task.agent``) and ``routes/tasks.py``'s preflight branch so
-        # every persisted artifact agrees on which agent owns the
-        # thread.
+        # Routing target precedence: dynamic-agent id > supervisor
+        # sub-agent hint > explicit scheduler-resolved agent. This
+        # matches task_runner's publish path so every persisted artifact
+        # agrees on which agent owns the thread.
         if task is not None:
             effective_agent = task.dynamic_agent_id or task.agent
         else:
@@ -790,14 +745,10 @@ class MongoService:
 
         # The UI's routing helpers (``getAgentId`` /
         # ``isDynamicAgentConversation`` in ui/src/types/a2a.ts) read
-        # the agent target exclusively from ``participants`` -- not
-        # from the top-level ``agent_id`` field. Without this list
-        # ``ChatContainer`` falls back to the supervisor when the
-        # operator clicks an autonomous thread to follow up, which
-        # routes their message to CAIPE instead of the custom agent
-        # that produced the autonomous reply. Mirror the shape used
-        # by ``buildParticipants`` so manual and autonomous chats
-        # share one routing path.
+        # the agent target exclusively from ``participants``. Mirror
+        # the UI's manual-chat participant shape so opening an
+        # autonomous thread routes follow-up messages back to the same
+        # supervisor or dynamic agent that produced the run.
         participants: list[dict[str, str]] = [
             {"type": "user", "id": self.settings.chat_history_owner_email},
         ]
@@ -807,12 +758,9 @@ class MongoService:
         await self._conversations().update_one(
             {"_id": conv_id},
             {
-                # ``participants`` lives under ``$set`` on purpose so
-                # legacy autonomous conversations already in Mongo
-                # (written before this fix, with no participants)
-                # self-heal the next time the publisher touches them
-                # -- a re-run, preflight ack, or creation update will
-                # backfill the routing target without a migration.
+                # Keep ``participants`` under ``$set`` so older
+                # autonomous conversations self-heal the next time the
+                # publisher touches them; no separate migration needed.
                 "$set": {
                     "title": effective_title,
                     "agent_id": effective_agent,
@@ -893,14 +841,12 @@ class MongoService:
     async def _purge_task_history(self, task_id: str) -> None:
         """Delete persisted history tied to ``task_id`` so the id can be reused.
 
-        Task ids are intentionally user-chosen and can be reused after a delete.
-        Autonomous chat history, however, uses a deterministic conversation id
-        derived from the task id. If we only delete the task definition, reusing
-        the same id reconnects the new task to the old conversation thread and
-        run history. Purge all Mongo-side artifacts so delete semantics match
-        operator expectations: a deleted task is gone.
+        Task ids are user-chosen and can be reused after delete.
+        Conversation ids are deterministic from task ids, so keeping old
+        run/chat artifacts would attach a replacement task to stale
+        history. Purge Mongo-side artifacts so a deleted task is gone.
         """
-        conv_ids = { _conversation_id_for_task(task_id) }
+        conv_ids = {conversation_id_for_task(task_id)}
 
         cursor = self._conversations().find(
             {"$or": [{"_id": {"$in": list(conv_ids)}}, {"task_id": task_id}]},
@@ -944,10 +890,9 @@ class MongoService:
 # ======================================================================
 # Protocol-implementing adapters
 # ----------------------------------------------------------------------
-# The rest of the codebase (scheduler, routes) depends on three
-# Protocols: TaskStore, RunStore, ChatHistoryPublisher. These adapters
-# wire MongoService into those Protocols so the call sites never need
-# to know whether persistence lives in Mongo or in memory.
+# The rest of the codebase depends on small protocols rather than the
+# concrete MongoService. These adapters wire production to Mongo while
+# leaving tests free to inject protocol-shaped fakes.
 # ======================================================================
 
 
@@ -996,9 +941,9 @@ class MongoRunStoreAdapter:
 class MongoWebexThreadMapAdapter:
     """:class:`WebexThreadMap` facade around :class:`MongoService`.
 
-    Kept as a thin shim so unit tests that only need the in-memory
-    fake (``services.webex_threads.InMemoryWebexThreadMap``) don't
-    have to depend on Mongo at all.
+    Kept as a thin shim so the scheduler and Webex inbound route can
+    depend on the protocol while production persistence stays in
+    :class:`MongoService`.
     """
 
     def __init__(self, mongo: "MongoService") -> None:

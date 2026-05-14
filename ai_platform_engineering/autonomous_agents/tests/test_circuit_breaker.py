@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the supervisor ``CircuitBreaker``.
 
 Pure state-machine tests drive the breaker directly with a fake

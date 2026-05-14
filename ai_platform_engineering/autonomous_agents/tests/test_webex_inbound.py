@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the in-process Webex dispatcher.
 
 The dispatcher decides loopguard / not-thread-reply / no-mapping /

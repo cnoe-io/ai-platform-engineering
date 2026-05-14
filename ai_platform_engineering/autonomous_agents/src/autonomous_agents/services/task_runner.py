@@ -30,7 +30,7 @@ from autonomous_agents.services.a2a_client import invoke_agent_streaming
 from autonomous_agents.services.chat_history import (
     ChatHistoryPublisher,
     NoopChatHistoryPublisher,
-    _conversation_id_for_task,
+    conversation_id_for_task,
 )
 from autonomous_agents.services.dynamic_agents_client import invoke_dynamic_agent_streaming
 from autonomous_agents.services.mongo import RunStore
@@ -295,7 +295,7 @@ async def execute_task(
     # UI can then deep-link from a run row to ``/chat/<id>`` as soon
     # as the run appears, even before the terminal state is recorded.
     # Spec #099 FR-006 / AD-002: one chat thread per task, not per run.
-    conversation_id = _conversation_id_for_task(task.id)
+    conversation_id = conversation_id_for_task(task.id)
     # Materialise the prompt the agent will actually see. For follow-up
     # runs we splice the operator reply into a clearly-labelled section
     # so the LLM treats it as new instructions rather than confusing it

@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``autonomous_agents.routes.tasks``.
 
 Covers CRUD endpoints (via FastAPI ``TestClient``), the run-history

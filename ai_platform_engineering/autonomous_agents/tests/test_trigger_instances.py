@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``services.trigger_instances``.
 
 Covers dedup-key derivation precedence (header > signature > none) and

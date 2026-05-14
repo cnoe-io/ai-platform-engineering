@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the Webex inbound route at ``/api/v1/hooks/webex/events``.
 
 Covers the feature gate (503 when unconfigured / uninitialised),
@@ -16,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -42,10 +40,7 @@ from autonomous_agents.services import webhook_adapters, webhook_runtime
 # ``services.webhook_runtime``. Monkey-patching the route modules
 # would attach a dead attribute -- the actual call paths go through
 # this module's name bindings.
-from autonomous_agents.services.webex_threads import (
-    InMemoryWebexThreadMap,
-    WebexThreadEntry,
-)
+from autonomous_agents.services.webex_threads import WebexThreadEntry
 from autonomous_agents.services.webhook_runtime import (
     register_webhook_task as _register,
 )
@@ -127,6 +122,31 @@ class _FakeRunStore:
         return list(self._runs.get(task_id, []))[:limit]
 
 
+class _FakeWebexThreadMap:
+    def __init__(self) -> None:
+        self._entries: dict[str, WebexThreadEntry] = {}
+
+    def seed(self, entry: WebexThreadEntry) -> None:
+        self._entries[entry.message_id] = entry
+
+    async def record(self, entry: WebexThreadEntry) -> None:
+        stamped = (
+            entry
+            if entry.created_at is not None
+            else WebexThreadEntry(
+                message_id=entry.message_id,
+                task_id=entry.task_id,
+                run_id=entry.run_id,
+                room_id=entry.room_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        self._entries[entry.message_id] = stamped
+
+    async def lookup(self, message_id: str) -> WebexThreadEntry | None:
+        return self._entries.get(message_id)
+
+
 def _make_parent_run(task_id: str, run_id: str) -> TaskRun:
     return TaskRun(
         run_id=run_id,
@@ -172,7 +192,7 @@ def app_and_state(monkeypatch):
     fake_mongo = _FakeMongoService()
     monkeypatch.setattr(webhook_runtime, "get_mongo_service", lambda: fake_mongo)
 
-    fake_thread_map = InMemoryWebexThreadMap()
+    fake_thread_map = _FakeWebexThreadMap()
     monkeypatch.setattr(task_runner_module, "_webex_thread_map", fake_thread_map)
 
     fake_run_store = _FakeRunStore()
@@ -399,11 +419,13 @@ def _seed_forward(state: dict[str, Any]) -> dict[str, Any]:
     task = _make_task("task-abc")
     _register(task)
     state["run_store"].add(_make_parent_run("task-abc", "run-xyz"))
-    state["thread_map"]._entries["msg-task-1"] = WebexThreadEntry(
-        message_id="msg-task-1",
-        task_id="task-abc",
-        run_id="run-xyz",
-        room_id="room-1",
+    state["thread_map"].seed(
+        WebexThreadEntry(
+            message_id="msg-task-1",
+            task_id="task-abc",
+            run_id="run-xyz",
+            room_id="room-1",
+        )
     )
     state["webex"]._messages = {
         "msg-reply-1": {

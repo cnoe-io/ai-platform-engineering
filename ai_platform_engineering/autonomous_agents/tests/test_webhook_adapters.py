@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the YAML-driven webhook provider adapter layer.
 
 Covers loading the bundled ``webhook_providers.yaml``, end-to-end

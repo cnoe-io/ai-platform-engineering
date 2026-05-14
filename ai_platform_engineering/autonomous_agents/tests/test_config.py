@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``Settings`` validation (A2A timeout + CORS safety)."""
 
 import pydantic

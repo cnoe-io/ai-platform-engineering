@@ -1,8 +1,8 @@
 """APScheduler runtime for cron and interval tasks.
 
-Also exposes single-task ``register_task`` / ``unregister_task`` helpers so
-the CRUD endpoints can hot-reload the scheduler without bouncing the
-service.
+Also exposes single-task ``register_scheduler_task`` /
+``unregister_scheduler_task`` helpers so the CRUD endpoints can hot-reload the
+scheduler without bouncing the service.
 """
 
 import logging
@@ -41,7 +41,7 @@ def get_scheduler() -> AsyncIOScheduler:
     return _scheduler
 
 
-def register_task(task: TaskDefinition) -> None:
+def register_scheduler_task(task: TaskDefinition) -> None:
     """Register a single cron / interval task with APScheduler.
 
     Idempotent: ``replace_existing=True`` means re-registering the same
@@ -57,10 +57,10 @@ def register_task(task: TaskDefinition) -> None:
     Copilot+Codex P1).
     """
     if not task.enabled:
-        # ``unregister_task`` is a no-op when no job exists, so this
-        # is safe for tasks that were never scheduled in the first
-        # place (newly-created disabled tasks, webhook tasks, etc.).
-        unregister_task(task.id)
+        # ``unregister_scheduler_task`` is a no-op when no job exists,
+        # so this is safe for tasks that were never scheduled in the
+        # first place (newly-created disabled tasks, webhook tasks, etc.).
+        unregister_scheduler_task(task.id)
         logger.info(f"[{task.id}] Disabled -- not scheduling (any prior job removed)")
         return
 
@@ -70,20 +70,29 @@ def register_task(task: TaskDefinition) -> None:
         # Trigger-type swap from cron/interval -> webhook: detach the
         # old APScheduler job. Same idempotent contract as the
         # disabled-task branch above.
-        unregister_task(task.id)
-        logger.info(f"[{task.id}] Webhook task -- handled by /hooks router, not APScheduler")
+        unregister_scheduler_task(task.id)
+        logger.info(
+            f"[{task.id}] Webhook task -- handled by /hooks router, "
+            "not APScheduler"
+        )
         return
 
     if trigger.type == TriggerType.CRON:
         if not isinstance(trigger, CronTrigger):
-            logger.warning(f"[{task.id}] Expected CronTrigger, got {type(trigger).__name__} -- skipping")
+            logger.warning(
+                f"[{task.id}] Expected CronTrigger, got "
+                f"{type(trigger).__name__} -- skipping"
+            )
             return
         aps_trigger = APSCronTrigger.from_crontab(trigger.schedule, timezone="UTC")
         logger.info(f"[{task.id}] Scheduling cron: {trigger.schedule}")
 
     elif trigger.type == TriggerType.INTERVAL:
         if not isinstance(trigger, IntervalTrigger):
-            logger.warning(f"[{task.id}] Expected IntervalTrigger, got {type(trigger).__name__} -- skipping")
+            logger.warning(
+                f"[{task.id}] Expected IntervalTrigger, got "
+                f"{type(trigger).__name__} -- skipping"
+            )
             return
         aps_trigger = APSIntervalTrigger(
             seconds=trigger.seconds or 0,
@@ -107,7 +116,7 @@ def register_task(task: TaskDefinition) -> None:
     )
 
 
-def unregister_task(task_id: str) -> bool:
+def unregister_scheduler_task(task_id: str) -> bool:
     """Remove ``task_id`` from APScheduler if present.
 
     Returns ``True`` if a job was removed, ``False`` if no such job
@@ -124,16 +133,16 @@ def unregister_task(task_id: str) -> bool:
         return False
 
 
-def register_tasks(tasks: list[TaskDefinition]) -> None:
+def register_scheduler_tasks(tasks: list[TaskDefinition]) -> None:
     """Bulk-register all cron and interval tasks, then start the scheduler.
 
     Called once from the FastAPI lifespan with the task list loaded from MongoDB.
     Subsequent CRUD-driven changes go through
-    :func:`register_task` / :func:`unregister_task` directly so the
-    scheduler is never restarted at runtime.
+    :func:`register_scheduler_task` / :func:`unregister_scheduler_task`
+    directly so the scheduler is never restarted at runtime.
     """
     for task in tasks:
-        register_task(task)
+        register_scheduler_task(task)
 
     scheduler = get_scheduler()
     if not scheduler.running:

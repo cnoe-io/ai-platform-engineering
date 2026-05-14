@@ -61,7 +61,7 @@ def unregister_webhook_task(task_id: str) -> bool:
     """Remove ``task_id`` from the webhook runtime registry if present.
 
     Returns ``True`` if an entry was removed, ``False`` otherwise. Same
-    no-raise contract as :func:`services.scheduler.unregister_task` so
+    no-raise contract as :func:`services.scheduler.unregister_scheduler_task` so
     the CRUD layer can call both unconditionally.
     """
     return _webhook_tasks.pop(task_id, None) is not None

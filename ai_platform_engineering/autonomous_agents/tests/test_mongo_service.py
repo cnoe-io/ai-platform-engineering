@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for :class:`autonomous_agents.services.mongo.MongoService`.
 
 Covers lifecycle, task CRUD, run history, chat-history publishing,
@@ -29,7 +26,7 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.services.chat_history import _conversation_id_for_task
+from autonomous_agents.services.chat_history import conversation_id_for_task
 from autonomous_agents.services.mongo import (
     MongoChatHistoryPublisherAdapter,
     MongoRunStoreAdapter,
@@ -241,7 +238,7 @@ class TestTaskCrud:
             },
         )
 
-        conv_id = _conversation_id_for_task("t1")
+        conv_id = conversation_id_for_task("t1")
         assert await service._runs().count_documents({"task_id": "t1"}) == 1
         assert await service._conversations().count_documents({"_id": conv_id}) == 1
         assert await service._messages().count_documents({"conversation_id": conv_id}) == 2
@@ -368,7 +365,7 @@ class TestChatHistory:
 
     async def test_conversation_id_matches_ui_uuid_shape(self, service: MongoService):
         """Derived conversation id matches the UI's ``validateUUID`` regex."""
-        cid = _conversation_id_for_task(str(uuid.uuid4()))
+        cid = conversation_id_for_task(str(uuid.uuid4()))
         assert _UI_UUID_REGEX.match(cid), f"derived id {cid!r} fails UI UUID regex"
 
     async def test_conversation_document_carries_required_ui_fields(self, service: MongoService):
@@ -463,7 +460,7 @@ class TestChatHistory:
         convs = [doc async for doc in service._conversations().find({})]
         msgs = [doc async for doc in service._messages().find({}).sort("created_at", 1)]
         assert len(convs) == 1
-        assert convs[0]["_id"] == _conversation_id_for_task("form-task")
+        assert convs[0]["_id"] == conversation_id_for_task("form-task")
         kinds = [m["metadata"]["kind"] for m in msgs]
         assert "creation_intent" in kinds
         assert "preflight_ack" in kinds
@@ -525,7 +522,7 @@ class TestConversationParticipants:
         )
         await service.publish_creation_intent(mixed)
         mixed_conv = await service._conversations().find_one(
-            {"_id": _conversation_id_for_task("mixed-task")}
+            {"_id": conversation_id_for_task("mixed-task")}
         )
         assert mixed_conv["agent_id"] == "my_custom_agent"
         assert {"type": "agent", "id": "my_custom_agent"} in mixed_conv["participants"]

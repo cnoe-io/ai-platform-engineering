@@ -1,12 +1,9 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``autonomous_agents.services.scheduler``.
 
 Covers RunStore wiring, the ChatHistoryPublisher fan-out, follow-up
 prompt augmentation and ``parent_run_id`` linking, and the
-``register_task`` / ``unregister_task`` hot-reload helpers. The A2A
-side is mocked everywhere so no live supervisor is required.
+``register_scheduler_task`` / ``unregister_scheduler_task`` hot-reload
+helpers. The A2A side is mocked everywhere so no live supervisor is required.
 """
 
 from __future__ import annotations
@@ -24,12 +21,12 @@ from autonomous_agents.models import (
     TaskStatus,
     WebhookTrigger,
 )
-from autonomous_agents.services.chat_history import _conversation_id_for_task
+from autonomous_agents.services.chat_history import conversation_id_for_task
 from autonomous_agents.services.scheduler import (
     get_scheduler,
-    register_task,
-    register_tasks,
-    unregister_task,
+    register_scheduler_task,
+    register_scheduler_tasks,
+    unregister_scheduler_task,
 )
 from autonomous_agents.services.task_runner import (
     _augment_prompt_for_followup,
@@ -410,7 +407,7 @@ class TestChatHistoryPublisher:
             run = await execute_task(cron_task)
 
         assert run.conversation_id is not None
-        assert run.conversation_id == _conversation_id_for_task(cron_task.id)
+        assert run.conversation_id == conversation_id_for_task(cron_task.id)
         persisted = (await store.list_all())[0]
         assert persisted.conversation_id == run.conversation_id
 
@@ -708,89 +705,89 @@ async def _fresh_scheduler():
 
 
 class TestHotReload:
-    """``register_task`` / ``unregister_task`` keep APScheduler in sync with UI CRUD edits."""
+    """Scheduler helpers keep APScheduler in sync with UI CRUD edits."""
 
     @pytest.mark.asyncio
-    async def test_register_task_adds_cron_job(self, _fresh_scheduler):
+    async def test_register_scheduler_task_adds_cron_job(self, _fresh_scheduler):
         """Cron task lands as an APScheduler job."""
-        register_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/5 * * * *")))
+        register_scheduler_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/5 * * * *")))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["cron-1"]
 
     @pytest.mark.asyncio
-    async def test_register_task_adds_interval_job(self, _fresh_scheduler):
+    async def test_register_scheduler_task_adds_interval_job(self, _fresh_scheduler):
         """Interval task lands as an APScheduler job."""
-        register_task(_job_task("int-1", trigger=IntervalTrigger(seconds=30)))
+        register_scheduler_task(_job_task("int-1", trigger=IntervalTrigger(seconds=30)))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["int-1"]
 
     @pytest.mark.asyncio
-    async def test_register_task_skips_webhook_trigger(self, _fresh_scheduler):
+    async def test_register_scheduler_task_skips_webhook_trigger(self, _fresh_scheduler):
         """Webhook tasks never enter the APScheduler jobstore."""
-        register_task(_job_task("hook-1", trigger=WebhookTrigger()))
+        register_scheduler_task(_job_task("hook-1", trigger=WebhookTrigger()))
 
         assert get_scheduler().get_jobs() == []
 
     @pytest.mark.asyncio
-    async def test_register_task_skips_disabled_task(self, _fresh_scheduler):
+    async def test_register_scheduler_task_skips_disabled_task(self, _fresh_scheduler):
         """Disabled tasks are not scheduled."""
-        register_task(_job_task("dis-1", enabled=False))
+        register_scheduler_task(_job_task("dis-1", enabled=False))
 
         assert get_scheduler().get_jobs() == []
 
     @pytest.mark.asyncio
-    async def test_register_task_is_idempotent_for_same_id(self, _fresh_scheduler):
+    async def test_register_scheduler_task_is_idempotent_for_same_id(self, _fresh_scheduler):
         """Re-registering the same id swaps the job atomically."""
-        register_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
-        register_task(_job_task("t1", trigger=CronTrigger(schedule="0 18 * * *")))
+        register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
+        register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 18 * * *")))
 
         jobs = get_scheduler().get_jobs()
         assert len(jobs) == 1
         assert jobs[0].id == "t1"
 
     @pytest.mark.asyncio
-    async def test_register_task_replaces_trigger_on_re_register(self, _fresh_scheduler):
+    async def test_register_scheduler_task_replaces_trigger_on_re_register(self, _fresh_scheduler):
         """Re-registering swaps the underlying trigger spec."""
-        register_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
+        register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
         first_trigger = get_scheduler().get_job("t1").trigger
 
-        register_task(_job_task("t1", trigger=IntervalTrigger(minutes=15)))
+        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(minutes=15)))
         second_trigger = get_scheduler().get_job("t1").trigger
 
         assert type(first_trigger).__name__ == "CronTrigger"
         assert type(second_trigger).__name__ == "IntervalTrigger"
 
     @pytest.mark.asyncio
-    async def test_unregister_task_removes_existing_job(self, _fresh_scheduler):
-        """``unregister_task`` removes the matching APScheduler job."""
-        register_task(_job_task("t1"))
+    async def test_unregister_scheduler_task_removes_existing_job(self, _fresh_scheduler):
+        """``unregister_scheduler_task`` removes the matching APScheduler job."""
+        register_scheduler_task(_job_task("t1"))
 
-        removed = unregister_task("t1")
+        removed = unregister_scheduler_task("t1")
 
         assert removed is True
         assert get_scheduler().get_jobs() == []
 
     @pytest.mark.asyncio
-    async def test_unregister_task_returns_false_for_unknown_id(self, _fresh_scheduler):
+    async def test_unregister_scheduler_task_returns_false_for_unknown_id(self, _fresh_scheduler):
         """Unknown id returns False; never raises."""
-        assert unregister_task("ghost") is False
+        assert unregister_scheduler_task("ghost") is False
 
     @pytest.mark.asyncio
     async def test_unregister_then_register_round_trip(self, _fresh_scheduler):
         """Delete-then-create lands a single fresh job."""
-        register_task(_job_task("t1"))
-        assert unregister_task("t1") is True
+        register_scheduler_task(_job_task("t1"))
+        assert unregister_scheduler_task("t1") is True
 
-        register_task(_job_task("t1", trigger=IntervalTrigger(hours=1)))
+        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(hours=1)))
 
         jobs = get_scheduler().get_jobs()
         assert len(jobs) == 1
         assert jobs[0].id == "t1"
 
     @pytest.mark.asyncio
-    async def test_register_tasks_bulk_keeps_scheduler_running(self, _fresh_scheduler):
+    async def test_register_scheduler_tasks_bulk_keeps_scheduler_running(self, _fresh_scheduler):
         """Bulk register adds every cron/interval entry and leaves the scheduler running."""
         tasks = [
             _job_task("cron-1", trigger=CronTrigger(schedule="0 * * * *")),
@@ -799,37 +796,37 @@ class TestHotReload:
             _job_task("dis-1", enabled=False),
         ]
 
-        register_tasks(tasks)
+        register_scheduler_tasks(tasks)
 
         scheduler = get_scheduler()
         assert {j.id for j in scheduler.get_jobs()} == {"cron-1", "int-1"}
         assert scheduler.running is True
 
     @pytest.mark.asyncio
-    async def test_register_task_detaches_existing_job_when_disabled(self, _fresh_scheduler):
+    async def test_register_scheduler_task_detaches_existing_job_when_disabled(self, _fresh_scheduler):
         """Re-registering with ``enabled=False`` actively pulls the prior job."""
-        register_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
+        register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
         assert get_scheduler().get_job("t1") is not None
 
-        register_task(_job_task("t1", enabled=False, trigger=CronTrigger(schedule="0 9 * * *")))
+        register_scheduler_task(_job_task("t1", enabled=False, trigger=CronTrigger(schedule="0 9 * * *")))
 
         assert get_scheduler().get_job("t1") is None
 
     @pytest.mark.asyncio
-    async def test_register_task_swap_to_webhook_detaches_prior_cron_job(self, _fresh_scheduler):
+    async def test_register_scheduler_task_swap_to_webhook_detaches_prior_cron_job(self, _fresh_scheduler):
         """Cron => webhook swap on the same id clears the APScheduler entry."""
-        register_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
+        register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
         assert get_scheduler().get_job("t1") is not None
 
-        register_task(_job_task("t1", trigger=WebhookTrigger()))
+        register_scheduler_task(_job_task("t1", trigger=WebhookTrigger()))
 
         assert get_scheduler().get_job("t1") is None
 
     @pytest.mark.asyncio
-    async def test_register_tasks_does_not_double_start_running_scheduler(self, _fresh_scheduler):
+    async def test_register_scheduler_tasks_does_not_double_start_running_scheduler(self, _fresh_scheduler):
         """A second bulk-register call must not crash the running scheduler."""
-        register_tasks([_job_task("t1")])
-        register_tasks([_job_task("t1"), _job_task("t2")])
+        register_scheduler_tasks([_job_task("t1")])
+        register_scheduler_tasks([_job_task("t1"), _job_task("t2")])
 
         scheduler = get_scheduler()
         assert {j.id for j in scheduler.get_jobs()} == {"t1", "t2"}

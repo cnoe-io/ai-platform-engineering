@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``services.dynamic_agents_client``.
 
 Covers ``invoke_dynamic_agent`` (sync), ``preflight_dynamic_agent``,

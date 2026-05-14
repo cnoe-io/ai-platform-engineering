@@ -26,7 +26,7 @@ from autonomous_agents.services.mongo import (
 )
 from autonomous_agents.services.scheduler import (
     get_scheduler,
-    register_tasks,
+    register_scheduler_tasks,
 )
 from autonomous_agents.services.task_lifecycle import set_task_store
 from autonomous_agents.services.task_runner import (
@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI):
     runtime_tasks = await task_store.list_all()
     logger.info("Loaded %d persisted task(s) from MongoDB", len(runtime_tasks))
     register_webhook_tasks(runtime_tasks)
-    register_tasks(runtime_tasks)
+    register_scheduler_tasks(runtime_tasks)
 
     # ------------------------------------------------------------------
     # Webex inbound: register the Webex webhook + initialise the client.

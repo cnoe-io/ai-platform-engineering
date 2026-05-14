@@ -204,7 +204,7 @@ class TaskDefinition(BaseModel):
     def _reconcile_agent_routing(self) -> "TaskDefinition":
         """Keep task routing pointed at one execution backend.
 
-        If data carries both ``agent`` and ``dynamic_agent_id``, drop the 
+        If data carries both ``agent`` and ``dynamic_agent_id``, drop the
         supervisor hint and prioritize the ``dynamic_agent_id``.
         """
         if self.dynamic_agent_id and self.agent:

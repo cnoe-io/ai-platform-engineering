@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the Webex thread map and the scheduler post-run hook.
 
 The thread map is the seam that lets a later in-thread Webex reply
@@ -9,6 +6,7 @@ be routed back to the autonomous task that produced ``messageId``.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,10 +23,31 @@ from autonomous_agents.services.task_runner import (
     set_webex_thread_map,
 )
 from autonomous_agents.services.webex_threads import (
-    InMemoryWebexThreadMap,
     WebexThreadEntry,
     extract_webex_message_ids,
 )
+
+
+class _FakeWebexThreadMap:
+    def __init__(self) -> None:
+        self._entries: dict[str, WebexThreadEntry] = {}
+
+    async def record(self, entry: WebexThreadEntry) -> None:
+        stamped = (
+            entry
+            if entry.created_at is not None
+            else WebexThreadEntry(
+                message_id=entry.message_id,
+                task_id=entry.task_id,
+                run_id=entry.run_id,
+                room_id=entry.room_id,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        self._entries[entry.message_id] = stamped
+
+    async def lookup(self, message_id: str) -> WebexThreadEntry | None:
+        return self._entries.get(message_id)
 
 
 class _DictRunStore:
@@ -73,8 +92,8 @@ def store() -> _DictRunStore:
 
 
 @pytest.fixture
-def thread_map() -> InMemoryWebexThreadMap:
-    m = InMemoryWebexThreadMap()
+def thread_map() -> _FakeWebexThreadMap:
+    m = _FakeWebexThreadMap()
     set_webex_thread_map(m)
     return m
 
@@ -210,54 +229,13 @@ class TestExtractWebexMessageIds:
         assert extract_webex_message_ids(events) == []  # type: ignore[arg-type]
 
 
-class TestInMemoryWebexThreadMap:
-    """In-memory thread-map round-trip and upsert behaviour."""
-
-    async def test_in_memory_thread_map_round_trips_entry(self):
-        """Recorded entries come back via ``lookup`` with default ``created_at``."""
-        m = InMemoryWebexThreadMap()
-        await m.record(
-            WebexThreadEntry(
-                message_id="MSG_42",
-                task_id="wh-1",
-                run_id="r-1",
-                room_id="ROOM_X",
-            )
-        )
-        found = await m.lookup("MSG_42")
-        assert found is not None
-        assert found.message_id == "MSG_42"
-        assert found.task_id == "wh-1"
-        assert found.run_id == "r-1"
-        assert found.room_id == "ROOM_X"
-        assert found.created_at is not None
-
-    async def test_in_memory_thread_map_returns_none_for_unknown_id(self):
-        """Unknown message ids resolve to ``None``."""
-        m = InMemoryWebexThreadMap()
-        assert await m.lookup("nope") is None
-
-    async def test_in_memory_thread_map_upserts_by_message_id(self):
-        """Re-recording the same messageId overwrites (latest run wins)."""
-        m = InMemoryWebexThreadMap()
-        await m.record(
-            WebexThreadEntry(message_id="MSG_42", task_id="wh-1", run_id="r-old")
-        )
-        await m.record(
-            WebexThreadEntry(message_id="MSG_42", task_id="wh-1", run_id="r-new")
-        )
-        found = await m.lookup("MSG_42")
-        assert found is not None
-        assert found.run_id == "r-new"
-
-
 class TestSchedulerPostRunHook:
     """``execute_task`` records thread entries only on SUCCESS."""
 
     async def test_execute_task_records_thread_entries_on_success(
         self,
         store: _DictRunStore,
-        thread_map: InMemoryWebexThreadMap,
+        thread_map: _FakeWebexThreadMap,
         webhook_task: TaskDefinition,
     ):
         """Successful runs persist ``(messageId, roomId)`` pairs in the thread map."""
@@ -278,7 +256,7 @@ class TestSchedulerPostRunHook:
     async def test_execute_task_records_nothing_when_no_post_message(
         self,
         store: _DictRunStore,
-        thread_map: InMemoryWebexThreadMap,
+        thread_map: _FakeWebexThreadMap,
         webhook_task: TaskDefinition,
     ):
         """A run that never calls Webex leaves the thread map untouched."""
@@ -293,7 +271,7 @@ class TestSchedulerPostRunHook:
     async def test_execute_task_skips_thread_map_on_failure(
         self,
         store: _DictRunStore,
-        thread_map: InMemoryWebexThreadMap,
+        thread_map: _FakeWebexThreadMap,
         webhook_task: TaskDefinition,
     ):
         """FAILED runs must not record any thread entries."""

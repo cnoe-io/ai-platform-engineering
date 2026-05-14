@@ -16,8 +16,8 @@ updated / deleted" orchestration that used to live mixed into
   pipeline -- a distinct lifecycle stage.
 
 The contract between this module and the routes module is the public
-``get_task_store`` / ``set_task_store`` accessors plus the lifecycle
-helpers imported by the route handlers.
+``get_task_store`` / ``set_task_store`` accessors plus the public
+lifecycle helpers imported by the route handlers.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ from autonomous_agents.services.mongo import (
 )
 from autonomous_agents.services.scheduler import (
     get_scheduler,
-    register_task,
-    unregister_task,
+    register_scheduler_task,
+    unregister_scheduler_task,
 )
 from autonomous_agents.services.supervisor_preflight import preflight
 from autonomous_agents.services.task_runner import get_chat_history_publisher
@@ -77,7 +77,7 @@ def set_task_store(store: TaskStore) -> None:
     _task_store = store
 
 
-async def _sync_task_to_runtime(task: TaskDefinition) -> None:
+async def sync_task_to_runtime(task: TaskDefinition) -> None:
     """Reflect a stored task into the live scheduler + webhook runtime.
 
     The CRUD handlers are the only place that should be calling the
@@ -87,20 +87,20 @@ async def _sync_task_to_runtime(task: TaskDefinition) -> None:
     types, so calling them unconditionally is safe and keeps
     enable/disable toggles from leaving stale entries behind.
     """
-    register_task(task)
+    register_scheduler_task(task)
     register_webhook_task(task)
 
 
-def _detach_task_from_runtime(task_id: str) -> None:
+def detach_task_from_runtime(task_id: str) -> None:
     """Drop a task from both the scheduler and webhook runtime.
 
-    Mirrors :func:`_sync_task_to_runtime` for the delete path. Both
+    Mirrors :func:`sync_task_to_runtime` for the delete path. Both
     underlying helpers return a bool rather than raising on
     ``not found``, so this is safe to call for a webhook-only or
     disabled task whose id was never registered with one or the
     other side.
     """
-    unregister_task(task_id)
+    unregister_scheduler_task(task_id)
     unregister_webhook_task(task_id)
 
 
@@ -108,7 +108,7 @@ def _detach_task_from_runtime(task_id: str) -> None:
 # Pre-flight orchestration (spec #099, FR-001..005)
 # ---------------------------------------------------------------------------
 
-def _ack_relevant_changed(old: TaskDefinition | None, new: TaskDefinition) -> bool:
+def ack_relevant_changed(old: TaskDefinition | None, new: TaskDefinition) -> bool:
     """Return True if a re-ack is warranted for a task update.
 
     Re-ack on prompt / agent / dynamic_agent_id / llm_provider changes —
@@ -195,7 +195,7 @@ async def _run_preflight_and_persist(task_id: str) -> None:
     await _safe_publish_preflight_ack(refreshed_with_ack, ack)
 
 
-def _schedule_preflight(task_id: str) -> None:
+def schedule_preflight(task_id: str) -> None:
     """Fire-and-forget the background preflight coroutine.
 
     Wrapped here (instead of inline ``asyncio.create_task``) so the
@@ -215,7 +215,7 @@ def _schedule_preflight(task_id: str) -> None:
 # preflight_ack messages on the per-task chat thread)
 # ---------------------------------------------------------------------------
 
-async def _safe_publish_creation_intent(task: TaskDefinition) -> None:
+async def publish_creation_intent_safely(task: TaskDefinition) -> None:
     """Best-effort publish of the creation_intent message. Never raises."""
     try:
         await get_chat_history_publisher().publish_creation_intent(task)
@@ -235,7 +235,7 @@ async def _safe_publish_preflight_ack(task: TaskDefinition, ack: Acknowledgement
         logger.exception("[%s] publish_preflight_ack failed", task.id)
 
 
-def _next_run_iso_for(task_id: str) -> str | None:
+def next_run_iso_for(task_id: str) -> str | None:
     """Look up the next scheduled fire time for ``task_id``.
 
     Returns ``None`` for webhook-only / disabled / unknown tasks so the

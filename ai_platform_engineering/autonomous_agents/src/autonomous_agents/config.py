@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Server
@@ -118,7 +119,11 @@ class Settings(BaseSettings):
     # parsed list via the ``cors_origins`` property (same name as before).
     cors_origins_raw: str = Field(
         default="",
-        validation_alias=AliasChoices("CORS_ORIGINS", "AUTONOMOUS_CORS_ORIGINS"),
+        validation_alias=AliasChoices(
+            "cors_origins_raw",
+            "CORS_ORIGINS",
+            "AUTONOMOUS_CORS_ORIGINS",
+        ),
     )
     _cors_origins: list[str] = PrivateAttr(default_factory=list)
 

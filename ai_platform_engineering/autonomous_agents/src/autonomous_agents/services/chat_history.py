@@ -76,7 +76,7 @@ MessageKind = Literal[
 ]
 
 
-def _conversation_id_for_task(task_id: str) -> str:
+def conversation_id_for_task(task_id: str) -> str:
     """Derive a stable UUIDv4-shaped conversation id from ``task_id``.
 
     Spec #099 FR-006 / AD-002. Every autonomous task owns exactly one
@@ -94,11 +94,11 @@ def _conversation_id_for_task(task_id: str) -> str:
 
 
 def _conversation_id_for_run(run_id: str) -> str:
-    """Deprecated per-run conversation id; prefer :func:`_conversation_id_for_task`.
+    """Deprecated per-run conversation id; prefer :func:`conversation_id_for_task`.
 
     Retained for backwards compatibility with integration harnesses
     that were built against the pre-spec-#099 per-run namespace. New
-    callers MUST use :func:`_conversation_id_for_task` so the
+    callers MUST use :func:`conversation_id_for_task` so the
     conversation, checkpointer, and run history all share a key.
     """
     return str(uuid.uuid5(_AUTONOMOUS_NS, run_id))

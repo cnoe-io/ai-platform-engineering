@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for the ``/hooks/{task_id}`` and ``/hooks/{task_id}/follow-up`` routers.
 
 Covers per-task secret precedence with the global ``WEBHOOK_SECRET``

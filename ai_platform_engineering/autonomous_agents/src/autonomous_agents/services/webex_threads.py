@@ -19,9 +19,8 @@ The map is intentionally narrow:
 
 This module deliberately ships its own :class:`WebexThreadMap`
 ``Protocol`` rather than reusing :class:`RunStore` -- the contract is
-fundamentally different (random-key lookup vs append-by-task) and we
-want unit tests to be able to inject an in-memory fake without
-dragging Mongo into the loop.
+fundamentally different (random-key lookup vs append-by-task). Tests can
+inject protocol-shaped fakes without dragging Mongo into the loop.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Iterable, Protocol, runtime_checkable
 
 logger = logging.getLogger("autonomous_agents")
@@ -141,43 +140,3 @@ def extract_webex_message_ids(
                 )
 
     return list(seen.items())
-
-
-# ---------------------------------------------------------------------------
-# In-memory implementation -- used by tests + as a graceful fallback
-# ---------------------------------------------------------------------------
-
-
-class InMemoryWebexThreadMap:
-    """Small dict-backed thread map -- handy for unit tests.
-
-    Production deployments wire :class:`MongoWebexThreadMapAdapter`
-    instead. Kept here (not in tests/) so the scheduler can ship a
-    no-op fallback when MongoDB doesn't yet have the thread-map
-    collection materialised, without dragging mongomock into the
-    runtime path.
-    """
-
-    def __init__(self) -> None:
-        self._entries: dict[str, WebexThreadEntry] = {}
-
-    async def record(self, entry: WebexThreadEntry) -> None:
-        # Upsert: a follow-up that posts another message in the same
-        # thread legitimately re-records the same messageId -> run_id
-        # mapping; later writes win so lookup returns the most recent
-        # run that touched the thread.
-        stamped = (
-            entry
-            if entry.created_at is not None
-            else WebexThreadEntry(
-                message_id=entry.message_id,
-                task_id=entry.task_id,
-                run_id=entry.run_id,
-                room_id=entry.room_id,
-                created_at=datetime.now(timezone.utc),
-            )
-        )
-        self._entries[entry.message_id] = stamped
-
-    async def lookup(self, message_id: str) -> WebexThreadEntry | None:
-        return self._entries.get(message_id)

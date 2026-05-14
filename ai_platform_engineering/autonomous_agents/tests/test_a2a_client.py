@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``services.a2a_client``.
 
 Covers retry-vs-trip classification (``_is_retryable_exception``), the

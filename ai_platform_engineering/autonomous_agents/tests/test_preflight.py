@@ -1,6 +1,3 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
 """Tests for ``services.supervisor_preflight``.
 
 Pre-flight is the no-raise contract: every failure mode the network or
