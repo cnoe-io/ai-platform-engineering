@@ -71,6 +71,8 @@ jobs:
           NEW_VERSION="$NEW_VERSION" node scripts/snapshot-and-prune-versions.js
 
       - name: Validate Docusaurus build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           cd docs
           npm run build
