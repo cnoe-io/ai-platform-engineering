@@ -85,11 +85,16 @@ export interface Config {
   sourceUrl: string | null;
   /**
    * Whether the dedicated workflow runner is enabled.
-   * When false (default), the "Run Workflow" button and the Multi-Step Workflows
-   * card section are hidden; "Run in Chat" remains fully functional.
+    * When false (default), multi-step skills display as "Skill" badges instead of
+   * showing step counts. This controls workflow-related hints in the Skills Gallery only.
    * Set WORKFLOW_RUNNER_ENABLED=true to enable.
    */
   workflowRunnerEnabled: boolean;
+  /**
+   * Whether the Workflows tab is shown in the top navigation.
+   * Set WORKFLOWS_ENABLED=true to enable.
+   */
+  workflowsEnabled: boolean;
   /**
    * Whether the admin Feedback tab and feedback API are enabled.
    * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
@@ -217,6 +222,7 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
+  workflowsEnabled: false,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
   npsEnabled: false,
@@ -316,6 +322,7 @@ export function getServerConfig(): Config {
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
+  const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   // Default `false` (locked). Must mirror the server-side check in
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
@@ -373,6 +380,7 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
+    workflowsEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
     npsEnabled,

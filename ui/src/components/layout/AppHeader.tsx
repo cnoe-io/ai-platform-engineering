@@ -333,6 +333,8 @@ export function AppHeader() {
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
           </GuardedLink>
+          {/* Workflows tab - only show if workflows are enabled */}
+          {config.workflowsEnabled && (
           <GuardedLink
             href="/workflows"
             prefetch={true}
@@ -346,6 +348,7 @@ export function AppHeader() {
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Workflows
           </GuardedLink>
+          )}
           {/* Knowledge Bases tab - only show if RAG is enabled */}
           {ragEnabled && (
             <GuardedLink
