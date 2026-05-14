@@ -11,6 +11,7 @@ constraints = [
     { name = "langchain-core", specifier = ">=1.2.22" },
     { name = "langgraph", specifier = ">=1.0.10" },
     { name = "langgraph-checkpoint", specifier = ">=4.0.0" },
+    { name = "mcp", specifier = ">=1.23.0" },
     { name = "nltk", specifier = "==3.9.4" },
     { name = "pypdf", specifier = "==6.10.2" },
     { name = "starlette", specifier = "==0.50.0" },

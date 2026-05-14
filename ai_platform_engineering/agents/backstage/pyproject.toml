@@ -31,7 +31,7 @@ dependencies = [
     "httpx==0.28.1",
     "httpx-sse==0.4.3",
     "python-dotenv==1.2.2",
-    "cnoe-agent-utils==0.3.14",
+    "cnoe-agent-utils==0.4.0",
     "langchain==1.2.15",
     "pydantic==2.12.5",
     "fastmcp==3.2.3",
