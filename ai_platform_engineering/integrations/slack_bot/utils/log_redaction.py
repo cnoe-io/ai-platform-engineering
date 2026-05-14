@@ -66,7 +66,7 @@ _SLACK_REQUEST_KEYS: tuple[str, ...] = (
 # is rendered as a single string before being passed to ``logger.warning``).
 _BEARER_RE = re.compile(r"(Bearer\s+)([A-Za-z0-9._\-]{8,})", re.IGNORECASE)
 _JWT_RE = re.compile(r"\b(eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})\b")
-# 'token': 'NMmNJS8jKIYqx0YMAEH7hnxI'  or  "token": "..."
+# Inline key/value examples use either single or double quotes.
 _QUOTED_KV_RE = re.compile(
     r"""(['"])(?P<key>token|client_secret|access_token|refresh_token|id_token|"""
     r"""password|secret|api_key|signing_secret|event_context)\1"""
@@ -85,8 +85,8 @@ def mask_value(value: Any) -> str:
     """Return a redacted representation of *value* preserving a short prefix/suffix.
 
     Examples:
-        >>> mask_value("NMmNJS8jKIYqx0YMAEH7hnxI")
-        'NMmN…hnxI(24)'
+        >>> mask_value("redaction-sample-value")
+        'reda…alue(22)'
         >>> mask_value("xoxb-abc")
         '****(8)'
         >>> mask_value(None)

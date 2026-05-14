@@ -642,16 +642,25 @@ export async function requireRbacPermission(
 export function handleApiError(error: unknown): NextResponse {
   console.error('API Error:', error);
 
-  if (error instanceof ApiError) {
+  if (
+    error instanceof ApiError ||
+    (
+      error !== null &&
+      typeof error === 'object' &&
+      typeof (error as { statusCode?: unknown }).statusCode === 'number' &&
+      typeof (error as { message?: unknown }).message === 'string'
+    )
+  ) {
+    const apiError = error as ApiError;
     return NextResponse.json(
       {
         success: false,
-        error: error.message,
-        code: error.code,
-        reason: error.reason,
-        action: error.action,
+        error: apiError.message,
+        code: apiError.code,
+        reason: apiError.reason,
+        action: apiError.action,
       },
-      { status: error.statusCode }
+      { status: apiError.statusCode }
     );
   }
 

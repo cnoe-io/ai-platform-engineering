@@ -21,7 +21,7 @@ dependencies = [
     # JWKS-based JWT validation in dynamic_agents.auth.jwks_validate
     # (vendored from ai_platform_engineering.utils.auth so the DA image
     # does not need to install the entire shared package).
-    "pyjwt[crypto]>=2.10",
+    "pyjwt[crypto]==2.12.0",
 ]
 
 [project.optional-dependencies]

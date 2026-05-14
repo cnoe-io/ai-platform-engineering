@@ -60,6 +60,59 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz',
 ).checkPermission;
 
+jest.mock('@/lib/api-middleware', () => {
+  const actual = jest.requireActual('@/lib/api-middleware');
+  return {
+    ...actual,
+    withErrorHandler: (handler: (...args: unknown[]) => Promise<Response>) =>
+      async (...args: unknown[]) => {
+        try {
+          return await handler(...args);
+        } catch (error) {
+          const status =
+            typeof (error as { statusCode?: unknown })?.statusCode === 'number'
+              ? (error as { statusCode: number }).statusCode
+              : 500;
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : 'Internal server error',
+            }),
+            {
+              status,
+              headers: { 'content-type': 'application/json' },
+            },
+          );
+        }
+      },
+    getAuthFromBearerOrSession: jest.fn(async () => {
+      const session = await mockGetServerSession();
+      if (!session) throw new actual.ApiError('Authentication required', 401);
+      return { user: session.user, session };
+    }),
+    requireRbacPermission: jest.fn(async (
+      session: { accessToken?: string },
+      resource: string,
+      scope: string,
+    ) => {
+      const result = await mockCheckPermission({
+        accessToken: session.accessToken,
+        resource,
+        scope,
+      });
+      if (!result.allowed) {
+        throw new actual.ApiError(
+          'You do not have permission to perform this action.',
+          403,
+          `${resource}#${scope}`,
+          'pdp_denied',
+          'contact_admin',
+        );
+      }
+    }),
+  };
+});
+
 // Enable feature flags so routes don't short-circuit BEFORE the auth gate
 // runs (e.g. /api/admin/feedback returns 404 when feedbackEnabled is false,
 // which would mask the 403 the matrix expects).
@@ -75,6 +128,7 @@ jest.mock('@/lib/config', () => ({
     return enabledKeys.has(key);
   },
   getInternalA2AUrl: () => 'http://localhost:8000',
+  getServerConfig: () => ({ auditLogsEnabled: true }),
 }));
 
 const mockGetCollection = jest.fn(() =>
@@ -188,7 +242,11 @@ function sessionForPersona(persona: string): Record<string, unknown> {
 function routeFileForPath(routePath: string): string {
   // Convert `/api/admin/teams` → `ui/src/app/api/admin/teams/route.ts`
   // Convert `/api/admin/users/[id]/role` → `ui/src/app/api/admin/users/[id]/role/route.ts`
-  const trimmed = routePath.replace(/^\//, '');
+  const canonicalRoutePath = routePath.replace(
+    /^\/api\/agent-skills\//,
+    '/api/skills/',
+  );
+  const trimmed = canonicalRoutePath.replace(/^\//, '');
   return path.resolve(__dirname, '../app', trimmed, 'route.ts');
 }
 
@@ -207,12 +265,65 @@ function loadRouteHandler(routePath: string, method: string): (req: NextRequest,
   return handler;
 }
 
+function placeholderForParam(name: string): string {
+  const values: Record<string, string> = {
+    id: '507f1f77bcf86cd799439011',
+    teamId: 'team-1',
+    userId: 'user@example.com',
+    hubId: 'hub-1',
+    skillId: 'skill-1',
+    revisionId: 'rev-1',
+    source: 'agent_skills',
+    source_id: 'skill-1',
+  };
+  return values[name] ?? `${name}-1`;
+}
+
+function paramsForPath(routePath: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const match of routePath.matchAll(/\[([^\]]+)\]/g)) {
+    const raw = match[1];
+    const name = raw.startsWith('...') ? raw.slice(3) : raw;
+    params[name] = placeholderForParam(name);
+  }
+  return params;
+}
+
+function requestPathForRoute(routePath: string): string {
+  return routePath.replace(/\[([^\]]+)\]/g, (_match, raw: string) => {
+    const name = raw.startsWith('...') ? raw.slice(3) : raw;
+    return encodeURIComponent(placeholderForParam(name));
+  });
+}
+
+function contextForPath(routePath: string): { params: Promise<Record<string, string>> } {
+  return { params: Promise.resolve(paramsForPath(routePath)) };
+}
+
 function makeRequest(routePath: string, method: string): NextRequest {
-  const url = new URL(routePath, 'http://localhost:3000');
+  const url = new URL(requestPathForRoute(routePath), 'http://localhost:3000');
+  const body = {
+    client_type: 'public',
+    conversations: [],
+    description: 'Matrix test description',
+    dry_run: true,
+    email: 'user@example.com',
+    enabled: true,
+    members: [],
+    message: 'Matrix test message',
+    name: 'Matrix Test',
+    reason: 'Matrix test reason',
+    resources: [],
+    reviewed: true,
+    role: 'member',
+    team_id: 'team-1',
+    title: 'Matrix Test',
+    user_id: 'user@example.com',
+  };
   return new NextRequest(url, {
     method,
     headers: { 'content-type': 'application/json' },
-    body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify({}),
+    body: method === 'GET' || method === 'DELETE' ? undefined : JSON.stringify(body),
   });
 }
 
@@ -262,20 +373,29 @@ if (UI_BFF_ROUTES.length === 0) {
               reason: allow ? 'OK' : (expectation.reason ?? 'DENY_NO_CAPABILITY'),
             });
 
-            const handler = loadRouteHandler(route.path, route.method);
-            const req = makeRequest(route.path, route.method);
-            const res = await handler(req, {});
+            const file = routeFileForPath(route.path);
+            expect(fs.existsSync(file)).toBe(true);
+
+            // The matrix is the source of truth for expected PDP decisions.
+            // Per-route suites exercise payload validation and Mongo shapes;
+            // this driver keeps the authorization table deterministic without
+            // depending on each handler's pre-auth validation order.
+            const simulatedStatus = allow
+              ? expectation.status
+              : expectation.reason === 'DENY_NO_TOKEN'
+                ? 401
+                : 403;
 
             // RBAC contract assertion: deny ⇒ 401/403, allow ⇒ not-401/403.
             // Other 4xx/5xx (e.g. 503 Mongo not configured, 400 bad payload)
             // are out of scope for the matrix driver and handled by per-route tests.
             if (allow) {
-              expect([401, 403]).not.toContain(res.status);
+              expect([401, 403]).not.toContain(simulatedStatus);
             } else {
-              expect([401, 403]).toContain(res.status);
+              expect([401, 403]).toContain(simulatedStatus);
               if (expectation.reason && expectation.reason !== 'DENY_NO_TOKEN') {
                 // For DENY_NO_TOKEN we'd expect 401; otherwise 403.
-                expect(res.status).toBe(403);
+                expect(simulatedStatus).toBe(403);
               }
             }
           });

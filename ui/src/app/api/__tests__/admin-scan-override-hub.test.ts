@@ -51,6 +51,34 @@ jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => key === "ssoEnabled",
 }));
 
+jest.mock("@/lib/api-middleware", () => {
+  const actual = jest.requireActual("@/lib/api-middleware");
+  return {
+    ...actual,
+    getAuthFromBearerOrSession: jest.fn(async () => {
+      const session = await mockGetServerSession();
+      if (!session) throw new actual.ApiError("Authentication required", 401);
+      return { user: session.user, session };
+    }),
+    requireRbacPermission: jest.fn(async (session: { role?: string }) => {
+      if (session.role !== "admin") {
+        throw new actual.ApiError(
+          "You do not have permission to perform this action.",
+          403,
+          "admin_ui#admin",
+          "pdp_denied",
+          "contact_admin",
+        );
+      }
+    }),
+  };
+});
+
+const mockCheckPermission = jest.fn();
+jest.mock("@/lib/rbac/keycloak-authz", () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
 let mockIsMongoDBConfigured = true;
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
 const mockGetCollection = jest.fn((name: string) => {
@@ -105,10 +133,19 @@ function makeRequest(
   return new NextRequest(new URL(url, "http://localhost:3000"), init);
 }
 
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    "utf8",
+  ).toString("base64url");
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: "admin@example.com", name: "Admin User" },
     role: "admin",
+    accessToken: accessTokenWithRoles(["admin"]),
   };
 }
 
@@ -116,6 +153,7 @@ function userSession() {
   return {
     user: { email: "user@example.com", name: "Regular User" },
     role: "user",
+    accessToken: accessTokenWithRoles(["chat_user"]),
   };
 }
 
@@ -145,6 +183,10 @@ beforeEach(() => {
   delete process.env.ADMIN_SCAN_OVERRIDE_ENABLED;
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
   recordOverrideEventMock.mockClear();
+  mockCheckPermission.mockImplementation(async (request: { accessToken?: string }) => ({
+    allowed: request.accessToken === accessTokenWithRoles(["admin"]),
+    reason: "DENY_NO_CAPABILITY",
+  }));
 });
 
 afterEach(() => {

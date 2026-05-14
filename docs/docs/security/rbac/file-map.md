@@ -42,7 +42,7 @@ When you need to change something in the auth path, this table tells you which f
 | Slack-bot email masking helper (privacy-safe log redaction, spec 103 FR-010) | `ai_platform_engineering/integrations/slack_bot/utils/email_masking.py` |
 | JIT feature flags (`SLACK_JIT_CREATE_USER`, `SLACK_JIT_ALLOWED_EMAIL_DOMAINS`) — Helm | `charts/ai-platform-engineering/charts/slack-bot/values.yaml` (under `config:`) |
 | JIT feature flags — Docker Compose (dev + prod) | `docker-compose.dev.yaml` and `docker-compose.yaml` (slack-bot service env) |
-| Keycloak realm-management role pinning for `service-account-caipe-platform` ({view-users, query-users, manage-users}) — Helm runtime drift correction | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` (`_ensure_caipe_platform_user_roles` block) |
+| Keycloak realm-management role pinning for `service-account-caipe-platform` (`view-users`, `query-users`, `manage-users`) — Helm runtime drift correction | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` (`_ensure_caipe_platform_user_roles` block) |
 | Keycloak realm-management role pinning — declarative source of truth | `charts/ai-platform-engineering/charts/keycloak/realm-config.json` and `deploy/keycloak/realm-config.json` (`clientRoles.realm-management` for `service-account-caipe-platform`) |
 | Slack account linking UI callback | `ui/src/app/api/auth/slack-link/route.ts` |
 | Slack channel → team routing + ReBAC-gated agent dispatch | `ai_platform_engineering/integrations/slack_bot/utils/channel_team_mapper.py`, `ai_platform_engineering/integrations/slack_bot/utils/slack_rebac.py`, `ai_platform_engineering/integrations/slack_bot/app.py` |

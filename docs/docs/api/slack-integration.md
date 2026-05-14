@@ -34,7 +34,7 @@ Returns a **paginated** list of Slack users merged from Keycloak (`slack_user_id
   "data": {
     "items": [
       {
-        "keycloak_user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "keycloak_user_id": "user-id-example-1",
         "username": "jdoe",
         "email": "jdoe@example.com",
         "display_name": "Jane Doe",
@@ -96,7 +96,7 @@ Creates a **new single-use linking nonce** for the Keycloak user identified by `
 {
   "success": true,
   "data": {
-    "relink_url": "https://caipe.example.com/api/auth/slack-link?nonce=AbCdEf123&slack_user_id=U012ABCDEF",
+    "relink_url": "https://caipe.example.com/api/auth/slack-link?nonce=single-use-nonce&slack_user_id=U012ABCDEF",
     "slack_user_id": "U012ABCDEF",
     "expires_at": "2026-03-25T15:10:00.000Z",
     "message": "Share this URL with the Slack user; they must open it while signed into CAIPE with their own account."
@@ -132,7 +132,7 @@ Removes the `slack_user_id` Keycloak user attribute for the given Keycloak user 
   "success": true,
   "data": {
     "revoked": true,
-    "keycloak_user_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    "keycloak_user_id": "user-id-example-1"
   }
 }
 ```

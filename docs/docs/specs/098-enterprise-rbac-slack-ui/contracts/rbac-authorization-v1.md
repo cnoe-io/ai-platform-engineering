@@ -201,8 +201,8 @@ Enforcement points return a structured, actionable denial message to the user:
 
 | Channel | Denied feedback |
 |---------|----------------|
-| Admin UI | Toast/banner: "You do not have permission to {action}. Contact your admin." Denied controls hidden/disabled. |
-| Slack | Ephemeral message: "Sorry, you don't have permission to {action}. Ask your workspace admin for access." |
+| Admin UI | Toast/banner: "You do not have permission to `action`. Contact your admin." Denied controls hidden/disabled. |
+| Slack | Ephemeral message: "Sorry, you don't have permission to `action`. Ask your workspace admin for access." |
 | Agent / MCP | `403` JSON body: `{"error": "access_denied", "capability": "{resource}#{scope}"}` |
 
 ## OBO token exchange (FR-018)

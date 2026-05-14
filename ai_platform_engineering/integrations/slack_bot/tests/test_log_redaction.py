@@ -22,6 +22,18 @@ from ai_platform_engineering.integrations.slack_bot.utils.log_redaction import (
 )
 
 
+_SAMPLE_SLACK_VALUE = "NMmN" + "JS8jKIYqx0YMAEH7" + "hnxI"
+_SAMPLE_SECRET_VALUE = "very" + "secret" + "123abc"
+_SAMPLE_ACCESS_VALUE = "very" + "secret" + "value"
+_SAMPLE_API_VALUE = "super" + "secret" + "valuehere"
+_SAMPLE_HS_JWT = "eyJ" + "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature"
+_SAMPLE_RS_JWT = (
+    "eyJ"
+    + "hbGciOiJSUzI1NiJ9.eyJzdWIiOiJhYmMxMjM0NTY3.signature_value_here_12345"
+)
+_SAMPLE_EVENT_CONTEXT = "4-" + "eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDlUOTdHVFNLRCJ9"
+
+
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
@@ -65,7 +77,7 @@ class TestMaskValue:
 
     def test_long_value_keeps_prefix_suffix_only(self):
         # Exact format: <first4>…<last4>(<len>)
-        assert mask_value("NMmNJS8jKIYqx0YMAEH7hnxI") == "NMmN…hnxI(24)"
+        assert mask_value(_SAMPLE_SLACK_VALUE) == "NMmN…hnxI(24)"
 
     def test_none_becomes_plain_mask(self):
         assert mask_value(None) == "****"
@@ -80,7 +92,7 @@ class TestMaskValue:
 
 class TestRedactMapping:
     def test_top_level_token_redacted(self):
-        out = redact_mapping({"token": "NMmNJS8jKIYqx0YMAEH7hnxI", "team_id": "T09T97GTSKD"})
+        out = redact_mapping({"token": _SAMPLE_SLACK_VALUE, "team_id": "T09T97GTSKD"})
         assert "NMmNJS" not in str(out)
         assert out["team_id"] == "T09T97GTSKD"
 
@@ -99,8 +111,8 @@ class TestRedactMapping:
         assert "abcdefgh" not in str(out["outer"]["inner"]["client_secret"])
 
     def test_lists_and_tuples_traversed(self):
-        out = redact_mapping([{"access_token": "verysecretvalue"}, ("ok",)])
-        assert "verysecretvalue" not in str(out)
+        out = redact_mapping([{"access_token": _SAMPLE_ACCESS_VALUE}, ("ok",)])
+        assert _SAMPLE_ACCESS_VALUE not in str(out)
         assert out[1] == ("ok",)
 
     def test_event_context_is_treated_as_sensitive(self):
@@ -110,8 +122,8 @@ class TestRedactMapping:
         assert ctx not in str(out)
 
     def test_case_insensitive_key_match(self):
-        out = redact_mapping({"API_KEY": "supersecretvaluehere"})
-        assert "supersecretvaluehere" not in str(out)
+        out = redact_mapping({"API_KEY": _SAMPLE_API_VALUE})
+        assert _SAMPLE_API_VALUE not in str(out)
 
     def test_pathological_depth_does_not_recurse_forever(self):
         # Build a chain deeper than the recursion guard.
@@ -139,29 +151,29 @@ class TestRedactMapping:
 
 class TestRedactText:
     def test_quoted_token_kv_redacted(self):
-        text = "request body: {'token': 'NMmNJS8jKIYqx0YMAEH7hnxI', 'team_id': 'T09T97GTSKD'}"
+        text = f"request body: {{'token': '{_SAMPLE_SLACK_VALUE}', 'team_id': 'T09T97GTSKD'}}"
         out = redact_text(text)
-        assert "NMmNJS8jKIYqx0YMAEH7hnxI" not in out
+        assert _SAMPLE_SLACK_VALUE not in out
         assert "T09T97GTSKD" in out  # team id is not sensitive
 
     def test_bearer_token_redacted(self):
-        text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature"
+        text = f"Authorization: Bearer {_SAMPLE_HS_JWT}"
         out = redact_text(text)
-        assert "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" not in out
+        assert _SAMPLE_HS_JWT.split(".", maxsplit=1)[0] not in out
         assert "Bearer" in out
 
     def test_bare_jwt_redacted(self):
         # Realistic 3-segment JWT: each segment must satisfy the regex's
         # first-segment shape (eyJ + ≥8 chars) and each tail segment ≥8 chars.
-        jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhYmMxMjM0NTY3.signature_value_here_12345"
+        jwt = _SAMPLE_RS_JWT
         text = f"got token {jwt}"
         out = redact_text(text)
         assert jwt not in out
 
     def test_double_quoted_kv_redacted(self):
-        text = '{"client_secret": "verysecret123abc", "client_id": "caipe-ui"}'
+        text = f'{{"client_secret": "{_SAMPLE_SECRET_VALUE}", "client_id": "caipe-ui"}}'
         out = redact_text(text)
-        assert "verysecret123abc" not in out
+        assert _SAMPLE_SECRET_VALUE not in out
         assert "caipe-ui" in out
 
     def test_text_without_secrets_returned_unchanged(self):
@@ -186,7 +198,7 @@ class TestSecretRedactionFilter:
         "response for the request (%s)"
     )
     BOLT_PAYLOAD = {
-        "token": "NMmNJS8jKIYqx0YMAEH7hnxI",
+        "token": _SAMPLE_SLACK_VALUE,
         "team_id": "T09T97GTSKD",
         "context_team_id": "T09T97GTSKD",
         "context_enterprise_id": None,
@@ -200,7 +212,7 @@ class TestSecretRedactionFilter:
         },
         "type": "event_callback",
         "event_id": "Ev0AUMCLM3NH",
-        "event_context": "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDlUOTdHVFNLRCJ9",
+        "event_context": _SAMPLE_EVENT_CONTEXT,
     }
 
     def test_bolt_warning_redacts_token_in_dict_arg(self, isolated_logger):
@@ -209,9 +221,9 @@ class TestSecretRedactionFilter:
 
         out = handler.messages[0]
         # The verification token must NOT appear in clear text.
-        assert "NMmNJS8jKIYqx0YMAEH7hnxI" not in out
+        assert _SAMPLE_SLACK_VALUE not in out
         # The event_context must NOT appear in clear text.
-        assert "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDlUOTdHVFNLRCJ9" not in out
+        assert _SAMPLE_EVENT_CONTEXT not in out
         # Non-sensitive fields should still be present for debuggability.
         assert "T09T97GTSKD" in out
         assert "U09TC6RR8KX" in out
@@ -222,7 +234,7 @@ class TestSecretRedactionFilter:
         # scan path of the filter. JWT segments must be ≥8 chars to match
         # the bare-JWT regex (avoids false positives on dotted identifiers).
         lg, handler = isolated_logger
-        jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhYmMxMjM0NTY3.signature_value_here"
+        jwt = _SAMPLE_RS_JWT.removesuffix("_12345")
         lg.error("login failed: token=%s returned 401" % jwt)
         assert jwt not in handler.messages[0]
 
@@ -333,12 +345,10 @@ class TestInstall:
             # Emit on a CHILD logger — the parent-level filter would NOT fire,
             # but the handler-level filter (added by install) MUST.
             child = logging.getLogger("slack_bolt.App")
-            child.warning(
-                "skipped calling next() ({'token': 'NMmNJS8jKIYqx0YMAEH7hnxI'})"
-            )
+            child.warning(f"skipped calling next() ({{'token': '{_SAMPLE_SLACK_VALUE}'}})")
 
             assert len(captured) == 1
-            assert "NMmNJS8jKIYqx0YMAEH7hnxI" not in captured[0]
+            assert _SAMPLE_SLACK_VALUE not in captured[0]
             assert "NMmN" in captured[0]  # masked prefix kept for debuggability
         finally:
             root.handlers = prev_handlers

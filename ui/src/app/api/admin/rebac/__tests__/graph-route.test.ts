@@ -70,26 +70,29 @@ function request(path: string): NextRequest {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
-  mockReadOpenFgaTuples.mockResolvedValue({
-    tuples: [
-      {
-        key: {
-          user: "team:platform#member",
-          relation: "can_use",
-          object: "agent:incident-agent",
-        },
-        timestamp: "2026-05-12T00:00:01.000Z",
+  const tuples = [
+    {
+      key: {
+        user: "team:platform#member",
+        relation: "can_use",
+        object: "agent:incident-agent",
       },
-      {
-        key: {
-          user: "slack_channel:C123",
-          relation: "can_use",
-          object: "agent:incident-agent",
-        },
-        timestamp: "2026-05-12T00:00:02.000Z",
+      timestamp: "2026-05-12T00:00:01.000Z",
+    },
+    {
+      key: {
+        user: "slack_channel:C123",
+        relation: "can_use",
+        object: "agent:incident-agent",
       },
-    ],
-  });
+      timestamp: "2026-05-12T00:00:02.000Z",
+    },
+  ];
+  mockReadOpenFgaTuples.mockImplementation(async (request?: { tuple?: { user?: string } }) => ({
+    tuples: request?.tuple?.user
+      ? tuples.filter((tuple) => tuple.key.user === request.tuple?.user)
+      : tuples,
+  }));
 });
 
 describe("GET /api/admin/rebac/graph", () => {

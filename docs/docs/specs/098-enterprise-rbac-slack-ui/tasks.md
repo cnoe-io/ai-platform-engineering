@@ -220,7 +220,7 @@ Tests are included only within the test-coverage improvement phase (FR-035).
 
 - [x] T040 [US7] Extend KeycloakRole constants and KbPermission model in ai_platform_engineering/knowledge_bases/rag/common/src/common/models/rbac.py — add Keycloak realm role mapping (admin→admin, kb_admin→ingestonly, chat_user→readonly) — *already implemented*
 - [x] T041 [US7] Implement Keycloak JWT realm role mapper in ai_platform_engineering/knowledge_bases/rag/server/src/server/rbac.py — map_keycloak_roles_to_rag_role() with fallback to group-based assignment (FR-026) — *determine_role_from_keycloak_roles() implemented*
-- [x] T042 [US7] Implement per-KB role parser in rbac.py — extract kb_reader:<id>, kb_ingestor:<id>, kb_admin:<id> from JWT roles claim; handle wildcards (kb_reader:*) — *extract_kb_permissions_from_roles() implemented*
+- [x] T042 [US7] Implement per-KB role parser in rbac.py — extract `kb_reader:<id>`, `kb_ingestor:<id>`, `kb_admin:<id>` from JWT roles claim; handle wildcards (`kb_reader:*`) — *extract_kb_permissions_from_roles() implemented*
 - [x] T043 [US7] Implement get_accessible_kb_ids() with CEL evaluation in rbac.py — combine per-KB roles + team ownership (TeamKbOwnership MongoDB) + global role override (FR-027, FR-029) — *already implemented with CEL + MongoDB*
 - [x] T044 [US7] Implement inject_kb_filter() for /v1/query endpoint in rbac.py — query-time datasource_id filtering; fail-closed if MongoDB unavailable — *already implemented*
 - [x] T045 [US7] Wire per-KB access dependencies into KB endpoints in ai_platform_engineering/knowledge_bases/rag/server/src/server/restapi.py — /v1/query, /v1/ingest, KB admin endpoints — *require_kb_access() dependency available*
@@ -239,7 +239,7 @@ Tests are included only within the test-coverage improvement phase (FR-035).
 ### Implementation
 
 - [x] T047 [US8] Extend access.py with CEL-based evaluation in ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py — replace can_view_agent/can_use_agent with CEL expressions using standard context schema (FR-028, FR-029) — *already implemented with _agent_cel_context*
-- [x] T048 [US8] Extend auth.py with Keycloak role mapper in ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/auth.py — extract per-agent roles (agent_user:<id>, agent_admin:<id>) from JWT — *realm roles extracted via _realm_roles_from_claims in access.py*
+- [x] T048 [US8] Extend auth.py with Keycloak role mapper in ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/auth.py — extract per-agent roles (`agent_user:<id>`, `agent_admin:<id>`) from JWT — *realm roles extracted via _realm_roles_from_claims in access.py*
 - [x] T049 [US8] Implement Keycloak resource sync on agent create/delete in ai_platform_engineering/dynamic_agents/src/dynamic_agents/models.py — create/delete Keycloak resource (type: dynamic_agent, scopes: view/invoke/configure/delete); clean up dangling roles (FR-028) — *KeycloakSyncService in services/keycloak_sync.py*
 - [x] T050 [US8] Wire OBO JWT forwarding through deepagent LangGraph runtime in ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/agent_runtime.py — attach Authorization: Bearer on outbound MCP requests to AG (FR-030) — *obo_jwt field in UserContext, forwarded via auth.py*
 - [x] T051 [US8] Update agent listing endpoint to use CEL-filtered query — GET /api/v1/agents returns only agents the user can access per CEL evaluation — *CEL filtering in routes/agents.py using can_view_agent*
@@ -262,7 +262,7 @@ Tests are included only within the test-coverage improvement phase (FR-035).
 - [x] T055 [US2] Implement GET /api/rbac/admin-tab-gates BFF endpoint in ui/src/app/api/rbac/admin-tab-gates/route.ts — load policies from MongoDB, build CEL context from JWT, evaluate per-tab, apply feature-flag conjunctions (feedbackEnabled, npsEnabled, auditLogsEnabled)
 - [x] T056 [US2] Implement PUT /api/rbac/admin-tab-gates BFF endpoint (admin only) in same route.ts — validate CEL expression, upsert into admin_tab_policies
 - [x] T057 [US2] Create useAdminTabGates React hook in ui/src/hooks/useAdminTabGates.ts — call GET /api/rbac/admin-tab-gates, return gates map, loading, error, refresh
-- [x] T058 [US2] Refactor admin page in ui/src/app/(app)/admin/page.tsx — replace isAdmin && tab checks with gates.<tab_key> &&; update VALID_TABS filtering based on gates; keep isAdmin prop for write-mode in child components
+- [x] T058 [US2] Refactor admin page in ui/src/app/(app)/admin/page.tsx — replace isAdmin && tab checks with `gates.<tab_key>` &&; update VALID_TABS filtering based on gates; keep isAdmin prop for write-mode in child components
 - [x] T059 [P] [US2] Update AuthGuard in ui/src/components/auth-guard.tsx — ensure basic auth check (no admin role check, just authenticated) — *already implemented correctly*
 - [x] T060 [US2] Add Slack bot command filtering — bot lists only commands the user's Keycloak roles permit; denied commands show "You don't have permission" (FR-004) — *require_permission decorator in rbac_middleware.py*
 
@@ -356,7 +356,7 @@ Tests are included only within the test-coverage improvement phase (FR-035).
 - [x] T088 Add task and skill resource types to Keycloak realm-config.json — type: task (scopes: view/invoke/configure/delete), type: skill (scopes: view/invoke/configure/delete) — *skill resource scopes updated, a2a resource extended with configure/delete*
 - [x] T089 [P] Implement Keycloak resource sync for Task Builder tasks — create/delete resource on task create/delete — *keycloak-resource-sync.ts syncTaskResource() + wired into task-configs/route.ts POST/DELETE*
 - [x] T090 [P] Implement Keycloak resource sync for Skills Gateway skills — create/delete resource on skill create/delete — *syncSkillResource() + wired into agent-skills/route.ts POST/DELETE*
-- [x] T091 Add per-task and per-skill realm role conventions to data-model.md — task_user:<id>, task_admin:<id>, skill_user:<id>, skill_admin:<id> — *documented in data-model.md*
+- [x] T091 Add per-task and per-skill realm role conventions to data-model.md — `task_user:<id>`, `task_admin:<id>`, `skill_user:<id>`, `skill_admin:<id>` — *documented in data-model.md*
 - [x] T092 Wire CEL-based access evaluation for task listing and invocation — same pattern as dynamic agent access.py — *task-skill-realm-access.ts extractTaskAccessFromJwtRoles() + wired into task-configs GET*
 - [x] T093 Wire CEL-based access evaluation for skill listing and invocation — same pattern as dynamic agent access.py — *extractSkillAccessFromJwtRoles() + wired into agent-skills GET*
 
@@ -372,7 +372,7 @@ Tests are included only within the test-coverage improvement phase (FR-035).
 - [x] T095 Create GET handler in ui/src/app/api/rbac/admin-tab-gates/route.ts — load admin_tab_policies from MongoDB; seed defaults if empty; decode JWT; evaluate CEL per tab; compose with feature flags; return gates map — *implemented in T055*
 - [x] T096 Create PUT handler in ui/src/app/api/rbac/admin-tab-gates/route.ts — admin-only; validate CEL expression parses; upsert into admin_tab_policies — *implemented in T056*
 - [x] T097 Create useAdminTabGates hook in ui/src/hooks/useAdminTabGates.ts — fetch GET /api/rbac/admin-tab-gates; defaults all gates to false (fail-closed); cache per session — *implemented in T057*
-- [x] T098 Refactor admin page in ui/src/app/(app)/admin/page.tsx — import useAdminTabGates; replace isAdmin && checks on TabsTrigger and TabsContent with gates.<key> &&; validate activeTab against visible gates — *implemented in T058*
+- [x] T098 Refactor admin page in ui/src/app/(app)/admin/page.tsx — import useAdminTabGates; replace isAdmin && checks on TabsTrigger and TabsContent with `gates.<key>` &&; validate activeTab against visible gates — *implemented in T058*
 - [x] T099 Seed default CEL expressions for 12 admin tabs — users/teams/skills/metrics/health: "true"; roles/slack/feedback/nps/stats/audit_logs/policy: "'admin' in user.roles" — *implemented in T054*
 
 **Checkpoint**: Admin tab visibility driven by CEL policies in MongoDB; new tabs require only a DB seed row

@@ -10,7 +10,7 @@
 - [`research.md`](./research.md) — Phase 0 output (this command)
 - [`data-model.md`](./data-model.md) — Phase 1 output (this command)
 - [`quickstart.md`](./quickstart.md) — Phase 1 output (this command)
-- [`contracts/`](./contracts/) — Phase 1 output (this command)
+- [`contracts/python-rbac-helper.md`](./contracts/python-rbac-helper.md) — Phase 1 output (this command)
 
 ## Summary
 
@@ -224,7 +224,7 @@ The 8 user stories collapse into **5 implementation phases** ordered by risk-asc
 **Why first**: Every later phase consumes the matrix and the persona fixture. If these are wrong, every test in every phase has to be rewritten.
 
 **Acceptance**:
-- `make test-rbac` exists and runs (it can be vacuous — the tests will be filled in by later phases) and brings up the e2e compose stack to a healthy state in <2 minutes.
+- `make test-rbac` exists and runs (it can be vacuous — the tests will be filled in by later phases) and brings up the e2e compose stack to a healthy state in &lt;2 minutes.
 - The persona fixture mints a real Keycloak token for `alice_admin` and `bob_chat_user` against the seeded realm.
 - All four schema files in `contracts/` exist and validate the seed data they describe.
 - `scripts/validate-rbac-matrix.py` exists and passes against an empty matrix (no protected routes yet).

@@ -113,8 +113,9 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" \
 # → HTTP 403 (jwtAuth passed — denied-user is authenticated — but OpenFGA denies)
 
 # 5) Call AG with a forged token → jwtAuth rejects before ext_authz even runs
+FORGED_JWT="not.a.real.jwt"
 curl -s -o /dev/null -w "HTTP %{http_code}\n" \
-  -H "Authorization: Bearer not.a.real.jwt" \
+  -H "Authorization: Bearer $FORGED_JWT" \
   http://localhost:4000/rag/v1/query
 # → HTTP 401 (signature verification fails against JWKS)
 

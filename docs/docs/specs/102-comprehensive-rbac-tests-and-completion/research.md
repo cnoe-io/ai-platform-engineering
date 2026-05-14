@@ -87,7 +87,7 @@ tests/rbac/
 ### Rationale
 - Spec author's recommendation, accepted on first read.
 - Realm-config drift is a class of bug that silently grants or denies access. Soft warnings get ignored. Hard gates do not.
-- Cost is bounded: each script runs in <1s.
+- Cost is bounded: each script runs in &lt;1s.
 
 ### Alternatives considered
 | Option | Why rejected |

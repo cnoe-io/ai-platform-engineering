@@ -441,4 +441,4 @@ graph LR
 
 - [Slack Bot Authorization](./research-slack-bot-authorization.md) — identity, token exchange, and scope validation
 - [Enterprise Identity Federation](./research-enterprise-identity-federation.md) — full Keycloak/Okta integration design
-- [Slack Bot Integration](../integrations/slack-bot.md) — deployment, configuration, and channel setup (main repo)
+- [Slack Bot Integration](../../integrations/slack-bot.md) — deployment, configuration, and channel setup (main repo)
