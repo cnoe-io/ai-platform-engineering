@@ -31,7 +31,6 @@ export function WorkflowRunTimeline({
   onFileDownload,
   onResume,
 }: WorkflowRunTimelineProps) {
-  const [submitting, setSubmitting] = useState(false);
 
   // Fetch agent info for all agent_ids in this run
   const agentIds = useMemo(
@@ -78,12 +77,7 @@ export function WorkflowRunTimeline({
   }, [agentIds]);
 
   const handleResume = async (stepIndex: number, data: string) => {
-    setSubmitting(true);
-    try {
-      await onResume(stepIndex, data);
-    } finally {
-      setSubmitting(false);
-    }
+    await onResume(stepIndex, data);
   };
 
   return (
