@@ -138,6 +138,7 @@ jobs:
       - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ steps.meta.outputs.new_version }}
           PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
           BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
@@ -178,7 +179,7 @@ jobs:
             echo "- [ ] Upgrade Guide / Helm values diff verified"
           } > /tmp/pr-body.md
 
-          gh pr create \
+          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
             --title "docs: release ${NEW_VERSION} blog post" \
             --base main \
             --head "$BRANCH" \
