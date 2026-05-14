@@ -4442,7 +4442,7 @@ run_validation() {
   else
     fail=$((fail + 1))
   fi
-  if check_http "http://localhost:${SUPERVISOR_PORT}" "Supervisor A2A"; then
+  if check_http "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" "Supervisor A2A"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
@@ -4635,20 +4635,27 @@ run_sanity_tests() {
     fail=$((fail + 1))
   fi
 
-  # ── Test 4: Sub-agent direct health (in-cluster) ──
-  for agent_svc in caipe-agent-weather caipe-agent-netutils; do
-    local agent_label="${agent_svc#caipe-agent-}"
-    local agent_card_resp
-    agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
-      curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-    if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
-      print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
-      pass=$((pass + 1))
-    else
-      print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
-      fail=$((fail + 1))
-    fi
-  done
+  # ── Test 4: Sub-agent direct health (distributed mode only) ──
+  # In single-node mode agents run in-process inside the supervisor — no separate
+  # K8s services exist. Detect mode via the ConfigMap that Helm only creates in
+  # single-node deployments.
+  if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
+    print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
+  else
+    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
+      local agent_label="${agent_svc#caipe-agent-}"
+      local agent_card_resp
+      agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
+        curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
+      if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
+        print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
+        fail=$((fail + 1))
+      fi
+    done
+  fi
 
   # ── Test 5: RAG server health (if RAG enabled) ──
   if $ENABLE_RAG; then
