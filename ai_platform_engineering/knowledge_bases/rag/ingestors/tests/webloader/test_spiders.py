@@ -7,6 +7,8 @@ and basic request generation without running actual crawls.
 
 from unittest.mock import Mock
 
+import pytest
+
 
 # ============================================================================
 # Mock Objects for Testing
@@ -405,6 +407,50 @@ class TestWorkerSpiderRedirectHandling:
 
     # Links to original domain should now be blocked
     assert spider._should_follow("https://caipe.io/some-page", track_filtering=False) is False
+
+  def test_should_follow_blocks_private_ip_even_when_external_links_enabled(self):
+    """WorkerSpider should not schedule internal or metadata-service URLs."""
+    spider = self._make_worker_spider(start_url="https://docs.example.com", follow_external=True)
+
+    assert spider._should_follow("http://169.254.169.254/latest/meta-data", track_filtering=False) is False
+
+  def test_start_requests_blocks_private_start_url(self):
+    """WorkerSpider should reject an unsafe initial crawl URL before Scrapy fetches it."""
+    spider = self._make_worker_spider(start_url="http://169.254.169.254/latest/meta-data", follow_external=True)
+
+    requests = list(spider.start_requests())
+
+    assert requests == []
+    assert spider.pages_failed == 1
+    assert any("publicly routable" in error for error in spider.errors)
+
+  def test_downloader_middleware_blocks_private_redirect_targets(self):
+    """Downloader middleware should block unsafe requests created by Scrapy redirects."""
+    from scrapy import Request
+    from scrapy.exceptions import IgnoreRequest
+    from ingestors.webloader.loader.scrapy_worker import SSRFProtectionMiddleware
+
+    middleware = SSRFProtectionMiddleware()
+    spider = self._make_worker_spider(start_url="https://docs.example.com", follow_external=True)
+
+    with pytest.raises(IgnoreRequest, match="publicly routable"):
+      middleware.process_request(Request("http://169.254.169.254/latest/meta-data"), spider)
+
+  def test_build_spider_settings_registers_ssrf_middleware(self):
+    """Scrapy settings should install the SSRF middleware for all downloads."""
+    from ingestors.webloader.loader.scrapy_worker import build_spider_settings
+    from ingestors.webloader.loader.worker_types import CrawlRequest
+
+    settings = build_spider_settings(
+      CrawlRequest(
+        job_id="test-job",
+        url="https://docs.example.com",
+        datasource_id="test-ds",
+        crawl_mode="single",
+      )
+    )
+
+    assert settings["DOWNLOADER_MIDDLEWARES"]["ingestors.webloader.loader.scrapy_worker.SSRFProtectionMiddleware"] == 543
 
 
 # ============================================================================

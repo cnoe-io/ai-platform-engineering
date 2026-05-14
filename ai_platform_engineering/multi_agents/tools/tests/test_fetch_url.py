@@ -49,6 +49,20 @@ class TestFetchUrlValidation(unittest.TestCase):
         self.assertTrue(result.startswith("ERROR"))
         print("✓ Malformed URL rejected")
 
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.socket', create=True)
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
+    def test_blocks_private_resolved_addresses(self, mock_get, mock_socket):
+        """Test rejection of URLs resolving to private or metadata IPs."""
+        mock_socket.getaddrinfo.return_value = [(2, 1, 6, "", ("169.254.169.254", 0))]
+
+        result = fetch_url.invoke({
+            "url": "https://metadata.example.com/latest/meta-data"
+        })
+
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("publicly routable", result)
+        mock_get.assert_not_called()
+
 
 class TestFetchUrlSuccess(unittest.TestCase):
     """Test successful fetch operations with mocked responses."""
@@ -75,9 +89,11 @@ class TestFetchUrlSuccess(unittest.TestCase):
         self.assertEqual(result, "Hello, world!")
         print("✓ Plain text fetch works")
 
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.socket.getaddrinfo')
     @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
-    def test_fetch_json_content(self, mock_get):
+    def test_fetch_json_content(self, mock_get, mock_getaddrinfo):
         """Test fetching JSON content."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
         mock_response = Mock()
         mock_response.text = '{"key": "value"}'
         mock_response.status_code = 200
