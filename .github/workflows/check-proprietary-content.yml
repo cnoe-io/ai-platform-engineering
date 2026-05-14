@@ -194,22 +194,16 @@ jobs:
               per_page: 100
             });
 
-            const oldSuccessComments = comments.filter(comment =>
-              comment.body?.trim() === body &&
-              comment.user?.type === 'Bot'
+            const existing = comments.find(c =>
+              c.body?.trim() === body &&
+              c.user?.type === 'Bot'
             );
 
-            for (const comment of oldSuccessComments) {
-              await github.rest.issues.deleteComment({
+            if (!existing) {
+              await github.rest.issues.createComment({
                 owner,
                 repo,
-                comment_id: comment.id
+                issue_number,
+                body
               });
             }
-
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number,
-              body
-            });
