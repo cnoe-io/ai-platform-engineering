@@ -1,6 +1,9 @@
 # Feature Specification: Adopt `npx skills` / agent-native installers as primary install path for CAIPE skills
 
-**Feature Branch**: `101-skills-install-npx-adoption`
+<!-- assisted-by Codex Codex-sonnet-4-6 -->
+
+**Spec directory**: `docs/docs/specs/2026-04-22-skills-install-npx-adoption/` (date prefix per Speckit; see `docs/docs/specs/index.md`)
+**Feature Branch**: Use existing branch (`prebuild/docs/skills-install-npx-adoption-spec`)
 **Created**: 2026-04-22
 **Status**: Draft (forward-looking; no code changes in this PR)
 **Input**: User description: "How do popular repos do it? Pick your agent. One command. Done. (caveman example using `claude plugin marketplace`, `gemini extensions install`, `npx skills add`). Can we use that mode? This may need rethinking and refactoring."
