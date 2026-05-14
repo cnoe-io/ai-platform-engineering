@@ -102,3 +102,56 @@ def test_fetch_url_blocks_private_resolved_addresses(monkeypatch) -> None:
     assert result.startswith("ERROR:")
     assert "publicly routable" in result
     mock_get.assert_not_called()
+
+
+def test_create_curl_tool_blocks_private_resolved_addresses() -> None:
+    """curl tool must reject URLs whose hostnames resolve to private IPs."""
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    curl_tool = getattr(builtin_tools, "create_curl_tool")(allowed_domains="*")
+
+    with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo",
+               return_value=[(2, 1, 6, "", ("10.0.0.1", 0))]):
+        result = curl_tool.invoke({"command": "curl -s https://internal.corp/api"})
+
+    assert "ERROR" in result
+    assert "publicly routable" in result
+
+
+def test_fetch_url_blocks_redirect_to_private_ip() -> None:
+    """fetch_url must reject the chain if any redirect hop resolves to a private IP."""
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    fetch_url = getattr(builtin_tools, "create_fetch_url_tool")(allowed_domains="*")
+
+    def fake_getaddrinfo(hostname, *args, **kwargs):
+        if hostname == "docs.example.com":
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+        return [(2, 1, 6, "", ("169.254.169.254", 0))]
+
+    redirect_response = Mock()
+    redirect_response.status_code = 302
+    redirect_response.headers = {"location": "https://redirect.example.com/secret"}
+
+    with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo", side_effect=fake_getaddrinfo), \
+         patch("dynamic_agents.services.builtin_tools.requests.get", return_value=redirect_response):
+        result = fetch_url.invoke({"url": "https://docs.example.com/"})
+
+    assert result.startswith("ERROR:")
+    assert "publicly routable" in result
+
+
+def test_fetch_url_blocks_too_many_redirects() -> None:
+    """fetch_url must stop and error after exceeding _MAX_FETCH_REDIRECTS hops."""
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    fetch_url = getattr(builtin_tools, "create_fetch_url_tool")(allowed_domains="*")
+
+    redirect_response = Mock()
+    redirect_response.status_code = 302
+    redirect_response.headers = {"location": "https://docs.example.com/next"}
+
+    with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo",
+               return_value=[(2, 1, 6, "", ("93.184.216.34", 0))]), \
+         patch("dynamic_agents.services.builtin_tools.requests.get", return_value=redirect_response):
+        result = fetch_url.invoke({"url": "https://docs.example.com/"})
+
+    assert result.startswith("ERROR:")
+    assert "Too many redirects" in result

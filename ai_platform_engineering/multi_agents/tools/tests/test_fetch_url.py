@@ -63,6 +63,43 @@ class TestFetchUrlValidation(unittest.TestCase):
         self.assertIn("publicly routable", result)
         mock_get.assert_not_called()
 
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.socket.getaddrinfo')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
+    def test_blocks_redirect_to_private_ip(self, mock_get, mock_getaddrinfo):
+        """Redirect chains must not escape to private IP addresses."""
+        def fake_getaddrinfo(hostname, *args, **kwargs):
+            if hostname == "docs.example.com":
+                return [(2, 1, 6, "", ("93.184.216.34", 0))]
+            return [(2, 1, 6, "", ("169.254.169.254", 0))]
+
+        mock_getaddrinfo.side_effect = fake_getaddrinfo
+
+        redirect_response = Mock()
+        redirect_response.status_code = 302
+        redirect_response.headers = {"location": "https://redirect.example.com/secret"}
+        mock_get.return_value = redirect_response
+
+        result = fetch_url.invoke({"url": "https://docs.example.com/"})
+
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("publicly routable", result)
+
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.socket.getaddrinfo')
+    @patch('ai_platform_engineering.utils.agent_tools.fetch_url_tool.requests.get')
+    def test_blocks_too_many_redirects(self, mock_get, mock_getaddrinfo):
+        """Redirect chains exceeding the max depth must be rejected."""
+        mock_getaddrinfo.return_value = [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        redirect_response = Mock()
+        redirect_response.status_code = 302
+        redirect_response.headers = {"location": "https://docs.example.com/next"}
+        mock_get.return_value = redirect_response
+
+        result = fetch_url.invoke({"url": "https://docs.example.com/"})
+
+        self.assertTrue(result.startswith("ERROR"))
+        self.assertIn("Too many redirects", result)
+
 
 class TestFetchUrlSuccess(unittest.TestCase):
     """Test successful fetch operations with mocked responses."""

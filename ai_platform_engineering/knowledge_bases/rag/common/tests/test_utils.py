@@ -48,3 +48,27 @@ def test_sanitize_url_rejects_mixed_global_and_private_dns_answers(monkeypatch):
 
   with pytest.raises(ValueError, match="publicly routable"):
     sanitize_url("https://docs.example.com")
+
+
+def test_sanitize_url_rejects_loopback(monkeypatch):
+  _patch_dns(monkeypatch, {"localhost.example.com": ["127.0.0.1"]})
+
+  with pytest.raises(ValueError, match="publicly routable"):
+    sanitize_url("https://localhost.example.com/api")
+
+
+def test_sanitize_url_rejects_ipv6_loopback(monkeypatch):
+  _patch_dns(monkeypatch, {"host.example.com": ["::1"]})
+
+  with pytest.raises(ValueError, match="publicly routable"):
+    sanitize_url("https://host.example.com/api")
+
+
+def test_sanitize_url_rejects_unresolvable_hostname(monkeypatch):
+  def fail_resolve(*args, **kwargs):
+    raise socket.gaierror("Name or service not known")
+
+  monkeypatch.setattr("common.utils.socket.getaddrinfo", fail_resolve)
+
+  with pytest.raises(ValueError, match="could not be resolved"):
+    sanitize_url("https://nonexistent.invalid/page")

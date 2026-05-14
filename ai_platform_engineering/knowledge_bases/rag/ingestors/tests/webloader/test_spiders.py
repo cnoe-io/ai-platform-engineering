@@ -436,6 +436,20 @@ class TestWorkerSpiderRedirectHandling:
     with pytest.raises(IgnoreRequest, match="publicly routable"):
       middleware.process_request(Request("http://169.254.169.254/latest/meta-data"), spider)
 
+  def test_downloader_middleware_allows_public_urls(self):
+    """Downloader middleware should return None (pass through) for public URLs."""
+    from scrapy import Request
+    from ingestors.webloader.loader.scrapy_worker import SSRFProtectionMiddleware
+    from unittest.mock import patch
+
+    middleware = SSRFProtectionMiddleware()
+    spider = self._make_worker_spider(start_url="https://docs.example.com", follow_external=True)
+
+    with patch("ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url", return_value=(True, "")):
+      result = middleware.process_request(Request("https://docs.example.com/page"), spider)
+
+    assert result is None
+
   def test_build_spider_settings_registers_ssrf_middleware(self):
     """Scrapy settings should install the SSRF middleware for all downloads."""
     from ingestors.webloader.loader.scrapy_worker import build_spider_settings
