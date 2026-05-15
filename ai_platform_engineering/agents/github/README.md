@@ -216,10 +216,10 @@ python -m venv .venv
 pip install uv
 ```
 
-Now you can use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+Now you can use the [CAIPE CLI](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) to interact with the agent:
 
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+caipe
 ```
 
 ## Local Development
@@ -273,9 +273,9 @@ Agent: Here are your GitHub repositories:
    - Description: LLM-powered GitHub agent
    - Last updated: 2 days ago
 
-2. agent-chat-cli (Public)
-   - Language: Python
-   - Description: CLI client for agent interaction
+2. ai-platform-engineering/cli (Public)
+   - Language: TypeScript/Bun
+   - Description: CAIPE CLI — dedicated terminal client for A2A/AG-UI agent interaction
    - Last updated: 1 week ago
 
 Let me know if you need more details about any repository!

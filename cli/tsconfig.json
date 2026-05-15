@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@platform/*": ["src/platform/*"],
+      "@auth/*": ["src/auth/*"],
+      "@chat/*": ["src/chat/*"],
+      "@skills/*": ["src/skills/*"],
+      "@agents/*": ["src/agents/*"],
+      "@memory/*": ["src/memory/*"],
+      "@commit/*": ["src/commit/*"],
+      "@headless/*": ["src/headless/*"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

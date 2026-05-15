@@ -146,10 +146,11 @@ Wait for pods to reach `Running` / `1/1 Ready`.
 kubectl port-forward service/ai-platform-engineering-supervisor-agent 8000:8000
 ```
 
-Then connect with the agent chat CLI:
+Then connect with the CAIPE CLI:
 
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a --host localhost --port 8000
+caipe config set server.url http://localhost:8000
+caipe
 ```
 
 ### Ingress (domain access)

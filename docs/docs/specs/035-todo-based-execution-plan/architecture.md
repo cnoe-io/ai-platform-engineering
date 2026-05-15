@@ -65,7 +65,7 @@ if tool_name == "write_todos":
 
 ### 3. Client Compatibility
 
-**agent-chat-cli:**
+**caipe-cli:**
 - Still looks for `execution_plan_update` artifact ✅
 - Displays in cyan Panel with "🎯 Execution Plan" title ✅
 - No changes needed
@@ -148,7 +148,7 @@ write_todos(
    - Emits initial plan as `execution_plan_update` artifact
    - Emits status updates as `execution_plan_status_update` artifact
 
-4. **agent-chat-cli**: `agent_chat_cli/a2a_client.py` ✅ UPDATED
+4. **caipe-cli**: `agent_chat_cli/a2a_client.py` ✅ UPDATED
    - Handles `execution_plan_update` (initial display)
    - Handles `execution_plan_status_update` (in-place updates with ANSI codes)
    - Clean separation of execution plan vs content

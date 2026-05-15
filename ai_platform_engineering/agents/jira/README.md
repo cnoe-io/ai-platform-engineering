@@ -67,10 +67,10 @@ docker run -p 0.0.0.0:8000:8000 -it\
 
 ### 3️⃣ Run the Client
 
-Use the [agent-chat-cli](https://github.com/cnoe-io/agent-chat-cli) to interact with the agent:
+Use the [CAIPE CLI](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) to interact with the agent:
 
 ```bash
-uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
+caipe
 ```
 
 ## 🏗️ Architecture

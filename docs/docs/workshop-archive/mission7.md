@@ -143,12 +143,13 @@ docker compose -f workshop/docker-compose.mission7.yaml logs -f
 **💡 Tip:** You can open a new terminal by clicking the **+** button in your terminal window. This allows you to run commands in parallel without stopping your running services.
 
 ```bash
-docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
+caipe config set server.url http://localhost:8000
+caipe
 ```
 
-**💡 Tip:** When asked to `💬 Enter token (optional): `, just press enter ⏎.
+> **Install:** `curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh`
 
-In production, your system will use a JWT or Bearer token for authentication here.
+**💡 Tip:** If OAuth is not configured yet, just press enter when prompted for authentication. In production, use `caipe auth login`.
 
 ![chatcli token](images/chat-cli-token.svg)
 

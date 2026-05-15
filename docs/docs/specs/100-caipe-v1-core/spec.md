@@ -1,0 +1,289 @@
+# Feature Specification: CAIPE CLI — v1 Core
+
+> **CAIPE CLI** — AI-assisted coding, workflows, and platform engineering from the terminal.
+
+**Feature Branch**: `100-caipe-v1-core`  
+**Created**: 2026-04-12  
+**Status**: Draft  
+**Input**: User description: "CAIPE CLI — AI Platform Engineer CLI for coding, workflows, and automation with interactive chat, skills hub, self-improving agent, grid agent access, and DCO policy enforcement"
+
+## Architecture Overview
+
+CAIPE CLI is a **thin terminal client** — it does not run any LLM locally. All AI inference, agent orchestration, and tool-call decision-making happens server-side on the CAIPE server. The CLI's role is to:
+
+1. **Assemble local context** — git file tree, recent commit history, memory files — and include it in the request payload
+2. **Stream the response** — receive AG-UI or A2A events token-by-token and render them in the terminal
+3. **Execute local tools** (future, v3) — when the server supervisor requests a file read, bash command, or edit, the CLI executes it locally and returns the result
+
+```
+Developer terminal (CAIPE CLI)          CAIPE server (remote, user-configured)
+──────────────────────────────          ──────────────────────────────────────
+• Gather git context                    • LLM inference
+• Load CLAUDE.md memory                 • Supervisor agent
+• Render streaming tokens               • Specialised sub-agents
+• Manage skills files                     (ArgoCD, k8s, security…)
+• OS keychain credential storage        • Multi-agent routing
+• Local tool execution (v3+)            • Server-side session state
+         │
+         │  A2A (default)  — POST /tasks/send  (SSE streaming)
+         │  AG-UI (--protocol agui) — POST /api/agui/stream
+         │  Bearer token + context payload
+         ▼
+  <server.url from settings.json or --url flag>
+```
+
+**Server URL configuration**: The CAIPE server URL is stored in `~/.config/caipe/settings.json` under `server.url`. A `--url <url>` flag overrides it for a single invocation. On first run with no URL configured, a setup wizard prompts for the URL, saves it, then flows directly into the auth flow.
+
+**Endpoint discovery**: On first use after a server URL is configured, the CLI fetches `<server.url>/.well-known/agent.json` and caches the OAuth endpoint URLs (authorization, token, device authorization), client ID, and scopes. This allows caipe-ui to proxy OAuth to any backend IdP (currently Okta, migrating to Keycloak) without requiring CLI changes. Discovered values are cached in `~/.config/caipe/agent-config.json` with a 24-hour TTL; if discovery fails, the CLI falls back to conventional `/oauth/*` paths.
+
+**Dual-protocol design**: A2A is the v1 default — it is widely supported across today's CAIPE agents and gives direct access to the A2A task lifecycle (submit → stream → complete). AG-UI is available via `--protocol agui` for agents that have migrated to the newer interface. Both protocols deliver token-by-token streaming to the terminal; the session UX is identical regardless of protocol chosen. The active protocol is shown in the session status header.
+
+**Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the CAIPE server's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the server supervisor is the decision-maker.
+
+---
+
+## Clarifications
+
+### Session 2026-04-12
+
+- Q: Should Device Authorization Grant (RFC 8628) be included in v1, and how does it relate to `--manual`? → A: Add `caipe auth login --device` in v1 alongside `--manual`; Device Auth is preferred for SSH/headless one-time setup (short code, no URL copy-paste); `--manual` remains as fallback for servers that do not implement RFC 8628
+- Q: What role should the CLI play in OIDC token federation (zero-credential CI path)? → A: Pure passthrough — CI pipeline obtains its own OIDC JWT from the CI provider and places it in `CAIPE_TOKEN` env var or `--token` flag; the CLI carries it as a Bearer token via the existing JWT pass-through path; the CAIPE server is solely responsible for validating the issuer against its trusted OIDC providers; no new CLI env vars, no provider-specific logic, no issuer config in settings.json
+- Q: In v1, what should A2A handle beyond agent card discovery, and how is the protocol selected? → A: Both A2A and AG-UI handle full chat sessions; A2A is the default; user may override per session via `--protocol agui|a2a`; active protocol shown in session header
+- Q: How does the CLI know which protocol a specific agent supports? → A: Server registry (`GET /api/v1/agents`) returns a per-agent protocol list; CLI validates the chosen protocol against the registry before opening a session
+- Q: When `--protocol agui` is requested but the agent only supports A2A — what should the CLI do? → A: Prompt the user ("Agent `<name>` does not support agui (supports: a2a) — switch protocol and continue? [y/N]"); if confirmed, open session with supported protocol; if declined, exit cleanly
+- Q: How is the CAIPE server URL provided — CLI flag, config file, or both? And what happens on first run with no URL set? → A: URL readable from `~/.config/caipe/settings.json` (`server.url`) or overridden per-invocation via `--url <url>` flag; on first run with no URL configured, a setup wizard prompts for the URL, saves it, then flows directly into auth
+- Q: Does `server.url` drive both the API endpoint and the OAuth auth endpoint? → A: Yes — single `server.url` drives all endpoints; the CLI discovers auth/OAuth endpoint URLs at runtime by fetching `<server.url>/.well-known/agent.json` (see FR-023); no separate auth URL configuration required
+- Q: What headless/non-interactive mode should CAIPE CLI support, and what non-browser auth method? → A: CLI supports a headless mode for CI/automation; three credential types auto-detected by presence: API Key (`CAIPE_API_KEY`), OAuth2 Client Credentials (`CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET`), or JWT pass-through (`CAIPE_TOKEN` / `--token <jwt>`)
+- Q: How is the prompt provided in headless mode? → A: Priority order: `--prompt <text>` > `--prompt-file <path>` > stdin (when piped)
+- Q: What is the headless output format? → A: `--output text|json|ndjson`; default `text`; `json` emits single object on completion; `ndjson` streams one object per token/event
+- Q: Should headless mode support multi-turn sessions? → A: Single-shot by default (one prompt → one response → exit); `--interactive-stdin` enables multi-turn mode (newline-delimited turns from stdin; session stays open until EOF or `\exit`)
+
+### Session 2026-04-12 (OAuth architecture)
+
+- Q: What identity provider does caipe-ui use, and does it change? → A: Currently Okta; migrating to Keycloak in future. The CLI must not encode IdP-specific logic — caipe-ui proxies OAuth on behalf of the CLI and abstracts the underlying IdP entirely.
+- Q: Should the CLI hardcode `/oauth` endpoint paths? → A: No — the CLI MUST discover all OAuth endpoint URLs from `<server.url>/.well-known/agent.json` at startup; hardcoded `/oauth/*` paths are replaced by discovered values. This makes the Okta → Keycloak migration (and any future IdP change) transparent to the CLI.
+- Q: What is the schema of `/.well-known/agent.json`? → A: `{ "oauth": { "authorization_endpoint": "...", "token_endpoint": "...", "device_authorization_endpoint": "...", "client_id": "...", "scopes": ["openid","profile","email"] } }` — modelled on OIDC discovery but CAIPE-specific; all `oauth.*` fields are optional with `/oauth/*` path fallbacks for backward compatibility
+
+---
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - Authenticated Interactive Chat (Priority: P1)
+
+A platform engineer opens their terminal, authenticates once with their CAIPE server identity, and immediately starts a context-aware chat session scoped to the repository they are working in. They ask questions, request code assistance, and interact with AI — entirely from the terminal.
+
+**Why this priority**: Authenticated chat is the primary value driver. All other features (skills, self-improvement, agent routing) depend on a working, authenticated session. Delivering this alone gives users immediate productivity.
+
+**Independent Test**: Can be fully tested by running `npx caipe chat` in a repo, completing a one-time browser authentication, sending a message, and receiving a context-aware streamed response — standalone MVP value with no other features required.
+
+**Acceptance Scenarios**:
+
+1. **Given** a user has not yet configured a server URL or authenticated, **When** they run `caipe` or `caipe chat`, **Then** they are walked through a setup wizard (URL prompt → browser-based auth flow) and a session credential is saved locally after success
+2. **Given** an authenticated user is in a git repository, **When** they start a chat session, **Then** the assistant receives the repository's file structure and recent git state as context
+3. **Given** an authenticated user sends a message, **When** the assistant responds, **Then** the response streams to the terminal in real-time with markdown rendered for readability
+4. **Given** a user's session credential expires mid-session, **When** they send a message, **Then** they are prompted to re-authenticate without losing the current conversation context
+5. **Given** an authenticated user runs `caipe signout`, **When** confirmed, **Then** the stored credential is removed and the next session requires fresh authentication
+
+---
+
+### User Story 2 - Skills Hub: Browse, Preview, and Install (Priority: P2)
+
+A platform engineer wants to equip their repository with pre-built AI automation routines (skills). They discover what is available in a catalog, preview each skill before committing to it, then install it directly into their project directory.
+
+**Why this priority**: Skills drive team-shared automation and extend CLI behavior beyond built-ins. Without the hub, users cannot compose or share AI routines across projects.
+
+**Independent Test**: Can be fully tested by running `caipe skills list`, previewing a skill, and installing it — results in a skill file written to the project, delivering standalone value as a package-manager-like experience for AI automation.
+
+**Acceptance Scenarios**:
+
+1. **Given** an authenticated user, **When** they run `caipe skills list`, **Then** they see a browsable, searchable list of available skills with names and one-line descriptions
+2. **Given** a user selects a skill to preview, **When** the preview renders, **Then** they see the skill's full description, inputs, and example usage before deciding to install
+3. **Given** a user installs a skill, **When** no explicit target is specified, **Then** the skill is placed in `.claude/` if that directory exists, otherwise in `skills/`
+4. **Given** a skill is already installed at the target path, **When** the user installs the same skill again, **Then** they are warned and must explicitly confirm the overwrite
+
+---
+
+### User Story 3 - Self-Improving Agent: Skill Updates (Priority: P3)
+
+The CLI detects that one or more installed skills have newer versions in the catalog. It surfaces a diff of what changed and, after confirmation, applies the update — keeping automation current without manual version tracking.
+
+**Why this priority**: Self-improvement closes the skills lifecycle loop. Without it, installed skills become stale. Depends on Stories 1 and 2 being functional.
+
+**Independent Test**: Can be tested by installing a skill at version N, publishing version N+1 to the catalog, then running `caipe skills update` — the CLI reports the update, shows a diff, and replaces the file upon confirmation with the old version backed up.
+
+**Acceptance Scenarios**:
+
+1. **Given** a user has installed skills, **When** they run `caipe skills update`, **Then** the CLI reports which installed skills have newer catalog versions and which are current
+2. **Given** updates are available, **When** the user selects one to apply, **Then** a diff between the installed and incoming skill content is shown before any change is made
+3. **Given** the user confirms an update, **When** the skill file is replaced, **Then** the previous version is backed up before being overwritten
+4. **Given** the skills catalog is unreachable, **When** the user runs `caipe skills update`, **Then** a clear error message is shown and no installed skills are modified
+
+---
+
+### User Story 4 - Grid Agent Routing (Priority: P4)
+
+A platform engineer directs their chat query to a specific AI agent on the CAIPE server — for example, an ArgoCD agent, a Kubernetes agent, or a security agent. They list available agents and select one as the backend for their session.
+
+**Why this priority**: Specialised agents give more accurate domain answers than a generalist. Depends on core chat (P1) being fully functional.
+
+**Independent Test**: Can be tested by running `caipe agents list`, starting a session with `caipe chat --agent argocd`, and verifying the response reflects that agent's specialisation.
+
+**Acceptance Scenarios**:
+
+1. **Given** an authenticated user, **When** they run `caipe agents list`, **Then** all agents available on the grid are shown with names and capability descriptions
+2. **Given** an authenticated user specifies an agent at session start (e.g., `caipe chat --agent argocd`), **When** the session opens, **Then** queries are routed to that agent
+3. **Given** no agent is specified, **When** a user starts a chat, **Then** a default generalist agent is used and the active agent name is shown in the session header
+4. **Given** a specified agent is unavailable, **When** the user attempts to start a session with it, **Then** they see an error and are offered a list of currently available agents
+
+---
+
+### User Story 5 - DCO-Compliant Commit Assistance (Priority: P5)
+
+When a platform engineer generates code via caipe and commits it, the CLI ensures the commit meets the project's DCO policy: AI attribution is attached automatically and the user is prompted for their own sign-off.
+
+**Why this priority**: Required for open-source compliance. Does not block day-to-day engineering work; implemented after core chat is stable.
+
+**Independent Test**: Can be tested by generating a file change through chat, staging it, and committing via the CLI — the commit must carry `Assisted-by` and the user must have been prompted for `Signed-off-by`.
+
+**Acceptance Scenarios**:
+
+1. **Given** a user stages AI-generated changes and commits via the CLI, **When** the commit message is assembled, **Then** the CLI automatically appends `Assisted-by: Claude:<model-version>` to the message
+2. **Given** no `Signed-off-by` is present in the draft, **When** the commit is about to be created, **Then** the user is prompted to provide their own `Signed-off-by` before the commit is finalized
+3. **Given** a user declines to add `Signed-off-by`, **When** they explicitly override, **Then** the commit proceeds with a visible warning; the CLI does not block it
+4. **Given** a user commits via `git commit` directly (bypassing the CLI), **When** the commit is created, **Then** no CLI action is taken unless a git hook has been explicitly opted into
+
+---
+
+### Edge Cases
+
+- What happens when the internet connection drops mid-chat session?
+- How does the system handle credentials stored on a shared or multi-user machine?
+- What happens when a skill references a capability not supported by the current platform?
+- How does the CLI behave when run outside of any git repository?
+- What happens when the skills catalog is unreachable (offline, rate-limited, or under maintenance)?
+- How does the CLI handle two concurrent sessions from the same authenticated identity?
+- What happens if a skill file in the repository has been manually edited after installation?
+- What happens when `npx caipe` is run on a network with a corporate proxy intercepting HTTPS?
+- What happens when `--protocol agui` is specified but the target agent only supports A2A? (→ user is prompted to switch; session opens with supported protocol on confirmation)
+- What happens when the server registry is reachable but does not return a `protocols` field for an agent? (→ CLI assumes A2A as default; proceeds without protocol validation warning)
+- What happens in headless mode when no credential is present? (→ non-zero exit with `{"error":"no credentials configured"}` to stderr; no interactive prompt)
+- What happens when multiple headless credentials are present simultaneously? (→ priority order: JWT > API Key > Client Credentials; first matched wins)
+- What happens when a Client Credentials token exchange fails in headless mode? (→ non-zero exit with error; no retry; stderr JSON error)
+- What happens when `caipe auth login --device` is used but the CAIPE server does not support RFC 8628? (→ CLI receives 404 or `unsupported_grant_type`; prints error directing user to use `--manual` instead; exits non-zero)
+- What happens when the Device Authorization Grant polling window expires before the user approves? (→ non-zero exit with message "Device code expired — re-run `caipe auth login --device` to start a new request")
+- What happens when a CI pipeline passes an OIDC JWT via `CAIPE_TOKEN` but the CAIPE server does not trust the issuer? (→ server returns 401; CLI surfaces as auth failure, exits 1 with `{"error":"authentication failed"}` to stderr; no retry)
+- What happens when a CI pipeline passes an expired OIDC JWT via `CAIPE_TOKEN`? (→ same as untrusted issuer: server returns 401; CLI exits 1; pipeline is responsible for refreshing the token before each invocation)
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+- **FR-001**: Users MUST be able to authenticate using their CAIPE server identity via a browser-initiated OAuth 2.0 PKCE flow launched from the terminal; on SSH or headless machines where no local browser is available, `caipe auth login --manual` prints the auth URL for copy-paste completion, and `caipe auth login --device` initiates Device Authorization Grant (RFC 8628) — the CLI displays a short user code and verification URL, polls the server until the user approves in any browser, then saves the token; `--manual` is the fallback when the server does not support RFC 8628
+- **FR-002**: Authenticated sessions MUST persist across terminal restarts without requiring re-login until the credential expires or the user explicitly signs out
+- **FR-015**: The CLI MUST read the CAIPE server base URL from `~/.config/caipe/settings.json` (`server.url` key); a `--url <url>` global flag MUST override the config value for that invocation only; all API endpoints are derived from this single base URL; OAuth endpoints are discovered via `/.well-known/agent.json` (see FR-023) with `/oauth/*` path fallbacks
+- **FR-023**: On first auth operation after a server URL is set (or when the cached config is stale/missing), the CLI MUST fetch `<server.url>/.well-known/agent.json` and cache the response in `~/.config/caipe/agent-config.json` with a 24-hour TTL. The document MUST be treated as optional: if the fetch fails (404, network error, parse error), the CLI falls back to conventional paths (`/oauth/authorize`, `/oauth/token`, `/oauth/device/code`). The `oauth` object in the document MAY contain: `authorization_endpoint` (full URL), `token_endpoint` (full URL), `device_authorization_endpoint` (full URL), `client_id` (string, overrides the built-in default), `scopes` (array of strings). Any field absent from the document falls back to the conventional default. This design allows caipe-ui to proxy OAuth to any backend IdP (currently Okta, future Keycloak) transparently without CLI changes.
+- **FR-016**: On first run (no `server.url` configured), the CLI MUST launch a setup wizard that (1) prompts the user for the CAIPE server URL, (2) saves it to `settings.json`, then (3) immediately proceeds to the auth flow (FR-001) without requiring a separate command
+- **FR-017**: The CLI MUST support a headless/non-interactive mode for use in CI pipelines and automation scripts; headless mode is activated when no TTY is detected or when `--headless` is explicitly passed
+- **FR-018**: In headless mode, the CLI MUST support three non-browser credential types, auto-detected by which is present (in priority order): (1) JWT pass-through — `CAIPE_TOKEN` env var or `--token <jwt>` flag; this path also covers OIDC federation: CI pipelines (GitHub Actions, GitLab CI, etc.) obtain a short-lived OIDC JWT from their provider and place it in `CAIPE_TOKEN`; the CLI carries it as a Bearer token without any provider-specific logic; the CAIPE server validates the issuer against its configured trusted OIDC providers; (2) API Key — `CAIPE_API_KEY` env var or `settings.json` `auth.apiKey`; (3) OAuth2 Client Credentials — `CAIPE_CLIENT_ID` + `CAIPE_CLIENT_SECRET` env vars exchanged for a short-lived access token before each session
+- **FR-019**: In headless mode, the CLI MUST accept the prompt via (in priority order): `--prompt <text>` flag, `--prompt-file <path>` (reads multi-line prompt from a file), or stdin when neither flag is present and stdin is a pipe; execute a single session turn, write the response to stdout in the format specified by `--output <text|json|ndjson>` (default: `text`), and exit with an appropriate exit code
+  - `text`: raw response streamed to stdout
+  - `json`: full response accumulated then emitted as a single JSON object `{"response":"...","agent":"...","protocol":"..."}`
+  - `ndjson`: one JSON object per token/event emitted as it arrives `{"type":"token","text":"..."}` / `{"type":"done"}`
+- **FR-020**: In headless mode, all interactive prompts (setup wizard, auth browser flow, protocol-switch confirmation) MUST be suppressed; missing required config MUST cause a non-zero exit with a machine-readable error to stderr
+- **FR-021**: Headless mode MUST be single-shot by default (one prompt → full response → exit); passing `--interactive-stdin` enables multi-turn mode where newline-delimited prompts are read from stdin continuously until EOF or a line containing only `\exit`; each turn's response is written to stdout before the next turn is read; `--output` format applies to every turn
+- **FR-003**: The chat interface MUST stream responses to the terminal in real-time with markdown rendered for readability; the CLI MUST support both A2A and AG-UI protocols — A2A is the default in v1; users MAY select AG-UI explicitly via `--protocol agui` (or `--protocol a2a` to be explicit); the active protocol is shown in the session header
+- **FR-004**: Chat sessions MUST automatically include context from the current working directory and git repository state at session start
+- **FR-005**: The chat session MUST maintain persistent memory (conversation history, user preferences) stored locally, accessible across sessions within the same project
+- **FR-006**: Users MUST be able to list, preview, and install skills from the catalog using a `skills` subcommand
+- **FR-007**: Installed skills MUST be written as Markdown files with YAML frontmatter into `.claude/` (preferred) or `skills/` (fallback) in the project directory
+- **FR-008**: The self-updating capability MUST detect version differences between installed skills and the catalog and surface them to the user on demand via `caipe skills update`
+- **FR-009**: Before applying any skill update, the system MUST display a diff of changes and require explicit user confirmation
+- **FR-010**: When committing AI-assisted code via the CLI, the system MUST auto-append an `Assisted-by` attribution trailer to the commit message
+- **FR-011**: The CLI MUST prompt users for a `Signed-off-by` trailer on every AI-assisted commit and MUST NOT generate this trailer on the user's behalf
+- **FR-012**: The CLI MUST be installable via `npx caipe` with no prerequisites beyond Node.js
+- **FR-013**: Users MUST be able to list agents available on the grid and target a specific agent for their chat session; selecting an agent pins the entire session to that agent — switching agents requires starting a new session (per-message routing is deferred to v2); the server registry MUST return a `protocols` field per agent (`["a2a"]`, `["agui"]`, or `["a2a","agui"]`); the CLI MUST validate the requested `--protocol` against this list before opening a session; if the protocol is unsupported, the CLI MUST prompt the user to switch to the agent's supported protocol and proceed only on confirmation
+- **FR-014**: The skill catalog MUST be browsable via a versioned static JSON manifest published as a GitHub Release asset; catalog browsing requires no authentication; installation of individual skills uses the same CAIPE server credential as chat
+- **FR-022**: `caipe auth login --device` MUST implement Device Authorization Grant (RFC 8628): (1) POST to the discovered `device_authorization_endpoint` (fallback: `<server.url>/oauth/device/code`) to obtain `device_code`, `user_code`, `verification_uri`, and `interval`; (2) display the `user_code` and `verification_uri` prominently in the terminal; (3) poll `<server.url>/oauth/token` at the server-specified interval until the grant succeeds, is denied, or expires; (4) on success, store tokens identically to the PKCE flow; (5) on `authorization_pending`, continue polling; (6) on `access_denied` or `expired_token`, exit with a clear error and suggest re-running the command; if the server returns a 404 or `unsupported_grant_type` for the device endpoint, the CLI MUST print a message directing the user to `--manual` instead
+
+### Key Entities
+
+- **User**: A platform engineer with a CAIPE server identity; owns a local credential, configured server URL, per-project chat memory, and a set of installed skills
+- **Skill**: A Markdown document with YAML frontmatter describing an AI automation routine; has name, version, description, author, and body
+- **Catalog**: A versioned, searchable collection of published skills with metadata for discovery and installation
+- **Chat Session**: A conversation thread scoped to a working directory; has an active agent, persistent memory, and streams responses
+- **Agent**: A specialised AI backend on the CAIPE server targeting a specific domain (e.g., GitOps, security, observability); each agent declares the protocols it supports (`a2a`, `agui`, or both) via the server registry
+- **Commit**: A git commit that may carry AI-generated content; subject to DCO policy requiring `Assisted-by` and human-supplied `Signed-off-by`
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: A new user can go from `npx caipe` to their first AI-assisted chat response in under 3 minutes, including one-time browser authentication
+- **SC-002**: 95% of chat responses begin streaming within 3 seconds of message submission on a standard broadband connection
+- **SC-003**: Users can discover, preview, and install any skill from the catalog in under 2 minutes without consulting external documentation
+- **SC-004**: Skill update checks complete within 10 seconds for a project with up to 50 installed skills
+- **SC-005**: 100% of AI-assisted commits made through the CLI include a valid `Assisted-by` trailer
+- **SC-006**: The CLI installs via `npx caipe` in under 60 seconds with no manual dependency installation step
+- **SC-007**: Chat sessions maintain usable context across a repository with up to 100 files without visible truncation or context errors reported by the user
+- **SC-008**: Skill installation succeeds for 99% of catalog entries when run in a directory containing only a `.git` folder
+
+## Assumptions
+
+- The CAIPE server's authentication service supports a browser-initiated OAuth flow compatible with headless/CLI environments; caipe-ui acts as the OAuth proxy — it accepts the CLI's PKCE requests and delegates to the configured backend IdP (currently Okta; migrating to Keycloak); the CLI never communicates with the IdP directly
+- The IdP migration (Okta → Keycloak) is entirely a caipe-ui configuration change; the CLI is IdP-agnostic by design via `/.well-known/agent.json` endpoint discovery
+- The CAIPE server is solely responsible for OIDC issuer validation; the CLI passes OIDC JWTs as opaque Bearer tokens and does not inspect or validate JWT claims
+- CI pipelines using OIDC federation are responsible for obtaining their provider-issued JWT (e.g., via GitHub Actions' `actions/create-token` or `ACTIONS_ID_TOKEN_REQUEST_URL`) before invoking the CLI
+- The CAIPE server URL is always user-configured; there is no built-in default URL
+- The skills catalog is accessible to any authenticated user without a separate credential
+- Skills follow the SKILL.md format convention established in outshift/skills (YAML frontmatter + Markdown body)
+- Memory persistence is stored locally in a per-project directory (e.g., `.claude/memory/`) and is not synced to the cloud
+- The CLI targets macOS and Linux as primary platforms; Windows (WSL2) is a supported secondary target
+- Skill versioning uses semantic versioning; the catalog exposes at least a `version` field per skill entry
+- The self-improving agent never auto-applies updates; human confirmation is always required before any skill file is modified
+- Multiple concurrent CLI sessions from the same user are permitted and share the same local credential store
+- **No local LLM**: CAIPE CLI performs no model inference locally; all AI computation runs on the grid; the CLI is network-dependent for all chat and agent interactions
+- **Offline capability is limited to**: skills catalog browsing (1-hour cache) and memory file editing; chat requires the grid to be reachable
+- The CAIPE server's supervisor agent handles dynamic sub-agent routing transparently; the CLI does not need to know which sub-agent handled a given turn
+
+---
+
+## Future Roadmap
+
+This section captures planned evolution beyond v1. These are **not** in scope for this feature branch.
+
+### v2 — Per-Message Dynamic Agent Routing
+
+In v1, selecting an agent pins the entire session. In v2, the CLI delegates routing to the grid supervisor per message — the user talks to one session and the supervisor dynamically invokes the appropriate sub-agent (ArgoCD, k8s, security, GitHub, etc.) per turn.
+
+**What changes**: Remove session-pinned restriction; pass all messages to the supervisor endpoint; display the active sub-agent name per response turn in the session header.
+
+**Dependency**: Grid supervisor must support multi-agent context threading — preserving conversation state across sub-agent handoffs.
+
+### v3 — Full Agentic Coding Assistant (Tool Execution)
+
+In v3, CAIPE CLI becomes a general-purpose agentic coding assistant backed by the grid supervisor. The execution model mirrors Claude Code — the CLI is the **local tool executor**, the grid supervisor is the **decision-maker**.
+
+**New capability**: The CLI handles `TOOL_CALL_START/END` AG-UI events and executes tools locally:
+
+| Tool | CLI action |
+|------|-----------|
+| `read_file` | Read from local filesystem; return content to grid |
+| `write_file` | Write to local filesystem after HITL approval |
+| `list_dir` | Walk local directory; return tree to grid |
+| `run_command` | Execute bash command locally after HITL approval |
+| `edit_file` | Apply diff to local file after HITL approval |
+
+**HITL approval**: `STATE_SNAPSHOT/DELTA` events surface tool calls requiring user confirmation before execution. The Ink REPL renders an approve/deny prompt.
+
+**What this unlocks**: The grid supervisor can autonomously read repo files, propose edits, run tests, and iterate — entirely from the terminal — without any local model. Platform-engineering workflows like "fix this failing ArgoCD sync", "update this Helm chart", or "triage this CVE and open a PR" become single-prompt operations.
+
+### Comparison to Claude Code at v3
+
+| | Claude Code | CAIPE CLI (v3) |
+|--|-------------|----------------|
+| LLM decision-maker | Anthropic Claude (API) | Grid supervisor |
+| Tool executor | CLI (local) | CLI (local) — identical |
+| Agent specialisation | One model | Domain sub-agents |
+| HITL approval | Built-in | Via `STATE_SNAPSHOT/DELTA` |
+| Skills | Slash commands | Installable, versioned Markdown |
+| Target user | General developers | Platform engineers |

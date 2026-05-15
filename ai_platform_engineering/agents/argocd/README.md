@@ -44,17 +44,11 @@
 
 Pick one of the following methods:
 
-- **Docker:**
+Use the [CAIPE CLI](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli):
 
-  ```bash
-  docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-  ```
-
-- **Python CLI:**
-
-  ```bash
-  uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
-  ```
+```bash
+caipe
+```
 
 ---
 

@@ -9,23 +9,31 @@ These interfaces empower users to build and manage sophisticated multi-agent sys
 
 > **Note:** Authorization and scope validation are currently handled by MCP servers. Additional details regarding this process will be provided in future updates.
 
-## Agent Chat CLI
+## CAIPE CLI
 
-<div style={{paddingBottom: '56.25%', position: 'relative', display: 'block', width: '100%'}}>
-	<iframe src="https://app.vidcast.io/share/embed/c8d0fdf0-5337-4c96-aae1-62a2eb660643?mute=1&autoplay=1&disableCopyDropdown=1" width="100%" height="100%" title="CAIPE Agent Chat CLI v0.2.0 Nov 15th 2025" loading="lazy" allow="fullscreen *;autoplay *;" style={{position: 'absolute', top: 0, left: 0, border: 'solid', borderRadius: '12px'}}></iframe>
-</div>
+CAIPE CLI is a dedicated TypeScript/Bun terminal client for interactive chat with CAIPE server agents via the A2A and AG-UI streaming protocols.
 
-- [**agent-chat-cli - explore the complete docs, install guide, and examples**](https://github.com/cnoe-io/agent-chat-cli)
+**Install:**
 
-   ```bash
-   docker run -it --network=host ghcr.io/cnoe-io/agent-chat-cli:stable
-   ```
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh
+```
 
-   *Or, clone and run the chat client:*
+**Or via npm:**
 
-   ```bash
-   uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a
-   ```
+```bash
+npm install -g caipe
+```
+
+**Quick start:**
+
+```bash
+caipe config set server.url https://your-caipe-server.example.com
+caipe auth login
+caipe
+```
+
+See the full [CAIPE CLI documentation](../../cli/README.md) for commands, configuration, and development instructions.
 
 
 

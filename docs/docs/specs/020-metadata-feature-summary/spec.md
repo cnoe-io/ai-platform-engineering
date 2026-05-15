@@ -33,7 +33,7 @@ curl -X POST http://localhost:8000/ -d '{"method":"message/stream","params":{...
 }
 ```
 
-### ❌ Client Test (agent-chat-cli):
+### ❌ Client Test (caipe-cli):
 **Result**: Shows `⟦` in panel then hangs
 
 
