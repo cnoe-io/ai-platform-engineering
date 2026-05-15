@@ -1,24 +1,24 @@
 ---
-name: "[Lint] Super Linter"
+name: "[Lint] Secret Scan"
 
 on:
   push:
-    # Run superlinter on pushes to default branch
     branches:
       - main
-  # Run superlinter on pull request events
   pull_request:
 
 # Declare default permissions as read-only
 permissions: read-all
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  linter:
+  gitleaks:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
-      statuses: write
     steps:
       - name: 🔒 harden runner
         uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
@@ -27,8 +27,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-      - name: 🧹 run superlinter
-        uses: super-linter/super-linter@9e863354e3ff62e0727d37183162c4a88873df41  # v8.6.0
+      - name: 🔍 scan for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_GITLEAKS: true
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
