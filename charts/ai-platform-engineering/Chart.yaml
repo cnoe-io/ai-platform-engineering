@@ -12,6 +12,7 @@ dependencies:
   - name: supervisor-agent
     # Chart version for agent subchart
     version: 0.4.12-dev.10 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: supervisor-agent.enabled
   # Single agent chart used multiple times with different aliases
   - name: agent
     version: 0.4.12-dev.10 # Do NOT bump this. It will be updated automatically using the PR or release workflow

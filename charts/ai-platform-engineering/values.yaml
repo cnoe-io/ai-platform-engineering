@@ -239,6 +239,12 @@ taskConfig: ""
 
 ######### Supervisor agent configuration #########
 supervisor-agent:
+  # Set to false to skip all supervisor-agent Kubernetes resources (Deployment, Service,
+  # Ingress, Secrets). Use when deploying with a custom supervisor or no supervisor at all.
+  # When disabled, also set caipe-ui.config.A2A_BASE_URL: "" so the UI does not try to
+  # reach a non-existent supervisor service and degrades gracefully.
+  enabled: true
+
   # Single-node mode configuration (only used when global.deploymentMode = "single-node").
   # Lives under supervisor-agent: so both the subchart deployment template AND
   # parent-chart templates (via index .Values "supervisor-agent") read from one place.
