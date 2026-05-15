@@ -79,6 +79,9 @@ realm:
 
 env:
   KC_HOSTNAME: "https://idp.caipe.example.com"
+  # Admin console and master realm stay private. Use kubectl port-forward to
+  # localhost:18080 instead of exposing /admin on public ingress.
+  KC_HOSTNAME_ADMIN: "http://localhost:18080"
   KC_HOSTNAME_STRICT: "true"
   KC_PROXY_HEADERS: "xforwarded"
   KC_HTTP_ENABLED: "true"
