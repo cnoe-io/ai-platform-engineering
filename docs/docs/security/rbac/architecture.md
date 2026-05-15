@@ -136,16 +136,29 @@ OIDC_IDP_HINT=okta                             # auto-redirect browser to this I
 
 **`OIDC_IDP_HINT`** (set in `ui/.env.local`) is passed to Keycloak as `kc_idp_hint` on every auth request. It skips the Keycloak login page entirely and redirects straight to the named IdP. Set it to the same value as `IDP_ALIAS`.
 
+In production, the browser-facing issuer is Keycloak, not the upstream IdP. For the Grid RBAC environment the UI uses:
+
+```bash
+OIDC_ISSUER=https://idp.caipe.example.com/realms/caipe
+OIDC_CLIENT_ID=caipe-ui
+OIDC_IDP_HINT=duo-sso
+NEXTAUTH_URL=https://caipe.example.com
+```
+
+Duo credentials stay on the Keycloak IdP broker only. The Duo application's redirect URI points to Keycloak's broker endpoint (`https://idp.caipe.example.com/realms/caipe/broker/duo-sso/endpoint`), while the Keycloak `caipe-ui` client allows NextAuth's callback (`https://caipe.example.com/api/auth/callback/oidc`). Keycloak must be started with a public hostname such as `KC_HOSTNAME=https://idp.caipe.example.com` and `KC_PROXY_HEADERS=xforwarded` so discovery metadata and JWT `iss` match the public issuer.
+
 **Claim mapping chain:** The IdP sends `email`, `given_name`/`firstname`, `family_name`/`lastname`, and `groups` claims. Keycloak IdP mappers write these to the local user record. Role mappers translate `IDP_ACCESS_GROUP` membership to `chat_user` and `IDP_ADMIN_GROUP` to `admin`. If neither group var is set, all brokered users receive `chat_user` automatically via a hardcoded role mapper.
 
 > The login sequence diagram (one-time login + the silent first-broker-login flow) lives in [Workflows › Login](./workflows.md#login--first-time-broker-login).
 
 ### User Profile & Custom Attributes
 
-Keycloak 26+ enforces a user profile schema. Custom attributes are silently dropped unless declared or `unmanagedAttributePolicy=ADMIN_EDIT` is set. `init-idp.sh` patches both:
+Keycloak 26+ enforces a user profile schema. Custom attributes are silently dropped unless declared or `unmanagedAttributePolicy=ADMIN_EDIT` is set on the user profile API. The Helm realm import JSON must not include `unmanagedAttributePolicy` as a top-level realm field because Keycloak 26.3 rejects that `RealmRepresentation` property during import. `init-idp.sh` patches both supported user-profile settings after the server starts:
 
 - Adds `slack_user_id` to the user profile schema with `admin`-only view/edit permissions
 - Sets `unmanagedAttributePolicy=ADMIN_EDIT` so other Admin API attribute writes succeed
+
+The Keycloak container exposes login/API traffic on `8080` and management health on `9000`; Helm readiness/liveness probes target the management port.
 
 ### Account Linking (Slack)
 

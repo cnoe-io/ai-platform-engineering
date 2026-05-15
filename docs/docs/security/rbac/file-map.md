@@ -6,8 +6,9 @@ When you need to change something in the auth path, this table tells you which f
 |-------------------------|------|
 | Short primer: Keycloak JWTs prove identity/context while OpenFGA proves relationship access | `docs/docs/security/rbac/jwt-and-openfga.md` |
 | Helm installation and upgrade runbook for the RBAC/OpenFGA refactor, including optional in-chart Keycloak, AgentGateway, OpenFGA, and OpenFGA bridge runtime components | `docs/docs/security/rbac/helm-install-upgrade.md` |
-| Keycloak realm: roles, clients, test users | `deploy/keycloak/realm-config.json` |
-| Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper, IdP group import and `caipe-ui` groups claim mapper | `deploy/keycloak/init-idp.sh` |
+| Keycloak Helm realm import: roles, clients, test users | `charts/ai-platform-engineering/charts/keycloak/realm-config.json` |
+| Keycloak Helm runtime: deployment args, management health probes, ingress, and mounted realm import | `charts/ai-platform-engineering/charts/keycloak/templates/deployment.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/ingress.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/configmap-realm.yaml` |
+| Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper, IdP group import and `caipe-ui` groups claim mapper | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` |
 | Export client secrets to env/dotenv/K8s Secret | `deploy/keycloak/export-client-secrets.sh` |
 | UI session & NextAuth OIDC config, group claim extraction, and login-time identity sync trigger | `ui/src/lib/auth-config.ts` |
 | UI RBAC middleware (dual bearer/session auth, per-route RBAC enforcement, compatibility gates for legacy `withAuth` handlers) | `ui/src/lib/api-middleware.ts` |
@@ -18,7 +19,7 @@ When you need to change something in the auth path, this table tells you which f
 | Dynamic agents JWT validation & userinfo | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/auth.py` |
 | Dynamic agents agent-level authorization (visibility rules; CEL hook retired) | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/access.py` |
 | AgentGateway static ext_authz configuration | `deploy/agentgateway/config.yaml` |
-| Host-specific `caipe-rbac.outshift.io` auth/issuer overrides for Docker Compose | `docker-compose.caipe-rbac-https.yaml`, `deploy/caipe-rbac-nginx.conf`, `deploy/agentgateway/config.caipe-rbac.yaml` |
+| Host-specific `caipe.example.com` auth/issuer overrides for Docker Compose | `docker-compose.caipe-rbac-https.yaml`, `deploy/caipe-rbac-nginx.conf`, `deploy/agentgateway/config.caipe-rbac.yaml` |
 | AgentGateway ext_authz template (no CEL policy rendering) | `deploy/agentgateway/config.yaml.j2` |
 | AgentGateway OpenFGA gRPC `extAuthz` route gate | `deploy/agentgateway/config.yaml` and `deploy/agentgateway/config.yaml.j2` (`extAuthz` block) |
 | Helm-packaged RBAC runtime services for 0.5.0: AgentGateway standalone proxy, OpenFGA, OpenFGA authz bridge, Keycloak dependency gating, setup script enablement, and release image workflows | `charts/ai-platform-engineering/Chart.yaml`, `charts/ai-platform-engineering/values.yaml`, `charts/ai-platform-engineering/charts/agentgateway/`, `charts/ai-platform-engineering/charts/openfga/`, `charts/ai-platform-engineering/charts/openfga-authz-bridge/`, `setup-caipe.sh`, `.github/workflows/ci-keycloak-init.yml`, `.github/workflows/ci-openfga-authz-bridge.yml` |

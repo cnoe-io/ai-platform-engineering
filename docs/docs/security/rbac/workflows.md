@@ -80,7 +80,7 @@ sequenceDiagram
       User->>SB: "list my ArgoCD apps"
       note over SB: Slack already linked to Keycloak user via<br/>/api/admin/slack-links → uses stored slack_user_id→sub mapping
       SB->>KC: POST /token (RFC 8693 token-exchange for Alice)<br/>subject_token=slack-bot-service-account<br/>requested_subject=alice
-      KC-->>SB: OBO JWT<br/>iss=http://localhost:7080/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
+      KC-->>SB: OBO JWT<br/>iss=https://idp.caipe.example.com/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
 
       SB->>SUP: POST /a2a<br/>Authorization: Bearer OBO_JWT
 
@@ -89,7 +89,7 @@ sequenceDiagram
 
       note over AG: jwtAuth: validate signature + iss + aud + exp<br/>(all local — AG never talks to Duo or KC on this path)
       AG->>AG: lookup kid in JWKS cache → verify RS256
-      AG->>AG: iss == http://localhost:7080/realms/caipe ✓
+      AG->>AG: iss == https://idp.caipe.example.com/realms/caipe ✓
       AG->>AG: "caipe-platform" in aud ✓
       AG->>AG: now < exp ✓
 
