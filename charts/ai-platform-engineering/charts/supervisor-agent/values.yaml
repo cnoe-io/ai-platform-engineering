@@ -1,3 +1,9 @@
+# -- Set to false to skip all supervisor-agent Kubernetes resources.
+# When disabled, no Deployment/Service/Ingress/Secret is created.
+# Also set caipe-ui.config.A2A_BASE_URL: "" to prevent the UI from
+# attempting to reach a non-existent supervisor service.
+enabled: true
+
 # -- Override the chart name
 nameOverride: ""
 # -- Override the full release name

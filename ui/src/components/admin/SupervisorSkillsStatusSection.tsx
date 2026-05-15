@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader2, RefreshCcw, Cpu, CheckCircle2, XCircle, AlertCircle, HelpCircle, Copy, Check } from "lucide-react";
+import { Loader2, RefreshCcw, Cpu, CheckCircle2, XCircle, AlertCircle, HelpCircle, Copy, Check, PackageX } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -95,9 +95,39 @@ export function SupervisorSkillsStatusSection({ isAdmin }: SupervisorSkillsStatu
     );
   }
 
+  const isNotInstalled = status?.message === "NEXT_PUBLIC_A2A_BASE_URL is not set.";
   const isConnected = status?.mas_registered === true;
   const hasSkills = (status?.skills_loaded_count ?? 0) > 0;
-  const isNotReachable = !isConnected && !!status?.message;
+  const isNotReachable = !isConnected && !!status?.message && !isNotInstalled;
+
+  // Supervisor disabled at deploy time — show static "Not installed" state
+  if (isNotInstalled) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Cpu className="h-5 w-5" />
+            Supervisor Skills
+          </CardTitle>
+          <CardDescription>
+            Skills loaded into the supervisor agent graph.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground">
+            <PackageX className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-medium text-foreground">Not installed</p>
+              <p className="text-xs mt-0.5">
+                The supervisor agent was disabled at deploy time (<code>supervisor-agent.enabled: false</code>).
+                Supervisor Skills are unavailable.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
