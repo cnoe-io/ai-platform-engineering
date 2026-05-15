@@ -20,12 +20,21 @@ from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 OPENFGA_HTTP = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
 OPENFGA_STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
 GRPC_BIND = os.environ.get("EXT_AUTHZ_GRPC_BIND", "0.0.0.0:9100")
+JWT_JWKS_URL = os.environ.get("JWT_JWKS_URL", "").strip()
+JWT_ISSUER = os.environ.get("JWT_ISSUER", "").strip()
+JWT_AUDIENCES = tuple(
+    aud.strip() for aud in os.environ.get("JWT_AUDIENCES", "").split(",") if aud.strip()
+)
+JWT_ALGORITHMS = tuple(
+    alg.strip() for alg in os.environ.get("JWT_ALGORITHMS", "RS256").split(",") if alg.strip()
+)
 # Optional explicit store id (skips discovery)
 STORE_ID: str = os.environ.get("OPENFGA_STORE_ID", "").strip()
 # Optional: if set, only these subs get 200 without calling OpenFGA (escape hatch)
 BYPASS_SUBS = frozenset(
     s.strip() for s in os.environ.get("OPENFGA_BYPASS_SUBS", "").split(",") if s.strip()
 )
+_JWKS_CLIENT: jwt.PyJWKClient | None = None
 OK = 0
 PERMISSION_DENIED = 7
 UNAUTHENTICATED = 16
@@ -278,14 +287,37 @@ def _check_openfga(user: str, relation: str, obj: str) -> bool:
         return bool(r.json().get("allowed"))
 
 
-def _decode_bearer_subject(auth_header: str) -> str | None:
+def _get_jwks_client() -> jwt.PyJWKClient:
+    """Return a cached JWKS client for token signature verification."""
+    global _JWKS_CLIENT
+    if _JWKS_CLIENT is None:
+        _JWKS_CLIENT = jwt.PyJWKClient(JWT_JWKS_URL)
+    return _JWKS_CLIENT
+
+
+def _decode_verified_bearer_subject(auth_header: str) -> str | None:
+    """Validate a bearer JWT and return its subject when the token is trusted."""
     if not auth_header.startswith("Bearer "):
         return None
+    if not JWT_JWKS_URL:
+        print("[bridge] JWT_JWKS_URL is required for token validation", file=sys.stderr)
+        return None
+
     token = auth_header[7:].strip()
     try:
-        payload = jwt.decode(token, options={"verify_signature": False})
-    except jwt.PyJWTError:
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
+        decode_kwargs: dict[str, object] = {"algorithms": list(JWT_ALGORITHMS)}
+        if JWT_ISSUER:
+            decode_kwargs["issuer"] = JWT_ISSUER
+        if JWT_AUDIENCES:
+            decode_kwargs["audience"] = list(JWT_AUDIENCES)
+        else:
+            decode_kwargs["options"] = {"verify_aud": False}
+        payload = jwt.decode(token, signing_key.key, **decode_kwargs)
+    except Exception as e:
+        print(f"[bridge] JWT validation failed: {e}", file=sys.stderr)
         return None
+
     sub = payload.get("sub")
     return sub if isinstance(sub, str) and sub else None
 
@@ -320,16 +352,8 @@ def _subject_from_metadata(request: CheckRequest) -> str | None:
 
 
 def subject_from_check_request(request: CheckRequest) -> str | None:
-    metadata_subject = _subject_from_metadata(request)
-    if metadata_subject:
-        return metadata_subject
-
     headers = _headers_from_check_request(request)
-    agw_subject = headers.get("x-authenticated-sub")
-    if agw_subject:
-        return agw_subject
-
-    return _decode_bearer_subject(headers.get("authorization", ""))
+    return _decode_verified_bearer_subject(headers.get("authorization", ""))
 
 
 def build_check_request(

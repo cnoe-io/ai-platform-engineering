@@ -13,7 +13,7 @@ The `0.5.0` umbrella chart can own the RBAC runtime stack for demo and managed e
 
 - `tags.keycloak=true` enables the Keycloak subchart, realm import, and IdP/token-exchange init hooks.
 - `openfga.enabled=true` enables the OpenFGA service and the CAIPE authorization model loader hook.
-- `openfgaAuthzBridge.enabled=true` enables the gRPC `ext_authz` bridge that translates AgentGateway checks into OpenFGA checks.
+- `openfgaAuthzBridge.enabled=true` enables the gRPC `ext_authz` bridge that validates the bearer JWT again, extracts the verified `sub`, and translates AgentGateway checks into OpenFGA checks.
 - `agentgateway.enabled=true` enables the standalone AgentGateway proxy chart. `global.agentgateway.enabled=true` is still the Gateway API route-resource path for clusters using the AgentGateway controller model.
 
 Production installs must still supply ExternalSecrets and persistent datastore settings; the chart defaults are conservative and disabled by default.

@@ -42,6 +42,18 @@ spec:
             - name: OPENFGA_BYPASS_SUBS
               value: {{ .Values.openfga.bypassSubs | quote }}
             {{- end }}
+            - name: JWT_JWKS_URL
+              value: {{ tpl .Values.tokenValidation.jwksUrl . | quote }}
+            {{- if .Values.tokenValidation.issuer }}
+            - name: JWT_ISSUER
+              value: {{ tpl .Values.tokenValidation.issuer . | quote }}
+            {{- end }}
+            {{- if .Values.tokenValidation.audiences }}
+            - name: JWT_AUDIENCES
+              value: {{ join "," .Values.tokenValidation.audiences | quote }}
+            {{- end }}
+            - name: JWT_ALGORITHMS
+              value: {{ join "," .Values.tokenValidation.algorithms | quote }}
           ports:
             - name: grpc
               containerPort: 9100

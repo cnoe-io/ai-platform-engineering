@@ -4,6 +4,8 @@
 
 This guide describes the RBAC runtime packaging in the `0.5.0` Helm chart. Keycloak, AgentGateway, OpenFGA, and the OpenFGA bridge are optional chart components; production installs still need externalized secrets and persistent datastores.
 
+For local or demo installs, `setup-caipe.sh --rbac-runtime` now enables those optional in-chart components together. It is still a development-oriented path: Keycloak defaults to `start-dev`/embedded H2, OpenFGA defaults to the in-memory datastore unless overridden, and production installs should use explicit values files and managed secrets as described below.
+
 ## Current Helm Packaging Status
 
 | Component | Is it installed by the umbrella chart today? | What exists today |
@@ -214,14 +216,24 @@ openfga:
 
 openfgaAuthzBridge:
   enabled: true
+
+openfga-authz-bridge:
   image:
     repository: ghcr.io/cnoe-io/openfga-authz-bridge
   openfga:
     httpUrl: "http://{{ .Release.Name }}-openfga:8080"
     storeName: caipe-openfga
+  tokenValidation:
+    jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    issuer: "https://idp.grid.outshift.io/realms/caipe"
+    audiences:
+      - agentgateway
+      - caipe-platform
 ```
 
 Do not expose OpenFGA publicly unless you have a separate gateway, authentication, rate limiting, and audit controls. CAIPE users do not need browser access to OpenFGA.
+
+The bridge validates the bearer JWT itself before it calls OpenFGA. AgentGateway should still validate JWTs at the edge, but the bridge no longer trusts forwarded subject headers or gRPC metadata as the sole identity source.
 
 ## Install AgentGateway
 
@@ -266,6 +278,16 @@ If you use the Gateway API controller path instead of standalone config, enable 
 - One `AgentgatewayBackend` per enabled MCP backend.
 - One `HTTPRoute` per enabled MCP backend.
 - An optional `AgentgatewayPolicy` when `global.agentgateway.extAuth.enabled=true`.
+
+## Install Through `setup-caipe.sh`
+
+For a development or release-smoke install of all chart-owned RBAC runtime components, use:
+
+```bash
+./setup-caipe.sh --non-interactive --rbac-runtime
+```
+
+This passes values equivalent to enabling `tags.keycloak`, `openfga.enabled`, `openfgaAuthzBridge.enabled`, and `agentgateway.enabled`, and it wires `caipe-ui.config.OPENFGA_*` plus `KEYCLOAK_*` service URLs to the in-cluster services. The script also port-forwards Keycloak, OpenFGA, and AgentGateway in interactive mode. Use a dedicated values file for production hostnames, Keycloak database settings, OpenFGA datastore settings, and secret references.
 
 ## Install CAIPE UI and Services
 

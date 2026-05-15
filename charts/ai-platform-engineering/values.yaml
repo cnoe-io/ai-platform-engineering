@@ -1066,6 +1066,10 @@ openfga:
 # OpenFGA Check calls. Enable alongside OpenFGA and AgentGateway.
 openfgaAuthzBridge:
   enabled: false
+
+# Values for the openfga-authz-bridge subchart. The separate camelCase block
+# above is kept as the dependency condition flag.
+openfga-authz-bridge:
   image:
     repository: ghcr.io/cnoe-io/openfga-authz-bridge
     tag: ""
@@ -1075,6 +1079,12 @@ openfgaAuthzBridge:
     storeName: caipe-openfga
     relation: can_call
     object: document:mcp
+  tokenValidation:
+    jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    issuer: ""
+    audiences: []
+    algorithms:
+      - RS256
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
