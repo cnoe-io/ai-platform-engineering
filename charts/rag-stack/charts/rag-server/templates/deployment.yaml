@@ -28,10 +28,22 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "rag-server.serviceAccountName" . }}
       automountServiceAccountToken: {{ .Values.serviceAccount.automount | default false }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         # Main RAG Server container
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -80,7 +92,11 @@ spec:
         {{- if .Values.webIngestor.enabled }}
         # Web Ingestor sidecar container
         - name: web-ingestor
-          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default .Chart.AppVersion }}"
+          {{- with .Values.webIngestor.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
           {{- with .Values.webIngestor.envFrom }}
           envFrom:
@@ -103,7 +119,15 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.webIngestor.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

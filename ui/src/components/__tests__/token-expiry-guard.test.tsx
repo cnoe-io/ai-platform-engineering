@@ -7,14 +7,18 @@
  * - Silent token auto-refresh via updateSession
  * - Expired token handling and auto-redirect
  * - Warning message changes based on refresh token availability
- * - Re-login button signs out before redirect (prevents infinite loop)
+ * - "Sign in again" clears the stale session and preserves return path
+ * - "Log In Again" on expired modal signs out and clears flag
+ * - Auto-logout after 5-second countdown
+ * - Concurrent refresh lock (only one refresh attempt at a time)
  * - Cleanup on unmount
+ *
+ * assisted-by Codex Codex-sonnet-4-6
  */
 
 import React from 'react'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { useSession, signOut } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 import { TokenExpiryGuard } from '../token-expiry-guard'
 
 // Mock Next Auth
@@ -23,11 +27,6 @@ const mockUpdateSession = jest.fn().mockResolvedValue(undefined)
 jest.mock('next-auth/react', () => ({
   useSession: jest.fn(),
   signOut: jest.fn(),
-}))
-
-// Mock Next Router
-jest.mock('next/navigation', () => ({
-  useRouter: jest.fn(),
 }))
 
 // Mock config
@@ -47,10 +46,9 @@ jest.mock('framer-motion', () => ({
 }))
 
 describe('TokenExpiryGuard', () => {
-  const mockPush = jest.fn()
   const mockSignOut = signOut as jest.MockedFunction<typeof signOut>
   const mockUseSession = useSession as jest.MockedFunction<typeof useSession>
-  const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>
+  let mockWindowOpen: jest.Mock
 
   // Mock sessionStorage
   let sessionStorageData: Record<string, string> = {}
@@ -66,7 +64,13 @@ describe('TokenExpiryGuard', () => {
     jest.useFakeTimers()
     mockUpdateSession.mockClear().mockResolvedValue(undefined)
     sessionStorageData = {}
+
     Object.defineProperty(window, 'sessionStorage', { value: mockSessionStorage, writable: true })
+    window.history.pushState({}, '', '/')
+
+    // Mock window.open
+    mockWindowOpen = jest.fn()
+    Object.defineProperty(window, 'open', { value: mockWindowOpen, writable: true })
 
     // Reset getConfig mock to default (ssoEnabled = true)
     const { getConfig } = require('@/lib/config')
@@ -74,10 +78,6 @@ describe('TokenExpiryGuard', () => {
       if (key === 'ssoEnabled') return true
       return undefined
     })
-
-    mockUseRouter.mockReturnValue({
-      push: mockPush,
-    } as any)
 
     mockSignOut.mockResolvedValue(undefined as any)
   })
@@ -271,45 +271,13 @@ describe('TokenExpiryGuard', () => {
   })
 
   // ─────────────────────────────────────────────────────────────────────
-  // Re-login button (infinite loop fix)
+  // Sign in again button
   // ─────────────────────────────────────────────────────────────────────
 
-  describe('re-login button', () => {
-    it('should call signOut (not router.push) when Re-login Now is clicked', async () => {
+  describe('Sign in again button', () => {
+    it('should sign out with current page preserved as callbackUrl when clicked', async () => {
       jest.useRealTimers()
-      const soonExpiry = Math.floor(Date.now() / 1000) + 240
-
-      mockUseSession.mockReturnValue({
-        data: {
-          user: { name: 'Test User', email: 'test@example.com' },
-          expiresAt: soonExpiry,
-          hasRefreshToken: false,
-        } as any,
-        status: 'authenticated',
-        update: mockUpdateSession,
-      })
-
-      render(<TokenExpiryGuard />)
-
-      // Wait for warning to appear
-      await waitFor(() => {
-        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
-      })
-
-      // Click Re-login Now
-      fireEvent.click(screen.getByText(/re-login now/i))
-
-      // Should call signOut with callbackUrl (not router.push)
-      await waitFor(() => {
-        expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login?session_expired=true' })
-      })
-
-      // Should NOT use router.push (that causes the loop)
-      expect(mockPush).not.toHaveBeenCalled()
-    })
-
-    it('should set token-expiry-handling flag before signing out', async () => {
-      jest.useRealTimers()
+      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
       mockUseSession.mockReturnValue({
@@ -328,15 +296,17 @@ describe('TokenExpiryGuard', () => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/re-login now/i))
+      fireEvent.click(screen.getByText(/sign in again/i))
 
-      // Should set the flag to prevent AuthGuard from also redirecting
       await waitFor(() => {
-        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+        expect(mockSignOut).toHaveBeenCalledWith({
+          callbackUrl:
+            '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
+        })
       })
     })
 
-    it('should call signOut and set expiry flag when re-login is clicked', async () => {
+    it('should set the expiry-handling flag before redirecting to login', async () => {
       jest.useRealTimers()
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
@@ -356,15 +326,34 @@ describe('TokenExpiryGuard', () => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/re-login now/i))
+      fireEvent.click(screen.getByText(/sign in again/i))
 
-      // signOut should be called (this is the key assertion — it breaks the loop)
-      await waitFor(() => {
-        expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login?session_expired=true' })
-      })
-
-      // The expiry handling flag should be set before signOut
       expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+    })
+
+    it('should not use the brittle new-tab refresh flow', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: false,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByText(/sign in again/i))
+
+      expect(mockWindowOpen).not.toHaveBeenCalled()
     })
   })
 
@@ -541,14 +530,14 @@ describe('TokenExpiryGuard', () => {
 
       // Wait for warning to appear
       await waitFor(() => {
-        expect(screen.getByText(/save your work and re-login/i)).toBeInTheDocument()
+        expect(screen.getByText(/please re-login to continue/i)).toBeInTheDocument()
       })
 
       expect(screen.queryByText(/attempting to refresh automatically/i)).not.toBeInTheDocument()
     })
 
-    it('should not crash if updateSession rejects', async () => {
-      jest.useRealTimers()
+    it('should show a countdown and redirect through current-tab login if updateSession rejects', async () => {
+      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
       mockUpdateSession.mockRejectedValueOnce(new Error('Network error'))
 
@@ -566,12 +555,59 @@ describe('TokenExpiryGuard', () => {
 
       render(<TokenExpiryGuard />)
 
-      // Should not crash — warning is still displayed
+      await act(async () => { jest.advanceTimersByTime(0) })
+
       await waitFor(() => {
-        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
+      })
+
+      await act(async () => { jest.advanceTimersByTime(1000) })
+      expect(screen.getByText(/redirecting to login in 4 seconds/i)).toBeInTheDocument()
+
+      await act(async () => { jest.advanceTimersByTime(4000) })
+      expect(mockSignOut).toHaveBeenCalledWith({
+        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
       })
 
       consoleSpy.mockRestore()
+    })
+
+    it('should not start a second refresh while first is in flight (concurrent lock)', async () => {
+      // Use fake timers so we can control the 30s interval
+      // mockUpdateSession never resolves for this test, keeping isRefreshingRef = true
+      let resolveFirstRefresh!: () => void
+      mockUpdateSession.mockReturnValue(
+        new Promise<any>((resolve) => { resolveFirstRefresh = resolve }),
+      )
+
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Initial mount check triggers the first refresh (never resolves)
+      await act(async () => { jest.advanceTimersByTime(0) })
+
+      expect(mockUpdateSession).toHaveBeenCalledTimes(1)
+
+      // 30s interval fires — first refresh is still in flight
+      await act(async () => { jest.advanceTimersByTime(30000) })
+
+      // updateSession should still be called only once (lock prevents second call)
+      expect(mockUpdateSession).toHaveBeenCalledTimes(1)
+
+      // Resolve first refresh to clean up
+      act(() => { resolveFirstRefresh() })
     })
   })
 
@@ -617,22 +653,14 @@ describe('TokenExpiryGuard', () => {
         expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
       })
     })
-  })
 
-  // ─────────────────────────────────────────────────────────────────────
-  // Logout handler
-  // ─────────────────────────────────────────────────────────────────────
-
-  describe('logout handler', () => {
-    it('should clear token-expiry-handling flag on logout', async () => {
+    it('should show refresh-failed modal when session has RefreshTokenExpired error', async () => {
       jest.useRealTimers()
-      const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
       mockUseSession.mockReturnValue({
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
-          expiresAt: soonExpiry,
-          hasRefreshToken: false,
+          error: 'RefreshTokenExpired',
         } as any,
         status: 'authenticated',
         update: mockUpdateSession,
@@ -640,16 +668,169 @@ describe('TokenExpiryGuard', () => {
 
       render(<TokenExpiryGuard />)
 
-      // The re-login handler sets the flag; when signOut completes it should be cleared
+      await waitFor(() => {
+        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
+      })
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Logout handler (expired modal)
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('logout handler', () => {
+    it('should call signOut with preserved login callbackUrl when Log In Again is clicked', async () => {
+      jest.useRealTimers()
+      window.history.pushState({}, '', '/chat/thread-123')
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'RefreshTokenExpired',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
+
+      await waitFor(() => {
+        expect(mockSignOut).toHaveBeenCalledWith({
+          callbackUrl: '/login?session_expired=true&callbackUrl=%2Fchat%2Fthread-123',
+        })
+      })
+    })
+
+    it('should keep token-expiry-handling flag set when Log In Again is clicked', async () => {
+      jest.useRealTimers()
+      // Pre-populate the flag (as set when entering the error/expired state)
+      sessionStorageData['token-expiry-handling'] = 'true'
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'RefreshTokenExpired',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
+
+      await waitFor(() => {
+        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+      })
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Auto-logout countdown
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('auto-logout countdown', () => {
+    it('should auto-redirect after 5 seconds when RefreshTokenExpired', async () => {
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'RefreshTokenExpired',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      // Mount triggers checkTokenExpiry which sets a 5s setTimeout
+      await act(async () => { jest.advanceTimersByTime(0) })
+
+      // Advance 5 seconds — auto-logout fires
+      await act(async () => { jest.advanceTimersByTime(5000) })
+
+      expect(mockSignOut).toHaveBeenCalledWith({
+        callbackUrl: '/login?session_expired=true&callbackUrl=%2F',
+      })
+    })
+
+    it('should auto-redirect after 5 seconds when token has actually expired', async () => {
+      const pastExpiry = Math.floor(Date.now() / 1000) - 10 // expired 10s ago
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: pastExpiry,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await act(async () => { jest.advanceTimersByTime(0) })
+      await act(async () => { jest.advanceTimersByTime(5000) })
+
+      expect(mockSignOut).toHaveBeenCalledWith({
+        callbackUrl: '/login?session_expired=true&callbackUrl=%2F',
+      })
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Warning hidden when token is refreshed (else-if branch)
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('warning cleared after token refresh', () => {
+    it('should hide warning and remove flag when token is refreshed (outside warning window)', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      const { rerender } = render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear
       await waitFor(() => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      // Click Re-login Now (which uses the new signOut-based handler)
-      fireEvent.click(screen.getByText(/re-login now/i))
+      // Simulate token refresh: new expiresAt far in the future
+      const refreshedExpiry = Math.floor(Date.now() / 1000) + 3600 // 1 hour
 
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: refreshedExpiry,
+          hasRefreshToken: true,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      rerender(<TokenExpiryGuard />)
+
+      // Warning should disappear because we're now outside the warning window
       await waitFor(() => {
-        expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login?session_expired=true' })
+        expect(screen.queryByText(/session expiring soon/i)).not.toBeInTheDocument()
       })
     })
   })

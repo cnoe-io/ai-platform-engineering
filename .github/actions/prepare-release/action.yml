@@ -1,0 +1,36 @@
+name: 'Prepare Release'
+description: >
+  Updates all version files and generates changelog for a release version.
+  Wraps update-version-files (already modifies all files with version + uv.lock) + commitizen changelog generation.
+  Used by release-manual.yml and pr-version-bump.yml (for release/* → main PRs or commits).
+
+inputs:
+  version:
+    description: 'Release version (bare x.y.z, e.g. 0.3.0)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: 📦 Install commitizen
+      shell: bash
+      run: |
+        uv tool install commitizen
+        echo "✅ Installed commitizen"
+
+    - name: 📝 Update all version files
+      id: update-versions
+      uses: ./.github/actions/update-version-files
+      with:
+        version: ${{ inputs.version }}
+
+    - name: 📋 Generate changelog
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        echo "🔄 Generating changelog for $VERSION using commitizen..."
+        cz changelog --unreleased-version "$VERSION"
+        echo "✅ Generated changelog entry for $VERSION"
+        echo ""
+        echo "📋 New changelog entry preview:"
+        head -30 CHANGELOG.md

@@ -35,7 +35,7 @@ All specs live under `docs/docs/specs/` so they are automatically published to t
 docs/docs/specs/
 ├── index.md                     # Overview page
 ├── _category_.json              # Docusaurus sidebar config
-└── <###-feature-name>/          # e.g., 092-user-auth
+└── <YYYY-MM-DD-feature-name>/   # e.g., 2026-04-29-user-auth
     ├── spec.md                  # The feature specification (PRD)
     ├── plan.md                  # Implementation plan
     ├── research.md              # Technical research (library choices, benchmarks)
@@ -44,14 +44,13 @@ docs/docs/specs/
     │   ├── rest-api.md
     │   └── events.md
     ├── quickstart.md            # Key validation scenarios
+    ├── db-migration.md          # Optional: DB DDL/index/backfill/rollback (or mongodb-migration.md, sql-migrations/ — when /speckit.plan touches storage)
     └── tasks.md                 # Executable, dependency-ordered task list
 ```
 
-## Spec Numbering
+## Spec directory naming
 
-Specs are numbered sequentially: `001`, `002`, `003`, ...
-
-The `/speckit.specify` command automatically determines the next number by scanning existing specs.
+Feature spec folders use a **date prefix** (`YYYY-MM-DD`) plus a short slug, matching the branch name from `create-new-feature.sh` (see PR #1318). The `/speckit.specify` workflow creates `docs/docs/specs/<YYYY-MM-DD-short-name>/` for the run date.
 
 ## Spec Content Requirements
 
@@ -75,6 +74,7 @@ A complete `plan.md` must include:
 - **Technical Context**: Language, framework, storage, testing tools
 - **Constitution Check**: Verification against `.specify/memory/constitution.md`
 - **Project Structure**: Directory layout for source and tests
+- **Database migrations** (when Technical Context includes persisted storage): companion `db-migration.md` or equivalent (`mongodb-migration.md`, SQL migration notes) documenting required vs no-op changes, indexes, backfills, rollback; see `.specify/templates/plan-template.md`
 - **Implementation Phases**: Ordered phases with deliverables per phase
 - **Rationale**: Why each technology choice was made
 
@@ -97,7 +97,7 @@ High-level, cross-cutting plans that span features or the entire project are sto
 - `SKILLS.md` — skills inventory
 - `SPECS.md` — this document
 
-Feature-specific specs always go in `docs/docs/specs/<###-feature-name>/`.
+Feature-specific specs always go in `docs/docs/specs/<YYYY-MM-DD-feature-name>/`.
 
 ## Agents and Specs
 

@@ -40,6 +40,7 @@ helm.sh/chart: {{ include "caipe-ui.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: caipe-ui
 {{- end }}
 
 {{/*
@@ -77,3 +78,7 @@ Determine if ingress is enabled - global takes precedence
         {{- .Values.ingress.enabled | default false -}}
     {{- end -}}
 {{- end }}
+
+{{- define "caipe-ui.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
+{{- end -}}

@@ -5,7 +5,6 @@ import type {
   UpdateAgentSkillInput,
   AgentSkillCategory,
 } from "@/types/agent-skill";
-import { BUILTIN_QUICK_START_TEMPLATES } from "@/types/agent-skill";
 
 /**
  * Agent Skills Store
@@ -204,7 +203,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
   seedTemplates: async () => {
     try {
       // Check if seeding is needed
-      const checkResponse = await fetch("/api/agent-skills/seed");
+      const checkResponse = await fetch("/api/skills/seed");
       if (!checkResponse.ok) {
         console.log("[AgentSkillsStore] Seed check failed, skipping");
         return;
@@ -219,7 +218,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       
       // Perform seeding
       console.log("[AgentSkillsStore] Seeding built-in templates...");
-      const seedResponse = await fetch("/api/agent-skills/seed", {
+      const seedResponse = await fetch("/api/skills/seed", {
         method: "POST",
       });
       
@@ -257,19 +256,19 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
         await get().loadFavorites();
       }
       
-      const response = await fetch("/api/agent-skills");
+      const response = await fetch("/api/skills/configs");
       
-      // Handle 503 (MongoDB not configured) gracefully - use built-in templates
+      // Handle 503 (MongoDB not configured) gracefully
       if (response.status === 503) {
-        console.log("[AgentSkillsStore] MongoDB not configured, using built-in templates only");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+        console.log("[AgentSkillsStore] MongoDB not configured");
+        set({ configs: [], isLoading: false });
         return;
       }
-      
-      // Handle 401 (not authenticated) gracefully - use built-in templates
+
+      // Handle 401 (not authenticated) gracefully
       if (response.status === 401) {
-        console.log("[AgentSkillsStore] Not authenticated, using built-in templates only");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+        console.log("[AgentSkillsStore] Not authenticated");
+        set({ configs: [], isLoading: false });
         return;
       }
       
@@ -280,26 +279,18 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       
       const data = await response.json();
       const transformed = data.map(transformSkill);
-      
-      // If no configs from MongoDB, fall back to built-in templates
-      if (transformed.length === 0) {
-        console.log("[AgentSkillsStore] No configs in MongoDB, using built-in templates");
-        set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
-        return;
-      }
-      
+
       set({ configs: transformed, isLoading: false });
       console.log(`[AgentSkillsStore] Loaded ${transformed.length} agent skills from MongoDB`);
     } catch (error: any) {
       console.error("[AgentSkillsStore] Failed to load configs:", error);
-      // Fall back to built-in templates
-      set({ configs: BUILTIN_QUICK_START_TEMPLATES, isLoading: false });
+      set({ configs: [], isLoading: false });
     }
   },
 
   createSkill: async (skillData) => {
     try {
-      const response = await fetch("/api/agent-skills", {
+      const response = await fetch("/api/skills/configs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(skillData),
@@ -337,7 +328,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
     try {
       console.log(`[AgentSkillsStore] Updating config ${id} with:`, updates);
       
-      const response = await fetch(`/api/agent-skills?id=${id}`, {
+      const response = await fetch(`/api/skills/configs?id=${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
@@ -373,7 +364,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
 
   deleteSkill: async (id) => {
     try {
-      const response = await fetch(`/api/agent-skills?id=${id}`, {
+      const response = await fetch(`/api/skills/configs?id=${id}`, {
         method: "DELETE",
       });
 
@@ -463,7 +454,7 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
         
         const skillInput: CreateAgentSkillInput = {
           name,
-          description: `Multi-step workflow for: ${name}`,
+          description: `Workflow for: ${name}`,
           category,
           tasks: skillValue.tasks.map((task) => ({
             display_text: task.display_text,

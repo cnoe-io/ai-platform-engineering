@@ -141,12 +141,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
         const feedbackColl = await getCollection("feedback");
         const now = new Date();
 
-        // For Slack: upsert on (threadTs, userId, source) so refinement
-        // actions update the initial thumbs_down rather than duplicating.
-        // For web: insert per message_id submission.
+        // For Slack: upsert on (messageId, userId, source) so refinement
+        // actions update the initial thumbs_down rather than duplicating,
+        // while still allowing different users (or the same user on different
+        // bot replies in the same thread) to each have their own feedback doc.
         if (source === "slack" && body.threadTs && body.userId) {
           await feedbackColl.updateOne(
-            { thread_ts: body.threadTs, user_id: body.userId, source: "slack" },
+            {
+              message_id: body.messageId || body.threadTs,
+              user_id: body.userId,
+              source: "slack",
+            },
             {
               $set: {
                 trace_id: body.traceId || null,
@@ -157,11 +162,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
                 conversation_id: body.conversationId || `slack-${body.threadTs}`,
                 channel_id: body.channelId || null,
                 channel_name: body.channelName || null,
+                thread_ts: body.threadTs,
                 slack_permalink: body.slackPermalink || null,
                 updated_at: now,
               },
               $setOnInsert: {
-                message_id: body.messageId || null,
                 created_at: now,
               },
             },

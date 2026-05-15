@@ -3,11 +3,6 @@ description: "Build and push CAIPE UI Docker image"
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'ui/**'
-      - 'build/Dockerfile.caipe-ui'
     tags:
       - '**'
   pull_request:
@@ -17,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_version:
-        description: 'Version tag to apply (e.g., 0.2.8-rc.1)'
+        description: 'Version tag to apply (e.g., 0.3.0-dev.5)'
         required: false
         type: string
 
@@ -25,13 +20,19 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   determine-changes:
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -59,48 +60,58 @@ jobs:
         env:
           UI_CHANGED: ${{ steps.filter.outputs.ui }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          IS_TAG_PUSH: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
           TAG_VERSION="${{ env.TAG_VERSION }}"
-          IS_TAG_PUSH="${{ env.IS_TAG_PUSH }}"
 
-          # Check if this is an RC tag
-          if [[ "$TAG_VERSION" =~ -rc\.[0-9]+$ ]]; then
-            IS_RC="true"
+          # Chart-only tag: skip image builds entirely
+          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
+            echo "📊 Chart-only tag: skipping image builds"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "should_retag=false" >> $GITHUB_OUTPUT
+            echo "image_prefix=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Determine pre-release type and number
+          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_NUM="${BASH_REMATCH[2]}"
           else
-            IS_RC="false"
+            IS_PRERELEASE="false"
+            PRERELEASE_NUM=0
+          fi
+
+          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
+            IMAGE_PREFIX="pre-release/"
+          else
+            IMAGE_PREFIX=""
           fi
 
           if [ -n "$TAG_VERSION" ]; then
-            if [ "$IS_RC" == "true" ]; then
-              # For RC tags: always build if tag pushed directly, otherwise check for changes
-              if [ "$IS_TAG_PUSH" == "true" ]; then
+            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
+              if [ "$UI_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
-                echo "🏷️ RC tag push: building"
-              elif [ "$UI_CHANGED" == "true" ]; then
-                SHOULD_BUILD="true"
-                echo "🔨 RC tag with UI changes: building"
+                echo "🔨 Pre-release tag with UI changes: building"
               else
                 SHOULD_RETAG="true"
-                echo "🏷️ RC tag without UI changes: retagging"
+                echo "🏷️ Pre-release tag without UI changes: retagging"
               fi
             else
               SHOULD_BUILD="true"
-              echo "🚀 Final release: building"
+              echo "🚀 Build all: first pre-release or final release"
             fi
-          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          elif [ "$UI_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             SHOULD_BUILD="true"
-            echo "📦 Push to main: building"
-          elif [ "$UI_CHANGED" == "true" ]; then
-            SHOULD_BUILD="true"
-            echo "🔍 UI files changed: building"
+            echo "📦 UI files changed or manual trigger: building"
           fi
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, is_rc=$IS_RC, is_tag_push=$IS_TAG_PUSH"
+          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -112,12 +123,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-ui
       DOCKERFILE: build/Dockerfile.caipe-ui
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -147,7 +158,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -159,20 +170,19 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: Build and Push Docker image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
@@ -197,12 +207,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-ui
       DOCKERFILE: build/Dockerfile.caipe-ui
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -226,13 +236,14 @@ jobs:
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Processing caipe-ui..."
 
-          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
 
-            if [[ "$RC_NUM" -gt 1 ]]; then
-              PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
             else
               SOURCE_TAG="${BASE_VERSION}"
             fi
@@ -289,7 +300,7 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -300,7 +311,7 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
@@ -322,11 +333,13 @@ jobs:
   # Notify release-finalize workflow when this CI completes
   notify-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
     needs: [determine-changes, build-and-push, retag-unchanged]
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-rc.')
+      !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
       - name: 🔔 Notify release finalize
         env:
@@ -347,7 +360,7 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {

@@ -113,12 +113,16 @@ class TestMetadata:
         meta = Metadata(user_input=True, input_fields=[])
         assert meta.input_fields == []
 
-    def test_missing_user_input_raises_validation_error(self):
-        """Missing user_input raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Metadata(input_fields=[])
-        errors = exc_info.value.errors()
-        assert any(e["loc"] == ("user_input",) for e in errors)
+    def test_user_input_defaults_to_false(self):
+        """user_input defaults to False when omitted (prevents ResponseFormat retry loop)."""
+        meta = Metadata(input_fields=[])
+        assert meta.user_input is False
+
+    def test_metadata_no_args_defaults_user_input_false(self):
+        """Metadata() with no args defaults user_input=False."""
+        meta = Metadata()
+        assert meta.user_input is False
+        assert meta.input_fields is None
 
     def test_user_input_as_true(self):
         """user_input as True."""
@@ -236,8 +240,20 @@ class TestPlatformEngineerResponse:
         assert response.was_task_successful is False
         assert "unavailable" in response.content
 
-    def test_missing_required_fields_raises_validation_error(self):
-        """Missing required fields raise ValidationError."""
+    def test_bool_defaults_allow_content_only_response(self):
+        """is_task_complete and require_user_input default — only content is required.
+
+        This documents the fix for the ResponseFormat retry loop: a partial LLM
+        response that omits the bool flags no longer fails Pydantic validation.
+        """
+        response = PlatformEngineerResponse(content="Documentation retrieved.")
+        assert response.is_task_complete is True
+        assert response.require_user_input is False
+        assert response.was_task_successful is True
+        assert response.metadata is None
+
+    def test_missing_content_still_raises_validation_error(self):
+        """content is still required — PlatformEngineerResponse() without it fails."""
         with pytest.raises(ValidationError):
             PlatformEngineerResponse()
 

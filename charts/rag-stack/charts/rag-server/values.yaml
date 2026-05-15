@@ -77,6 +77,11 @@ webIngestor:
   # Additional envFrom references (secrets, configmaps)
   envFrom: []
 
+  # Extra volume mounts for the web-ingestor container (e.g. for Playwright browser cache)
+  extraVolumeMounts: []
+  # - name: playwright-browsers
+  #   mountPath: /opt/playwright
+
   # Resource limits for the web ingestor sidecar
   resources:
     requests:
@@ -87,6 +92,18 @@ webIngestor:
       cpu: 500m
       memory: 1Gi
       ephemeral-storage: 1Gi
+
+  # Container-level security context for the web-ingestor sidecar
+  securityContext:
+    allowPrivilegeEscalation: false
+    runAsNonRoot: true
+    runAsUser: 1001
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    seccompProfile:
+      type: RuntimeDefault
 
 serviceAccount:
   create: false
@@ -100,11 +117,47 @@ service:
 
 resources: {}
 
+# Security contexts are set to satisfy the Kubernetes Pod Security Standards Baseline
+# profile (enforced) and meet all Restricted profile requirements except
+# readOnlyRootFilesystem, which is left false because the application may write to
+# /tmp at runtime. To enforce the policy at the namespace level:
+#   kubectl label namespace <ns> \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/audit=restricted
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
+
 nodeSelector: {}
 
 tolerations: []
 
 affinity: {}
+
+# Init containers to run before the main containers (e.g. install Playwright browsers)
+initContainers: []
+# - name: playwright-install
+#   image: "ghcr.io/cnoe-io/caipe-rag-ingestors:0.4.4"
+#   command: ["sh", "-c", "playwright install chromium"]
+#   volumeMounts:
+#     - name: playwright-browsers
+#       mountPath: /opt/playwright
+
+# Extra volumes for the pod (referenced by initContainers or webIngestor.extraVolumeMounts)
+extraVolumes: []
+# - name: playwright-browsers
+#   emptyDir: {}
 
 podAnnotations: {}
 podLabels: {}
@@ -116,3 +169,15 @@ llmSecrets:
 
 livenessProbe: {}
 readinessProbe: {}
+
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Inherits global.vpa defaults; override any field here to customise for rag-server.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}

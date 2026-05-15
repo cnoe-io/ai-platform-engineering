@@ -8,6 +8,13 @@
 import fs from "fs";
 import path from "path";
 
+export interface SkillInputVariable {
+  name: string;
+  label: string;
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface SkillTemplateData {
   id: string;
   name: string;
@@ -17,6 +24,7 @@ export interface SkillTemplateData {
   icon: string;
   tags: string[];
   content: string;
+  input_variables?: SkillInputVariable[];
 }
 
 function resolveSkillsDir(): string {
@@ -52,12 +60,28 @@ function parseFrontmatter(content: string): {
   let description = "";
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
   if (match) {
-    for (const line of match[1].split("\n")) {
-      const nameMatch = line.match(/^name:\s*(.*)/);
-      if (nameMatch) name = nameMatch[1].trim();
-      const descMatch = line.match(/^description:\s*(.*)/);
-      if (descMatch) description = descMatch[1].trim();
+    const lines = match[1].split("\n");
+    let currentKey = "";
+    let currentValue = "";
+
+    for (const line of lines) {
+      const keyMatch = line.match(/^(\w[\w-]*):\s*(.*)/);
+      if (keyMatch) {
+        // Store previous key
+        if (currentKey === "name") name = currentValue.trim();
+        if (currentKey === "description") description = currentValue.trim();
+        currentKey = keyMatch[1];
+        const val = keyMatch[2].trim();
+        // YAML folded scalar ">" or literal "|" — value is on next lines
+        currentValue = val === ">" || val === "|" ? "" : val;
+      } else if (currentKey && line.match(/^\s+/)) {
+        // Continuation line (indented) — append with space
+        currentValue += " " + line.trim();
+      }
     }
+    // Store last key
+    if (currentKey === "name") name = currentValue.trim();
+    if (currentKey === "description") description = currentValue.trim();
   }
   return { name, description };
 }
@@ -67,6 +91,7 @@ interface SkillMetadata {
   category?: string;
   icon?: string;
   tags?: string[];
+  input_variables?: SkillInputVariable[];
 }
 
 function parseMetadata(raw: string): SkillMetadata {
@@ -83,7 +108,7 @@ function buildTemplate(
   metadata: SkillMetadata,
 ): SkillTemplateData {
   const fm = parseFrontmatter(content);
-  return {
+  const tpl: SkillTemplateData = {
     id: fm.name || id,
     name: fm.name || id,
     description: fm.description,
@@ -93,6 +118,134 @@ function buildTemplate(
     tags: metadata.tags || [],
     content,
   };
+  if (metadata.input_variables && metadata.input_variables.length > 0) {
+    tpl.input_variables = metadata.input_variables;
+  }
+  return tpl;
+}
+
+/**
+ * Walk a packaged skill's directory and collect every sibling file other
+ * than `SKILL.md` / `metadata.json` into a `{ rel_path: utf8_content }` map
+ * — the same shape `scanSkillContent({ ancillaryFiles })` expects. This is
+ * the on-disk equivalent of `agent_skills.ancillary_files` for built-ins,
+ * and lets the bulk scanner analyze referenced shell scripts / prompt
+ * snippets the way the agent runtime materializes them at
+ * `/skills/<source>/<name>/<rel_path>`.
+ *
+ * Cap (`SKILL_TEMPLATES_ANCILLARY_BYTE_CAP`, default 4 MiB) and binary
+ * detection are intentionally generous; the scanner side enforces its own
+ * stricter cap before upload (see `ANCILLARY_BYTE_CAP` in `skill-scan.ts`).
+ *
+ * Folder layout only — the flat layout has no "directory" to walk.
+ */
+const ANCILLARY_BYTE_CAP_DEFAULT = 4 * 1024 * 1024;
+const ANCILLARY_FILE_LIMIT = 200;
+
+function isLikelyTextFile(buf: Buffer): boolean {
+  // Heuristic: any NUL in the first 8 KiB → treat as binary and skip.
+  const slice = buf.subarray(0, Math.min(buf.length, 8192));
+  return !slice.includes(0);
+}
+
+export function loadTemplateAncillaryFiles(
+  templateDir: string,
+): Record<string, string> {
+  if (!fs.existsSync(templateDir) || !fs.statSync(templateDir).isDirectory()) {
+    return {};
+  }
+
+  const cap = (() => {
+    const raw = process.env.SKILL_TEMPLATES_ANCILLARY_BYTE_CAP;
+    const n = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : ANCILLARY_BYTE_CAP_DEFAULT;
+  })();
+
+  const out: Record<string, string> = {};
+  let totalBytes = 0;
+  let fileCount = 0;
+
+  const walk = (dir: string, rel: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (fileCount >= ANCILLARY_FILE_LIMIT) return;
+      const abs = path.join(dir, entry.name);
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(abs, relPath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      // Skip the canonical files — SKILL.md is uploaded separately and
+      // metadata.json is UI-only (no value to the static analyzer).
+      if (relPath === "SKILL.md" || relPath === "metadata.json") continue;
+      let buf: Buffer;
+      try {
+        buf = fs.readFileSync(abs);
+      } catch {
+        continue;
+      }
+      if (!isLikelyTextFile(buf)) continue;
+      if (totalBytes + buf.length > cap) {
+        // Surface the overflow path so callers can include it in
+        // scan_summary if they want to be loud about it.
+        continue;
+      }
+      out[relPath] = buf.toString("utf-8");
+      totalBytes += buf.length;
+      fileCount += 1;
+    }
+  };
+
+  walk(templateDir, "");
+  return out;
+}
+
+/**
+ * Resolve the on-disk directory for a packaged template by id (folder
+ * layout). Returns `null` if not found or if the loader is in flat-file
+ * mode. Used by `/api/skill-templates/[id]/scan` to find ancillary files
+ * without re-iterating the entire catalog.
+ */
+export function resolveTemplateDir(id: string): string | null {
+  const skillsDir = resolveSkillsDir();
+  if (!fs.existsSync(skillsDir)) return null;
+  const direct = path.join(skillsDir, id);
+  if (
+    fs.existsSync(direct) &&
+    fs.statSync(direct).isDirectory() &&
+    fs.existsSync(path.join(direct, "SKILL.md"))
+  ) {
+    return direct;
+  }
+  // Fall back: the loader's id is `frontmatter.name || dirname`, so the
+  // dir name may differ from the template id. Scan one level deep.
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillMd = path.join(skillsDir, entry.name, "SKILL.md");
+    if (!fs.existsSync(skillMd)) continue;
+    try {
+      const content = fs.readFileSync(skillMd, "utf-8");
+      const fmName = parseFrontmatter(content).name?.trim();
+      if (fmName === id || entry.name === id) {
+        return path.join(skillsDir, entry.name);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 function loadFromFolderLayout(skillsDir: string): SkillTemplateData[] {

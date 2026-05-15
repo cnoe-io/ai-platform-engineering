@@ -1,4 +1,13 @@
+---
+slug: migrate-to-monorepo
+title: Migrating Agent Repos to the Monorepo
+authors: [sriaradhyula]
+tags: [articles]
+---
+
 Instructions to migrate agent repos to mono repo
+
+<!-- truncate -->
 
 ```bash
 export AGENT_NAME=foo

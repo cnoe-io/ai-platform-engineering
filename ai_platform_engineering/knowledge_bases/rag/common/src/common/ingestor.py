@@ -836,6 +836,7 @@ class IngestorBuilder:
 
     # Create and initialize RAG client
     client = Client(self._name, self._type, self._description, self._metadata)
+    startup_task = None  # declared here so the finally block can always reference it
 
     try:
       # Initialize client
@@ -848,7 +849,6 @@ class IngestorBuilder:
         await asyncio.sleep(self._init_delay)
 
       # Start optional startup function concurrently (e.g., server)
-      startup_task = None
       if self._startup_function:
         logger.info("Starting user-provided startup function...")
         if asyncio.iscoroutinefunction(self._startup_function):

@@ -6,5 +6,9 @@
     "Jira",
     "Agile",
     "Reporting"
+  ],
+  "input_variables": [
+    { "name": "board_name", "label": "Board Name", "required": false, "placeholder": "e.g. PLATFORM board" },
+    { "name": "sprint_name", "label": "Sprint Name", "required": false, "placeholder": "e.g. Sprint 42" }
   ]
 }

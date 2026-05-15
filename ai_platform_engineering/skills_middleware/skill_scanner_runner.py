@@ -49,7 +49,10 @@ def run_scan_all_on_directory(target_dir: Path) -> dict[str, Any]:
         }
 
     policy = os.getenv("SKILL_SCANNER_POLICY", "balanced").strip() or "balanced"
-    gate = os.getenv("SKILL_SCANNER_GATE", "warn").strip().lower()
+    # Use the shared gate so behaviour matches the loaders. Default
+    # is "strict" — see ``scan_gate.py`` for the policy table.
+    from ai_platform_engineering.skills_middleware.scan_gate import get_scan_gate
+    gate = get_scan_gate()
     fail_on = (os.getenv("SKILL_SCANNER_FAIL_ON") or "").strip()
     if gate == "strict" and not fail_on:
         fail_on = "high"
@@ -115,10 +118,13 @@ def severity_meets_threshold(max_severity: str | None, threshold: str) -> bool:
 
 def write_single_skill_to_temp_tree(name: str, content: str) -> Path:
     """Materialize one skill body as ``<tmp>/<name>/SKILL.md`` for scanning."""
+    import os
     import re
 
-    root = Path(tempfile.mkdtemp(prefix="config-scan-"))
+    root = Path(tempfile.mkdtemp(prefix="config-scan-")).resolve()
     safe = re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-") or "skill"
+    # os.path.basename strips any residual path separators (CodeQL path sanitizer)
+    safe = os.path.basename(safe) or "skill"
     d = root / safe
     d.mkdir(parents=True, exist_ok=True)
     (d / "SKILL.md").write_text(content, encoding="utf-8")

@@ -123,3 +123,71 @@ In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml i
 {{- .Values.global.enabledSubAgents | default dict | toYaml -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Prefix for single-node in-cluster MCP Kubernetes names: {prefix}-agent-<name>[-mcp].
+When global.singleNode.mcpResourcePrefix is non-empty, use it (e.g. "single-node" for readable kubectl).
+When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays stable.
+*/}}
+{{- define "ai-platform-engineering.singleNodeMcpResourcePrefix" -}}
+{{- $g := .Values.global | default dict }}
+{{- $sn := index $g "singleNode" | default dict }}
+{{- $p := index $sn "mcpResourcePrefix" | default "" }}
+{{- if ne $p "" -}}
+{{- $p -}}
+{{- else -}}
+{{- .Release.Name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+
+{{/*
+LiteLLM MCP standalone server helpers.
+*/}}
+{{- define "ai-platform-engineering.litellmMcp.name" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- default "litellm-mcp" $values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.fullname" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- if $values.fullnameOverride -}}
+{{- $values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $name := default "litellm-mcp" $values.nameOverride -}}
+{{- if contains $name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "ai-platform-engineering.litellmMcp.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: mcp
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.labels" -}}
+helm.sh/chart: {{ include "ai-platform-engineering.chart" . }}
+{{ include "ai-platform-engineering.litellmMcp.selectorLabels" . }}
+app.kubernetes.io/part-of: {{ include "ai-platform-engineering.name" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{- define "ai-platform-engineering.litellmMcp.secretName" -}}
+{{- $values := .Values.litellmMcp | default dict -}}
+{{- if $values.existingSecret -}}
+{{- $values.existingSecret -}}
+{{- else -}}
+{{- $secret := $values.secret | default dict -}}
+{{- default (include "ai-platform-engineering.litellmMcp.fullname" .) $secret.name -}}
+{{- end -}}
+{{- end -}}

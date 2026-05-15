@@ -65,12 +65,12 @@ def resolve_mcp_url(
     *,
     default_host: str = _DEFAULT_HOST,
     default_port: str = _DEFAULT_PORT,
-    path: str = "/mcp/",
+    path: str = "/mcp",
 ) -> str:
     """Build the full MCP HTTP URL for *agent_name*.
 
     Combines :func:`resolve_mcp_host` and :func:`resolve_mcp_port` with
-    the given *path* (defaults to ``/mcp/``).
+    the given *path* (defaults to ``/mcp``).
     """
     host = resolve_mcp_host(agent_name, default=default_host)
     port = resolve_mcp_port(agent_name, default=default_port)
@@ -90,7 +90,7 @@ def build_http_mcp_config(
     headers: Optional[Dict[str, str]] = None,
     default_host: str = _DEFAULT_HOST,
     default_port: str = _DEFAULT_PORT,
-    path: str = "/mcp/",
+    path: str = "/mcp",
 ) -> Dict[str, Any]:
     """Build a standard HTTP MCP config dict for *agent_name*.
 

@@ -38,6 +38,7 @@ helm.sh/chart: {{ include "rag-server.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: rag-server
 {{- end }}
 
 {{/*
@@ -200,4 +201,8 @@ Get Ontology Agent REST API address
         {{- end -}}
     {{- end -}}
     {{- printf "http://%s:%s" $host ($port | toString) -}}
+{{- end -}}
+
+{{- define "rag-server.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

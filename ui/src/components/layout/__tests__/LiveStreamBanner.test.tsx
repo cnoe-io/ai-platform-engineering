@@ -6,7 +6,7 @@
  * - Visible with singular message for 1 streaming conversation
  * - Visible with plural message for multiple streaming conversations
  * - Contains accessibility attributes (role="status", aria-live)
- * - Shows "refreshing will interrupt" warning text
+ * - Shows label text matching streaming count
  */
 
 import React from 'react'
@@ -66,7 +66,7 @@ describe('LiveStreamBanner', () => {
 
     render(<LiveStreamBanner />)
 
-    expect(screen.getByText(/1 live chat is receiving a response/)).toBeInTheDocument()
+    expect(screen.getByText(/1 live response in progress/)).toBeInTheDocument()
   })
 
   it('renders plural message for multiple streaming conversations', () => {
@@ -77,17 +77,17 @@ describe('LiveStreamBanner', () => {
 
     render(<LiveStreamBanner />)
 
-    expect(screen.getByText(/2 live chats are receiving responses/)).toBeInTheDocument()
+    expect(screen.getByText(/2 live responses in progress/)).toBeInTheDocument()
   })
 
-  it('shows "refreshing will interrupt" warning', () => {
+  it('shows label text matching streaming count', () => {
     mockStreamingConversations = new Map([
       ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
     ])
 
     render(<LiveStreamBanner />)
 
-    expect(screen.getByText('refreshing will interrupt')).toBeInTheDocument()
+    expect(screen.getByText('1 live response in progress')).toBeInTheDocument()
   })
 
   it('has accessible role="status" and aria-live="polite"', () => {

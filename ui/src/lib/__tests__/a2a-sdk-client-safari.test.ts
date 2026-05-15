@@ -240,7 +240,11 @@ describe("A2ASDKClient Safari Compatibility", () => {
       const taskEvent = events.find((e) => e.type === "task");
       expect(taskEvent).toBeDefined();
       expect(taskEvent!.taskId).toBe("task-safari-1");
-      expect(taskEvent!.displayContent).toContain("submitted");
+      // Task events without artifacts intentionally have empty displayContent
+      // (no synthetic "Task submitted (ID: ...)" filler) — the lifecycle
+      // status is still available via the raw event.
+      expect(taskEvent!.displayContent).toBe("");
+      expect((taskEvent!.raw as any).status?.state).toBe("submitted");
     });
 
     it("should parse artifact events with streaming_result", async () => {

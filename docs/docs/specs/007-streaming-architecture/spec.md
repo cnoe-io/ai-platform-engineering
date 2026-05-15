@@ -88,7 +88,7 @@ caipe
 ## Related
 
 - LangGraph Streaming: https://python.langchain.com/docs/langgraph/streaming
-- A2A Protocol: https://github.com/cnoe-io/a2a-spec
+- A2A Protocol: https://github.com/google/A2A
 - Deep Agent: https://docs.deepagent.ai/
 - Related Issue: https://github.com/langchain-ai/langgraph/issues/XXXX (streaming tools)
 

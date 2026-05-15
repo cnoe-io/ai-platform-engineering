@@ -27,22 +27,6 @@ logger = get_logger(__name__)
 sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
-
-# Get Webex configuration
-bot_name = os.environ.get("WEBEX_BOT_NAME")  # used for ingestor identification, e.g., "mybot"
-if not bot_name:
-  raise ValueError("WEBEX_BOT_NAME environment variable is required")
-
-webex_token = os.environ.get("WEBEX_ACCESS_TOKEN")
-if not webex_token:
-  raise ValueError("WEBEX_ACCESS_TOKEN environment variable is required")
-
-# Spaces configuration - JSON object mapping space IDs to configuration
-spaces_json = os.environ.get("WEBEX_SPACES", "{}")
-spaces = json.loads(spaces_json)
-if not spaces:
-  raise ValueError("No spaces configured. Set WEBEX_SPACES environment variable.")
-
 # Webex API base URL
 WEBEX_API_BASE = "https://webexapis.com/v1"
 
@@ -399,9 +383,24 @@ class WebexSpaceSyncer:
 async def sync_webex_spaces(client: Client):
   """Sync function that processes all configured Webex spaces"""
 
-  # Validate token
+  # Read and validate config at runtime so missing creds don't crash the container at import
+  bot_name = os.environ.get("WEBEX_BOT_NAME")
+  if not bot_name:
+    raise ValueError("WEBEX_BOT_NAME environment variable is required")
+
+  webex_token = os.environ.get("WEBEX_ACCESS_TOKEN")
   if not webex_token:
-    raise ValueError("WEBEX_ACCESS_TOKEN environment variable is required")
+    logger.warning("WEBEX_ACCESS_TOKEN not set — skipping sync")
+    return
+
+  spaces_json = os.environ.get("WEBEX_SPACES", "{}")
+  try:
+    spaces = json.loads(spaces_json)
+  except json.JSONDecodeError:
+    spaces = {}
+  if not spaces:
+    logger.warning("No spaces configured (WEBEX_SPACES not set or empty) — skipping sync")
+    return
 
   # Initialize Webex syncer
   syncer = WebexSpaceSyncer(webex_token)
@@ -478,6 +477,13 @@ async def sync_webex_spaces(client: Client):
 
 def main():
   """Main entry point for the Webex ingestor"""
+
+  bot_name = os.environ.get("WEBEX_BOT_NAME", "webex")
+  spaces_json = os.environ.get("WEBEX_SPACES", "{}")
+  try:
+    spaces = json.loads(spaces_json)
+  except json.JSONDecodeError:
+    spaces = {}
 
   # Build and run ingestor
   IngestorBuilder().name(f"webex-{bot_name}").type("webex").description(f"Webex ingestor for bot {bot_name}").metadata({"bot_name": bot_name, "sync_interval": sync_interval, "init_delay": init_delay, "spaces": spaces}).sync_with_fn(sync_webex_spaces).every(sync_interval).with_init_delay(

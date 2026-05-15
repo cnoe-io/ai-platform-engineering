@@ -366,8 +366,11 @@ describe("integration with chart data/skills", () => {
     }
 
     const ids = data.map((t: { id: string }) => t.id);
+    // Asserts a few stable, packaged template ids; does not pin the
+    // full list so adding/renaming chart skills doesn't break this.
     expect(ids).toContain("review-specific-pr");
     expect(ids).toContain("check-deployment-status");
     expect(ids).toContain("aws-cost-analysis");
+    expect(ids).toContain("incident-postmortem-report");
   });
 });

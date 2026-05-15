@@ -11,9 +11,11 @@ These tests validate:
 
 Run with: PYTHONPATH=. uv run pytest tests/test_skills_hubs_api.py -v
 
-NOTE: These test the Python catalog/hub_github layer, NOT the Next.js API routes
-(which require a running Next.js server). For the FastAPI /skills endpoint tests,
-see test_skills_router below.
+NOTE: These test the Python catalog + hubs admin API, NOT the Next.js API
+routes (which require a running Next.js server). The Python middleware no
+longer crawls GitHub/GitLab itself — that lives in the Next.js UI; the
+catalog read path here is Mongo-only. For the FastAPI /skills endpoint
+tests, see test_skills_router below.
 """
 
 import os
@@ -216,6 +218,115 @@ class TestSkillsRouter:
             )
         assert resp.status_code == 401
 
+    # -------------------------------------------------------------------
+    # ``detect_hub_provider_from_url`` unit tests — pin the host
+    # allow-list rules. The Python router used to call this helper from
+    # the now-deleted ``POST /skill-hubs/crawl`` endpoint; the helper
+    # itself is kept (and tested) because it gives Python parity with
+    # the JS twin in ``ui/src/app/api/skill-hubs/_lib/normalize.ts``
+    # and is reusable by any future Python caller that needs to tell
+    # GitHub from GitLab from a URL.
+    # -------------------------------------------------------------------
+
+    def test_detect_provider_recognizes_github_com(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://github.com/owner/repo") == "github"
+
+    def test_detect_provider_recognizes_gitlab_com(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://gitlab.com/group/project") == "gitlab"
+
+    def test_detect_provider_recognizes_gitlab_subgroup_url(self):
+        """The screenshot URL specifically — pin it as a regression."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert (
+            detect_hub_provider_from_url("https://gitlab.com/gitlab-org/ai/skills")
+            == "gitlab"
+        )
+
+    def test_detect_provider_returns_none_for_owner_repo(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("owner/repo") is None
+        assert detect_hub_provider_from_url("group/sub/project") is None
+
+    def test_detect_provider_returns_none_for_empty(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("") is None
+        assert detect_hub_provider_from_url("   ") is None
+
+    def test_detect_provider_rejects_evil_github_substring(self):
+        """Hostname-bypass attempt: ``evil-github.com`` must NOT be classified
+        as github. This is the same security property that
+        ``isGitHubHost`` enforces in the JS twin (no substring match).
+        """
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://evil-github.com/owner/repo") is None
+
+    def test_detect_provider_rejects_github_com_suffix_attack(self):
+        """Suffix attack: ``github.com.attacker.com`` must NOT be github."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert (
+            detect_hub_provider_from_url("https://github.com.attacker.com/owner/repo")
+            is None
+        )
+
+    def test_detect_provider_rejects_evil_gitlab_substring(self):
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("https://evil-gitlab.com/group/project") is None
+
+    def test_detect_provider_rejects_non_http_scheme(self):
+        """Non-http(s) URLs should be ignored — file://, ssh://, etc.
+
+        SSH-style git URLs like ``git@github.com:owner/repo.git`` aren't
+        valid URL schemes from urlparse's perspective and end up as
+        ``None`` either way; this case pins the explicit scheme guard
+        so future urlparse changes don't accidentally let
+        ``ssh://github.com/...`` through.
+        """
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        assert detect_hub_provider_from_url("ssh://github.com/owner/repo") is None
+        assert detect_hub_provider_from_url("file:///etc/passwd") is None
+
+    def test_detect_provider_recognizes_self_hosted_gitlab(self):
+        """When ``GITLAB_API_URL`` is set, that host counts as gitlab."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        with patch.dict(os.environ, {"GITLAB_API_URL": "https://gitlab.mycorp.com/api/v4"}):
+            assert (
+                detect_hub_provider_from_url("https://gitlab.mycorp.com/group/project")
+                == "gitlab"
+            )
+
+    def test_detect_provider_self_hosted_gitlab_subdomains(self):
+        """Subdomains of the configured self-hosted GitLab host also match."""
+        from ai_platform_engineering.skills_middleware.router import (
+            detect_hub_provider_from_url,
+        )
+        with patch.dict(os.environ, {"GITLAB_API_URL": "https://gitlab.mycorp.com"}):
+            assert (
+                detect_hub_provider_from_url("https://review.gitlab.mycorp.com/group/project")
+                == "gitlab"
+            )
+
     def test_supervisor_skills_status_includes_sync(self, client):
         """GET /internal/supervisor/skills-status exposes sync_status (T067)."""
         mas = MagicMock()
@@ -240,57 +351,207 @@ class TestSkillsRouter:
 
 
 # ---------------------------------------------------------------------------
-# Hub fetcher edge cases
+# Hub catalog reader (Mongo ``hub_skills`` cache)
 # ---------------------------------------------------------------------------
+#
+# These cover the Mongo-backed ``_load_hub_skills`` implementation that
+# replaced the GitHub round-trip in ``catalog.py``. The Python middleware
+# no longer ships a GitHub crawler at all — the Next.js UI's
+# ``ui/src/lib/hub-crawl.ts`` is the single source of truth and writes
+# results into the ``hub_skills`` collection that this reader consumes.
 
 
-class TestHubFetcherEdgeCases:
-    """Edge case tests for the GitHub hub fetcher."""
+def _make_mongo_stub(hubs, hub_skills_rows):
+    """Build a minimal ``client[db]`` stub returning the given fixtures.
 
-    def test_fetch_with_no_token(self):
-        """Fetcher works without token (public repos)."""
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            fetch_github_hub_skills,
+    Returns a tuple of ``(client, hubs_collection, hub_skills_collection)``
+    so individual tests can assert against `find` calls if needed.
+    """
+    hubs_col = MagicMock()
+    hubs_col.find.return_value.sort.return_value = list(hubs)
+
+    hub_skills_col = MagicMock()
+    hub_skills_col.find.return_value = list(hub_skills_rows)
+
+    db = MagicMock()
+    db.__getitem__.side_effect = lambda key: {
+        "skill_hubs": hubs_col,
+        "hub_skills": hub_skills_col,
+    }[key]
+
+    client = MagicMock()
+    client.__getitem__.return_value = db
+    return client, hubs_col, hub_skills_col
+
+
+class TestLoadHubSkillsFromMongo:
+    """``catalog._load_hub_skills`` reads from MongoDB ``hub_skills``."""
+
+    def setup_method(self):
+        from ai_platform_engineering.skills_middleware.catalog import (
+            invalidate_skills_cache,
         )
 
-        hub = {"id": "pub-hub", "location": "public/repo", "type": "github"}
+        invalidate_skills_cache()
 
-        # Mock httpx to return empty tree
-        with patch("httpx.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {"tree": []}
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.get.return_value = mock_resp
-            mock_client_cls.return_value = mock_client
+    def test_loads_github_and_gitlab_uniformly(self):
+        """Hub type is irrelevant — GitHub and GitLab rows merge identically."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
 
-            with patch.dict("os.environ", {}, clear=False):
-                result = fetch_github_hub_skills(hub)
+        hubs = [
+            {"_id": "h1", "id": "h1", "type": "github", "location": "org/gh-repo", "labels": ["sec"]},
+            {"_id": "h2", "id": "h2", "type": "gitlab", "location": "mycorp/gl-repo", "labels": []},
+        ]
+        # ``scan_status: passed`` mirrors what the UI scanner stamps
+        # onto every cached row when the optional skill-scanner is
+        # configured. Under the default warn gate ``$ne: "flagged"``
+        # would already accept these rows, but pinning ``passed``
+        # exercises the strict-gate path too.
+        rows = [
+            {
+                "hub_id": "h1",
+                "skill_id": "ghskill",
+                "name": "ghskill",
+                "description": "From GitHub",
+                "content": "# gh",
+                "metadata": {"category": "ops"},
+                "path": "skills/ghskill/SKILL.md",
+                "ancillary_files": {"helper.sh": "echo hi"},
+                "scan_status": "passed",
+            },
+            {
+                "hub_id": "h2",
+                "skill_id": "glskill",
+                "name": "glskill",
+                "description": "From GitLab",
+                "content": "# gl",
+                "metadata": {},
+                "path": "skills/glskill/SKILL.md",
+                "ancillary_files": {},
+                "scan_status": "passed",
+            },
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
 
-        assert result == []
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
 
-    def test_fetch_handles_api_error(self):
-        """Fetcher returns empty list on API error."""
-        import httpx
+        assert {s["source_id"] for s in skills} == {"h1", "h2"}
+        gh = next(s for s in skills if s["source_id"] == "h1")
+        gl = next(s for s in skills if s["source_id"] == "h2")
+        # Both hub types produce uniformly-shaped catalog rows.
+        assert gh["source"] == gl["source"] == "hub"
+        assert gh["visibility"] == gl["visibility"] == "global"
+        assert gh["team_ids"] == gl["team_ids"] == []
+        assert gh["owner_user_id"] is None and gl["owner_user_id"] is None
+        # Hub-level context is stamped onto metadata.
+        assert gh["metadata"]["hub_type"] == "github"
+        assert gl["metadata"]["hub_type"] == "gitlab"
+        assert gh["metadata"]["hub_location"] == "org/gh-repo"
+        # Hub labels merge into metadata.tags so the supervisor catalog
+        # matches the UI's tag surface.
+        assert "sec" in gh["metadata"]["tags"]
+        # Ancillary files are forwarded so SkillsMiddleware can materialise
+        # them into the StateBackend without any extra fetch.
+        assert gh["ancillary_files"] == {"helper.sh": "echo hi"}
+        # Composite id matches the UI's ``hub-<hub_id>-<skill_id>`` form so
+        # dynamic_agents/services/skills.py can hit the same row.
+        assert gh["id"] == "hub-h1-ghskill"
 
-        from ai_platform_engineering.skills_middleware.loaders.hub_github import (
-            fetch_github_hub_skills,
-        )
+    def test_skips_blocked_scan_status(self):
+        """Per-skill ``scan_status`` written by the UI scanner gates the catalog."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
 
-        hub = {"id": "err-hub", "location": "org/repo", "type": "github"}
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {
+                "hub_id": "h1",
+                "skill_id": "ok",
+                "name": "ok",
+                "description": "fine",
+                "content": "c",
+                "metadata": {},
+                "scan_status": "passed",
+            },
+            {
+                "hub_id": "h1",
+                "skill_id": "bad",
+                "name": "bad",
+                "description": "flagged",
+                "content": "c",
+                "metadata": {},
+                "scan_status": "flagged",
+            },
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
 
-        with patch("httpx.Client") as mock_client_cls:
-            mock_client = MagicMock()
-            mock_client.__enter__ = MagicMock(return_value=mock_client)
-            mock_client.__exit__ = MagicMock(return_value=False)
-            mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-            mock_client_cls.return_value = mock_client
+        # ``is_status_blocked`` returns True for "flagged" — assert that
+        # the helper's contract really is what gates the catalog (so a
+        # change to the policy auto-propagates here).
+        from ai_platform_engineering.skills_middleware.scan_gate import is_status_blocked
+        assert is_status_blocked("flagged") is True
 
-            result = fetch_github_hub_skills(hub)
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
 
-        assert result == []
+        assert [s["name"] for s in skills] == ["ok"]
+
+    def test_drops_rows_for_disabled_hubs(self):
+        """A hub_skills row whose hub was disabled is excluded."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        # Only h1 is enabled; rows reference both hubs to exercise the
+        # disabled-hub filter.
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {"hub_id": "h1", "skill_id": "live", "name": "live", "description": "x", "content": "", "metadata": {}, "scan_status": "passed"},
+            {"hub_id": "h2", "skill_id": "stale", "name": "stale", "description": "x", "content": "", "metadata": {}, "scan_status": "passed"},
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert [s["name"] for s in skills] == ["live"]
+
+    def test_returns_empty_when_mongo_unavailable(self):
+        """No Mongo client = empty catalog (graceful degradation)."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=None,
+        ):
+            assert _load_hub_skills() == []
+
+    def test_skips_rows_with_missing_required_fields(self):
+        """Crawl bug or partial doc must not poison the catalog."""
+        from ai_platform_engineering.skills_middleware.catalog import _load_hub_skills
+
+        hubs = [{"_id": "h1", "id": "h1", "type": "github", "location": "o/r"}]
+        rows = [
+            {"hub_id": "h1", "skill_id": "ok", "name": "ok", "description": "yes", "content": "", "metadata": {}, "scan_status": "passed"},
+            {"hub_id": "h1", "skill_id": "no-name", "description": "missing name", "content": "", "scan_status": "passed"},
+            {"hub_id": "h1", "skill_id": "no-desc", "name": "no-desc", "content": "", "scan_status": "passed"},
+        ]
+        client, _, _ = _make_mongo_stub(hubs, rows)
+
+        with patch(
+            "ai_platform_engineering.utils.mongodb_client.get_mongodb_client",
+            return_value=client,
+        ):
+            skills = _load_hub_skills(include_content=True)
+
+        assert [s["name"] for s in skills] == ["ok"]
 
 
 # ---------------------------------------------------------------------------

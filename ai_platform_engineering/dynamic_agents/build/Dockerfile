@@ -50,6 +50,11 @@ RUN find /app/dynamic_agents/.venv -type d -name "__pycache__" -exec rm -rf {} +
 # =============================================================================
 FROM python:3.13-slim-bookworm
 
+# Patch system packages to address CVEs; install curl for the curl builtin tool
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends curl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user (UID/GID 1001 for Kubernetes compatibility)
 RUN groupadd --gid 1001 app && \
     useradd --uid 1001 --gid app --shell /bin/bash --create-home app
@@ -69,8 +74,13 @@ USER app
 EXPOSE 8001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" || exit 1
+# Use /healthz (the actual FastAPI route in routes/health.py) and parse the JSON body —
+# the route returns 200 with {"status": "unhealthy"} when MongoDB is down, so checking
+# only the HTTP status would mask real failures.
+# Note: in Kubernetes the Helm chart's livenessProbe/readinessProbe override this directive;
+# this primarily covers `docker run` and standalone use.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import json,urllib.request,sys; r=urllib.request.urlopen('http://localhost:8001/healthz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='healthy' else 1)" || exit 1
 
 # Run the application
 CMD ["python3", "src/dynamic_agents/main.py"]

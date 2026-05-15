@@ -5,17 +5,14 @@
  * Tests for Admin Users API Route
  *
  * Covers:
- * - GET /api/admin/users — list all users with per-user statistics
+ * - GET /api/admin/users — paginated user list with per-user statistics
  *
  * Features tested:
  * - Authentication: 401 when unauthenticated
  * - Authorization: 403 when non-admin
  * - MongoDB guard: 503 when MongoDB is not configured
- * - User listing with sort by created_at descending
- * - Pre-aggregation of message counts via $lookup (backward compat fix)
- * - Message count map correctly populated per user
- * - Per-user conversation count via countDocuments
- * - Last activity populated from conversation updated_at or last_login fallback
+ * - Pagination (page, limit, search params)
+ * - Batch aggregation for conversation counts, message counts, last activity
  * - User role from metadata.role or default 'user'
  * - Edge case: empty database returns empty list
  * - Edge case: user with no conversations/messages
@@ -108,6 +105,52 @@ function resetMocks() {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
+/** Set up users collection to return paginated data. */
+function setupUsersCol(usersData: any[]) {
+  const usersCol = createMockCollection();
+  usersCol.find.mockReturnValue({
+    sort: jest.fn().mockReturnValue({
+      skip: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue(usersData),
+        }),
+      }),
+    }),
+  });
+  usersCol.countDocuments.mockResolvedValue(usersData.length);
+  mockCollections['users'] = usersCol;
+  return usersCol;
+}
+
+/** Set up conversations collection with batch aggregation results. */
+function setupConvCol(convCounts: { email: string; count: number }[], lastActivities: { email: string; date: Date }[] = []) {
+  const convCol = createMockCollection();
+  convCol.aggregate.mockImplementation(() => {
+    const toArrayFn = jest.fn();
+    // First call = convCounts, second = lastActivities
+    if (convCol.aggregate.mock.calls.length % 3 === 1) {
+      toArrayFn.mockResolvedValue(convCounts.map(c => ({ _id: c.email, count: c.count })));
+    } else if (convCol.aggregate.mock.calls.length % 3 === 0) {
+      toArrayFn.mockResolvedValue(lastActivities.map(a => ({ _id: a.email, last_activity: a.date })));
+    } else {
+      toArrayFn.mockResolvedValue([]);
+    }
+    return { toArray: toArrayFn };
+  });
+  mockCollections['conversations'] = convCol;
+  return convCol;
+}
+
+/** Set up messages collection with batch aggregation results. */
+function setupMsgCol(msgCounts: { email: string; count: number }[]) {
+  const msgCol = createMockCollection();
+  msgCol.aggregate.mockReturnValue({
+    toArray: jest.fn().mockResolvedValue(msgCounts.map(m => ({ _id: m.email, count: m.count }))),
+  });
+  mockCollections['messages'] = msgCol;
+  return msgCol;
+}
+
 // ============================================================================
 // Test imports (after mocks)
 // ============================================================================
@@ -145,23 +188,9 @@ describe('GET /api/admin/users — Auth', () => {
   it('allows non-admin users with view access to read user list (readonly)', async () => {
     mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
 
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(0);
-    convCol.findOne.mockResolvedValue(null);
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['messages'] = msgCol;
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
@@ -187,14 +216,12 @@ describe('GET /api/admin/users — Auth', () => {
 describe('GET /api/admin/users — User List', () => {
   beforeEach(resetMocks);
 
-  it('returns users with their statistics', async () => {
+  it('returns users with their statistics and pagination', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
     const now = new Date();
     const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    // Users collection: allUsers query and auth fallback
-    const usersCol = createMockCollection();
     const usersData = [
       {
         _id: new ObjectId(),
@@ -214,35 +241,15 @@ describe('GET /api/admin/users — User List', () => {
       },
     ];
 
-    // find({}).sort().toArray() — list all users
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue(usersData),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    // Conversations collection
-    const convCol = createMockCollection();
-    // Per-user countDocuments: alice has 5, bob has 3
-    convCol.countDocuments
-      .mockResolvedValueOnce(5)  // alice's conversations
-      .mockResolvedValueOnce(3); // bob's conversations
-    // Per-user findOne (last conversation): alice has recent, bob has nothing
-    convCol.findOne
-      .mockResolvedValueOnce({ updated_at: now })  // alice's last conv
-      .mockResolvedValueOnce(null);                  // bob has no conv
-    mockCollections['conversations'] = convCol;
-
-    // Messages collection — pre-aggregate via $lookup
-    const msgCol = createMockCollection();
-    msgCol.aggregate.mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([
-        { _id: 'alice@example.com', count: 25 },
-        { _id: 'bob@example.com', count: 10 },
-      ]),
-    });
-    mockCollections['messages'] = msgCol;
+    setupUsersCol(usersData);
+    setupConvCol(
+      [{ email: 'alice@example.com', count: 5 }, { email: 'bob@example.com', count: 3 }],
+      [{ email: 'alice@example.com', date: now }],
+    );
+    setupMsgCol([
+      { email: 'alice@example.com', count: 25 },
+      { email: 'bob@example.com', count: 10 },
+    ]);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
@@ -252,8 +259,9 @@ describe('GET /api/admin/users — User List', () => {
     expect(body.success).toBe(true);
     expect(body.data.users).toHaveLength(2);
     expect(body.data.total).toBe(2);
+    expect(body.data.pagination).toBeDefined();
+    expect(body.data.pagination.page).toBe(1);
 
-    // Alice
     const alice = body.data.users.find((u: any) => u.email === 'alice@example.com');
     expect(alice).toBeDefined();
     expect(alice.name).toBe('Alice');
@@ -261,7 +269,6 @@ describe('GET /api/admin/users — User List', () => {
     expect(alice.stats.conversations).toBe(5);
     expect(alice.stats.messages).toBe(25);
 
-    // Bob
     const bob = body.data.users.find((u: any) => u.email === 'bob@example.com');
     expect(bob).toBeDefined();
     expect(bob.name).toBe('Bob');
@@ -273,19 +280,9 @@ describe('GET /api/admin/users — User List', () => {
   it('returns empty list when no users exist', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const msgCol = createMockCollection();
-    msgCol.aggregate.mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([]),
-    });
-    mockCollections['messages'] = msgCol;
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
@@ -293,108 +290,52 @@ describe('GET /api/admin/users — User List', () => {
 
     expect(body.data.users).toEqual([]);
     expect(body.data.total).toBe(0);
+    expect(body.data.pagination.total_pages).toBe(0);
   });
 });
 
 // ============================================================================
-// Tests: Message count pre-aggregation ($lookup fix)
+// Tests: Batch aggregation for message counts
 // ============================================================================
 
-describe('GET /api/admin/users — Message Count $lookup', () => {
+describe('GET /api/admin/users — Batch Aggregation', () => {
   beforeEach(resetMocks);
 
-  it('uses $lookup through conversations for message counts', async () => {
+  it('uses batch aggregation with $match/$group for message counts', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const msgCol = createMockCollection();
-    mockCollections['messages'] = msgCol;
+    const usersData = [
+      { _id: new ObjectId(), email: 'test@example.com', name: 'Test', created_at: new Date(), last_login: new Date(), metadata: { role: 'user' } },
+    ];
+    setupUsersCol(usersData);
+    const msgCol = setupMsgCol([]);
+    setupConvCol([]);
 
     const req = makeRequest('/api/admin/users');
     await GET(req);
 
-    // Verify messages.aggregate was called with a pipeline containing $lookup
     expect(msgCol.aggregate).toHaveBeenCalled();
     const pipeline = msgCol.aggregate.mock.calls[0][0];
     expect(Array.isArray(pipeline)).toBe(true);
 
-    const lookupStage = pipeline.find(
-      (stage: Record<string, any>) => stage.$lookup
-    );
-    expect(lookupStage).toBeDefined();
-    expect(lookupStage.$lookup.from).toBe('conversations');
-    expect(lookupStage.$lookup.localField).toBe('conversation_id');
-    expect(lookupStage.$lookup.foreignField).toBe('_id');
-  });
+    const matchStage = pipeline.find((stage: Record<string, any>) => stage.$match);
+    expect(matchStage).toBeDefined();
+    expect(matchStage.$match.owner_id).toBeDefined();
 
-  it('pipeline uses $ifNull to prefer direct owner_id over $lookup', async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
-
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const msgCol = createMockCollection();
-    mockCollections['messages'] = msgCol;
-
-    const req = makeRequest('/api/admin/users');
-    await GET(req);
-
-    const pipeline = msgCol.aggregate.mock.calls[0][0];
-
-    const addFieldsStage = pipeline.find(
-      (stage: Record<string, any>) => stage.$addFields
-    );
-    expect(addFieldsStage).toBeDefined();
-    expect(addFieldsStage.$addFields._owner).toBeDefined();
-    expect(addFieldsStage.$addFields._owner.$ifNull).toBeDefined();
-
-    // First element is direct owner_id, second is from $lookup
-    const ifNullArgs = addFieldsStage.$addFields._owner.$ifNull;
-    expect(ifNullArgs[0]).toBe('$owner_id');
+    const groupStage = pipeline.find((stage: Record<string, any>) => stage.$group);
+    expect(groupStage).toBeDefined();
+    expect(groupStage.$group._id).toBe('$owner_id');
   });
 
   it('assigns 0 messages for users not in aggregation result', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([
-          {
-            _id: new ObjectId(),
-            email: 'newuser@example.com',
-            name: 'New User',
-            created_at: new Date(),
-            last_login: new Date(),
-          },
-        ]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    // Aggregation returns no results for newuser
-    const msgCol = createMockCollection();
-    msgCol.aggregate.mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([]),
-    });
-    mockCollections['messages'] = msgCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(0);
-    convCol.findOne.mockResolvedValue(null);
-    mockCollections['conversations'] = convCol;
+    const usersData = [
+      { _id: new ObjectId(), email: 'newuser@example.com', name: 'New User', created_at: new Date(), last_login: new Date() },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([]);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
@@ -416,30 +357,12 @@ describe('GET /api/admin/users — Metadata', () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
     const now = new Date();
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([
-          {
-            _id: new ObjectId(),
-            email: 'norole@example.com',
-            name: 'No Role User',
-            created_at: now,
-            last_login: now,
-            // metadata.role is absent
-          },
-        ]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const msgCol = createMockCollection();
-    mockCollections['messages'] = msgCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(0);
-    convCol.findOne.mockResolvedValue(null);
-    mockCollections['conversations'] = convCol;
+    const usersData = [
+      { _id: new ObjectId(), email: 'norole@example.com', name: 'No Role User', created_at: now, last_login: now },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([]);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
@@ -452,35 +375,17 @@ describe('GET /api/admin/users — Metadata', () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
     const loginTime = new Date('2025-12-01T10:00:00Z');
-    const usersCol = createMockCollection();
-    usersCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([
-          {
-            _id: new ObjectId(),
-            email: 'lonely@example.com',
-            name: 'Lonely User',
-            created_at: new Date('2025-01-01'),
-            last_login: loginTime,
-          },
-        ]),
-      }),
-    });
-    mockCollections['users'] = usersCol;
-
-    const msgCol = createMockCollection();
-    mockCollections['messages'] = msgCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(0);
-    convCol.findOne.mockResolvedValue(null); // no last conversation
-    mockCollections['conversations'] = convCol;
+    const usersData = [
+      { _id: new ObjectId(), email: 'lonely@example.com', name: 'Lonely User', created_at: new Date('2025-01-01'), last_login: loginTime },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([], []);
 
     const req = makeRequest('/api/admin/users');
     const res = await GET(req);
     const body = await res.json();
 
-    // last_activity should fall back to last_login
     expect(body.data.users[0].last_activity).toBe(loginTime.toISOString());
   });
 });

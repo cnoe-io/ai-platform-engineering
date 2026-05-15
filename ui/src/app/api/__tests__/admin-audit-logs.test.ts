@@ -125,13 +125,9 @@ function setupAdminWithConversations(convData: any[] = []) {
   mockGetServerSession.mockResolvedValue(adminSession());
 
   const convCol = createMockCollection();
+  convCol.countDocuments.mockResolvedValue(convData.length);
   convCol.aggregate.mockReturnValue({
-    toArray: jest.fn().mockResolvedValue([
-      {
-        items: convData,
-        totalCount: [{ count: convData.length }],
-      },
-    ]),
+    toArray: jest.fn().mockResolvedValue(convData),
   });
   mockCollections['conversations'] = convCol;
 
@@ -309,31 +305,36 @@ describe('GET /api/admin/audit-logs — Listing', () => {
     expect(matchStage.$match.deleted_at).toEqual({ $ne: null, $exists: true });
   });
 
-  it('uses $lookup to get last message timestamp', async () => {
-    const { convCol } = setupAdminWithConversations([]);
+  it('fetches last message timestamps separately (no $lookup)', async () => {
+    const { convCol } = setupAdminWithConversations([
+      { _id: 'conv-1', owner_id: 'alice@example.com', title: 'Test', created_at: new Date(), updated_at: new Date() },
+    ]);
 
     const req = makeRequest('/api/admin/audit-logs');
     await listGET(req);
 
+    // Pipeline should NOT contain $lookup
     const pipeline = convCol.aggregate.mock.calls[0][0];
     const lookupStage = pipeline.find((s: any) => s.$lookup);
-    expect(lookupStage).toBeDefined();
-    expect(lookupStage.$lookup.from).toBe('messages');
-    expect(lookupStage.$lookup.localField).toBe('_id');
-    expect(lookupStage.$lookup.foreignField).toBe('conversation_id');
+    expect(lookupStage).toBeUndefined();
   });
 
-  it('uses $facet for pagination', async () => {
+  it('uses countDocuments + pipeline for pagination (no $facet)', async () => {
     const { convCol } = setupAdminWithConversations([]);
 
     const req = makeRequest('/api/admin/audit-logs?page=2&page_size=10');
     await listGET(req);
 
+    // countDocuments called for total
+    expect(convCol.countDocuments).toHaveBeenCalled();
+    // Pipeline should have $skip and $limit but no $facet
     const pipeline = convCol.aggregate.mock.calls[0][0];
     const facetStage = pipeline.find((s: any) => s.$facet);
-    expect(facetStage).toBeDefined();
-    expect(facetStage.$facet.items).toBeDefined();
-    expect(facetStage.$facet.totalCount).toBeDefined();
+    expect(facetStage).toBeUndefined();
+    const skipStage = pipeline.find((s: any) => s.$skip !== undefined);
+    const limitStage = pipeline.find((s: any) => s.$limit !== undefined);
+    expect(skipStage.$skip).toBe(10);
+    expect(limitStage.$limit).toBe(10);
   });
 });
 
@@ -915,10 +916,8 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const facetStage = pipeline.find((s: any) => s.$facet);
-    const itemsPipeline = facetStage.$facet.items;
-    const skipStage = itemsPipeline.find((s: any) => s.$skip !== undefined);
-    const limitStage = itemsPipeline.find((s: any) => s.$limit !== undefined);
+    const skipStage = pipeline.find((s: any) => s.$skip !== undefined);
+    const limitStage = pipeline.find((s: any) => s.$limit !== undefined);
     expect(skipStage.$skip).toBe(0);
     expect(limitStage.$limit).toBe(20);
   });
@@ -930,8 +929,7 @@ describe('GET /api/admin/audit-logs — Filter Edge Cases', () => {
     await listGET(req);
 
     const pipeline = convCol.aggregate.mock.calls[0][0];
-    const facetStage = pipeline.find((s: any) => s.$facet);
-    const sortStage = facetStage.$facet.items.find((s: any) => s.$sort);
+    const sortStage = pipeline.find((s: any) => s.$sort);
     expect(sortStage.$sort.updated_at).toBe(-1);
   });
 });

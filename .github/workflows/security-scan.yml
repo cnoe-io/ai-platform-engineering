@@ -1,19 +1,33 @@
 ---
 name: "Grype Scan"
-description: "Anchore Grype vulnerability scan — filesystem on PRs/main (blocking on critical), filesystem + all containers on tags (informational)"
+description: "Anchore Grype vulnerability scan — filesystem on all events, containers on tags. Blocking gate is GitHub Code Scanning PR diff mode, not fail-build."
 
 # Trigger matrix:
-#   pull_request / push to main  → filesystem scan only, fail-build: true on critical+ (blocks merge)
+#   pull_request / push to main  → filesystem scan only; fail-build: false — GitHub Code Scanning
+#                                  PR diff mode is the gate (only NEW alerts block the PR)
 #   push tag                     → filesystem scan + all container images, fail-build: false (informational)
 #   workflow_dispatch            → both jobs, fail-build: false
+#
+# Why fail-build: false everywhere?
+#   Grype's fail-build hard-fails on any CVE at or above severity-cutoff, including CVEs in
+#   upstream libraries that have no available fix yet. That forces contributors to take the
+#   blame for vulnerabilities they didn't introduce and can't resolve.
+#
+#   GitHub Code Scanning's PR diff mode only surfaces alerts that are *new* in the PR — CVEs
+#   already present on the base branch (e.g., in a transitive dep that predates the PR) are
+#   silently excluded from the PR check. This means:
+#     - A PR that introduces a new vulnerable dependency → new alert → PR blocked
+#     - An upstream CVE already present on main → not new → PR not blocked, alert visible in
+#       the Security tab so maintainers can track and upgrade when a fix is released
+#
+#   To activate this: require the "Code scanning results / Grype" check under
+#   Settings → Branches → Branch protection rules for main.
 
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-    tags:
-      - "[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
     inputs:
       tag:
@@ -25,13 +39,17 @@ permissions:
   contents: read
   security-events: write  # required to upload SARIF to GitHub Code Scanning
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scan-filesystem:
     name: Filesystem scan
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
         with:
           egress-policy: audit
 
@@ -45,13 +63,12 @@ jobs:
         id: scan
         with:
           path: "."
-          # Block on critical vulns for PRs/main; informational on tags and manual dispatch
-          fail-build: "${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}"
+          fail-build: false  # Gate is GitHub Code Scanning PR diff — see top-level comment
           severity-cutoff: critical
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         if: always()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
@@ -67,8 +84,9 @@ jobs:
   scan-containers:
     name: Container scan (${{ matrix.image }})
     runs-on: ubuntu-latest
-    # Only runs on tag pushes and manual dispatch — images don't exist yet on PRs/main
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    # Only runs on manual dispatch — tag-push triggers were removed because images
+    # are not yet published when the tag event fires (race condition).
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +99,6 @@ jobs:
           - caipe-dynamic-agents
           # Bots
           - caipe-slack-bot
-          - caipe-webex-bot
           # RAG components
           - caipe-rag-agent-ontology
           - caipe-rag-server
@@ -110,6 +127,7 @@ jobs:
           - mcp-github
           - mcp-jira
           - mcp-komodor
+          - mcp-litellm
           - mcp-netutils
           - mcp-pagerduty
           - mcp-splunk
@@ -117,7 +135,7 @@ jobs:
           - mcp-webex
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
         with:
           egress-policy: audit
 
@@ -140,7 +158,7 @@ jobs:
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         if: always()
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}

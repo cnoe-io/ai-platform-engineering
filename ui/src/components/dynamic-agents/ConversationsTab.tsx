@@ -7,6 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   MessageSquare,
   Trash2,
   Loader2,
@@ -18,8 +24,14 @@ import {
   Archive,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  FileText,
+  Globe,
+  Hash,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
 
 interface ConversationItem {
@@ -30,6 +42,17 @@ interface ConversationItem {
   created_at: string;
   updated_at: string;
   checkpoint_count: number;
+  file_count?: number;
+  message_count?: number;
+  client_type?: string;
+  idempotency_key?: string;
+  metadata?: {
+    thread_ts?: string;
+    channel_id?: string;
+    channel_name?: string;
+    workspace_url?: string;
+    [key: string]: unknown;
+  };
   is_archived: boolean;
   deleted_at: string | null;
 }
@@ -62,6 +85,7 @@ export function ConversationsTab() {
   const [totalPages, setTotalPages] = React.useState(1);
   const [total, setTotal] = React.useState(0);
   const [clearingId, setClearingId] = React.useState<string | null>(null);
+  const [selectedConversation, setSelectedConversation] = React.useState<ConversationItem | null>(null);
   const { toast } = useToast();
 
   // Fetch agents once on mount to build lookup map
@@ -147,26 +171,32 @@ export function ConversationsTab() {
     return agent?.ui?.gradient_theme || null;
   };
 
+  const getAgentCustomTheme = (agentId: string | null) => {
+    if (!agentId) return null;
+    const agent = agents.get(agentId);
+    return agent?.ui?.custom_theme_config || null;
+  };
+
   const handleClear = async (conversationId: string) => {
-    if (!confirm("Are you sure you want to clear this conversation's checkpoint data? This will remove all messages but keep the conversation record.")) {
+    if (!confirm("Are you sure you want to delete all data for this conversation? This will permanently remove the conversation, messages, checkpoints, and stored files.")) {
       return;
     }
 
     setClearingId(conversationId);
     try {
-      const response = await fetch(`/api/dynamic-agents/conversations/${conversationId}/clear`, {
-        method: "POST",
+      const response = await fetch(`/api/admin/audit-logs/${encodeURIComponent(conversationId)}`, {
+        method: "DELETE",
       });
       const data = await response.json();
 
       if (data.success) {
-        toast("Conversation cleared successfully", "success");
+        toast("Conversation deleted successfully", "success");
         fetchConversations();
       } else {
-        toast(data.error || "Failed to clear conversation", "error");
+        toast(data.error || "Failed to delete conversation", "error");
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to clear conversation";
+      const message = err instanceof Error ? err.message : "Failed to delete conversation";
       toast(message, "error");
     } finally {
       setClearingId(null);
@@ -188,6 +218,13 @@ export function ConversationsTab() {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  const buildSlackPermalink = (conv: ConversationItem): string | null => {
+    const meta = conv.metadata;
+    if (!meta?.workspace_url || !meta?.channel_id || !meta?.thread_ts) return null;
+    const tsClean = meta.thread_ts.replace(".", "");
+    return `${meta.workspace_url}/archives/${meta.channel_id}/p${tsClean}`;
   };
 
   return (
@@ -284,9 +321,10 @@ export function ConversationsTab() {
               {conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
+                  className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center cursor-pointer ${
                     conv.deleted_at ? "opacity-60" : ""
                   }`}
+                  onClick={() => setSelectedConversation(conv)}
                 >
                   <div className="col-span-4">
                     <div className="flex items-center gap-3">
@@ -295,8 +333,20 @@ export function ConversationsTab() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm truncate">{conv.title}</div>
-                        <div className="text-xs text-muted-foreground font-mono break-all">
-                          {conv.id}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] px-1.5 py-0 leading-4 ${
+                              conv.client_type === "slack"
+                                ? "text-purple-600 border-purple-300"
+                                : "text-blue-600 border-blue-300"
+                            }`}
+                          >
+                            {conv.client_type === "slack" ? "Slack" : "Web"}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground font-mono truncate">
+                            {conv.id}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -313,13 +363,14 @@ export function ConversationsTab() {
                     <div className="flex items-center gap-1.5">
                       {(() => {
                         const gradient = getAgentGradient(conv.agent_id);
-                        const gradientStyle = gradient ? getGradientStyle(gradient) : null;
+                        const customTheme = getAgentCustomTheme(conv.agent_id);
+                        const gradientStyle = gradient ? getGradientStyle(gradient, customTheme) : null;
                         return gradientStyle ? (
                           <div 
                             className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
                             style={gradientStyle}
                           >
-                            <Bot className="h-2.5 w-2.5 text-white" />
+                            <Bot className="h-2.5 w-2.5" style={{ color: getAccentColor(gradient, customTheme) || "white" }} />
                           </div>
                         ) : (
                           <Bot className="h-3 w-3 text-purple-500" />
@@ -362,9 +413,9 @@ export function ConversationsTab() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={() => handleClear(conv.id)}
+                      onClick={(e) => { e.stopPropagation(); handleClear(conv.id); }}
                       disabled={clearingId === conv.id}
-                      title="Clear checkpoint data"
+                      title="Delete all conversation data"
                     >
                       {clearingId === conv.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -457,6 +508,198 @@ export function ConversationsTab() {
           </>
         )}
       </CardContent>
+
+      {/* Conversation Detail Modal */}
+      <Dialog open={!!selectedConversation} onOpenChange={(open) => { if (!open) setSelectedConversation(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          {selectedConversation && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-blue-500 shrink-0" />
+                  <span className="break-words">{selectedConversation.title}</span>
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4 pt-2">
+                {/* Source badge */}
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Source</span>
+                  <Badge
+                    variant="outline"
+                    className={
+                      selectedConversation.client_type === "slack"
+                        ? "text-purple-600 border-purple-300"
+                        : "text-blue-600 border-blue-300"
+                    }
+                  >
+                    {selectedConversation.client_type === "slack" ? "Slack" : "Web"}
+                  </Badge>
+                </div>
+
+                {/* Slack permalink (for Slack conversations) */}
+                {(() => {
+                  const permalink = buildSlackPermalink(selectedConversation);
+                  return permalink ? (
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      <a
+                        href={permalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        View Slack thread
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  ) : null;
+                })()}
+
+                {/* ID */}
+                <div className="flex items-start gap-2">
+                  <Hash className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-muted-foreground">Conversation ID</div>
+                    <div className="flex items-center gap-1.5">
+                      <code className="text-sm font-mono break-all">{selectedConversation.id}</code>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={() => { navigator.clipboard.writeText(selectedConversation.id); toast("Copied to clipboard", "success"); }}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Owner */}
+                {selectedConversation.idempotency_key && (
+                  <div className="flex items-start gap-2">
+                    <Hash className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-muted-foreground">
+                        Idempotency Key (internal chat ID for {selectedConversation.client_type === "slack" ? "Slack" : selectedConversation.client_type || "unknown client"})
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-sm font-mono break-all">{selectedConversation.idempotency_key}</code>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0"
+                          onClick={() => { navigator.clipboard.writeText(selectedConversation.idempotency_key!); toast("Copied to clipboard", "success"); }}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Owner */}
+                <div className="flex items-start gap-2">
+                  <User className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-muted-foreground">Owner</div>
+                    <div className="text-sm break-all">{selectedConversation.owner_id}</div>
+                  </div>
+                </div>
+
+                {/* Agent */}
+                <div className="flex items-start gap-2">
+                  <Bot className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-muted-foreground">Agent</div>
+                    <div className="text-sm">{getAgentName(selectedConversation.agent_id)}</div>
+                    {selectedConversation.agent_id && (
+                      <code className="text-xs text-muted-foreground font-mono break-all">{selectedConversation.agent_id}</code>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="flex items-center gap-2">
+                  <Archive className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  {selectedConversation.deleted_at ? (
+                    <Badge variant="outline" className="gap-1 text-orange-600 border-orange-300">Trash</Badge>
+                  ) : selectedConversation.is_archived ? (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">Archived</Badge>
+                  ) : (
+                    <Badge variant="outline" className="gap-1 text-green-600 border-green-300">Active</Badge>
+                  )}
+                </div>
+
+                {/* Checkpoints */}
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Checkpoints</span>
+                  <span className="text-sm">{selectedConversation.checkpoint_count}</span>
+                </div>
+
+                {/* Messages (WebUI only) */}
+                {(selectedConversation.message_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Messages</span>
+                    <span className="text-sm">{selectedConversation.message_count}</span>
+                  </div>
+                )}
+
+                {/* Files */}
+                {(selectedConversation.file_count ?? 0) > 0 && (
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Files</span>
+                    <span className="text-sm">{selectedConversation.file_count}</span>
+                  </div>
+                )}
+
+                {/* Dates */}
+                <div className="flex items-start gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground mt-0.5" />
+                  <div>
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Created:</span>{" "}
+                      {formatDate(selectedConversation.created_at)}
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">Updated:</span>{" "}
+                      {formatDate(selectedConversation.updated_at)}
+                    </div>
+                    {selectedConversation.deleted_at && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Deleted:</span>{" "}
+                        {formatDate(selectedConversation.deleted_at)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end pt-2 border-t">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => { handleClear(selectedConversation.id); setSelectedConversation(null); }}
+                    disabled={clearingId === selectedConversation.id}
+                  >
+                    {clearingId === selectedConversation.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Delete All
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -4,19 +4,89 @@ This module provides wrapper functions for built-in tools that can be
 configured per-agent with access controls (e.g., domain restrictions).
 """
 
+import ipaddress
 import json
 import logging
+import shlex
+import socket
+import subprocess
 from datetime import datetime, timezone
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from langgraph.store.base import GetOp, PutOp
 
 from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
 
 logger = logging.getLogger(__name__)
+
+_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+_MAX_FETCH_REDIRECTS = 10
+
+
+# assisted-by claude code claude-sonnet-4-6
+def _is_publicly_routable_ip(ip_address: str) -> bool:
+    addr = ipaddress.ip_address(ip_address)
+    return addr.is_global and not (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_private
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def _resolve_host_addresses(hostname: str) -> list[str]:
+    try:
+        return [str(ipaddress.ip_address(hostname))]
+    except ValueError:
+        pass
+
+    results = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    return [sockaddr[0] for _family, _type, _proto, _canonname, sockaddr in results]
+
+
+def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
+    if not hostname:
+        return False, "missing hostname"
+
+    try:
+        addresses = _resolve_host_addresses(hostname)
+    except (socket.gaierror, OSError) as e:
+        return False, f"hostname could not be resolved: {e}"
+
+    if not addresses:
+        return False, "hostname did not resolve to any address"
+
+    for address in addresses:
+        try:
+            if not _is_publicly_routable_ip(address):
+                return False, f"{address} is not publicly routable"
+        except ValueError:
+            return False, f"{address} is not a valid IP address"
+
+    return True, ""
+
+
+def _validate_fetch_url(url: str, allowed_domains: str) -> tuple[bool, str, str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, "Invalid URL - must start with http:// or https://", ""
+
+    domain = (parsed.hostname or "").lower()
+    is_routable, route_error = _is_publicly_routable_host(domain)
+    if not is_routable:
+        return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+
+    is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
+    if not is_allowed:
+        return False, error_msg, domain
+
+    return True, "", domain
 
 
 def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
@@ -44,6 +114,32 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             ],
         ),
         BuiltinToolDefinition(
+            id="curl",
+            name="Curl",
+            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs. WARNING: enabling this tool allows the agent to make write requests (PUT/PATCH/DELETE) that may modify or delete data.",
+            enabled_by_default=False,
+            config_fields=[
+                BuiltinToolConfigField(
+                    name="allowed_domains",
+                    type="string",
+                    label="Allowed Domains",
+                    description=(
+                        "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
+                    ),
+                    default="*",
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="https_only",
+                    type="boolean",
+                    label="HTTPS Only",
+                    description="If enabled (default), reject non-https:// URLs.",
+                    default=True,
+                    required=False,
+                ),
+            ],
+        ),
+        BuiltinToolDefinition(
             id="current_datetime",
             name="Current Date/Time",
             description="Returns the current date and time in various formats and timezones",
@@ -58,16 +154,16 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             config_fields=[],
         ),
         BuiltinToolDefinition(
-            id="sleep",
-            name="Sleep",
+            id="wait",
+            name="Wait",
             description="Pauses execution for a specified duration",
             enabled_by_default=True,
             config_fields=[
                 BuiltinToolConfigField(
                     name="max_seconds",
                     type="number",
-                    label="Max Sleep Duration",
-                    description="Maximum allowed sleep duration in seconds (1-3600)",
+                    label="Max Wait Duration",
+                    description="Maximum allowed wait duration in seconds (1-3600)",
                     default=300,
                     required=False,
                 ),
@@ -77,6 +173,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             id="request_user_input",
             name="Request User Input",
             description="Requests structured input from the user via a form (HITL)",
+            enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="self_identity",
+            name="Self Identity",
+            description="Returns this agent's identity and configuration — the agent MUST use this to know who it is",
             enabled_by_default=True,
             config_fields=[],
         ),
@@ -127,7 +230,7 @@ def is_domain_allowed(url_domain: str, allowed_domains_str: str) -> tuple[bool, 
     return False, f"Domain '{url_domain}' is not allowed. Allowed patterns: {allowed_domains_str}"
 
 
-def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -> str:
+def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int, allowed_domains: str) -> str:
     """Fetch content from a URL (internal implementation).
 
     Args:
@@ -139,7 +242,27 @@ def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -
         Fetched content as string, or "ERROR: <message>" on failure
     """
     try:
-        response = requests.get(url, timeout=timeout, allow_redirects=True)
+        current_url = url
+        response = None
+        for _redirect_count in range(_MAX_FETCH_REDIRECTS + 1):
+            is_valid, error_msg, _domain = _validate_fetch_url(current_url, allowed_domains)
+            if not is_valid:
+                return f"ERROR: {error_msg}"
+
+            response = requests.get(current_url, timeout=timeout, allow_redirects=False)
+            if getattr(response, "status_code", None) not in _REDIRECT_STATUS_CODES:
+                break
+
+            location = response.headers.get("location")
+            if not location:
+                break
+            current_url = urljoin(current_url, location)
+        else:
+            return f"ERROR: Too many redirects (>{_MAX_FETCH_REDIRECTS})"
+
+        if response is None:
+            return "ERROR: No response received"
+
         response.raise_for_status()
 
         content_type = response.headers.get("content-type", "").lower()
@@ -185,6 +308,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     @tool
     def fetch_url(
         url: str,
+        thought: str = "",
         format: Literal["text", "raw"] = "text",
         timeout: int = 30,
     ) -> str:
@@ -195,6 +319,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         Args:
             url: The URL to fetch (must be http:// or https://)
+            thought: Brief reasoning for why you're fetching this URL
             format: 'text' (extract readable content) or 'raw' (raw HTML)
             timeout: Request timeout in seconds (default: 30)
 
@@ -210,14 +335,8 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Check domain ACL
         try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.lower()
-            # Strip port if present
-            if ":" in domain:
-                domain = domain.split(":")[0]
-
-            is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
-            if not is_allowed:
+            is_valid, error_msg, domain = _validate_fetch_url(url, allowed_domains)
+            if not is_valid:
                 logger.warning(f"fetch_url domain blocked: {domain} (patterns: {allowed_domains})")
                 return f"ERROR: {error_msg}"
 
@@ -226,9 +345,137 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Fetch the content
         logger.debug(f"fetch_url: fetching {url} (domain allowed)")
-        return _fetch_url_content(url, format, timeout)
+        return _fetch_url_content(url, format, timeout, allowed_domains)
 
     return fetch_url
+
+
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
+    """Create a curl tool with domain restrictions.
+
+    Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
+    when agents need to call write APIs that fetch_url cannot handle.
+
+    Args:
+        allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
+        https_only: If True (default), reject non-https URLs.
+
+    Returns:
+        A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
+    """
+    CURL_TIMEOUT = 300
+
+    @tool
+    def curl(
+        command: str,
+        thought: str = "",
+        timeout: int = CURL_TIMEOUT,
+        strip_html: bool = False,
+    ) -> str:
+        """Execute an HTTP request via curl (https:// only).
+
+        Use this for all HTTP operations that require a method other than GET,
+        or when you need fine-grained control over headers and request body:
+        POST, PUT, PATCH, DELETE, and file downloads.
+
+        Args:
+            command: Curl command to run (e.g., "curl -s -X PUT https://api.example.com/resource -d '{}'")
+            thought: Brief reasoning for why you're making this request
+            timeout: Command timeout in seconds (default: 300)
+            strip_html: If True, strip HTML tags and return plain text
+
+        Returns:
+            Command output as string, or "ERROR: <message>" on failure.
+
+        Examples:
+            # PUT request with JSON body
+            curl("curl -s -X PUT https://api.example.com/resource -H 'Content-Type: application/json' -d '{\"status\":\"done\"}'")
+
+            # POST with auth header
+            curl("curl -s -X POST https://api.example.com/items -H 'Authorization: Bearer TOKEN' -d '{\"name\":\"test\"}'")
+
+            # GET request (alternative to fetch_url)
+            curl("curl -s https://api.example.com/data")
+        """
+        try:
+            args = shlex.split(command)
+        except ValueError as e:
+            return f"ERROR: Failed to parse command: {e}"
+
+        if not args or args[0] != "curl":
+            args = ["curl"] + args
+
+        # Enforce https-only (configurable)
+        if https_only:
+            for token in args[1:]:
+                if "://" in token and not token.startswith("https://"):
+                    scheme = token.split("://")[0] + "://"
+                    msg = (
+                        f"The URL scheme '{scheme}' is not supported.\n\n"
+                        "**Only `https://` URLs are allowed.**\n\n"
+                        f"Please use an `https://` endpoint instead of `{token.split('?')[0]}`."
+                    )
+                    logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
+                    return msg
+
+        # Check domain ACL and SSRF protection (same validation as fetch_url)
+        for token in args[1:]:
+            if token.startswith("https://") or token.startswith("http://"):
+                try:
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
+                    if not is_valid:
+                        logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
+                        return f"ERROR: {error_msg}"
+                except Exception as e:
+                    return f"ERROR: Failed to parse URL: {e}"
+                break
+
+        # Detect write method for post-execution warning
+        write_method = None
+        args_upper = [a.upper() for a in args]
+        for flag in ("-X", "--request"):
+            if flag.upper() in args_upper:
+                idx = args_upper.index(flag.upper())
+                if idx + 1 < len(args_upper):
+                    method = args_upper[idx + 1]
+                    if method in ("PUT", "PATCH", "DELETE"):
+                        write_method = method
+                        break
+
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+            output = result.stdout
+            if result.stderr:
+                output = (output + "\n" + result.stderr) if output else result.stderr
+            if result.returncode != 0:
+                return f"ERROR: {output}" if output else "ERROR: Command failed"
+            if not output:
+                output = "Success (no output)"
+            if write_method:
+                output = (
+                    f"⚠️ WARNING: This request used {write_method}, which may have modified or deleted server-side data. "
+                    "Verify the result carefully before proceeding.\n\n"
+                ) + output
+            if strip_html:
+                try:
+                    soup = BeautifulSoup(output, "html.parser")
+                    for tag in soup(["script", "style"]):
+                        tag.decompose()
+                    return soup.get_text(separator="\n", strip=True)
+                except Exception:
+                    pass
+            return output
+        except subprocess.TimeoutExpired:
+            logger.warning(f"curl timed out after {timeout}s: {command[:100]}")
+            return f"ERROR: Command timed out after {timeout} seconds"
+        except FileNotFoundError:
+            logger.error("curl binary not found — ensure curl is installed in the container")
+            return "ERROR: curl command not found — ensure curl is installed"
+        except Exception as e:
+            logger.error(f"curl unexpected error: {e}")
+            return f"ERROR: {e}"
+
+    return curl
 
 
 def create_current_datetime_tool():
@@ -240,6 +487,7 @@ def create_current_datetime_tool():
 
     @tool
     def current_datetime(
+        thought: str = "",
         timezone_name: str = "UTC",
         format: str = "iso",
     ) -> str:
@@ -249,6 +497,7 @@ def create_current_datetime_tool():
         for scheduling, logging, or time-sensitive operations.
 
         Args:
+            thought: Brief reasoning for why you need the current time
             timezone_name: Timezone name (e.g., 'UTC', 'US/Eastern', 'Europe/London').
                          Defaults to 'UTC'.
             format: Output format - 'iso' (ISO 8601), 'human' (readable), or 'unix' (timestamp).
@@ -286,85 +535,103 @@ def create_current_datetime_tool():
     return current_datetime
 
 
-def create_user_info_tool(user: UserContext):
+def create_user_info_tool(user: UserContext, client_context: dict | None = None):
     """Create a user_info tool with the current user's information.
 
+    Returns all fields present on the ``UserContext`` instance, including
+    any opaque extra fields injected by the gateway (``is_admin``,
+    ``is_authorized``, ``can_view_admin``, etc.).  The tool output adapts
+    automatically when the gateway adds or removes fields — no code
+    changes needed here.
+
+    When ``client_context`` is provided, it is included under the
+    ``client_context`` key so the agent can see which client (Slack, web UI,
+    etc.) is being used and adapt its behavior accordingly.
+
     Args:
-        user: User context containing email, name, and groups
+        user: User context (email required, everything else opaque).
+        client_context: Optional client context dict (source, channel_type, etc.).
 
     Returns:
         A LangChain tool that returns user information.
     """
 
+    # Snapshot once — UserContext is immutable for the lifetime of a request.
+    _user_data = user.model_dump(exclude={"raw_claims"})
+    if client_context:
+        _user_data["client_context"] = client_context
+
     @tool
-    def user_info() -> dict:
-        """Get information about the current user.
+    def user_info(thought: str = "") -> dict:
+        """Get information about the current user and client context.
 
         Use this tool when you need to personalize responses, check user identity,
-        or access user group memberships for authorization decisions.
+        access user metadata for authorization decisions, or determine which client
+        (e.g. Slack, web UI) the user is interacting from.
+
+        Args:
+            thought: Brief reasoning for why you need user information
 
         Returns:
-            Dictionary with user information:
-            - email: User's email address
-            - name: User's display name (may be null)
-            - groups: List of group names the user belongs to
+            Dictionary with user information.  Always includes ``email``.
+            Other fields (``name``, ``is_admin``, ``groups``, etc.) depend
+            on how the user was authenticated.  May include ``client_context``
+            with the client source and metadata (e.g. ``source``, ``channel_type``,
+            ``overthink``).
 
         Example:
             info = user_info()
-            print(f"Hello, {info['name'] or info['email']}!")
+            print(f"Hello, {info.get('name') or info['email']}!")
+            source = info.get('client_context', {}).get('source', 'unknown')
         """
-        return {
-            "email": user.email,
-            "name": user.name,
-            "groups": user.groups,
-        }
+        return _user_data
 
     return user_info
 
 
-def create_sleep_tool(max_seconds: int = 300):
-    """Create a sleep tool with configurable max duration.
+def create_wait_tool(max_seconds: int = 300):
+    """Create a wait tool with configurable max duration.
 
     Args:
-        max_seconds: Maximum allowed sleep duration in seconds (default: 300)
+        max_seconds: Maximum allowed wait duration in seconds (default: 300)
 
     Returns:
         A LangChain tool that pauses execution.
     """
 
     @tool
-    def sleep(seconds: float) -> str:
+    def wait(seconds: float, thought: str = "") -> str:
         """Pause execution for a specified duration.
 
         Use this tool when you need to wait between operations, implement
         rate limiting, or add delays for timing-sensitive workflows.
 
         Args:
-            seconds: Duration to sleep in seconds. Must be positive and
+            seconds: Duration to wait in seconds. Must be positive and
                     not exceed the configured maximum.
+            thought: Brief reasoning for why you need to wait
 
         Returns:
-            Confirmation message with actual sleep duration.
+            Confirmation message with actual wait duration.
 
         Example:
-            sleep(5)  # Pause for 5 seconds
+            wait(5)  # Pause for 5 seconds
         """
         if seconds <= 0:
-            return "ERROR: Sleep duration must be positive"
+            return "ERROR: Wait duration must be positive"
 
         if seconds > max_seconds:
-            return f"ERROR: Sleep duration {seconds}s exceeds maximum allowed ({max_seconds}s)"
+            return f"ERROR: Wait duration {seconds}s exceeds maximum allowed ({max_seconds}s)"
 
         try:
-            # Use asyncio.sleep if we're in an async context, otherwise time.sleep
             import time
 
             time.sleep(seconds)
-            return f"Slept for {seconds} seconds"
+            return f"Waited for {seconds} seconds"
         except Exception as e:
-            return f"ERROR: Sleep failed: {e}"
+            return f"ERROR: Wait failed: {e}"
 
-    return sleep
+    return wait
 
 
 def create_request_user_input_tool():
@@ -386,6 +653,7 @@ def create_request_user_input_tool():
     def request_user_input(
         prompt: str,
         fields: list[dict],
+        thought: str = "",
     ) -> str:
         """Request structured input from the user via a form.
 
@@ -461,12 +729,156 @@ def create_request_user_input_tool():
     return request_user_input
 
 
+def create_self_identity_tool(
+    agent_id: str,
+    name: str,
+    description: str | None,
+    model_id: str,
+    model_provider: str,
+    gradient_theme: str | None,
+):
+    """Create a self_identity tool with the agent's own metadata.
+
+    Exposes non-sensitive agent configuration so the agent can identify itself.
+    Deliberately excludes the system prompt, owner ID, and execution/session IDs.
+
+    Args:
+        agent_id: Unique agent ID.
+        name: Agent display name.
+        description: Agent description.
+        model_id: LLM model identifier.
+        model_provider: LLM provider.
+        gradient_theme: UI gradient theme, or None.
+
+    Returns:
+        A LangChain tool that returns agent metadata.
+    """
+
+    @tool
+    def self_identity(thought: str = "") -> dict:
+        """Get this agent's identity. You MUST call this tool whenever you need
+        to know who you are or what your name is. Never guess or assume your
+        identity — always call this tool first.
+
+        Args:
+            thought: Brief reasoning for why you need identity information
+
+        Returns:
+            Dictionary with agent identity:
+            - id: Unique agent ID
+            - name: Agent display name
+            - description: Agent description (may be null)
+            - model_id: LLM model identifier
+            - model_provider: LLM provider
+            - gradient_theme: UI theme (may be null)
+        """
+        return {
+            "id": agent_id,
+            "name": name,
+            "description": description,
+            "model_id": model_id,
+            "model_provider": model_provider,
+            "gradient_theme": gradient_theme,
+        }
+
+    return self_identity
+
+
+def create_format_file_tool(store, namespace_factory):
+    """Create a format_file tool that reformats single-line files into multi-line.
+
+    This tool detects JSON and pretty-prints it, or chunks non-JSON content
+    into fixed-width lines. Useful when grep returns entire file contents
+    because the file is a single massive line.
+
+    Args:
+        store: The MongoDBGridFSStore instance.
+        namespace_factory: Callable(agent_id, session_id) -> namespace tuple.
+    """
+
+    @tool
+    def format_file(
+        file_path: str,
+    ) -> str:
+        """Reformat a single-line file into multiple lines for easier searching.
+
+        Use this tool when grep returns an entire file's content because the file
+        is stored as one massive line (e.g., minified JSON). This creates a new
+        formatted copy that grep can search line-by-line.
+
+        For JSON files: pretty-prints with indentation.
+        For other files: splits into fixed-width lines of 200 characters.
+
+        Args:
+            file_path: Absolute path to the file to format (e.g., /large_tool_results/tooluse_abc123)
+
+        Returns:
+            The path to the newly created formatted file, or an error message.
+        """
+        namespace = namespace_factory()
+
+        # Read the file from the store
+        items = store.batch([GetOp(namespace=namespace, key=file_path)])
+        item = items[0] if items else None
+        if item is None:
+            return f"Error: file not found at {file_path}"
+
+        content_lines = item.value.get("content", [])
+        if not content_lines:
+            return f"Error: file at {file_path} has no content"
+
+        if len(content_lines) > 1:
+            return f"File already has {len(content_lines)} lines — no reformatting needed."
+
+        line = content_lines[0]
+        if len(line) < 1000:
+            return f"File is only {len(line)} characters — no reformatting needed."
+
+        # Try JSON pretty-print
+        stripped = line.lstrip()
+        is_json = False
+        if stripped and stripped[0] in ("{", "["):
+            try:
+                parsed = json.loads(line)
+                formatted_lines = json.dumps(parsed, indent=2, ensure_ascii=False).split("\n")
+                is_json = True
+            except (json.JSONDecodeError, ValueError):
+                pass  # Not valid JSON — fall through to fixed-width chunking
+
+        if not is_json:
+            # Chunk into fixed-width lines
+            chunk_size = 200
+            formatted_lines = [line[i : i + chunk_size] for i in range(0, len(line), chunk_size)]
+
+        # Determine output filename
+        if is_json:
+            output_path = f"{file_path}_formatted.json"
+        else:
+            output_path = f"{file_path}_formatted"
+
+        # Write the formatted file
+        now = datetime.now(timezone.utc).isoformat()
+        value = {
+            "content": formatted_lines,
+            "created_at": now,
+            "modified_at": now,
+        }
+        store.batch([PutOp(namespace=namespace, key=output_path, value=value)])
+
+        return f"Created formatted file at {output_path} ({len(formatted_lines)} lines). Use grep or read_file on this path instead."
+
+    return format_file
+
+
 __all__ = [
     "create_fetch_url_tool",
+    "create_curl_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",
-    "create_sleep_tool",
+    "create_wait_tool",
     "create_request_user_input_tool",
+    "create_self_identity_tool",
+    "create_format_file_tool",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

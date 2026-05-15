@@ -50,9 +50,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       await messages.deleteMany({ conversation_id: { $in: expiredIds } });
 
       // Delete checkpoint data for purged Dynamic Agent conversations
-      // Dynamic Agent conversations have an agent_id field set
+      // Dynamic Agent conversations have an agent participant
       const dynamicAgentIds = expired
-        .filter(c => c.agent_id)
+        .filter(c => c.participants?.some((p: { type: string }) => p.type === 'agent'))
         .map(c => c._id);
 
       if (dynamicAgentIds.length > 0) {

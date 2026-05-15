@@ -106,14 +106,14 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST - Skill content persistence
 // ─────────────────────────────────────────────────────────────────────────────
-describe("POST /api/agent-skills - skill content persistence", () => {
+describe("POST /api/skills/configs - skill content persistence", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
 
   it("should persist skill_content to MongoDB when provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Health of AWS All Accounts",
@@ -132,8 +132,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist skill_content as undefined when not provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Simple Skill",
@@ -151,8 +151,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist empty string skill_content", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Empty Content Skill",
@@ -171,8 +171,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist is_quick_start when provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Quick Start Skill",
@@ -191,8 +191,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist difficulty when provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Intermediate Skill",
@@ -211,8 +211,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist thumbnail when provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Skill With Icon",
@@ -246,8 +246,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
       ],
     };
 
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Skill With Form",
@@ -266,8 +266,8 @@ describe("POST /api/agent-skills - skill content persistence", () => {
   });
 
   it("should persist all skill fields together (full AI-enhanced skill)", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Health of AWS All Accounts",
@@ -329,8 +329,8 @@ def hello():
 | Data     | Data     |
 `;
 
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Special Chars Skill",
@@ -349,8 +349,8 @@ def hello():
   });
 
   it("should persist skill_content alongside visibility and team sharing", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Team Skill With Content",
@@ -378,14 +378,14 @@ def hello():
 // ─────────────────────────────────────────────────────────────────────────────
 // POST - skill fields default to undefined when omitted
 // ─────────────────────────────────────────────────────────────────────────────
-describe("POST /api/agent-skills - skill field defaults", () => {
+describe("POST /api/skills/configs - skill field defaults", () => {
   beforeEach(() => {
     mockGetServerSession.mockResolvedValue(userSession());
   });
 
   it("should have undefined skill fields when only required fields are provided", async () => {
-    const { POST } = await import("../agent-skills/route");
-    const request = makeRequest("/api/agent-skills", {
+    const { POST } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs", {
       method: "POST",
       body: JSON.stringify({
         name: "Minimal Skill",

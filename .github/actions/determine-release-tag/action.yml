@@ -1,5 +1,8 @@
 name: 'Determine Release Tag'
-description: 'Determines the version tag for a release based on push type (Main, Tag, or Manual)'
+description: >
+  Determines the version tag for a CI build based on trigger type.
+  Supports tag push (primary), workflow_dispatch, and push-to-main (legacy fallback).
+  Recognises -dev.N, -rc.N, -hotfix.N, -chart.M suffixes.
 
 inputs:
   manual_tag:
@@ -18,49 +21,14 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: ⏳ Wait for Release Tagger (Main Push)
-      id: main-push
-      if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.token }}
-      run: |
-        echo "🔍 Finding [Release] Create RC Tags workflow run for commit ${{ github.sha }}..."
-
-        for i in {1..6}; do
-          RUN_ID=$(gh run list --workflow "rc-tag.yml" --commit ${{ github.sha }} --json databaseId --jq '.[0].databaseId')
-          if [ -n "$RUN_ID" ]; then break; fi
-          echo "  ...waiting for workflow run to start (attempt $i/6)..."
-          sleep 5
-        done
-
-        if [ -z "$RUN_ID" ]; then
-          echo "⚠️  No rc-tag.yml run found for this commit"
-          echo "📝 This is expected for documentation-only or non-release changes"
-          echo "🏷️  Will build with 'latest' tag instead of RC tag"
-          echo "tag=" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
-        echo "⏳ Waiting for workflow run $RUN_ID to complete..."
-        gh run watch "$RUN_ID" --exit-status
-
-        git fetch --tags --force
-        TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' | head -n 1)
-
-        if [ -z "$TAG" ]; then
-          echo "❌ rc-tag.yml finished but no RC tag found on this commit"
-          exit 1
-        fi
-
-        echo "tag=$TAG" >> $GITHUB_OUTPUT
-
     - name: 🏷️ Get Direct Tag (Tag Push)
       id: tag-push
       if: ${{ startsWith(github.ref, 'refs/tags/') }}
       shell: bash
       run: |
-        echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        TAG="${{ github.ref_name }}"
+        echo "🏷️ Tag push detected: $TAG"
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
 
     - name: 📝 Get Manual Tag (Workflow Dispatch)
       id: manual-run
@@ -69,11 +37,49 @@ runs:
       run: |
         echo "tag=${{ inputs.manual_tag }}" >> $GITHUB_OUTPUT
 
+    - name: "⏳ Fallback: Wait for auto-tag (Main/Release Push)"
+      id: main-push
+      if: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        echo "🔍 Finding auto-tag workflow run for commit ${{ github.sha }}..."
+
+        for i in {1..6}; do
+          RUN_ID=$(gh run list --workflow "auto-tag.yml" --commit ${{ github.sha }} --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then break; fi
+          echo "  ...waiting for workflow run to start (attempt $i/6)..."
+          sleep 5
+        done
+
+        if [ -z "$RUN_ID" ]; then
+          echo "⚠️  No auto-tag.yml run found for this commit"
+          echo "📝 This is expected for documentation-only or non-release changes"
+          echo "🏷️  Will build with 'latest' tag instead"
+          echo "tag=" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "⏳ Waiting for workflow run $RUN_ID to complete..."
+        gh run watch "$RUN_ID" --exit-status
+
+        git fetch --tags --force
+        # Match: x.y.z, x.y.z-dev.N, x.y.z-rc.N, x.y.z-hotfix.N, and any of those with -chart.M
+        TAG=$(git tag --points-at ${{ github.sha }} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+|-rc\.[0-9]+|-hotfix\.[0-9]+)?(-chart\.[0-9]+)?$' | head -n 1)
+
+        if [ -z "$TAG" ]; then
+          echo "❌ auto-tag.yml finished but no tag found on this commit"
+          exit 1
+        fi
+
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+
     - name: 🏁 Collect Final Tag
       id: collect
       shell: bash
       run: |
-        # Priority: Main Push Tag > Tag Push Tag > Manual Input Tag
-        FINAL_TAG="${{ steps.main-push.outputs.tag || steps.tag-push.outputs.tag || steps.manual-run.outputs.tag }}"
+        # Priority: Tag Push > Manual Input > Fallback (push-to-branch polling)
+        FINAL_TAG="${{ steps.tag-push.outputs.tag || steps.manual-run.outputs.tag || steps.main-push.outputs.tag }}"
         echo "Final determined tag: $FINAL_TAG"
         echo "tag_version=$FINAL_TAG" >> $GITHUB_OUTPUT

@@ -44,23 +44,28 @@ class Settings(BaseSettings):
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
 
-    # OIDC / Auth (same env vars as UI and RAG server)
-    auth_enabled: bool = True  # Set to false to disable auth for local dev
-    oidc_issuer: str | None = None  # OIDC provider issuer URL
-    oidc_client_id: str | None = None  # Used as audience for token validation
-    oidc_discovery_url: str | None = None  # Optional: explicit discovery URL
-    oidc_group_claim: str | None = None  # Claim name(s) for groups (comma-separated)
-    oidc_required_group: str | None = None  # Group name required for any access
-    oidc_required_admin_group: str | None = None  # Group name for admin access
-
     # CORS
     cors_origins: list[str] = ["*"]
 
-    # Runtime
-    agent_runtime_ttl_seconds: int = 3600  # 1 hour cache TTL for agent runtimes
+    # Checkpointer collections
+    checkpoint_collection: str = "checkpoints_conversation"
+    checkpoint_writes_collection: str = "checkpoint_writes_conversation"
 
-    # Seed configuration path (for MCP servers and agents loaded at startup)
-    seed_config_path: str | None = None
+    # GridFS store (for agent file storage outside checkpoints)
+    gridfs_bucket_name: str = "agent_files"
+
+    # Runtime backend: "store" = GridFS-backed filesystem, "state" = in-checkpoint
+    default_runtime_backend: str = "store"
+    # Default TTL for filesystem documents (0 = infinite, never expires)
+    default_fs_ttl_seconds: int = 21600  # 6 hours
+    # Maximum allowed TTL (0 = no cap, infinite allowed)
+    max_fs_ttl_seconds: int = 0
+
+    # Runtime
+    agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
+    # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
+    # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
+    agent_runtime_max_cache_size: int = 20
 
 
 @lru_cache

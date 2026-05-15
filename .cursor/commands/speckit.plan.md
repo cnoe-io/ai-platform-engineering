@@ -30,6 +30,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Evaluate gates (ERROR if violations unjustified)
    - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
    - Phase 1: Generate data-model.md, contracts/, quickstart.md
+   - Phase 1: **Database migrations** — When **Storage** in Technical Context is not N/A, generate `db-migration.md` (or `mongodb-migration.md` / SQL migration notes per project convention) per the plan template: required vs no-op, schema/index/backfill, rollback, link to `data-model.md`. For no persisted storage, omit the file and note N/A in plan.md.
    - Phase 1: Update agent context by running the agent script
    - Re-evaluate Constitution Check post-design
 
@@ -75,14 +76,19 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Examples: public APIs for libraries, command schemas for CLI tools, endpoints for web services, grammars for parsers, UI contracts for applications
    - Skip if project is purely internal (build scripts, one-off tools, etc.)
 
-3. **Agent context update**:
+3. **Database migrations** (when feature uses persisted storage):
+   - Produce `db-migration.md` or project-specific name (e.g. `mongodb-migration.md`) in `SPECS_DIR`
+   - Document whether migration scripts are required or the change is no-op at the DB layer
+   - Align with `data-model.md`; include index/rollback guidance as in `.specify/templates/plan-template.md`
+
+4. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh cursor-agent`
    - These scripts detect which AI agent is in use
    - Update the appropriate agent-specific context file
    - Add only new technology from current plan
    - Preserve manual additions between markers
 
-**Output**: data-model.md, /contracts/*, quickstart.md, agent-specific file
+**Output**: data-model.md, /contracts/*, quickstart.md, **db-migration.md (or equivalent when Storage ≠ N/A)**, agent-specific file
 
 ## Key rules
 

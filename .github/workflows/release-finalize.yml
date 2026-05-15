@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   check-and-publish:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -49,14 +49,23 @@ jobs:
           echo "🔍 Checking CI statuses for tag: $TAG"
           echo ""
 
-          # Required CI workflows that must pass for release
+          # Required CI workflows that must pass for release.
+          # Skill Scanner is gated alongside the other component images so a
+          # broken `ghcr.io/<owner>/skill-scanner:<appVersion>` actually blocks
+          # the release — the skill-scanner subchart in
+          # charts/ai-platform-engineering/charts/skill-scanner pulls that exact
+          # tag, so an unbuilt image would otherwise produce ImagePullBackOff
+          # on every fresh install with global.skillScanner.enabled=true.
           REQUIRED_WORKFLOWS=(
             "[CI][A2A] Sub-Agents A2A Docker Build and Push"
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
+            "[CI] Dynamic Agents Build and Push"
             "[CI] CAIPE UI Build and Push"
             "[CI] Slack Bot Build and Push"
+            "[CI] Skill Scanner Build and Push"
+            "[CI][Helm] Publish Tagged Helm Charts"
           )
 
           ALL_PASSED=true
@@ -145,6 +154,19 @@ jobs:
 
           echo "✅ Release $TAG published!"
           echo "🔗 $(echo "$RELEASE_INFO" | jq -r '.url')"
+
+      - name: 🔍 Trigger post-release scans and tests
+        if: steps.check-cis.outputs.all_passed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.payload.outputs.tag }}
+        run: |
+          echo "🔍 Triggering post-release Grype container scan..."
+          gh workflow run security-scan.yml \
+            --repo="${{ github.repository }}" \
+            --field tag="$TAG" || echo "⚠️ Failed to trigger Grype scan"
+
+          echo "✅ Post-release workflows dispatched for $TAG"
 
       - name: 🧹 Clean up old RC tags
         if: steps.check-cis.outputs.all_passed == 'true'
@@ -275,4 +297,3 @@ jobs:
             echo "### ⏳ CI Not Started" >> $GITHUB_STEP_SUMMARY
             echo "Waiting for CI workflows to start." >> $GITHUB_STEP_SUMMARY
           fi
-

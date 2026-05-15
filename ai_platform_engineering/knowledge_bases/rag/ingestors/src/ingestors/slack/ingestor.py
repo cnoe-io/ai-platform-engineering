@@ -27,21 +27,6 @@ sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hour
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 
-# Get Slack configuration
-bot_name = os.environ.get("SLACK_BOT_NAME")
-if not bot_name:
-  raise ValueError("SLACK_BOT_NAME environment variable is required")
-
-workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
-channels_json = os.environ.get("SLACK_CHANNELS", "{}")
-channels = json.loads(channels_json)
-if not channels:
-  raise ValueError("No channels configured. Set SLACK_CHANNELS environment variable.")
-slack_token = os.environ.get("SLACK_BOT_TOKEN")
-if not slack_token:
-  raise ValueError("SLACK_BOT_TOKEN environment variable is required")
-
-
 def ts_to_readable(timestamp):
   """Convert Unix timestamp to human-readable datetime string."""
   try:
@@ -304,6 +289,25 @@ class SlackChannelSyncer:
 async def sync_slack_channels(client: Client):
   """Sync function that processes all configured Slack channels"""
 
+  # Read and validate config at runtime so missing creds don't crash the container at import
+  bot_name = os.environ.get("SLACK_BOT_NAME")
+  if not bot_name:
+    raise ValueError("SLACK_BOT_NAME environment variable is required")
+
+  workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
+  channels_json = os.environ.get("SLACK_CHANNELS", "{}")
+  try:
+    channels = json.loads(channels_json)
+  except json.JSONDecodeError:
+    channels = {}
+  if not channels:
+    logger.warning("No channels configured (SLACK_CHANNELS not set or empty) — skipping sync")
+    return
+  slack_token = os.environ.get("SLACK_BOT_TOKEN")
+  if not slack_token:
+    logger.warning("SLACK_BOT_TOKEN not set — skipping sync")
+    return
+
   # Initialize Slack client and syncer
   slack_client = WebClient(token=slack_token)
   syncer = SlackChannelSyncer(slack_client, workspace_url)
@@ -397,6 +401,14 @@ async def sync_slack_channels(client: Client):
 
 def main():
   """Main entry point for the Slack ingestor"""
+
+  bot_name = os.environ.get("SLACK_BOT_NAME", "slack")
+  workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
+  channels_json = os.environ.get("SLACK_CHANNELS", "{}")
+  try:
+    channels = json.loads(channels_json)
+  except json.JSONDecodeError:
+    channels = {}
 
   # Build and run ingestor
   IngestorBuilder().name(f"slack-{bot_name}").type("slack").description(f"Slack ingestor for {workspace_url}").metadata({"workspace_url": workspace_url, "bot_name": bot_name, "sync_interval": sync_interval, "init_delay": init_delay, "channels": channels}).sync_with_fn(sync_slack_channels).every(

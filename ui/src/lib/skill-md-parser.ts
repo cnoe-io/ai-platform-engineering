@@ -53,8 +53,11 @@ export function parseFrontmatter(raw: string): Record<string, string> {
         result[currentKey] = currentValue.trim();
       }
       currentKey = keyMatch[1];
-      currentValue = keyMatch[2];
-    } else if (currentKey) {
+      const val = keyMatch[2].trim();
+      // YAML folded scalar ">" or literal "|" — value is on next lines
+      currentValue = val === ">" || val === "|" ? "" : val;
+    } else if (currentKey && line.match(/^\s+/)) {
+      // Continuation line (indented) — append with space
       currentValue += " " + line.trim();
     }
   }
@@ -207,4 +210,32 @@ export function createBlankSkillMd(): string {
 - Guideline 1
 - Guideline 2`,
   });
+}
+
+/** Subset of persisted skill used to hydrate the Skills Builder editor. */
+export interface SkillMarkdownSource {
+  skill_content?: string;
+  is_quick_start?: boolean;
+  tasks?: { llm_prompt?: string }[];
+}
+
+/**
+ * SKILL.md text for the builder: prefer `skill_content`; for legacy seeded/imported
+ * quick-start rows (full file stored in a single task), use that task's prompt body.
+ */
+export function resolvePersistedSkillMarkdownForEditor(
+  config: SkillMarkdownSource | undefined,
+): string {
+  const raw = config?.skill_content;
+  if (raw != null && raw.trim().length > 0) {
+    return raw;
+  }
+  if (
+    config?.is_quick_start &&
+    config.tasks?.length === 1 &&
+    config.tasks[0]?.llm_prompt?.trim()
+  ) {
+    return config.tasks[0].llm_prompt;
+  }
+  return createBlankSkillMd();
 }

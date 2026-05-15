@@ -6,20 +6,21 @@ LLM call with a system prompt and user message.
 """
 
 import logging
+from typing import Any
 
 from cnoe_agent_utils import LLMFactory
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from dynamic_agents.auth.auth import UserContext, get_current_user
-from dynamic_agents.services.models_config import get_available_models
+from dynamic_agents.auth.auth import UserContext, get_user_context
+from dynamic_agents.models import ModelConfig
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
-MAX_INPUT_CHARS = 4000
+MAX_INPUT_CHARS = 65536
 MAX_OUTPUT_TOKENS = 2000
 
 
@@ -28,8 +29,18 @@ class SuggestRequest(BaseModel):
 
     system_prompt: str = Field(..., description="System prompt for the LLM")
     user_message: str = Field(..., description="User message for the LLM")
-    model_id: str = Field(..., description="LLM model ID")
-    model_provider: str = Field(..., description="LLM provider (e.g. aws-bedrock, azure-openai)")
+    model: ModelConfig = Field(..., description="LLM model configuration")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_model_fields(cls, data: Any) -> Any:
+        """Backward-compat: accept legacy model_id/model_provider fields."""
+        if isinstance(data, dict) and "model_id" in data and "model" not in data:
+            data["model"] = {
+                "id": data.pop("model_id"),
+                "provider": data.pop("model_provider", "unknown"),
+            }
+        return data
 
 
 class SuggestResponse(BaseModel):
@@ -41,7 +52,7 @@ class SuggestResponse(BaseModel):
 @router.post("/suggest", response_model=SuggestResponse)
 async def suggest(
     request: SuggestRequest,
-    user: UserContext = Depends(get_current_user),
+    user: UserContext = Depends(get_user_context),
 ) -> SuggestResponse:
     """Generate a suggestion using the specified LLM model.
 
@@ -61,27 +72,18 @@ async def suggest(
             detail=f"user_message exceeds maximum length of {MAX_INPUT_CHARS} characters",
         )
 
-    # Validate model exists
-    available_models = get_available_models()
-    model_ids = {m.model_id for m in available_models}
-    if request.model_id not in model_ids:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown model_id: {request.model_id}. Available: {sorted(model_ids)}",
-        )
-
     logger.info(
         "AI suggest request from user=%s, model=%s/%s, system_prompt_len=%d, user_message_len=%d",
         user.email,
-        request.model_provider,
-        request.model_id,
+        request.model.provider,
+        request.model.id,
         len(request.system_prompt),
         len(request.user_message),
     )
 
     try:
-        llm = LLMFactory(provider=request.model_provider).get_llm(
-            model=request.model_id,
+        llm = LLMFactory(provider=request.model.provider).get_llm(
+            model=request.model.id,
         )
         result = await llm.ainvoke(
             [
@@ -111,8 +113,8 @@ async def suggest(
         logger.error(
             "AI suggest failed for user=%s, model=%s/%s: %s",
             user.email,
-            request.model_provider,
-            request.model_id,
+            request.model.provider,
+            request.model.id,
             str(exc),
             exc_info=exc,
         )

@@ -2,21 +2,10 @@ name: "[CI][MCP] Sub-Agents MCP Docker Build and Push"
 description: "Build and push MCP Docker images for sub-agents"
 
 on:
-  # Trigger on push to main to detect changes and build/retag images
   push:
-    branches:
-      - main
-    paths:
-      - 'ai_platform_engineering/**'
-      - 'build/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-    # Build on all new tags as well
     tags:
       - '**'
   pull_request:
-    branches:
-      - main
     paths:
       - 'ai_platform_engineering/agents/**'
       - 'build/agents/Dockerfile.mcp'
@@ -28,7 +17,7 @@ on:
         default: false
         type: boolean
       tag_version:
-        description: 'Version tag to apply (e.g., 0.2.8-rc.1). If provided, unchanged agents will be retagged from previous version.'
+        description: 'Version tag to apply (e.g., 0.3.0-dev.5). If provided, unchanged agents will be retagged from previous version.'
         required: false
         type: string
 
@@ -36,10 +25,15 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   load-config:
     runs-on: ubuntu-latest
-    if: always()
+    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (always())
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:
@@ -59,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: load-config
     if: |
-      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')))) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
       (github.event_name == 'workflow_dispatch')
     outputs:
@@ -68,6 +62,7 @@ jobs:
       should_build: ${{ steps.set-matrix.outputs.should_build }}
       should_retag: ${{ steps.set-matrix.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
+      image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
     env:
       ALL_AGENTS: ${{ needs.load-config.outputs.all_agents }}
     steps:
@@ -85,7 +80,7 @@ jobs:
 
       - name: Generate path filters
         id: generate-filters
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
@@ -111,7 +106,7 @@ jobs:
 
       - name: Set matrix based on changes (MCP)
         id: set-matrix
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
@@ -123,36 +118,55 @@ jobs:
             const tagVersion = process.env.TAG_VERSION;
             const manualBuildAll = process.env.MANUAL_BUILD_ALL === 'true';
 
-            const isRc = /-rc\.\d+$/.test(tagVersion);
+            // Chart-only tag: skip image builds entirely
+            if (/-chart\.\d+$/.test(tagVersion)) {
+              console.log("📊 Chart-only tag: skipping image builds");
+              core.setOutput('agents_to_build', '[]');
+              core.setOutput('agents_to_retag', '[]');
+              core.setOutput('should_build', 'false');
+              core.setOutput('should_retag', 'false');
+              core.setOutput('image_prefix', '');
+              return;
+            }
+
+            const preReleaseMatch = tagVersion ? tagVersion.match(/-(dev|rc|hotfix)\.(\d+)$/) : null;
+            const isPreRelease = !!preReleaseMatch;
+            const preReleaseNum = preReleaseMatch ? parseInt(preReleaseMatch[2]) : 0;
             const isSharedChanged = filterOutputs.shared_config === 'true' ||
                                    filterOutputs.shared_dockerfile === 'true';
 
-            const shouldForceBuildAll = manualBuildAll || isSharedChanged || (tagVersion && !isRc);
+            // GHCR prefix: -rc.N and -hotfix.N go to pre-release/
+            const imagePrefix = tagVersion && /-(rc|hotfix)\.\d+/.test(tagVersion) ? 'pre-release/' : '';
+
+            // Build all if: manual, shared changed, first pre-release (N==1), or final release
+            const shouldForceBuildAll = manualBuildAll || isSharedChanged ||
+              (tagVersion && !isPreRelease) ||
+              (isPreRelease && preReleaseNum === 1);
 
             let agentsToBuild;
             let agentsToRetag = [];
 
             if (shouldForceBuildAll) {
-              console.log("🚀 Forced 'Build All' mode activated");
+              console.log("🚀 Build all: " + (manualBuildAll ? "manual" : isSharedChanged ? "shared changed" : "first pre-release or final release"));
               agentsToBuild = allAgents;
-              agentsToRetag = [];
-            } else if (isRc) {
-              console.log(`🏷️ RC Tag detected (${tagVersion}): Using Build vs. Retag optimization`);
+            } else if (isPreRelease && preReleaseNum > 1) {
+              console.log(`🏷️ Pre-release N>1 (${tagVersion}): build changed / retag unchanged`);
               agentsToBuild = allAgents.filter(a => filterOutputs[a] === 'true');
               agentsToRetag = allAgents.filter(a => filterOutputs[a] !== 'true');
             } else {
-              console.log("🔍 Standard PR/Push: Building only changed agents");
+              console.log("🔍 Standard PR: building only changed agents");
               agentsToBuild = allAgents.filter(a => filterOutputs[a] === 'true');
-              agentsToRetag = [];
             }
 
             core.setOutput('agents_to_build', JSON.stringify(agentsToBuild));
             core.setOutput('agents_to_retag', JSON.stringify(agentsToRetag));
             core.setOutput('should_build', String(agentsToBuild.length > 0));
             core.setOutput('should_retag', String(agentsToRetag.length > 0 && !!tagVersion));
+            core.setOutput('image_prefix', imagePrefix);
 
             console.log(`Agents to build: ${agentsToBuild.join(', ') || 'none'}`);
             console.log(`Agents to retag: ${agentsToRetag.join(', ') || 'none'}`);
+            console.log(`Image prefix: '${imagePrefix}'`);
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -169,12 +183,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/mcp-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -183,7 +197,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -195,9 +209,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-agents.outputs.tag_version }},enable=${{ needs.determine-agents.outputs.tag_version != '' }}
-            type=ref,event=branch,prefix=
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
@@ -213,11 +226,11 @@ jobs:
           fi
 
       - name: Build and Push MCP Docker image
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.path }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -243,12 +256,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/mcp-${{ matrix.agent }}
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-agents.outputs.image_prefix }}mcp-${{ matrix.agent }}
       AGENT_DIR: ai_platform_engineering/agents/${{ matrix.agent }}
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594  # v2.16.0
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
 
@@ -273,13 +286,14 @@ jobs:
           echo "🏷️ Processing mcp-${{ matrix.agent }}..."
 
           # Determine source tag (previous version)
-          if [[ "$TAG_VERSION" =~ ^(.+)-rc\.([0-9]+)$ ]]; then
+          if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
+            SUFFIX_TYPE="${BASH_REMATCH[2]}"
+            SUFFIX_NUM="${BASH_REMATCH[3]}"
 
-            if [[ "$RC_NUM" -gt 1 ]]; then
-              PREV_RC=$((RC_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-rc.${PREV_RC}"
+            if [[ "$SUFFIX_NUM" -gt 1 ]]; then
+              PREV_NUM=$((SUFFIX_NUM - 1))
+              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
             else
               SOURCE_TAG="${BASE_VERSION}"
             fi
@@ -315,7 +329,7 @@ jobs:
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -336,7 +350,7 @@ jobs:
 
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
           file: ${{ steps.dockerfile.outputs.path }}
@@ -352,12 +366,13 @@ jobs:
   # Notify release-finalize workflow when this CI completes (for final release builds only)
   notify-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for repository_dispatch via gh api
     needs: [determine-agents, build-and-push, retag-unchanged]
-    # Only notify for final releases (non-RC tags) - RC builds don't need release finalization
     if: |
       always() &&
       needs.determine-agents.outputs.tag_version != '' &&
-      !contains(needs.determine-agents.outputs.tag_version, '-rc.')
+      !contains(needs.determine-agents.outputs.tag_version, '-')
     steps:
       - name: 🔔 Notify release finalize
         env:
@@ -380,7 +395,7 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {

@@ -16,10 +16,10 @@ dependencies = [
     "boto3==1.40.19",
     "pydantic==2.12.5",
     "click==8.3.1",
-    "python-dotenv==1.2.1",
+    "python-dotenv==1.2.2",
     "a2a-sdk==0.3.0",
-    "cnoe-agent-utils==0.3.14",
-    "pytest==8.3.5",
+    "cnoe-agent-utils==0.4.0",
+    "pytest==9.0.3",
     "tabulate==0.9.0",
     "keyring==25.6.0",
     "httpx==0.28.1",
@@ -27,10 +27,10 @@ dependencies = [
     "starlette==0.50.0",
     "typing-extensions==4.14.1",
     "requests==2.33.0",
-    "mcp==1.26.0",
-    "langchain-core==1.2.28",
+    "mcp==1.27.1",
+    "langchain-core==1.4.0",
     "langchain-mcp-adapters==0.2.1",
-    "langgraph==1.0.10",
+    "langgraph==1.1.6",
     "deepagents==0.3.0",
     "ai-platform-engineering-utils",
     "prometheus_client==0.23.1",
@@ -44,7 +44,8 @@ packages = ["."]
 allow-direct-references = true
 
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+override-dependencies = ["protobuf==5.29.6"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

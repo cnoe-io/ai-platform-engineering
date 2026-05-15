@@ -29,7 +29,7 @@ cd ai-platform-engineering
 ./setup-caipe.sh
 ```
 
-The script will create a Kind cluster (if needed), deploy CAIPE (supervisor, agents, UI), and prompt you for LLM credentials. When it finishes, you can open the CAIPE UI and run the exercises in this lab. For full options (non-interactive mode, RAG, tracing), see [Run CAIPE with KinD](/getting-started/kind/setup).
+The script will create a Kind cluster (if needed), deploy CAIPE (supervisor, agents, UI), and prompt you for LLM credentials. When it finishes, you can open the CAIPE UI and run the exercises in this lab. For full options (non-interactive mode, RAG, tracing), see [Run CAIPE with KinD](/docs/getting-started/kind/setup).
 
 ---
 

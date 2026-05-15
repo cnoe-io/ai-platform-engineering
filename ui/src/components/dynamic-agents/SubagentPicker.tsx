@@ -12,8 +12,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Loader2, AlertCircle, Bot, Info, Globe, Users, Lock } from "lucide-react";
+import { Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";
 
 interface SubagentPickerProps {
@@ -66,6 +67,7 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
   const [availableAgents, setAvailableAgents] = React.useState<AvailableSubagent[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState("");
 
   // Fetch available subagents when agentId changes
   React.useEffect(() => {
@@ -91,6 +93,8 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
             name: agent.name,
             description: agent.description,
             visibility: agent.visibility || "private",
+            gradient_theme: agent.ui?.gradient_theme,
+            custom_theme_config: agent.ui?.custom_theme_config,
           }))
         );
       }
@@ -151,11 +155,13 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
   };
 
   // Get agent info by ID for display
-  const getAgentInfo = (agentId: string): { name: string; visibility: VisibilityType } => {
+  const getAgentInfo = (agentId: string): { name: string; visibility: VisibilityType; gradient_theme?: string; custom_theme_config?: any } => {
     const agent = availableAgents.find((a) => a.id === agentId);
     return {
       name: agent?.name || agentId,
       visibility: agent?.visibility || "private",
+      gradient_theme: agent?.gradient_theme,
+      custom_theme_config: agent?.custom_theme_config,
     };
   };
 
@@ -163,6 +169,15 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
   const selectableAgents = availableAgents.filter(
     (agent) => !value.some((s) => s.agent_id === agent.id)
   );
+
+  const filteredAgents = selectableAgents.filter((agent) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      agent.name.toLowerCase().includes(q) ||
+      (agent.description?.toLowerCase().includes(q) ?? false)
+    );
+  });
 
   if (loading) {
     return (
@@ -184,14 +199,10 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
 
   return (
     <div className="space-y-4">
-      {/* Visibility rules hint */}
-      <div className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3 flex items-start gap-2">
-        <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-        <span>
-          Private agents can use any subagent. Team agents can use team or global subagents.
-          Global agents can only use global subagents.
-        </span>
-      </div>
+      {/* Visibility note */}
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium">Note:</span>{" "}Agents that don&apos;t have the same sharing permissions as this agent cannot be added, and are disabled.
+      </p>
 
       {/* Currently configured subagents */}
       {value.length > 0 && (
@@ -212,7 +223,12 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 mt-1">
-                      <Bot className="h-5 w-5 text-primary" />
+                      <div
+                        className="h-7 w-7 rounded-md flex items-center justify-center"
+                        style={getGradientStyle(agentInfo.gradient_theme, agentInfo.custom_theme_config)}
+                      >
+                        <Bot className="h-4 w-4" style={{ color: getAccentColor(agentInfo.gradient_theme, agentInfo.custom_theme_config) || "white" }} />
+                      </div>
                     </div>
                     <div className="flex-grow space-y-3">
                       <div className="flex items-center justify-between">
@@ -293,10 +309,23 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
       {/* Add subagent dropdown */}
       {selectableAgents.length > 0 && (
         <div className="space-y-2">
-          <Label>Add Subagent</Label>
-          <div className="grid gap-1 max-h-48 overflow-y-auto border rounded-lg p-2">
+          <div className="flex items-center justify-between">
+            <Label>Add Subagent</Label>
+            <Input
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-7 text-xs w-1/4 mr-2"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-1 max-h-72 overflow-y-auto overflow-x-hidden border rounded-lg p-2">
             <TooltipProvider>
-              {selectableAgents.map((agent) => {
+              {filteredAgents.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-4">
+                  No agents match &ldquo;{search}&rdquo;
+                </div>
+              ) : (
+              filteredAgents.map((agent) => {
                 const { compatible, reason } = getSubagentCompatibility(
                   parentVisibility,
                   agent.visibility
@@ -310,15 +339,20 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                         onClick={() => compatible && addSubagent(agent)}
                         disabled={disabled || !compatible}
                         className={cn(
-                          "flex items-center gap-3 p-2 rounded-md text-left transition-colors w-full",
+                          "flex items-center gap-3 p-2 rounded-md text-left transition-colors w-full min-w-0",
                           compatible
                             ? "hover:bg-muted cursor-pointer"
                             : "opacity-50 cursor-not-allowed"
                         )}
                       >
-                        <Plus className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div
+                          className="h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0"
+                          style={getGradientStyle(agent.gradient_theme, agent.custom_theme_config)}
+                        >
+                          <Bot className="h-3.5 w-3.5" style={{ color: getAccentColor(agent.gradient_theme, agent.custom_theme_config) || "white" }} />
+                        </div>
                         <div className="flex-grow min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
                             <span className="font-medium text-sm truncate">{agent.name}</span>
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 flex-shrink-0">
                               {VISIBILITY_ICONS[agent.visibility]}
@@ -340,7 +374,8 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                     )}
                   </Tooltip>
                 );
-              })}
+              })
+              )}
             </TooltipProvider>
           </div>
         </div>

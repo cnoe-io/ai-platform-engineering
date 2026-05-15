@@ -1,0 +1,77 @@
+{{- if .Values.litellmMcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ai-platform-engineering.litellmMcp.fullname" . }}
+  labels:
+    {{- include "ai-platform-engineering.litellmMcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.litellmMcp.replicaCount }}
+  revisionHistoryLimit: {{ .Values.litellmMcp.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "ai-platform-engineering.litellmMcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ai-platform-engineering.litellmMcp.selectorLabels" . | nindent 8 }}
+        {{- with .Values.litellmMcp.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.litellmMcp.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.litellmMcp.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.litellmMcp.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: litellm-mcp
+          image: "{{ .Values.litellmMcp.image.repository }}:{{ .Values.litellmMcp.image.tag | default (include "ai-platform-engineering.appVersion" .) }}"
+          imagePullPolicy: {{ .Values.litellmMcp.image.pullPolicy }}
+          {{- with .Values.litellmMcp.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.litellmMcp.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "ai-platform-engineering.litellmMcp.fullname" . }}
+            {{- if or .Values.litellmMcp.existingSecret .Values.litellmMcp.secret.create .Values.litellmMcp.externalSecrets.enabled }}
+            - secretRef:
+                name: {{ include "ai-platform-engineering.litellmMcp.secretName" . }}
+            {{- end }}
+          {{- with .Values.litellmMcp.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.litellmMcp.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.litellmMcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.litellmMcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.litellmMcp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.litellmMcp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

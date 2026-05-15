@@ -31,8 +31,8 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: {{ $.Values.ingress.path | default "/" }}
+            pathType: {{ $.Values.ingress.pathType | default "Prefix" }}
             backend:
               service:
                 name: {{ $fullName }}
@@ -42,8 +42,8 @@ spec:
     {{- else }}
     - http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: {{ $.Values.ingress.path | default "/" }}
+            pathType: {{ $.Values.ingress.pathType | default "Prefix" }}
             backend:
               service:
                 name: {{ $fullName }}

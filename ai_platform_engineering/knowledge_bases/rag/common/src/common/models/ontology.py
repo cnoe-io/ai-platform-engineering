@@ -22,7 +22,7 @@ class ValueMatchType(str, Enum):
   NONE = "none"
 
 
-class ExampleEntityMatch(TypedDict):
+class ExampleStructuredEntityMatch(TypedDict):
   """
   Represents an example match of two entities in the foreign key heuristic
   """
@@ -106,7 +106,7 @@ class FkeyHeuristic(BaseModel):
 
   # Aggregated Statistics - How strong is the signal?
   total_matches: Annotated[int, WithJsonSchema({"prompt_exposed": "true"})] = Field(default=0, description="Number of entity pair instances found with this relationship pattern")
-  example_matches: Annotated[List[ExampleEntityMatch], WithJsonSchema({"prompt_exposed": "true"})] = Field(default_factory=list, description="Sample entity pairs that matched this pattern (max 10 examples)")
+  example_matches: Annotated[List[ExampleStructuredEntityMatch], WithJsonSchema({"prompt_exposed": "true"})] = Field(default_factory=list, description="Sample entity pairs that matched this pattern (max 10 examples)")
 
   # Quality Metrics - How reliable is this relationship?
   property_match_patterns: Annotated[dict[str, dict[str, int]], WithJsonSchema({"prompt_exposed": "true"})] = Field(

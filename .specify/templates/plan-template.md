@@ -38,12 +38,13 @@
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
+specs/<YYYY-MM-DD-feature>/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
 ├── quickstart.md        # Phase 1 output (/speckit.plan command)
 ├── contracts/           # Phase 1 output (/speckit.plan command)
+├── db-migration.md      # Phase 1 when storage is involved (see Database migrations below); optional name: mongodb-migration.md, sql-migrations.md
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
@@ -93,6 +94,22 @@ ios/ or android/
 
 **Structure Decision**: [Document the selected structure and reference the real
 directories captured above]
+
+## Database migrations
+
+*Include this section when **Technical Context → Storage** is not N/A (MongoDB, PostgreSQL, Redis persistence, etc.). Omit entirely for UI-only or stateless features.*
+
+**Deliverable**: `db-migration.md` in the feature spec directory (or a technology-specific filename: e.g. `mongodb-migration.md`, `sql-migrations/README.md`).
+
+**Must cover**:
+
+- **Required or no-op**: Whether operators must run DDL, `renameCollection`, Alembic/Flyway migrations, index creation, or **no database change** for this release.
+- **Schema / index changes**: New fields, collections, constraints; compound indexes justified by query patterns (link to `data-model.md`).
+- **Data movement**: Backfills, idempotent upserts, dedupe rules; batch size and safety if applicable.
+- **Rollback**: How to revert or restore (backup snapshot, reverse migration, rename back).
+- **Environments**: Differences for dev/staging/prod if relevant.
+
+If the feature **does not** touch persisted storage, state: *N/A — no `db-migration.md`.*
 
 ## Complexity Tracking
 

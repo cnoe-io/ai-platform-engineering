@@ -144,7 +144,7 @@ describe('GET /api/skills — Skills Gateway', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
-    delete process.env.BACKEND_SKILLS_URL;
+    delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
     mockLoadTemplates.mockReturnValue(sampleTemplates());
   });
 

@@ -58,14 +58,13 @@ def main():
 
     # Register tools
     mcp.tool()(orgs.list_victorops_orgs)
-    mcp.tool()(api_public_v1_incidents.get_api_public_v1_incidents)
     mcp.tool()(api_public_v2_user.get_api_public_v2_user)
     mcp.tool()(api_reporting_v2_incidents.get_api_reporting_v2_incidents)
     mcp.tool()(api_public_v1_incidents.post_api_public_v1_incidents)
     mcp.tool()(incidentnumber_notes.get_api_public_v1_incidents_incident_number_notes)
     mcp.tool()(incidentnumber_notes.post_api_public_v1_incidents_incident_number_notes)
-    mcp.tool()(incidentnumber_notes_notename.put_api_public_v1_incidents_incident_number_notes_note_name)
-    mcp.tool()(incidentnumber_notes_notename.delete_api_public_v1_incidents_incident_number_notes_note_name)
+    mcp.tool(name="victorops-mcp_put_incident_note")(incidentnumber_notes_notename.put_api_public_v1_incidents_incident_number_notes_note_name)
+    mcp.tool(name="victorops-mcp_delete_incident_note")(incidentnumber_notes_notename.delete_api_public_v1_incidents_incident_number_notes_note_name)
     mcp.tool()(api_public_v1_chat.post_api_public_v1_chat)
     mcp.tool()(api_public_v1_team.get_api_public_v1_team)
     mcp.tool()(api_public_v2_team_oncall.get_api_public_v2_team_oncall_schedule)

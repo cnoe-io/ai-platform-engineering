@@ -7,7 +7,7 @@ import { withAuth, withErrorHandler } from "@/lib/api-middleware";
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, _user, session) => {
-    const backendUrl = process.env.BACKEND_SKILLS_URL;
+    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (!backendUrl) {
       return NextResponse.json(
         {
@@ -16,7 +16,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           skills_loaded_count: null,
           skills_merged_at: null,
           catalog_cache_generation: null,
-          message: "BACKEND_SKILLS_URL is not set.",
+          message: "NEXT_PUBLIC_A2A_BASE_URL is not set.",
         },
         { status: 200 },
       );

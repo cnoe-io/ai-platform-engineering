@@ -1,5 +1,5 @@
 /**
- * DA Timeline Manager
+ * Timeline Manager
  *
  * Manages the transformation of SSE events into an interleaved timeline.
  * Events are rendered in temporal order (like A2A), with subagents
@@ -12,16 +12,16 @@
  */
 
 import type {
-  DATimelineData,
-  DATimelineStats,
-  DAToolInfo,
-  DASubagentInfo,
-  DATimelineSegment,
-  DAContentSegment,
-  DAToolSegment,
-  DASubagentSegment,
-  DAStatusSegment,
-  DAStatusType,
+  TimelineData,
+  TimelineStats,
+  ToolInfo,
+  SubagentInfo,
+  TimelineSegment,
+  ContentSegment,
+  ToolSegment,
+  SubagentSegment,
+  StatusSegment,
+  StatusType,
 } from "@/types/dynamic-agent-timeline";
 import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
 import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
@@ -31,9 +31,9 @@ import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 // ═══════════════════════════════════════════════════════════════
 
 interface SubagentState {
-  info: DASubagentInfo;
-  segments: DATimelineSegment[];
-  toolMap: Map<string, DAToolInfo>;
+  info: SubagentInfo;
+  segments: TimelineSegment[];
+  toolMap: Map<string, ToolInfo>;
   lastToolEndIndex: number;
 }
 
@@ -41,10 +41,10 @@ interface SubagentState {
 // Manager Class
 // ═══════════════════════════════════════════════════════════════
 
-export class DATimelineManager {
+export class TimelineManager {
   // ─── Timeline Storage ───────────────────────────────────────
-  private rootSegments: DATimelineSegment[] = [];
-  private rootToolMap: Map<string, DAToolInfo> = new Map();
+  private rootSegments: TimelineSegment[] = [];
+  private rootToolMap: Map<string, ToolInfo> = new Map();
   private subagents: Map<string, SubagentState> = new Map();
 
   // ─── Content Buffering ──────────────────────────────────────
@@ -67,7 +67,7 @@ export class DATimelineManager {
 
   private flushRootContent(): void {
     if (this.rootContentBuffer.trim()) {
-      const segment: DAContentSegment = {
+      const segment: ContentSegment = {
         type: "content",
         id: `content-${this.rootContentId++}`,
         text: this.rootContentBuffer,
@@ -83,7 +83,7 @@ export class DATimelineManager {
       const subagent = this.subagents.get(subagentId);
       if (subagent) {
         const contentId = this.subagentContentIds.get(subagentId) || 0;
-        const segment: DAContentSegment = {
+        const segment: ContentSegment = {
           type: "content",
           id: `${subagentId}-content-${contentId}`,
           text: buffer,
@@ -127,8 +127,20 @@ export class DATimelineManager {
     if (toolData.tool_name === SUBAGENT_TOOL_NAME) {
       const subagentId = toolData.tool_call_id;
 
-      // DEDUP GUARD: Skip if we already have this subagent (HITL resume replays events)
+      // DEDUP GUARD: If we already have this subagent, update its info if args
+      // are now available (AG-UI: args arrive in TOOL_CALL_ARGS after TOOL_CALL_START)
       if (this.subagents.has(subagentId)) {
+        const existing = this.subagents.get(subagentId)!;
+        const args = toolData.args || {};
+        const subagentType = args.subagent_type as string | undefined;
+        const description = args.description as string | undefined;
+        if (subagentType && (!existing.info.agentId || existing.info.name === "subagent")) {
+          existing.info.name = subagentType;
+          existing.info.agentId = subagentType;
+        }
+        if (description && !existing.info.purpose) {
+          existing.info.purpose = description;
+        }
         return;
       }
 
@@ -155,7 +167,7 @@ export class DATimelineManager {
       this.subagentContentIds.set(subagentId, 0);
 
       // Add subagent segment to root timeline
-      const segment: DASubagentSegment = {
+      const segment: SubagentSegment = {
         type: "subagent",
         id: subagentId,
         info: subagentState.info,
@@ -172,15 +184,20 @@ export class DATimelineManager {
         startedAt: now,
       });
     } else if (namespace.length === 0) {
-      // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+      // DEDUP GUARD: If we already have this tool, update its args if they
+      // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
       if (this.rootToolMap.has(toolData.tool_call_id)) {
+        const existing = this.rootToolMap.get(toolData.tool_call_id)!;
+        if (toolData.args) {
+          existing.args = toolData.args;
+        }
         return;
       }
 
       // Root-level tool - flush content first
       this.flushRootContent();
 
-      const tool: DAToolInfo = {
+      const tool: ToolInfo = {
         id: toolData.tool_call_id,
         name: toolData.tool_name,
         args: toolData.args,
@@ -189,7 +206,7 @@ export class DATimelineManager {
       };
       this.rootToolMap.set(toolData.tool_call_id, tool);
 
-      const segment: DAToolSegment = {
+      const segment: ToolSegment = {
         type: "tool",
         id: toolData.tool_call_id,
         data: tool,
@@ -200,15 +217,20 @@ export class DATimelineManager {
       const subagentId = namespace[0];
       const subagent = this.subagents.get(subagentId);
       if (subagent) {
-        // DEDUP GUARD: Skip if we already have this tool (HITL resume replays events)
+        // DEDUP GUARD: If we already have this tool, update its args if they
+        // are now available (AG-UI streams args via TOOL_CALL_ARGS after start).
         if (subagent.toolMap.has(toolData.tool_call_id)) {
+          const existing = subagent.toolMap.get(toolData.tool_call_id)!;
+          if (toolData.args) {
+            existing.args = toolData.args;
+          }
           return;
         }
 
         // Flush subagent content first
         this.flushSubagentContent(subagentId);
 
-        const tool: DAToolInfo = {
+        const tool: ToolInfo = {
           id: toolData.tool_call_id,
           name: toolData.tool_name,
           args: toolData.args,
@@ -217,7 +239,7 @@ export class DATimelineManager {
         };
         subagent.toolMap.set(toolData.tool_call_id, tool);
 
-        const segment: DAToolSegment = {
+        const segment: ToolSegment = {
           type: "tool",
           id: toolData.tool_call_id,
           data: tool,
@@ -230,7 +252,7 @@ export class DATimelineManager {
   /**
    * Push a tool end event.
    */
-  pushToolEnd(toolCallId: string, namespace: string[]): void {
+  pushToolEnd(toolCallId: string, namespace: string[], args?: Record<string, unknown>, result?: string): void {
     const now = new Date();
     const currentIndex = this.eventIndex++;
 
@@ -240,6 +262,8 @@ export class DATimelineManager {
       if (tool) {
         tool.status = "completed";
         tool.endedAt = now;
+        if (args) tool.args = args;
+        if (result) tool.result = result;
         this.lastToolEndIndex = currentIndex;
       }
 
@@ -247,11 +271,26 @@ export class DATimelineManager {
       const subagent = this.subagents.get(toolCallId);
       if (subagent) {
         subagent.info.status = "completed";
+
+        // AG-UI protocol: args arrive at TOOL_CALL_END, not TOOL_CALL_START.
+        // Update subagent name/agentId/purpose from args if they were missing.
+        if (args) {
+          const subagentType = args.subagent_type as string | undefined;
+          const description = args.description as string | undefined;
+          if (subagentType && (!subagent.info.agentId || subagent.info.name === "subagent")) {
+            subagent.info.name = subagentType;
+            subagent.info.agentId = subagentType;
+          }
+          if (description && !subagent.info.purpose) {
+            subagent.info.purpose = description;
+          }
+        }
+
         // Flush any remaining subagent content
         this.flushSubagentContent(toolCallId);
         
         // Add a "status" segment to the subagent's nested timeline
-        const statusSegment: DAStatusSegment = {
+        const statusSegment: StatusSegment = {
           type: "status",
           id: `${toolCallId}-status`,
           status: "done",
@@ -268,6 +307,8 @@ export class DATimelineManager {
         if (tool) {
           tool.status = "completed";
           tool.endedAt = now;
+          if (args) tool.args = args;
+          if (result) tool.result = result;
           subagent.lastToolEndIndex = currentIndex;
         }
       }
@@ -351,7 +392,7 @@ export class DATimelineManager {
    * Finalize the timeline (called when stream ends).
    * @param status - The status to show: "done", "interrupted", or "waiting_for_input"
    */
-  finalize(status: DAStatusType = "done"): void {
+  finalize(status: StatusType = "done"): void {
     this.isFinalized = true;
 
     // Flush any remaining content
@@ -383,7 +424,7 @@ export class DATimelineManager {
     }
 
     // Add a status segment for the parent agent
-    const statusSegment: DAStatusSegment = {
+    const statusSegment: StatusSegment = {
       type: "status",
       id: "root-status",
       status,
@@ -398,7 +439,7 @@ export class DATimelineManager {
   /**
    * Get the interleaved timeline data for rendering.
    */
-  getGroupedData(): DATimelineData {
+  getGroupedData(): TimelineData {
     // Flush any pending content
     const currentRootBuffer = this.rootContentBuffer;
     
@@ -407,7 +448,7 @@ export class DATimelineManager {
     const hasTools = this.rootToolMap.size > 0;
     
     // Build segments for rendering (without final answer content)
-    const segments: DATimelineSegment[] = [];
+    const segments: TimelineSegment[] = [];
     let finalAnswerParts: string[] = [];
     
     // Find the index of the last tool/subagent segment
@@ -443,9 +484,13 @@ export class DATimelineManager {
     }
     
     // If no tools at all, all content segments become final answer
+    // (plus any unflushed buffer content already added above)
     if (!hasTools) {
-      const contentSegments = segments.filter(s => s.type === "content") as DAContentSegment[];
-      finalAnswerParts = contentSegments.map(s => s.text);
+      const contentSegments = segments.filter(s => s.type === "content") as ContentSegment[];
+      if (contentSegments.length > 0) {
+        // Prepend flushed content segments before the buffer
+        finalAnswerParts = [...contentSegments.map(s => s.text), ...finalAnswerParts];
+      }
       // Remove content segments from segments (they go to finalAnswer)
       const nonContentSegments = segments.filter(s => s.type !== "content");
       segments.length = 0;
@@ -465,7 +510,7 @@ export class DATimelineManager {
   /**
    * Get statistics for the summary bar.
    */
-  getStats(): DATimelineStats {
+  getStats(): TimelineStats {
     // Count tools (excluding "task" which shows as subagent)
     let toolCount = 0;
     let completedToolCount = 0;
@@ -531,8 +576,8 @@ export class DATimelineManager {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * Create a new DATimelineManager instance.
+ * Create a new TimelineManager instance.
  */
-export function createDATimelineManager(): DATimelineManager {
-  return new DATimelineManager();
+export function createTimelineManager(): TimelineManager {
+  return new TimelineManager();
 }

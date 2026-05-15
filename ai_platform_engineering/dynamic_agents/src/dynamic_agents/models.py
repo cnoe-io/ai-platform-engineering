@@ -1,10 +1,13 @@
 """Pydantic models for Dynamic Agents service."""
 
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class TransportType(str, Enum):
@@ -31,15 +34,18 @@ class VisibilityType(str, Enum):
 class UserContext(BaseModel):
     """Authenticated user context.
 
-    Created from JWT claims during authentication and passed through
-    to services that need user information.
+    Only ``email`` is required.  Everything else is opaque — callers may
+    pass arbitrary fields (``is_admin``, ``groups``, ``can_view_admin``,
+    etc.) and they will be stored and accessible as attributes via
+    Pydantic's ``extra="allow"``.
+
+    The ``user_info`` tool dumps all fields so agents can see whatever
+    the gateway or auth layer chose to include.
     """
 
+    model_config = ConfigDict(extra="allow")
+
     email: str
-    name: str | None = None
-    groups: list[str] = []
-    is_admin: bool = False
-    raw_claims: dict[str, Any] = {}
 
 
 # =============================================================================
@@ -60,25 +66,6 @@ class MCPServerConfigBase(BaseModel):
     enabled: bool = Field(True, description="Whether the server is enabled")
 
 
-class MCPServerConfigCreate(MCPServerConfigBase):
-    """Model for creating an MCP server config."""
-
-    id: str = Field(..., description="Unique slug ID (e.g., 'github')")
-
-
-class MCPServerConfigUpdate(BaseModel):
-    """Model for updating an MCP server config."""
-
-    name: str | None = None
-    description: str | None = None
-    transport: TransportType | None = None
-    endpoint: str | None = None
-    command: str | None = None
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
-    enabled: bool | None = None
-
-
 class MCPServerConfig(MCPServerConfigBase):
     """Full MCP server config as stored in MongoDB."""
 
@@ -97,6 +84,59 @@ class MCPServerProbeResult(BaseModel):
     success: bool
     tools: list[dict] | None = None  # List of tool metadata
     error: str | None = None
+
+
+# =============================================================================
+# Model Config
+# =============================================================================
+
+
+class ModelConfig(BaseModel):
+    """LLM model configuration.
+
+    Groups ``id`` and ``provider`` into a single nested object, mirroring
+    the pattern used by Claude's agent API.
+
+    A ``model_validator(mode="before")`` on the parent config transparently
+    migrates legacy ``model_id`` / ``model_provider`` top-level fields into
+    this nested shape so existing MongoDB documents keep working.
+    """
+
+    id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
+    provider: str = Field(..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)")
+
+
+# =============================================================================
+# Agent Backend Configuration
+# =============================================================================
+
+# Backend type constants
+BACKEND_STATE = "state"
+BACKEND_STORE = "store"
+BACKEND_SANDBOX = "sandbox"
+
+
+class AgentBackendConfig(BaseModel):
+    """Backend-specific configuration options."""
+
+    fs_ttl_seconds: int | None = Field(
+        None,
+        ge=0,
+        description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
+    )
+
+
+class AgentBackend(BaseModel):
+    """Agent backend configuration — controls filesystem storage strategy."""
+
+    type: Literal["state", "store", "sandbox"] | None = Field(
+        None,
+        description="Backend type. None = use server default_runtime_backend.",
+    )
+    config: AgentBackendConfig | None = Field(
+        None,
+        description="Backend-specific config (TTL, etc.)",
+    )
 
 
 # =============================================================================
@@ -163,6 +203,24 @@ class FetchUrlToolConfig(BaseModel):
     )
 
 
+class CurlToolConfig(BaseModel):
+    """Configuration for the curl built-in tool."""
+
+    enabled: bool = Field(False, description="Whether the tool is enabled")
+    allowed_domains: str = Field(
+        default="*",
+        description=(
+            "Comma-separated domain patterns. "
+            "Use * for all, *.domain.com for subdomains, or exact domain. "
+            "Empty string blocks all domains."
+        ),
+    )
+    https_only: bool = Field(
+        default=True,
+        description="If True (default), reject non-https:// URLs.",
+    )
+
+
 class CurrentDatetimeToolConfig(BaseModel):
     """Configuration for the current_datetime built-in tool."""
 
@@ -175,13 +233,13 @@ class UserInfoToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class SleepToolConfig(BaseModel):
-    """Configuration for the sleep built-in tool."""
+class WaitToolConfig(BaseModel):
+    """Configuration for the wait built-in tool."""
 
     enabled: bool = Field(True, description="Whether the tool is enabled")
     max_seconds: int = Field(
         300,
-        description="Maximum sleep duration in seconds",
+        description="Maximum wait duration in seconds",
         ge=1,
         le=3600,
     )
@@ -193,12 +251,24 @@ class RequestUserInputToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class SelfIdentityToolConfig(BaseModel):
+    """Configuration for the self_identity built-in tool."""
+
+    enabled: bool = Field(True, description="Whether the tool is enabled")
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     fetch_url: FetchUrlToolConfig | None = Field(
         None,
         description="Configuration for the fetch_url tool (fetches content from URLs)",
+    )
+    curl: CurlToolConfig | None = Field(
+        None,
+        description="Configuration for the curl tool (HTTP requests including PUT/POST/PATCH/DELETE)",
     )
     current_datetime: CurrentDatetimeToolConfig | None = Field(
         None,
@@ -208,14 +278,38 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the user_info tool (returns info about the current user)",
     )
-    sleep: SleepToolConfig | None = Field(
+    wait: WaitToolConfig | None = Field(
         None,
-        description="Configuration for the sleep tool (pauses execution)",
+        description="Configuration for the wait tool (pauses execution)",
     )
     request_user_input: RequestUserInputToolConfig | None = Field(
         None,
         description="Configuration for the request_user_input tool (requests structured input from user)",
     )
+    self_identity: SelfIdentityToolConfig | None = Field(
+        None,
+        alias="agent_info",
+        description="Configuration for the self_identity tool (returns this agent's identity)",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_sleep_to_wait(cls, data: Any) -> Any:
+        """Backward-compat: migrate legacy ``sleep`` field to ``wait``.
+
+        Existing MongoDB documents may still contain ``builtin_tools.sleep``
+        from before the rename.  This validator transparently migrates them
+        so the rest of the codebase only needs to know about ``wait``.
+        """
+        if isinstance(data, dict) and "sleep" in data:
+            if "wait" not in data or data["wait"] is None:
+                data["wait"] = data.pop("sleep")
+                logger.warning("Migrated deprecated 'builtin_tools.sleep' → 'wait'")
+            else:
+                # Both present — drop the legacy field, keep explicit 'wait'
+                data.pop("sleep")
+                logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
+        return data
 
 
 # =============================================================================
@@ -268,8 +362,60 @@ class AgentUIConfig(BaseModel):
 
 
 # =============================================================================
+# Features / Middleware Config
+# =============================================================================
+
+
+class MiddlewareEntry(BaseModel):
+    """A single middleware in the agent's middleware stack.
+
+    Entries are ordered — the list defines execution order.
+    Some middleware types allow multiple instances (e.g. ``pii`` for
+    different PII types, ``tool_call_limit`` for per-tool limits);
+    others are singletons (e.g. ``model_retry``).
+    """
+
+    type: str = Field(..., description="Middleware type key (e.g. 'model_retry', 'pii')")
+    enabled: bool = Field(True, description="Whether this middleware is active")
+    params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Middleware-specific parameters (merged over defaults)",
+    )
+
+
+class FeaturesConfig(BaseModel):
+    """Agent feature flags and middleware configuration.
+
+    When absent from MongoDB (``features`` is None on the agent config),
+    all default-enabled middleware are applied with their default params.
+    No migration script needed.
+
+    The middleware list is ordered and may contain multiple entries of the
+    same type where the registry allows it.
+    """
+
+    middleware: list[MiddlewareEntry] = Field(
+        default_factory=list,
+        description="Ordered list of middleware entries",
+    )
+
+
+# =============================================================================
 # Dynamic Agent Config
 # =============================================================================
+
+
+class InterruptConfig(BaseModel):
+    """Per-tool interrupt configuration for HITL workflows.
+
+    Controls what decisions a human reviewer can make when a tool call
+    is intercepted.  See deepagents docs: human-in-the-loop.
+    """
+
+    allowed_decisions: list[str] = Field(
+        default=["approve", "edit", "reject"],
+        description="Decisions the reviewer is allowed to make",
+    )
 
 
 class DynamicAgentConfigBase(BaseModel):
@@ -282,15 +428,16 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=dict,
         description="Map of server_id -> tool names (empty list = all tools)",
     )
-    model_id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
-    model_provider: str = Field(
-        ..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)"
-    )
+    model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
     shared_with_teams: list[str] | None = Field(None, description="Team IDs when visibility=team")
     subagents: list[SubAgentRef] = Field(
         default_factory=list,
         description="Other dynamic agents that can be delegated to as subagents",
+    )
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Skill document IDs from agent_skills collection",
     )
     builtin_tools: BuiltinToolsConfig | None = Field(
         None,
@@ -300,30 +447,39 @@ class DynamicAgentConfigBase(BaseModel):
         None,
         description="UI configuration (gradient theme, etc.)",
     )
+    features: FeaturesConfig | None = Field(
+        None,
+        description="Feature flags and middleware configuration. None = apply defaults.",
+    )
     enabled: bool = Field(True, description="Whether the agent is active")
+    interrupt_on: dict[str, dict[str, bool | InterruptConfig]] = Field(
+        default_factory=lambda: {"builtin": {"request_user_input": True}},
+        description=(
+            "Tools that require human approval before execution. "
+            "Map of server_id -> {tool_name: config}. "
+            "Use 'builtin' as server_id for built-in tools (no namespace prefix)."
+        ),
+    )
+    backend: AgentBackend | None = Field(
+        None,
+        description="Backend configuration (storage type, TTL). None = use server defaults.",
+    )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_model_fields(cls, data: Any) -> Any:
+        """Backward-compat: migrate legacy ``model_id``/``model_provider`` to ``model``.
 
-class DynamicAgentConfigCreate(DynamicAgentConfigBase):
-    """Model for creating a dynamic agent config."""
-
-    pass
-
-
-class DynamicAgentConfigUpdate(BaseModel):
-    """Model for updating a dynamic agent config."""
-
-    name: str | None = None
-    description: str | None = None
-    system_prompt: str | None = None
-    allowed_tools: dict[str, list[str]] | None = None
-    model_id: str | None = None
-    model_provider: str | None = None
-    visibility: VisibilityType | None = None
-    shared_with_teams: list[str] | None = None
-    subagents: list[SubAgentRef] | None = None
-    builtin_tools: BuiltinToolsConfig | None = None
-    ui: AgentUIConfig | None = None
-    enabled: bool | None = None
+        Existing MongoDB documents store these as top-level fields.  This
+        validator transparently nests them so the rest of the codebase only
+        needs ``config.model.id`` / ``config.model.provider``.
+        """
+        if isinstance(data, dict) and "model_id" in data and "model" not in data:
+            data["model"] = {
+                "id": data.pop("model_id"),
+                "provider": data.pop("model_provider", "unknown"),
+            }
+        return data
 
 
 class DynamicAgentConfig(DynamicAgentConfigBase):
@@ -344,13 +500,28 @@ class DynamicAgentConfig(DynamicAgentConfigBase):
 # =============================================================================
 
 
+class ClientContext(BaseModel):
+    """Opaque client context passed through to system prompt rendering.
+
+    Only ``source`` is required. Clients send arbitrary extra fields
+    (e.g. overthink, channel_type) which agent system prompts can
+    reference via Jinja2 conditionals like ``{% if client_context.overthink %}``.
+    """
+
+    source: str = Field(..., description="Client identifier, e.g. 'slack', 'webui'")
+
+    model_config = ConfigDict(extra="allow")
+
+
 class ChatRequest(BaseModel):
     """Request to chat with a dynamic agent."""
 
     message: str = Field(..., description="User message")
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
+    protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
+    client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
 
 
 # =============================================================================
@@ -379,13 +550,3 @@ class ApiResponse(BaseModel):
     success: bool = True
     data: dict | list | None = None
     error: str | None = None
-
-
-class PaginatedResponse(BaseModel):
-    """Paginated list response."""
-
-    items: list
-    total: int
-    page: int
-    limit: int
-    total_pages: int

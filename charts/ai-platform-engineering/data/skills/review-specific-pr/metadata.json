@@ -6,5 +6,8 @@
     "GitHub",
     "Code Review",
     "PR Analysis"
+  ],
+  "input_variables": [
+    { "name": "pr_url", "label": "PR URL", "required": true, "placeholder": "https://github.com/owner/repo/pull/123" }
   ]
 }

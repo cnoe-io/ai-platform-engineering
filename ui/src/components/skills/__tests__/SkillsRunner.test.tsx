@@ -64,15 +64,9 @@ jest.mock("@/components/ui/caipe-spinner", () => ({
   CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
 }));
 
-jest.mock("@/lib/a2a-sdk-client", () => ({
-  A2ASDKClient: jest.fn().mockImplementation(() => ({
-    sendMessageStream: jest.fn().mockReturnValue({
-      [Symbol.asyncIterator]() {
-        return {
-          next: jest.fn().mockResolvedValue({ done: true, value: undefined }),
-        };
-      },
-    }),
+jest.mock("@/lib/sse-streaming-client", () => ({
+  SSEClient: jest.fn().mockImplementation(() => ({
+    sendMessage: jest.fn().mockResolvedValue(undefined),
     abort: jest.fn(),
   })),
 }));
@@ -154,7 +148,7 @@ describe("SkillsRunner — rendering", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
     const homeBtn = screen.getByTitle("Go to home page");
-    const backBtn = screen.getByTitle("View workflow history");
+    const backBtn = screen.getByTitle("Back to Skills");
     expect(homeBtn).toBeInTheDocument();
     expect(backBtn).toBeInTheDocument();
   });
@@ -166,11 +160,11 @@ describe("SkillsRunner — rendering", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/");
   });
 
-  it("navigates to history when back button is clicked", () => {
+  it("navigates to skills catalog when back button is clicked", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
-    fireEvent.click(screen.getByTitle("View workflow history"));
-    expect(mockRouterPush).toHaveBeenCalledWith("/skills/history");
+    fireEvent.click(screen.getByTitle("Back to Skills"));
+    expect(mockRouterPush).toHaveBeenCalledWith("/skills");
   });
 
   it("renders Output and History tab buttons", () => {

@@ -405,18 +405,7 @@ function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
             <p className="text-muted-foreground">{fb.comment}</p>
           )}
           <div className="flex items-center gap-2">
-            {fb.conversation_id && (
-              <a
-                href={`/chat/${fb.conversation_id}?from=admin`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                <ExternalLink className="h-2.5 w-2.5" />
-                View chat
-              </a>
-            )}
-            {fb.slack_permalink && (
+            {fb.source === "slack" && fb.slack_permalink && (
               <a
                 href={fb.slack_permalink}
                 target="_blank"
@@ -425,6 +414,17 @@ function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
               >
                 <ExternalLink className="h-2.5 w-2.5" />
                 Slack thread
+              </a>
+            )}
+            {fb.source !== "slack" && fb.conversation_id && (
+              <a
+                href={`/chat/${fb.conversation_id}?from=admin`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-primary hover:underline"
+              >
+                <ExternalLink className="h-2.5 w-2.5" />
+                View chat
               </a>
             )}
           </div>

@@ -71,25 +71,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
+    // Count total matching documents (separate query for CosmosDB/DocumentDB compatibility)
+    const total = await conversations.countDocuments(matchStage);
+
+    // IMPORTANT: All queries must be compatible with CosmosDB and DocumentDB.
+    // Do NOT use $facet or sub-pipeline $lookup (let/pipeline) — they are unsupported.
     const pipeline: any[] = [
       { $match: matchStage },
       {
-        $lookup: {
-          from: 'messages',
-          localField: '_id',
-          foreignField: 'conversation_id',
-          pipeline: [
-            { $sort: { created_at: -1 as const } },
-            { $limit: 1 },
-            { $project: { created_at: 1 } },
-          ],
-          as: '_last_msg',
-        },
-      },
-      {
         $addFields: {
           message_count: { $ifNull: ['$metadata.total_messages', 0] },
-          last_message_at: { $arrayElemAt: ['$_last_msg.created_at', 0] },
           status: {
             $cond: {
               if: {
@@ -110,22 +101,29 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           },
         },
       },
-      { $project: { _last_msg: 0 } },
-      {
-        $facet: {
-          items: [
-            { $sort: { updated_at: -1 as const } },
-            { $skip: skip },
-            { $limit: pageSize },
-          ],
-          totalCount: [{ $count: 'count' }],
-        },
-      },
+      { $sort: { updated_at: -1 as const } },
+      { $skip: skip },
+      { $limit: pageSize },
     ];
 
-    const [result] = await conversations.aggregate(pipeline).toArray();
-    const items = result?.items || [];
-    const total = result?.totalCount?.[0]?.count || 0;
+    const items: any[] = await conversations.aggregate(pipeline).toArray();
+
+    // Batch-fetch last message timestamps (avoids sub-pipeline $lookup)
+    if (items.length > 0) {
+      const convIds = items.map((item) => item._id);
+      const messages = await getCollection('messages');
+      const lastMessages: any[] = await messages
+        .aggregate([
+          { $match: { conversation_id: { $in: convIds } } },
+          { $sort: { created_at: -1 as const } },
+          { $group: { _id: '$conversation_id', last_at: { $first: '$created_at' } } },
+        ])
+        .toArray();
+      const lastMsgMap = new Map(lastMessages.map((m) => [m._id, m.last_at]));
+      for (const item of items) {
+        item.last_message_at = lastMsgMap.get(item._id) || null;
+      }
+    }
 
     return paginatedResponse(items, total, page, pageSize);
   });

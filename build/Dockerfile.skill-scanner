@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Skill Scanner API server (cisco-ai-defense/skill-scanner).
+#
+# Runs `skill-scanner-api` as a tiny HTTP service that the CAIPE UI calls
+# directly to scan SKILL.md content. Packaged standalone so:
+#
+#   - Scanner upgrades are an image tag bump (no UI/supervisor rebuild).
+#   - The supervisor's MAS lifecycle is decoupled from scan availability.
+#   - Resource limits / restart policies / scaling are scoped per-component.
+#
+# Wire-up:
+#   - docker compose: see docker-compose.dev.yaml `skill-scanner` service.
+#   - Helm: see charts/ai-platform-engineering/charts/skill-scanner.
+#   - UI client: ui/src/lib/skill-scan.ts → POSTs /scan-upload.
+#
+# Security note: skill-scanner-api is unauthenticated by design (per the
+# upstream README "Development Use Only" warning). Only expose it on the
+# cluster-internal Service / docker network — never on a public ingress.
+# The UI is the only intended caller.
+#
+# Base image: cgr.dev/chainguard/wolfi-base — same hardened, 0-CVE base
+# as the rest of the repo's runtime images (see Dockerfile, Dockerfile.slack-bot,
+# build/agents/Dockerfile.{a2a,mcp}).
+# ---------------------------------------------------------------------------
+
+ARG SKILL_SCANNER_VERSION=2.0.11
+
+FROM cgr.dev/chainguard/wolfi-base
+
+# Public Wolfi OS repo (no auth). Matches the rest of the repo's images.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+# python-3.13 + shadow (for useradd/groupadd). `apk add` is occasionally
+# flaky on first network setup; retry a few times like the other images.
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    apk upgrade --no-cache
+
+# Use the official uv binary — Wolfi's apk-shipped uv bundles outdated
+# Rust crates with CVEs (see slack-bot / mcp Dockerfile comments).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Wolfi puts Python at /usr/bin/python3.13; mirror the symlinks the
+# astral uv binary expects so `uv venv --python python3.13` resolves.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
+
+# Non-root user. UID/GID 1001 matches the chart's runAsUser/runAsGroup so
+# `runAsNonRoot: true` on the pod doesn't require a chart override, and
+# matches the convention used by the other agent images.
+RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+# Install the scanner into a project-local venv. Pin via build arg so a
+# bump is a deliberate change reviewers can catch. `--no-cache-dir` style
+# isn't available with uv pip; the BuildKit cache mount + the throwaway
+# /root/.cache/uv inside the image keep things small.
+ARG SKILL_SCANNER_VERSION
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python python3.13 /app/.venv \
+    && UV_HTTP_TIMEOUT=300 uv pip install --python /app/.venv/bin/python \
+        "cisco-ai-skill-scanner==${SKILL_SCANNER_VERSION}"
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    UV_PROJECT_ENVIRONMENT="/app/.venv" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Sanity-check the install at build time so a missing CLI breaks the
+# build, not the first request.
+RUN skill-scanner --version && skill-scanner-api --help >/dev/null
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+# Bind to 0.0.0.0 so the container is reachable from the docker network /
+# Kubernetes Service. The HTTP port stays internal — never expose publicly.
+CMD ["skill-scanner-api", "--host", "0.0.0.0", "--port", "8000"]

@@ -106,7 +106,10 @@ async def make_api_request(
         )
 
     # Validate URL doesn't contain example.com placeholder
-    if "example.com" in url.lower() or "jira.example.com" in url.lower():
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(url)
+    _hostname = (_parsed.hostname or url).lower()
+    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com"):
         logger.error(f"Invalid API URL detected: {url}. This appears to be a placeholder value.")
         return (
             False,

@@ -7,5 +7,9 @@
     "Jira",
     "ArgoCD",
     "Multi-Agent"
+  ],
+  "input_variables": [
+    { "name": "incident_id", "label": "Incident ID", "required": false, "placeholder": "e.g. INC-1234 or PagerDuty incident URL" },
+    { "name": "time_range", "label": "Time Range", "required": false, "placeholder": "last 24 hours" }
   ]
 }

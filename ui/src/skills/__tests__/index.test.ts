@@ -22,14 +22,14 @@ import type { SkillTemplate } from "../index";
 
 const MOCK_TEMPLATES: SkillTemplate[] = [
   {
-    id: "review-specific-pr",
-    name: "review-specific-pr",
-    description: "Perform a comprehensive code review",
-    title: "Review a Specific PR",
+    id: "review-my-code-github-pr",
+    name: "review-my-code-github-pr",
+    description: "Review my code on a GitHub PR",
+    title: "Review My Code on a GitHub PR",
     category: "Development",
     icon: "GitPullRequest",
     tags: ["GitHub", "Code Review", "PR Analysis"],
-    content: "---\nname: review-specific-pr\ndescription: Perform a comprehensive code review\n---\n\n# Review a Specific PR\n",
+    content: "---\nname: review-my-code-github-pr\ndescription: Review my code on a GitHub PR\n---\n\n# Review My Code on a GitHub PR\n",
   },
   {
     id: "check-deployment-status",
@@ -150,7 +150,7 @@ describe("fetchSkillTemplates", () => {
 describe("invalidateTemplateCache", () => {
   it("should clear the cache so helpers return empty results", () => {
     invalidateTemplateCache();
-    expect(getSkillTemplate("review-specific-pr")).toBeUndefined();
+    expect(getSkillTemplate("review-my-code-github-pr")).toBeUndefined();
     expect(getAllTemplateTags()).toEqual([]);
     expect(getTemplatesByCategory("Development")).toEqual([]);
   });
@@ -169,9 +169,9 @@ describe("getSkillTemplate", () => {
   });
 
   it("should find a template by ID", () => {
-    const result = getSkillTemplate("review-specific-pr");
+    const result = getSkillTemplate("review-my-code-github-pr");
     expect(result).toBeDefined();
-    expect(result!.id).toBe("review-specific-pr");
+    expect(result!.id).toBe("review-my-code-github-pr");
     expect(result!.category).toBe("Development");
   });
 
@@ -184,7 +184,7 @@ describe("getSkillTemplate", () => {
   });
 
   it("should be case-sensitive", () => {
-    expect(getSkillTemplate("Review-Specific-PR")).toBeUndefined();
+    expect(getSkillTemplate("Review-My-Code-Github-PR")).toBeUndefined();
   });
 });
 

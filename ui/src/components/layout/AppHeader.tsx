@@ -28,6 +28,7 @@ import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
@@ -55,6 +56,53 @@ function formatInterval(seconds: number): string {
   return `${seconds}s`;
 }
 
+/**
+ * Editor routes that participate in the unsaved-changes guard.
+ *
+ * When a user is on one of these pages AND `hasUnsavedChanges` is set,
+ * `GuardedLink` intercepts clicks on top-nav links and stores the
+ * requested href in the global store. Each editor decides whether to
+ * render the confirm dialog itself (e.g. `/skills/workspace` owns its own
+ * in-page dialog so the discard UI matches its "Back" button) or to
+ * delegate it to the AppHeader (see `EDITOR_ROUTES_WITH_HEADER_DIALOG`
+ * below).
+ *
+ * Add new editor route prefixes here when they wire into the
+ * unsaved-changes store.
+ */
+const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
+  "/task-builder",
+  "/skills/workspace",
+  "/dynamic-agents",
+];
+
+/**
+ * Subset of guarded editor routes that ask the AppHeader to render the
+ * discard dialog for top-nav clicks. Editors in this list typically own
+ * an in-page dialog only for their own "Back" button (e.g. the Dynamic
+ * Agent editor) and rely on the header for cross-tab navigation, while
+ * editors not in this list (e.g. `/skills/workspace`) render their own
+ * dialog for both cases by reading `pendingNavigationHref` directly.
+ */
+const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
+  "/task-builder",
+  "/dynamic-agents",
+];
+
+function isOnGuardedEditor(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
+    pathname.startsWith(p),
+  );
+}
+
+function isOnHeaderDialogEditor(
+  pathname: string | null | undefined,
+): boolean {
+  if (!pathname) return false;
+  return EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
+}
+
 function GuardedLink({
   href,
   children,
@@ -69,11 +117,10 @@ function GuardedLink({
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
 
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  const onGuardedEditor = isOnGuardedEditor(pathname) && hasUnsavedChanges;
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (isOnTaskBuilderEditor && href !== pathname) {
+    if (onGuardedEditor && href !== pathname) {
       e.preventDefault();
       requestNavigation(href);
     }
@@ -99,8 +146,13 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  const isOnTaskBuilderEditor =
-    pathname?.startsWith("/task-builder") && hasUnsavedChanges;
+  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Task Builder, Dynamic Agent
+  // editor) ask the AppHeader to render the discard dialog on their behalf
+  // for top-nav clicks. Other editors (e.g. /skills/workspace) own their own
+  // in-page dialog and consume `pendingNavigationHref` directly — that keeps
+  // the dialog visually consistent with each editor's "Back" button.
+  const shouldRenderHeaderDialog =
+    isOnHeaderDialogEditor(pathname) && hasUnsavedChanges;
 
   const handleDiscard = React.useCallback(() => {
     const href = confirmNavigation();
@@ -144,6 +196,9 @@ export function AppHeader() {
     graphRagEnabled,
     cleanupConfig
   } = useRAGHealth();
+
+  // Health check for Agent Runtime (polls every 30 seconds)
+  const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
 
   // Check if RAG is enabled in config
   const ragEnabled = config.ragEnabled;
@@ -215,19 +270,6 @@ export function AppHeader() {
             Home
           </GuardedLink>
           <GuardedLink
-            href="/skills"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "skills"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="h-3.5 w-3.5 shrink-0" />
-            Skills
-          </GuardedLink>
-          <GuardedLink
             href="/chat"
             prefetch={true}
             className={cn(
@@ -263,6 +305,19 @@ export function AppHeader() {
             )}
           </GuardedLink>
           <GuardedLink
+            href="/skills"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              activeTab === "skills"
+                ? "gradient-primary text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Zap className="h-3.5 w-3.5 shrink-0" />
+            Skills
+          </GuardedLink>
+          <GuardedLink
             href="/task-builder"
             prefetch={true}
             className={cn(
@@ -288,7 +343,7 @@ export function AppHeader() {
               )}
             >
               <Database className="h-3.5 w-3.5 shrink-0" />
-              Knowledge Bases
+               Knowledge Bases
             </GuardedLink>
           )}
           {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
@@ -304,7 +359,7 @@ export function AppHeader() {
               )}
             >
               <Bot className="h-3.5 w-3.5 shrink-0" />
-              Custom Agents
+              Agents
             </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
@@ -597,6 +652,43 @@ export function AppHeader() {
                       </div>
                     </>
                   )}
+
+                  {/* Agent Runtime Section */}
+                  <>
+                    {/* Divider */}
+                    <div className="border-t border-border/50" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-bold text-foreground">Agent Runtime</div>
+                          <div className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                            agentRuntimeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
+                            agentRuntimeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                            agentRuntimeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                          )}>
+                            {agentRuntimeStatus === "connected" ? "ONLINE" : agentRuntimeStatus === "checking" ? "CHECKING" : "OFFLINE"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Dynamic Agents sub-item */}
+                      <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
+                        <div className="text-xs text-muted-foreground">CAIPE Dynamic Agents</div>
+                        <div className={cn(
+                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                          agentRuntimeStatus === "connected"
+                            ? "bg-green-500/15 text-green-400 border border-green-500/30"
+                            : agentRuntimeStatus === "checking"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                            : "bg-red-500/15 text-red-400 border border-red-500/30"
+                        )}>
+                          {agentRuntimeStatus === "connected" ? "ON" : agentRuntimeStatus === "checking" ? "..." : "OFF"}
+                        </div>
+                      </div>
+                    </div>
+                  </>
                 </div>
 
                 {/* Footer */}
@@ -694,11 +786,13 @@ export function AppHeader() {
       </div>
     </header>
 
-    {isOnTaskBuilderEditor && pendingNavigationHref && (
+    {shouldRenderHeaderDialog && pendingNavigationHref && (
       <UnsavedChangesDialog
         open={!!pendingNavigationHref}
         onDiscard={handleDiscard}
         onCancel={handleCancel}
+        title="Unsaved changes"
+        description="You have unsaved changes. They will be lost if you leave now."
       />
     )}
     </>

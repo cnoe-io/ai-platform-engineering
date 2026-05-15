@@ -27,7 +27,7 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 ## Git Guidelines
 
-- **Sign off commits** - Use `git commit --signoff` (DCO requirement)
+- **Sign off every commit** - Use `git commit -s` (DCO requirement).
 - **Conventional Commits** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`
@@ -62,10 +62,8 @@ Before committing code changes, run relevant checks:
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
-- TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess) (100-caipe-v1-core)
-- Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project) (100-caipe-v1-core)
-- TypeScript 5.x, Bun 1.x + React 19, Ink 5 (TUI), Commander.js (CLI parsing), `@ag-ui/client` (AG-UI SSE streaming), native `fetch` + `EventSource` (A2A SSE — no separate SDK needed), keytar (OS keychain), marked-terminal (Markdown → ANSI), diff (unified diff), execa (git subprocess) (100-caipe-v1-core)
-- Local filesystem only — `~/.config/caipe/` (global) + `.claude/` or `skills/` (per-project); `settings.json` holds `server.url` and optional `auth.apiKey` (100-caipe-v1-core)
+- Python 3.11+ (runtime is Python 3.13 in Docker) + Slack Bolt 1.27.0, Slack SDK 3.41.0, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
+- MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router

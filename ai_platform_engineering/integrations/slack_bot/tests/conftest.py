@@ -8,18 +8,17 @@ Provides fixtures and default setup for all tests.
 import os
 
 # Set env vars BEFORE pytest collects tests (which imports modules at collection time)
-os.environ["CAIPE_URL"] = "http://localhost:8000"
+os.environ["DYNAMIC_AGENTS_URL"] = "http://localhost:8001"
 os.environ["SLACK_INTEGRATION_BOT_TOKEN"] = "xoxb-test-token"
 os.environ["SLACK_INTEGRATION_BOT_CONFIG"] = """
 C123:
   name: "#test-channel"
-  ai_enabled: "true"
-  qanda:
-    enabled: "false"
-  ai_alerts:
-    enabled: "false"
-  other:
-    jira:
-      project_key: TEST
+  agents:
+    - agent_id: "test-agent"
+      users:
+        enabled: true
+        listen: "mention"
+        overthink:
+          enabled: false
 """
 os.environ["SLACK_INTEGRATION_SILENCE_ENV"] = "false"

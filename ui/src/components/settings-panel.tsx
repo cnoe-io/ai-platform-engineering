@@ -30,6 +30,7 @@ const fontFamilies = [
 
 // Theme options
 const themes = [
+  { id: "system", label: "System", description: "Match OS setting" },
   { id: "light", label: "Light", description: "Bright & clean" },
   { id: "dark", label: "Dark", description: "Easy on the eyes" },
   { id: "midnight", label: "Midnight", description: "Pure black (OLED)" },
@@ -358,6 +359,7 @@ export function SettingsPanel() {
                               "w-6 h-6 rounded-full border-2",
                               option.id === "light" && "bg-white border-gray-200",
                               option.id === "dark" && "bg-[#0a0b0f] border-[#1e2028]",
+                              option.id === "system" && "bg-gray-400 border-gray-600",
                               option.id === "midnight" && "bg-black border-gray-800",
                               option.id === "nord" && "bg-[#2e3440] border-[#3b4252]",
                               option.id === "tokyo" && "bg-[#1a1b26] border-[#24283b]",

@@ -25,9 +25,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (req, user) => {
     const teamsCollection = await getCollection<Team>("teams");
 
-    // Find teams where the user is a member
+    // Admins can see all teams (to share agents with any team);
+    // non-admins only see teams they belong to.
+    const isAdmin = user.role === "admin";
+    const query = isAdmin ? {} : { "members.user_id": user.email };
+
     const teams = await teamsCollection
-      .find({ "members.user_id": user.email })
+      .find(query)
       .project({ _id: 1, name: 1, description: 1 })
       .sort({ name: 1 })
       .toArray();

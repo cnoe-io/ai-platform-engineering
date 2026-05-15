@@ -12,11 +12,11 @@ keywords = ["webex", "mcp", "llm", "automation"]
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "click==8.3.1",
-    "mcp==1.26.0",
+    "mcp==1.27.1",
     "pydantic==2.12.5",
     "httpx==0.28.1",
-    "python-dotenv==1.2.1",
-    "fastmcp==3.2.3",
+    "python-dotenv==1.2.2",
+    "fastmcp==3.2.4",
     "typing-extensions==4.15.0",
 ]
 
@@ -25,7 +25,7 @@ constraint-dependencies = ["uv==0.11.6"]
 dev-dependencies = [
     "pyright==1.1.408",
     "ruff==0.15.1",
-    "pytest==9.0.2",
+    "pytest==9.0.3",
     "pytest-asyncio==1.3.0",
     "hatch==1.16.3",]
 

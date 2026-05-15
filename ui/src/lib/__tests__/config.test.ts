@@ -134,13 +134,16 @@ describe('getServerConfig', () => {
     it('should have exactly the expected Config keys (no extras)', () => {
       const cfg = getServerConfig();
       const expectedKeys: (keyof Config)[] = [
+        'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
         'ragEnabled', 'mongodbEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+        'allowBuiltinSkillMutation',
+        'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl',
         'reportProblemEnabled',
@@ -572,7 +575,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultTheme).toBe('dark');
     });
 
-    it.each(['light', 'dark', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+    it.each(['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (theme) => {
         process.env.DEFAULT_THEME = theme;
@@ -905,13 +908,16 @@ describe('getClientConfigScript (XSS safety)', () => {
     const script = getClientConfigScript();
     const parsed = JSON.parse(script);
     const expectedKeys: (keyof Config)[] = [
+      'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
       'ragEnabled', 'mongodbEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled', 'npsEnabled', 'auditLogsEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+      'allowBuiltinSkillMutation',
+      'npsEnabled', 'auditLogsEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       'reportProblemEnabled',

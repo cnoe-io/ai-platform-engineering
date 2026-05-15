@@ -19,7 +19,7 @@
 
 ## Commit Style -- Conventional Commits + DCO
 
-Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`):
+Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
 ```
 <type>(<scope>): <short description>
@@ -98,29 +98,19 @@ PYTHONPATH=. uv run pytest tests/<test_file>.py -v
 PYTHONPATH=. uv run pytest tests/<test_file>.py::<TestClass> -v
 ```
 
+## Container & Helm Security Standards
+
+These standards apply to every new agent Dockerfile and every new Helm chart subchart.
+
+### Dockerfiles
+
+All agent and MCP server images should run as a non-root user at **UID 1001 / GID 1001**.
+
+If a Dockerfile does not have a `USER` directive, `runAsNonRoot: true` in the Helm chart will cause the pod to fail at startup. Check `docker inspect <image> --format '{{.Config.User}}'` to confirm before setting that value in a chart.
+
 ## Reusable Skills
 
-The `skills/` directory contains reusable tools organized by category:
-
-- **persistence**: Test LangGraph backends (Redis, PostgreSQL, MongoDB) and fact extraction
-- **debugging**: (future) Debugging and troubleshooting tools
-- **monitoring**: (future) Observability and metrics helpers
-- **deployment**: (future) Deployment automation
-
-### Quick Examples
-
-```bash
-# Test persistence backend
-./skills/persistence/test_persistence_all_backends.sh redis
-
-# Switch persistence backend
-./skills/persistence/switch_backend.sh postgres
-
-# Python-based testing
-python skills/persistence/test_langgraph_persistence.py mongodb
-```
-
-See [skills/README.md](./skills/README.md) for full documentation.
+Skills live in `.claude/skills/` and are auto-discovered by Claude Code. See [.claude/skills/README.md](./.claude/skills/README.md).
 
 ## Active Technologies
 - TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router (093-fix-audit-chat-active-preserve)

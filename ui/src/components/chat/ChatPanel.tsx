@@ -17,10 +17,10 @@ import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
 import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, A2AEvent, TimelineSegment, PlanStep } from "@/types/a2a";
+import { ChatMessage as ChatMessageType, A2AEvent, SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
 import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/timeline-parsers";
-import { TimelineManager } from "@/lib/timeline-manager";
-import { AgentTimeline } from "./AgentTimeline";
+import { SupervisorTimelineManager } from "@/lib/timeline-manager";
+import { SupervisorTimeline } from "./AgentTimeline";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
@@ -32,7 +32,7 @@ import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
-interface ChatPanelProps {
+interface SupervisorChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
   conversationTitle?: string;
@@ -44,7 +44,7 @@ interface ChatPanelProps {
   selectedAgentId?: string;
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: ChatPanelProps) {
+export function SupervisorChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, adminOrigin, selectedAgentId }: SupervisorChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -363,7 +363,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Clear previous turn's events (tasks, tool completions, stream events)
@@ -450,7 +450,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     };
 
     // Timeline manager - encapsulates segment mutation logic
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const streamStartTime = Date.now();
 
     // Mark this conversation as streaming
@@ -543,11 +543,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           flushEventBuffer();
           // Log store state right after flush
           const storeConv = useChatStore.getState().conversations.find((c: any) => c.id === convId);
-          console.log(`[Agent-DEBUG] 📊 POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.sseEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
+          console.log(`[Agent-DEBUG] POST-FLUSH store event count: ${isDynamicAgent ? storeConv?.streamEvents?.length ?? 0 : storeConv?.a2aEvents?.length ?? 0}`);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // BUILD TIMELINE SEGMENTS (via TimelineManager)
+        // BUILD TIMELINE SEGMENTS (via SupervisorTimelineManager)
         // ═══════════════════════════════════════════════════════════════
         if (artifactName === "execution_plan_update" || artifactName === "execution_plan_status_update") {
           const rawArtifact = (event.raw as any)?.artifact;
@@ -863,7 +863,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[A2A SDK] Stream error:", error);
-      appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      // Session expiry is handled by TokenExpiryGuard — don't persist the error in chat history
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to A2A endpoint"}`);
+      }
       setConversationStreaming(convId, null);
     }
   }, [isThisConversationStreaming, activeConversationId, endpoint, accessToken, selectedAgentId, createConversation, clearA2AEvents, clearSSEEvents, addMessage, appendToMessage, updateMessage, addEventToMessage, addA2AEvent, addSSEEvent, setConversationStreaming]);
@@ -891,7 +894,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const handleSkillsCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
 
     // Add user message showing the command
@@ -942,10 +945,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [activeConversationId, createConversation, addMessage, updateMessage, updateConversationTitle]);
 
   // Handle /help command: show available commands in chat
-  const handleHelpCommand = useCallback(() => {
+  const handleHelpCommand = useCallback(async () => {
     let convId = activeConversationId;
     if (!convId) {
-      convId = createConversation();
+      convId = await createConversation();
     }
     const turnId = `turn-${Date.now()}`;
     addMessage(convId, { role: "user", content: "/help" }, turnId);
@@ -970,9 +973,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [activeConversationId, createConversation, addMessage, updateConversationTitle]);
 
   // Handle /clear command
-  const handleClearCommand = useCallback(() => {
+  const handleClearCommand = useCallback(async () => {
     // Create a fresh conversation (effectively clearing the current one)
-    createConversation();
+    await createConversation();
   }, [createConversation]);
 
   // Unified slash command executor
@@ -985,7 +988,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         handleHelpCommand();
         break;
       case "clear":
-        handleClearCommand();
+        await handleClearCommand();
         break;
     }
   }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
@@ -1132,7 +1135,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let hasReceivedCompleteResult = false;
 
     // Timeline manager — seed with previous message's plan for continuity
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const prevMsg = useChatStore.getState().conversations
       .find((c) => c.id === activeConversationId)?.messages
       .find((m) => m.id === prevMessageId);
@@ -1246,7 +1249,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (!newContent) continue;
 
         // Skip tool notifications and execution plans from chat text —
-        // they are shown in the timeline via TimelineManager
+        // they are shown in the timeline via SupervisorTimelineManager
         const isToolOrPlanArtifact =
           artifactName === "tool_notification_start" ||
           artifactName === "tool_notification_end" ||
@@ -1301,8 +1304,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
       console.error("[ChatPanel] HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(activeConversationId, assistantMsgId,
+          `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      }
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, endpoint, accessToken, addMessage, updateMessage,
@@ -1348,7 +1353,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     let hitlFormRequested = false;
 
     // Timeline manager — seed with previous message's plan for continuity
-    const timeline = new TimelineManager();
+    const timeline = new SupervisorTimelineManager();
     const prevMsgSSE = useChatStore.getState().conversations
       .find((c) => c.id === activeConversationId)?.messages
       .find((m) => m.id === prevMessageId);
@@ -1455,8 +1460,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setConversationStreaming(activeConversationId, null);
     } catch (error) {
       console.error("[ChatPanel] SSE HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(activeConversationId, assistantMsgId,
+          `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      }
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, addMessage, updateMessage,
@@ -2227,7 +2234,7 @@ const ChatMessage = React.memo(function ChatMessage({
 
   // When the timeline has a final_answer segment, it renders the answer itself —
   // skip the separate markdown card for assistant messages to avoid duplication.
-  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: TimelineSegment) => s.type === "final_answer");
+  const timelineHasFinalAnswer = !isUser && message.timelineSegments?.some((s: SupervisorTimelineSegment) => s.type === "final_answer");
 
   return (
     <motion.div
@@ -2333,11 +2340,11 @@ const ChatMessage = React.memo(function ChatMessage({
         </div>
 
         {/* ═══════════════════════════════════════════════════════════
-            SINGLE AgentTimeline INSTANCE — persists across streaming→post-stream
+            SINGLE SupervisorTimeline INSTANCE — persists across streaming→post-stream
             so the collapse useEffect (true→false transition) fires correctly.
             ═══════════════════════════════════════════════════════════ */}
         {message.role === "assistant" && message.timelineSegments && message.timelineSegments.length > 0 ? (
-          <AgentTimeline
+          <SupervisorTimeline
             segments={message.timelineSegments}
             isStreaming={isStreaming}
             isCollapsed={isCollapsed}
@@ -2564,7 +2571,7 @@ const ChatMessage = React.memo(function ChatMessage({
         )}
 
         {/* Actions for assistant messages — outside the ternary so they render
-            whether the final answer comes from AgentTimeline or the markdown card */}
+            whether the final answer comes from SupervisorTimeline or the markdown card */}
         {!isUser && displayContent && (
           <motion.div
             initial={{ opacity: 0 }}

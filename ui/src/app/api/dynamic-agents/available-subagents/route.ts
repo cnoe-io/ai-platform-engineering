@@ -64,6 +64,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         name: agent.name,
         description: agent.description,
         visibility: agent.visibility,
+        gradient_theme: agent.ui?.gradient_theme,
+        custom_theme_config: agent.ui?.custom_theme_config,
       }));
 
     return successResponse({ agents: available });

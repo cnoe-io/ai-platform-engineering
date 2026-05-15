@@ -7,5 +7,9 @@
     "ArgoCD",
     "Jira",
     "Multi-Agent"
+  ],
+  "input_variables": [
+    { "name": "release_branch", "label": "Release Branch", "required": true, "placeholder": "e.g. release/v1.2.0" },
+    { "name": "target_environment", "label": "Target Environment", "required": false, "placeholder": "production" }
   ]
 }

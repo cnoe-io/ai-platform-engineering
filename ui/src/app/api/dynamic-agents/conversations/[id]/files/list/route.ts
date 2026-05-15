@@ -9,82 +9,52 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getServerConfig } from "@/lib/config";
+  authenticateRequest,
+  getDynamicAgentsConfig,
+  proxyRequest,
+} from "@/lib/da-proxy";
 
 /**
  * GET /api/dynamic-agents/conversations/[id]/files/list
  * Proxy to Dynamic Agents service to get file list from checkpointer.
  */
-export const GET = withErrorHandler(
-  async (
-    request: NextRequest,
-    context: { params: Promise<{ id: string }> }
-  ) => {
-    const { id: conversationId } = await context.params;
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  const { id: conversationId } = await context.params;
 
-    if (!conversationId) {
-      throw new ApiError("Conversation ID is required", 400);
-    }
-
-    const { searchParams } = new URL(request.url);
-    const agentId = searchParams.get("agent_id");
-
-    if (!agentId) {
-      throw new ApiError("agent_id query parameter is required", 400);
-    }
-
-    return await withAuth(request, async (req, user, session) => {
-      const config = getServerConfig();
-      
-      if (!config.dynamicAgentsEnabled) {
-        throw new ApiError("Dynamic agents are not enabled", 403);
-      }
-      
-      if (!config.dynamicAgentsUrl) {
-        throw new ApiError("Dynamic agents URL not configured", 500);
-      }
-      
-      // Build the backend URL
-      const backendUrl = new URL(
-        `/api/v1/conversations/${conversationId}/files/list`,
-        config.dynamicAgentsUrl
-      );
-      backendUrl.searchParams.set("agent_id", agentId);
-
-      // Build headers for the backend request
-      const backendHeaders: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-
-      // Forward the access token to the Dynamic Agents backend
-      if (session.accessToken) {
-        backendHeaders["Authorization"] = `Bearer ${session.accessToken}`;
-      }
-
-      // Forward the request to the Dynamic Agents service
-      const response = await fetch(backendUrl.toString(), {
-        method: "GET",
-        headers: backendHeaders,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `Failed to fetch files: ${response.status}`;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.detail || errorMessage;
-        } catch {
-          // Use default error message
-        }
-        throw new ApiError(errorMessage, response.status);
-      }
-
-      const data = await response.json();
-      return NextResponse.json(data);
-    });
+  if (!conversationId) {
+    return NextResponse.json(
+      { success: false, error: "Conversation ID is required" },
+      { status: 400 },
+    );
   }
-);
+
+  const { searchParams } = new URL(request.url);
+  const agentId = searchParams.get("agent_id");
+
+  if (!agentId) {
+    return NextResponse.json(
+      { success: false, error: "agent_id query parameter is required" },
+      { status: 400 },
+    );
+  }
+
+  // Authenticate
+  const authResult = await authenticateRequest(request);
+  if (authResult instanceof NextResponse) return authResult;
+
+  // Check DA config
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
+
+  // Build backend URL
+  const backendUrl = new URL(
+    `/api/v1/conversations/${conversationId}/files/list`,
+    daConfig.dynamicAgentsUrl,
+  );
+  backendUrl.searchParams.set("agent_id", agentId);
+
+  return proxyRequest(backendUrl.toString(), "GET", authResult, "[files/list]");
+}

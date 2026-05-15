@@ -1,0 +1,140 @@
+# skill-scanner — cisco-ai-defense/skill-scanner running as a standalone
+# REST API microservice (`skill-scanner-api`). The CAIPE UI is the only
+# intended caller; upstream marks the API as "Development Use Only" /
+# unauthenticated, so this chart deliberately ships a ClusterIP Service
+# and no Ingress. Do NOT expose this externally.
+
+# -- Number of replicas. Scanner is stateless; scale horizontally if you
+# expect concurrent scans from many UI users.
+replicaCount: 1
+# -- Number of old ReplicaSets to retain for rollback
+revisionHistoryLimit: 3
+
+image:
+  # -- Container image repository. Build via build/Dockerfile.skill-scanner
+  # and push to your registry; override in the parent values.yaml.
+  repository: ghcr.io/cnoe-io/skill-scanner
+  # -- Image tag. Defaults to the parent chart's appVersion.
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+service:
+  # -- ClusterIP only — never expose this Service externally. The scanner
+  # API is unauthenticated and accepts arbitrary ZIP uploads.
+  type: ClusterIP
+  # -- HTTP port (matches the in-container `skill-scanner-api --port`).
+  port: 8000
+
+# -- Optional environment for the LLM-backed analyzer. Leave the secret
+# unset to run static-only scans (still valuable for catching obvious
+# unsafe patterns). Bind to an existing Secret + key when LLM scanning
+# is desired.
+llm:
+  # -- Set to true to inject SKILL_SCANNER_LLM_API_KEY from the secret below
+  enabled: false
+  # -- Model id passed via SKILL_SCANNER_LLM_MODEL (e.g. anthropic/claude-sonnet-4-20250514)
+  model: ""
+  apiKey:
+    # -- Existing Secret holding the LLM API key
+    secretName: ""
+    # -- Key inside the Secret
+    secretKey: "SKILL_SCANNER_LLM_API_KEY"
+
+resources:
+  requests:
+    # -- CPU request — static analyzers are mostly I/O-light Python.
+    cpu: 100m
+    # -- Memory request — covers Python interpreter + bytecode analyzer state.
+    memory: 256Mi
+  limits:
+    # -- CPU limit — bursts during multi-analyzer runs.
+    cpu: "1"
+    # -- Memory limit — leaves headroom for unzipped skill trees up to 200MB.
+    memory: 1Gi
+
+# -- Liveness probe — hits the FastAPI /health endpoint.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# -- Readiness probe — same /health endpoint.
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Automount the service account API token (scanner doesn't need K8s API)
+  automount: false
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- Override the service account name
+  name: ""
+
+# -- Extra annotations added to the pod
+podAnnotations: {}
+# -- Extra labels added to the pod
+podLabels: {}
+
+podSecurityContext:
+  # -- fsGroup matches runtime UID to keep emptyDir / tmp permissions sane
+  fsGroup: 1001
+
+securityContext:
+  # -- Block privilege escalation
+  allowPrivilegeEscalation: false
+  # -- Read-only root FS (scanner unzips skills under /tmp)
+  readOnlyRootFilesystem: true
+  # -- Run as non-root user (matches Dockerfile.skill-scanner)
+  runAsNonRoot: true
+  # -- UID to run as
+  runAsUser: 1001
+  # -- GID to run as
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+
+# -- Node selector labels
+nodeSelector: {}
+# -- Pod tolerations
+tolerations: []
+# -- Pod affinity rules
+affinity: {}
+
+# -- Extra volumes (e.g. larger emptyDir for /tmp on busy clusters).
+# An emptyDir is mounted at /tmp by default — the scanner extracts ZIPs there.
+volumes: []
+# -- Extra volume mounts
+volumeMounts: []
+
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Inherits global.vpa defaults; override any field here to customise for skill-scanner.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}

@@ -329,7 +329,7 @@ caipe
 > [!NOTE]
 > If OAuth is not configured yet, just press enter when prompted for authentication.
 
-Try these queries to generate traces across multiple agents (same prompts as in [Multi-Agent Systems](/workshop/mas) and the [Conclusion](/workshop/conclusion)):
+Try these queries to generate traces across multiple agents (same prompts as in [Multi-Agent Systems](/docs/workshop/mas) and the [Conclusion](/docs/workshop/conclusion)):
 
 **Weather query:**
 ```text
@@ -421,4 +421,4 @@ Congratulations! You've completed Part 4 of the AI Agents lab series. Here's wha
 
 ---
 
-**Part 4 Complete!** You now know how to add production-grade observability to your multi-agent system, giving you full visibility into every agent interaction, tool call, and LLM generation. Continue to the [CAIPE Labs Conclusion](/workshop/conclusion) to wrap up the series.
+**Part 4 Complete!** You now know how to add production-grade observability to your multi-agent system, giving you full visibility into every agent interaction, tool call, and LLM generation. Continue to the [CAIPE Labs Conclusion](/docs/workshop/conclusion) to wrap up the series.

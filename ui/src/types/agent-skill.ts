@@ -2,7 +2,7 @@
  * Agent skill types (catalog source: agent_skills)
  * 
  * These types define the structure for both:
- * - Multi-step agent workflows (based on task_config.yaml)
+ * - Agent workflows with multiple tasks (based on task_config.yaml)
  * - Quick-start templates (formerly "Use Cases") - single-step prompts
  */
 
@@ -90,6 +90,14 @@ export type AgentSkillCategory =
 /**
  * Metadata for an agent skill
  */
+/** An input variable definition for the "Try Skill" parameter form. */
+export interface SkillInputVariable {
+  name: string;
+  label: string;
+  required: boolean;
+  placeholder?: string;
+}
+
 export interface AgentSkillMetadata {
   /** Environment variables required for this skill to work */
   env_vars_required?: string[];
@@ -103,14 +111,77 @@ export interface AgentSkillMetadata {
   expected_agents?: string[];
   /** (Experimental) Tool allowlist for this skill -- not enforced by backend yet */
   allowed_tools?: string[];
+  /** Input variables shown in the Try Skill modal when skill has no {{var}} in prompt */
+  input_variables?: SkillInputVariable[];
+  /** Packaged template id when row was imported from chart/disk templates */
+  template_source_id?: string;
+  /** Provenance for template import (e.g. helm chart) */
+  import_kind?: string;
 }
 
-/** Scan status set by skill-scanner on save/publish (FR-027). */
+/**
+ * Scan status produced by the skill-scanner service (FR-027).
+ *
+ * The scanner only ever emits one of these three values, and that
+ * is also the only value persisted on the doc — the admin override
+ * is a SEPARATE field (``scan_override`` sub-doc), not a magic
+ * status. See ``ScanOverride`` below for why.
+ */
 export type ScanStatus = "passed" | "flagged" | "unscanned";
 
 /**
+ * Audit record for an admin scan override.
+ *
+ * Set by ``POST /api/admin/skills/:source/:source_id/scan-override``
+ * and persisted on the ``agent_skills`` (or ``hub_skills``) doc as a
+ * separate field alongside the scanner-owned ``scan_status``. The
+ * runtime gate (Python ``scan_gate.is_skill_blocked`` and Node
+ * ``applyRunnableGate``) treats a flagged skill with this sub-doc
+ * present as runnable iff ``ADMIN_SCAN_OVERRIDE_ENABLED`` is on;
+ * otherwise it collapses back to blocked so a single env flip
+ * removes the escape hatch in lockstep across both tiers.
+ *
+ * Why a separate field instead of ``scan_status: "admin_overridden"``:
+ * the previous design encoded the override into the status string
+ * itself, which collided with every scanner write path — any rescan
+ * would blindly overwrite ``scan_status: "flagged"`` and silently
+ * nuke the override. Splitting the signals lets scan routes write
+ * status freely while the override stays stable until an admin
+ * explicitly clears it.
+ *
+ * ``prior_scan_status`` is intentionally restricted to ``"flagged"``
+ * because that is the only state from which an override can be
+ * created — an admin can't pre-emptively override a passed or
+ * unscanned skill (no reason to). Captured here so the UI can
+ * render "Override active. Scanner had returned: flagged" without
+ * keeping a stale copy of the original verdict somewhere else.
+ */
+export interface ScanOverride {
+  /** Identity of the admin who set the override (email or user id). */
+  set_by: string;
+  /** ISO-8601 timestamp at which the override was set. */
+  set_at: string;
+  /** Free-form admin justification, persisted for audit. */
+  reason: string;
+  /** Scanner verdict at the moment of override (always ``"flagged"``). */
+  prior_scan_status: "flagged";
+  /** Snapshot of ``scan_summary`` at override time, if it existed. */
+  prior_scan_summary?: string;
+}
+
+/**
+ * @deprecated Kept as an alias for backwards source compatibility
+ * during the migration away from the magic ``"admin_overridden"``
+ * status. Now identical to ``ScanStatus`` — every callsite that
+ * gated on ``scan_status === "admin_overridden"`` should be
+ * rewritten to gate on ``!!scan_override`` instead. Will be removed
+ * after the next release cuts.
+ */
+export type PersistedScanStatus = ScanStatus;
+
+/**
  * Main agent skill interface
- * Represents both multi-step workflows and quick-start templates
+ * Represents both multi-task workflows and quick-start templates
  */
 export interface AgentSkill {
   /** Unique identifier */
@@ -125,7 +196,7 @@ export interface AgentSkill {
   tasks: AgentSkillTask[];
   /** Owner's email address (for user-created skills) */
   owner_id: string;
-  /** Whether this is a system/built-in skill (cannot be deleted by users) */
+  /** Whether this is a system/built-in skill row in MongoDB (may be edited or removed; restore via import/seed) */
   is_system: boolean;
   /** Creation timestamp */
   created_at: Date;
@@ -149,10 +220,30 @@ export interface AgentSkill {
   visibility?: SkillVisibility;
   /** Team IDs this skill is shared with (when visibility is "team") */
   shared_with_teams?: string[];
-  /** Scan status from skill-scanner on save (FR-027) */
-  scan_status?: ScanStatus;
+  /**
+   * Persisted scan status: the scanner verdict, OR
+   * ``"admin_overridden"`` if an admin has explicitly green-lit a
+   * previously flagged skill via the per-skill override route.
+   * (FR-027.) The override is read from ``scan_override`` below.
+   */
+  scan_status?: PersistedScanStatus;
+  /** Optional scanner output / summary text persisted for UI report */
+  scan_summary?: string;
+  /** When the last scan result was persisted (save or manual Scan now) */
+  scan_updated_at?: Date | string;
+  /**
+   * Audit metadata for an active admin override. Present iff
+   * ``scan_status === "admin_overridden"``. Cleared (along with the
+   * status flip back to "passed") when a rescan now returns
+   * ``"passed"`` — at which point the override is no longer needed.
+   */
+  scan_override?: ScanOverride;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** Compact AI Review verdict from the last save. Drives the grade badge
+   *  next to the scanner badge on skill cards. Optional — skills created
+   *  before AI Review was wired up have this missing. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -179,6 +270,8 @@ export interface CreateAgentSkillInput {
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -205,6 +298,8 @@ export interface UpdateAgentSkillInput {
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -408,7 +503,7 @@ export function parseTaskConfigObject(
     return {
       id: `config-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`,
       name,
-      description: `Multi-step workflow for: ${name}`,
+      description: `Workflow for: ${name}`,
       category,
       tasks: value.tasks.map(task => ({
         display_text: task.display_text,
@@ -429,265 +524,13 @@ export function parseTaskConfigObject(
 
 /**
  * Built-in quick-start templates (formerly "Use Cases")
- * These are single-step prompts that execute directly in chat
+ *
+ * @deprecated Templates are now loaded from disk at `charts/data/skills/`.
+ * This array is kept for backward compatibility but is intentionally empty.
+ * Use `loadSkillTemplatesInternal()` from `@/app/api/skills/skill-templates-loader`
+ * and the seed route to populate MongoDB from disk templates instead.
  */
-export const BUILTIN_QUICK_START_TEMPLATES: AgentSkill[] = [
-  {
-    id: "qs-deploy-status",
-    name: "Check Deployment Status",
-    description: "Get the current status of all ArgoCD applications and identify any that are out of sync or unhealthy.",
-    category: "DevOps",
-    tasks: [{
-      display_text: "Check ArgoCD deployment status",
-      llm_prompt: "Show me the status of all ArgoCD applications. Identify any that are OutOfSync or Degraded.",
-      subagent: "argocd",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "beginner",
-    thumbnail: "Server",
-    metadata: {
-      tags: ["ArgoCD", "Kubernetes", "Monitoring"],
-      expected_agents: ["ArgoCD"],
-    },
-  },
-  {
-    id: "qs-pr-review",
-    name: "Review Open Pull Requests",
-    description: "List all open PRs across repositories with their review status and CI/CD results.",
-    category: "Development",
-    tasks: [{
-      display_text: "List open pull requests",
-      llm_prompt: "List all open pull requests in our repositories. Show review status and any failing checks.",
-      subagent: "github",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "beginner",
-    thumbnail: "GitBranch",
-    metadata: {
-      tags: ["GitHub", "Code Review", "CI/CD"],
-      expected_agents: ["GitHub"],
-    },
-  },
-  {
-    id: "qs-review-specific-pr",
-    name: "Review a Specific PR",
-    description: "Get a detailed code review of a specific GitHub Pull Request including changes, comments, and recommendations.",
-    category: "Development",
-    tasks: [{
-      display_text: "Review specific PR",
-      llm_prompt: "Review the GitHub Pull Request at {{prUrl}}. Analyze the code changes, check for potential issues, review the test coverage, and provide a comprehensive code review summary with recommendations.",
-      subagent: "github",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "intermediate",
-    thumbnail: "GitPullRequest",
-    metadata: {
-      tags: ["GitHub", "Code Review", "PR Analysis"],
-      expected_agents: ["GitHub"],
-    },
-    input_form: {
-      title: "Review a GitHub Pull Request",
-      description: "Enter the PR URL or repository details to get a comprehensive code review.",
-      fields: [{
-        name: "prUrl",
-        label: "PR URL or Link",
-        placeholder: "https://github.com/owner/repo/pull/123",
-        type: "url",
-        required: true,
-        helperText: "Paste the full GitHub PR URL (e.g., https://github.com/cnoe-io/ai-platform-engineering/pull/42)",
-      }],
-      submitLabel: "Start Review",
-    },
-  },
-  {
-    id: "qs-incident-analysis",
-    name: "Incident Investigation",
-    description: "Correlate PagerDuty incidents with related Jira tickets and recent deployments.",
-    category: "Operations",
-    tasks: [{
-      display_text: "Investigate incidents",
-      llm_prompt: "Show me active PagerDuty incidents and find related Jira tickets. Also check if there were any recent deployments that might be related.",
-      subagent: "user_input",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "advanced",
-    thumbnail: "AlertTriangle",
-    metadata: {
-      tags: ["PagerDuty", "Jira", "ArgoCD", "Multi-Agent"],
-      expected_agents: ["PagerDuty", "Jira", "ArgoCD"],
-    },
-  },
-  {
-    id: "qs-cost-analysis",
-    name: "AWS Cost Analysis",
-    description: "Analyze AWS costs by service and identify opportunities for optimization.",
-    category: "Cloud",
-    tasks: [{
-      display_text: "Analyze AWS costs",
-      llm_prompt: "Show me the AWS cost breakdown for the last month. Identify the top 5 most expensive services and any cost anomalies.",
-      subagent: "aws",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "intermediate",
-    thumbnail: "Cloud",
-    metadata: {
-      tags: ["AWS", "Cost", "Optimization"],
-      expected_agents: ["AWS"],
-    },
-  },
-  {
-    id: "qs-sprint-report",
-    name: "Sprint Progress Report",
-    description: "Generate a comprehensive sprint report with velocity metrics and burndown analysis.",
-    category: "Project Management",
-    tasks: [{
-      display_text: "Generate sprint report",
-      llm_prompt: "Generate a sprint progress report for the current sprint. Show velocity, burndown, and identify any blockers.",
-      subagent: "jira",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "intermediate",
-    thumbnail: "BarChart",
-    metadata: {
-      tags: ["Jira", "Agile", "Reporting"],
-      expected_agents: ["Jira"],
-    },
-  },
-  {
-    id: "qs-oncall-handoff",
-    name: "On-Call Handoff",
-    description: "Generate a comprehensive handoff document for on-call rotation.",
-    category: "Operations",
-    tasks: [{
-      display_text: "Generate on-call handoff",
-      llm_prompt: "Generate an on-call handoff document. Include open incidents, ongoing issues, recent deployments, and any systems to watch.",
-      subagent: "user_input",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "advanced",
-    thumbnail: "Users",
-    metadata: {
-      tags: ["PagerDuty", "Jira", "ArgoCD", "Multi-Agent"],
-      expected_agents: ["PagerDuty", "Jira", "ArgoCD"],
-    },
-  },
-  {
-    id: "qs-security-scan",
-    name: "Security Vulnerability Report",
-    description: "Check for security vulnerabilities in GitHub repositories and Dependabot alerts.",
-    category: "Security",
-    tasks: [{
-      display_text: "Check security vulnerabilities",
-      llm_prompt: "Check all repositories for security vulnerabilities. Show Dependabot alerts and code scanning results.",
-      subagent: "github",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "intermediate",
-    thumbnail: "Shield",
-    metadata: {
-      tags: ["GitHub", "Security", "Dependabot"],
-      expected_agents: ["GitHub"],
-    },
-  },
-  {
-    id: "qs-resource-health",
-    name: "Cluster Resource Health",
-    description: "Check Kubernetes cluster health including pod status, resource utilization, and alerts.",
-    category: "Infrastructure",
-    tasks: [{
-      display_text: "Check cluster health",
-      llm_prompt: "Check the health of our EKS clusters. Show any failing pods, resource constraints, or pending alerts.",
-      subagent: "aws",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "intermediate",
-    thumbnail: "Database",
-    metadata: {
-      tags: ["AWS", "Kubernetes", "Monitoring"],
-      expected_agents: ["AWS"],
-    },
-  },
-  {
-    id: "qs-release-readiness",
-    name: "Release Readiness Check",
-    description: "Verify all prerequisites are met before a release: PRs merged, tests passing, environments healthy.",
-    category: "DevOps",
-    tasks: [{
-      display_text: "Check release readiness",
-      llm_prompt: "Check if we're ready for a release. Verify all PRs are merged, tests are passing, staging environment is healthy, and no blocking issues exist.",
-      subagent: "user_input",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "advanced",
-    thumbnail: "Rocket",
-    metadata: {
-      tags: ["GitHub", "ArgoCD", "Jira", "Multi-Agent"],
-      expected_agents: ["GitHub", "ArgoCD", "Jira"],
-    },
-  },
-  {
-    id: "qs-knowledge-search",
-    name: "Documentation Search",
-    description: "Search internal knowledge base for runbooks, architecture docs, and best practices.",
-    category: "Knowledge",
-    tasks: [{
-      display_text: "Search knowledge base",
-      llm_prompt: "Search our knowledge base for information about our deployment process and best practices.",
-      subagent: "user_input",
-    }],
-    owner_id: "system",
-    is_system: true,
-    created_at: new Date("2024-01-01"),
-    updated_at: new Date("2024-01-01"),
-    is_quick_start: true,
-    difficulty: "beginner",
-    thumbnail: "Zap",
-    metadata: {
-      tags: ["RAG", "Documentation"],
-      expected_agents: ["RAG"],
-    },
-  },
-];
+export const BUILTIN_QUICK_START_TEMPLATES: AgentSkill[] = [];
 
 // ---------------------------------------------------------------------------
 // Skill Metrics Types

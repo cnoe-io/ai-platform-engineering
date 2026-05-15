@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Loader2,
@@ -10,13 +10,14 @@ import {
   Trash2,
   RefreshCw,
   Download,
+  Server,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { getGradientStyle } from "@/lib/gradient-themes";
-import type { SubAgentRef } from "@/types/dynamic-agent";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
 
@@ -30,10 +31,14 @@ interface DynamicAgentContextProps {
   agentVisibility?: string;
   /** Agent gradient theme (e.g., "ocean", "sunset") */
   agentGradient?: string | null;
+  /** Custom theme config (when agentGradient === "custom") */
+  agentCustomTheme?: CustomThemeConfig | null;
   /** Map of server_id -> tool names (empty array = all tools from server) */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents for delegation */
   subagents?: SubAgentRef[];
+  /** Configured skill IDs */
+  agentSkills?: string[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
   /** Whether the agent is disabled */
@@ -54,17 +59,19 @@ export function DynamicAgentContext({
   agentModel,
   agentVisibility,
   agentGradient,
+  agentCustomTheme,
   allowedTools,
   subagents,
+  agentSkills,
   agentNotFound,
   agentDisabled,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
   const { data: session } = useSession();
-  const { clearSSEEvents, conversations } = useChatStore(
+  const { clearStreamEvents, conversations } = useChatStore(
     useShallow((s) => ({
-      clearSSEEvents: s.clearSSEEvents,
+      clearStreamEvents: s.clearStreamEvents,
       conversations: s.conversations,
     }))
   );
@@ -75,6 +82,44 @@ export function DynamicAgentContext({
   // Restart runtime handler
   const [isRestarting, setIsRestarting] = useState(false);
   const [runtimeRestarted, setRuntimeRestarted] = useState(false);
+
+  // Fetch subagent configs to display their MCP servers
+  const [subagentTools, setSubagentTools] = useState<Record<string, Record<string, string[]>>>({});
+  useEffect(() => {
+    if (!subagents?.length || !session?.accessToken) {
+      setSubagentTools({});
+      return;
+    }
+
+    let cancelled = false;
+    const fetchSubagentConfigs = async () => {
+      const results: Record<string, Record<string, string[]>> = {};
+      await Promise.all(
+        subagents.map(async (sub) => {
+          try {
+            const res = await fetch(`/api/dynamic-agents/agents/${sub.agent_id}`, {
+              headers: session.accessToken
+                ? { Authorization: `Bearer ${session.accessToken}` }
+                : {},
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const config = json.data;
+              if (config?.allowed_tools) {
+                results[sub.agent_id] = config.allowed_tools;
+              }
+            }
+          } catch {
+            // Silently skip — subagent may have been deleted
+          }
+        })
+      );
+      if (!cancelled) setSubagentTools(results);
+    };
+
+    fetchSubagentConfigs();
+    return () => { cancelled = true; };
+  }, [subagents, session?.accessToken]);
 
   // Download chat handler
   const handleDownloadChat = useCallback(() => {
@@ -96,11 +141,11 @@ export function DynamicAgentContext({
         role: m.role,
         content: m.content,
         timestamp: m.timestamp,
-        sseEvents: m.sseEvents,
+        streamEvents: m.streamEvents,
         feedback: m.feedback,
         timelineSegments: m.timelineSegments,
       })),
-      sseEvents: conversation.sseEvents,
+      streamEvents: conversation.streamEvents,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
     };
@@ -132,13 +177,13 @@ export function DynamicAgentContext({
         },
         body: JSON.stringify({
           agent_id: agentId,
-          session_id: conversationId,
+          conversation_id: conversationId,
         }),
       });
       
       if (response.ok) {
         // Clear SSE events on restart
-        if (conversationId) clearSSEEvents(conversationId);
+        if (conversationId) clearStreamEvents(conversationId);
         // Show restart notification
         setRuntimeRestarted(true);
         // Clear notification after a few seconds
@@ -151,7 +196,7 @@ export function DynamicAgentContext({
     } finally {
       setIsRestarting(false);
     }
-  }, [agentId, conversationId, session?.accessToken, isRestarting, clearSSEEvents]);
+  }, [agentId, conversationId, session?.accessToken, isRestarting, clearStreamEvents]);
 
   return (
     <motion.div
@@ -239,8 +284,11 @@ export function DynamicAgentContext({
               agentModel={agentModel}
               agentVisibility={agentVisibility}
               agentGradient={agentGradient}
+              agentCustomTheme={agentCustomTheme}
               allowedTools={allowedTools}
               subagents={subagents}
+              agentSkills={agentSkills}
+              subagentTools={subagentTools}
               agentId={agentId}
               sessionId={conversationId}
               onRestartRuntime={handleRestartRuntime}
@@ -262,7 +310,7 @@ export function DynamicAgentContext({
         >
           {/* Small agent avatar */}
           {(() => {
-            const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+            const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
             return (
               <div 
                 className={cn(
@@ -271,7 +319,7 @@ export function DynamicAgentContext({
                 )}
                 style={gradientStyle || undefined}
               >
-                <Bot className="h-4 w-4 text-white" />
+                <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
               </div>
             );
           })()}
@@ -292,8 +340,12 @@ interface AgentInfoContentProps {
   agentModel?: string;
   agentVisibility?: string;
   agentGradient?: string | null;
+  agentCustomTheme?: CustomThemeConfig | null;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
+  agentSkills?: string[];
+  /** Map of subagent agent_id -> their allowed_tools config */
+  subagentTools?: Record<string, Record<string, string[]>>;
   /** Agent ID for restart runtime */
   agentId?: string;
   /** Session ID for restart runtime */
@@ -318,8 +370,11 @@ function AgentInfoContent({
   agentModel,
   agentVisibility,
   agentGradient,
+  agentCustomTheme,
   allowedTools,
   subagents,
+  agentSkills,
+  subagentTools,
   agentId,
   sessionId,
   onRestartRuntime,
@@ -349,7 +404,7 @@ function AgentInfoContent({
       {/* Agent header */}
       <div className="flex items-center gap-3">
         {(() => {
-          const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+          const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
           return (
             <div 
               className={cn(
@@ -358,7 +413,7 @@ function AgentInfoContent({
               )}
               style={gradientStyle || undefined}
             >
-              <Bot className="h-5 w-5 text-white" />
+              <Bot className="h-5 w-5" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
             </div>
           );
         })()}
@@ -419,6 +474,12 @@ function AgentInfoContent({
             </p>
           </div>
 
+          {/* Skills */}
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground">Skills</span>
+            <p className="font-medium">{agentSkills?.length || 0}</p>
+          </div>
+
           {/* Conversation ID */}
           {sessionId && (
             <div className="space-y-0.5 col-span-2">
@@ -434,7 +495,8 @@ function AgentInfoContent({
       {/* MCP Server list */}
       {serverCount > 0 && (
         <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Server className="h-3.5 w-3.5" />
             MCP Servers
           </h4>
           <div className="space-y-1">
@@ -457,24 +519,47 @@ function AgentInfoContent({
             Configured Subagents
           </h4>
           <div className="space-y-1.5">
-            {subagents.map((subagent) => (
-              <div
-                key={subagent.agent_id}
-                className="rounded-lg border border-border/50 bg-muted/30 p-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-                  <span className="text-xs font-medium truncate" title={subagent.name}>
-                    {subagent.name}
-                  </span>
+            {subagents.map((subagent) => {
+              const subTools = subagentTools?.[subagent.agent_id];
+              const subServerIds = subTools ? Object.keys(subTools) : [];
+              return (
+                <div
+                  key={subagent.agent_id}
+                  className="rounded-lg border border-border/50 bg-muted/30 p-2"
+                >
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    <span className="text-xs font-medium truncate" title={subagent.name}>
+                      {subagent.name}
+                    </span>
+                  </div>
+                  {subagent.description && (
+                    <p className="text-[10px] text-muted-foreground mt-1 pl-5.5 line-clamp-2">
+                      {subagent.description}
+                    </p>
+                  )}
+                  {subServerIds.length > 0 && (
+                    <div className="mt-1.5 pl-5.5 space-y-1">
+                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <Server className="h-3 w-3" />
+                        <span>{subServerIds.length} MCP Server{subServerIds.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        {subServerIds.map((serverId) => (
+                          <div
+                            key={serverId}
+                            className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-muted/50 border border-border/30 truncate"
+                            title={serverId}
+                          >
+                            {serverId}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {subagent.description && (
-                  <p className="text-[10px] text-muted-foreground mt-1 pl-5.5 line-clamp-2">
-                    {subagent.description}
-                  </p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

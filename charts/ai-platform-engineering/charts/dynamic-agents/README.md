@@ -57,11 +57,9 @@ helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
 | config.AGENT_RUNTIME_TTL_SECONDS | string | `"3600"` |  |
-| config.AUTH_ENABLED | string | `"false"` |  |
 | config.CORS_ORIGINS | string | `"[\"*\"]"` |  |
 | config.ENABLE_TRACING | string | `"false"` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
-| env | object | `{}` |  |
 | existingSecret | string | `""` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |
@@ -102,10 +100,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
 | resources | object | `{}` |  |
 | revisionHistoryLimit | int | `3` |  |
 | securityContext | object | `{}` |  |
-| seedConfig.agents | list | `[]` |  |
-| seedConfig.enabled | bool | `false` |  |
-| seedConfig.mcp_servers | list | `[]` |  |
-| seedConfig.models | list | `[]` |  |
 | service.port | int | `8001` |  |
 | service.type | string | `"ClusterIP"` |  |
 | serviceAccount.annotations | object | `{}` |  |

@@ -182,6 +182,7 @@ pyrightconfig.json
 .env
 .env.*
 .env*
+!ai_platform_engineering/agents/litellm/mcp/.env.example
 
 # Others
 a2a-python
@@ -254,9 +255,16 @@ data/
 !.cursor/commands/
 !.cursor/rules/
 
-# Claude Code — track commands, ignore everything else
+# Claude Code — track commands and skills, ignore everything else
 .claude/*
 !.claude/commands/
+!.claude/commands/**
+!.claude/skills
+!.claude/skills/**
+
+# .agents/skills symlinks to .claude/skills for ~/.agents/skills compatibility
+!.agents/
+!.agents/skills
 
 # UI Core (local development)
 caipe-ui-core/
@@ -282,3 +290,16 @@ tests/reports/
 
 # We no longer have a separate docker-compose directory.
 docker-compose/*
+
+# Local-only CAIPE / Slack YAML overrides (see CAIPE_APP_CONFIG_FILE / CAIPE_SLACK_BOT_CONFIG_FILE)
+config/*.local.yaml
+
+# Scratch files commonly created by coding agents when drafting PR descriptions.
+# These should be passed to `gh pr edit --body-file` and then deleted, never committed.
+PR_BODY.md
+PR_BODY.txt
+.pr-body.md
+COMMIT_BODY.md
+
+# GitHub App credentials (never commit)
+.github-apps-credentials/

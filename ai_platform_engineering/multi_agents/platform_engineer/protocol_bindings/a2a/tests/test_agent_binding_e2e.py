@@ -12,10 +12,10 @@ Coverage
    - no AIMessages in history
 
 2. _repair_orphaned_tool_calls — repair paths
-   - single orphan → RemoveMessage for that AIMessage ID
-   - multiple orphans on same AIMessage → exactly one RemoveMessage
-   - multiple orphans on different AIMessages → one RemoveMessage each
-   - orphan with no msg ID → no aupdate_state (logs warning only)
+   - single orphan → synthetic ToolMessage injected via as_node='tools'
+   - multiple orphans on same AIMessage → one synthetic ToolMessage per orphan
+   - multiple orphans on different AIMessages → one synthetic ToolMessage per orphan
+   - orphan with no AI msg ID → ToolMessage still injected (keyed on tool_call_id)
    - Bedrock additional_kwargs storage location detected
    - Bedrock content-block storage location detected
 
@@ -36,7 +36,7 @@ Coverage
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -167,14 +167,14 @@ class TestRepairOrphanedToolCallsNoOp:
 
 
 # ===========================================================================
-# 2. Repair paths — RemoveMessage strategy
+# 2. Repair paths — synthetic ToolMessage strategy
 # ===========================================================================
 
 class TestRepairOrphanedToolCallsRepair:
 
     @pytest.mark.asyncio
-    async def test_single_orphan_removes_ai_message(self):
-        """One orphaned tool call → RemoveMessage for its AIMessage ID."""
+    async def test_single_orphan_injects_synthetic_tool_message(self):
+        """One orphaned tool call → one synthetic ToolMessage injected via as_node='tools'."""
 
         binding = _make_binding()
         ai_msg = _make_ai_message(["tc-1"], ["jira_search"], msg_id="ai-msg-orphan")
@@ -184,15 +184,17 @@ class TestRepairOrphanedToolCallsRepair:
         await binding._repair_orphaned_tool_calls(CONFIG)
 
         binding.graph.aupdate_state.assert_awaited_once()
-        call_args = binding.graph.aupdate_state.call_args
-        messages = call_args[0][1]["messages"]
+        _, call_kwargs = binding.graph.aupdate_state.call_args
+        assert call_kwargs.get("as_node") == "tools"
+        messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
         assert len(messages) == 1
-        assert isinstance(messages[0], RemoveMessage)
-        assert messages[0].id == "ai-msg-orphan"
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == "tc-1"
+        assert messages[0].name == "jira_search"
 
     @pytest.mark.asyncio
-    async def test_multiple_orphans_same_ai_message_one_remove(self):
-        """Two orphaned tool calls on same AIMessage → exactly one RemoveMessage."""
+    async def test_multiple_orphans_same_ai_message_one_per_orphan(self):
+        """Two orphaned tool calls on same AIMessage → two synthetic ToolMessages."""
 
         binding = _make_binding()
         ai_msg = _make_ai_message(["tc-1", "tc-2"], ["tool_a", "tool_b"], msg_id="ai-multi")
@@ -202,13 +204,14 @@ class TestRepairOrphanedToolCallsRepair:
         await binding._repair_orphaned_tool_calls(CONFIG)
 
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        assert len(messages) == 1
-        assert isinstance(messages[0], RemoveMessage)
-        assert messages[0].id == "ai-multi"
+        assert len(messages) == 2
+        assert all(isinstance(m, ToolMessage) for m in messages)
+        injected_ids = {m.tool_call_id for m in messages}
+        assert injected_ids == {"tc-1", "tc-2"}
 
     @pytest.mark.asyncio
-    async def test_multiple_orphans_different_ai_messages_one_remove_each(self):
-        """Orphans on two separate AIMessages → two RemoveMessages."""
+    async def test_multiple_orphans_different_ai_messages_one_per_orphan(self):
+        """Orphans on two separate AIMessages → one synthetic ToolMessage per orphan."""
 
         binding = _make_binding()
         ai1 = _make_ai_message(["tc-1"], ["tool_a"], msg_id="ai-first")
@@ -219,13 +222,14 @@ class TestRepairOrphanedToolCallsRepair:
         await binding._repair_orphaned_tool_calls(CONFIG)
 
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        ids_removed = {m.id for m in messages}
-        assert ids_removed == {"ai-first", "ai-second"}
-        assert all(isinstance(m, RemoveMessage) for m in messages)
+        assert len(messages) == 2
+        assert all(isinstance(m, ToolMessage) for m in messages)
+        injected_ids = {m.tool_call_id for m in messages}
+        assert injected_ids == {"tc-1", "tc-2"}
 
     @pytest.mark.asyncio
-    async def test_partial_orphans_only_orphaned_ai_message_removed(self):
-        """One AI message resolved, one orphaned → only orphaned one removed."""
+    async def test_partial_orphans_only_unresolved_are_repaired(self):
+        """One AI message resolved, one orphaned → only orphaned tool call gets synthetic ToolMessage."""
 
         binding = _make_binding()
         ai_resolved = _make_ai_message(["tc-resolved"], ["tool_ok"], msg_id="ai-ok")
@@ -239,17 +243,16 @@ class TestRepairOrphanedToolCallsRepair:
         await binding._repair_orphaned_tool_calls(CONFIG)
 
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        ids_removed = {m.id for m in messages}
-        assert "ai-bad" in ids_removed
-        assert "ai-ok" not in ids_removed
+        assert len(messages) == 1
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == "tc-orphan"
 
     @pytest.mark.asyncio
-    async def test_orphan_without_msg_id_no_update_state(self):
-        """AIMessage with no id → can't build RemoveMessage, no aupdate_state call."""
+    async def test_orphan_injects_tool_message_regardless_of_ai_msg_id(self):
+        """AIMessage with no id still gets a synthetic ToolMessage (keyed on tool_call_id, not AI msg id)."""
         ai_msg = AIMessage(content="", tool_calls=[
             {"id": "tc-noid", "name": "tool_x", "args": {}, "type": "tool_call"}
         ])
-        # Don't set id (AIMessage id defaults to auto-generated, but we clear it)
         ai_msg.id = None
 
         binding = _make_binding()
@@ -258,14 +261,17 @@ class TestRepairOrphanedToolCallsRepair:
 
         await binding._repair_orphaned_tool_calls(CONFIG)
 
-        binding.graph.aupdate_state.assert_not_awaited()
+        binding.graph.aupdate_state.assert_awaited_once()
+        messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
+        assert len(messages) == 1
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == "tc-noid"
 
     @pytest.mark.asyncio
     async def test_bedrock_additional_kwargs_tooluse_detected(self):
-        """Bedrock stores tool_call IDs in additional_kwargs['tool_use']."""
+        """Bedrock stores tool_call IDs in additional_kwargs['tool_use'] — synthetic ToolMessage injected."""
 
         binding = _make_binding()
-        # No standard tool_calls — only additional_kwargs Bedrock storage
         ai_msg = AIMessage(
             content="",
             additional_kwargs={"tool_use": [{"id": "bedrock-tc-1", "name": "bedrock_tool"}]},
@@ -278,11 +284,11 @@ class TestRepairOrphanedToolCallsRepair:
 
         binding.graph.aupdate_state.assert_awaited_once()
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        assert any(isinstance(m, RemoveMessage) and m.id == "ai-bedrock" for m in messages)
+        assert any(isinstance(m, ToolMessage) and m.tool_call_id == "bedrock-tc-1" for m in messages)
 
     @pytest.mark.asyncio
     async def test_bedrock_content_block_tool_use_detected(self):
-        """Bedrock stores tool_call IDs in content blocks with type='tool_use'."""
+        """Bedrock stores tool_call IDs in content blocks with type='tool_use' — synthetic ToolMessage injected."""
 
         binding = _make_binding()
         ai_msg = AIMessage(
@@ -296,13 +302,13 @@ class TestRepairOrphanedToolCallsRepair:
 
         binding.graph.aupdate_state.assert_awaited_once()
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        assert any(isinstance(m, RemoveMessage) and m.id == "ai-block" for m in messages)
+        assert any(isinstance(m, ToolMessage) and m.tool_call_id == "block-tc-1" for m in messages)
 
     @pytest.mark.asyncio
-    async def test_history_preserved_only_orphaned_removed(self):
+    async def test_history_preserved_only_orphaned_repaired(self):
         """
         Earlier clean conversation (HumanMessage + AI + ToolMessage) must be
-        preserved; only the orphaned AIMessage is removed.
+        preserved; only the orphaned tool call gets a synthetic ToolMessage.
         """
 
         binding = _make_binding()
@@ -319,9 +325,9 @@ class TestRepairOrphanedToolCallsRepair:
         await binding._repair_orphaned_tool_calls(CONFIG)
 
         messages = binding.graph.aupdate_state.call_args[0][1]["messages"]
-        removed_ids = {m.id for m in messages if isinstance(m, RemoveMessage)}
-        assert removed_ids == {"ai-orphan"}
-        assert "ai-old" not in removed_ids
+        assert len(messages) == 1
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == "tc-orphan"
 
 
 # ===========================================================================

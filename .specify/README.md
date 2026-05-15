@@ -77,4 +77,3 @@ AI agents are expected to read this directory at the start of every session to l
 ## Related
 
 - **Published Specs & ADRs**: `docs/docs/specs/` (auto-published via Docusaurus)
-- **UI Spec Kit**: `ui/.specify/`

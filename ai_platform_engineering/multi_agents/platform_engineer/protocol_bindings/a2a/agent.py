@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterable
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 # A2A tracing is disabled via cnoe-agent-utils disable_a2a_tracing() in main.py
@@ -17,6 +18,7 @@ from a2a.types import (
 )
 from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import (
     AIPlatformEngineerMAS,
+    USE_STRUCTURED_RESPONSE,
 )
 from ai_platform_engineering.skills_middleware.mas_registry import set_mas_instance
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
@@ -43,6 +45,23 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# Suppress Langfuse media scanner false positives: it recursively walks all
+# LangGraph state and tries to parse any string starting with "data:" as a
+# base64 data URI.  Skill SKILL.md content triggers this harmlessly.
+logging.getLogger("langfuse.media").setLevel(logging.CRITICAL)
+
+@dataclass
+class PlanState:
+    """Per-request execution plan tracking.
+
+    Instantiated as a local in stream() so concurrent requests on the
+    singleton AIPlatformEngineerA2ABinding cannot cross-contaminate.
+    """
+    execution_plan_sent: bool = False
+    previous_todos: dict[int, dict] = field(default_factory=dict)
+    task_plan_entries: dict[str, dict] = field(default_factory=dict)
+    in_self_service_workflow: bool = False
 
 
 def _tool_narration(tool_name: str, tool_args: dict) -> str | None:
@@ -98,10 +117,16 @@ class AIPlatformEngineerA2ABinding:
       set_mas_instance(self._mas_instance)
       self.graph = None  # Set after ensure_initialized()
       self.tracing = TracingManager()
-      self._execution_plan_sent = False
-      self._previous_todos: dict[int, dict] = {}  # Track todo states for notifications
-      self._task_plan_entries: dict[str, dict] = {}  # Track task (subagent) calls for execution plan
-      self._in_self_service_workflow = False  # Suppress intermediate text during deterministic workflows
+      # Attach the skill-content scrubber to the just-initialised
+      # TracerProvider. This must happen AFTER ``TracingManager()``
+      # (which sets up the provider + BatchSpanProcessor) and BEFORE
+      # the first span fires, so doing it here on binding construction
+      # is the right seam. Idempotent + safe when tracing is disabled.
+      try:
+          from ai_platform_engineering.utils.tracing import install_skill_content_scrubber
+          install_skill_content_scrubber()
+      except Exception as exc:  # noqa: BLE001 — never block startup on tracing
+          logging.warning("Skill-trace scrubber install failed: %s", exc)
       self._initialized = False
 
   async def ensure_initialized(self) -> None:
@@ -118,9 +143,19 @@ class AIPlatformEngineerA2ABinding:
       """
       CRITICAL: Repair orphaned tool calls in message history.
 
-      Bedrock/Anthropic requires ToolMessages to appear IMMEDIATELY after
-      the AIMessage with tool_use. If we can't properly repair the ordering,
-      we remove the problematic AIMessages entirely.
+      Bedrock/Anthropic requires a ToolMessage (tool_result) to appear immediately
+      after the AIMessage that contains the matching tool_use block. When a session
+      is interrupted mid-tool-call, the checkpoint holds an AIMessage with unresolved
+      tool_call_ids and no corresponding ToolMessages.
+
+      Strategy: inject a synthetic ToolMessage for each orphaned tool_call_id.
+      This keeps the AIMessage intact (Bedrock adjacency requirement satisfied) and
+      routes the graph to the `tools` node next (tools→model), so the new user query
+      is processed correctly.
+
+      Do NOT remove the AIMessage and replace with a placeholder (old approach):
+      that caused the graph to route to END instead of model, leaking the placeholder
+      text directly to users.
 
       This is essential for recovery when:
       - A sub-agent call fails mid-stream (e.g., context overflow)
@@ -131,8 +166,6 @@ class AIPlatformEngineerA2ABinding:
           config: Runnable configuration with thread_id
       """
       try:
-          from langchain_core.messages import RemoveMessage
-
           state = await self.graph.aget_state(config)
           if not state or not state.values:
               return
@@ -196,38 +229,46 @@ class AIPlatformEngineerA2ABinding:
               f"IDs: {list(orphaned.keys())}, Names: {orphaned_names}"
           )
 
-          # STRATEGY: Remove ONLY the AIMessages that have orphaned tool calls.
-          # This preserves earlier conversation history while eliminating the problematic
-          # messages that would cause Bedrock validation errors.
+          # STRATEGY: Inject synthetic ToolMessages for each orphaned tool call.
           #
-          # We cannot simply append ToolMessages at the end because Bedrock requires
-          # tool_result immediately after tool_use. And we cannot remove ALL messages
-          # because that triggers IndexError when LangGraph's should_continue runs.
+          # We keep the AIMessage intact and append a synthetic ToolMessage for
+          # each unresolved tool_call_id. This satisfies Bedrock's requirement
+          # that every tool_use block is followed by a matching tool_result,
+          # and routes the graph to the `tools` node next (tools→model) so the
+          # model processes the new user query correctly.
+          #
+          # Previous approach (remove AIMessage with RemoveMessage) was broken:
+          # removing the AIMessage caused LangGraph to set checkpoint next=END,
+          # so the new query was never processed and placeholder text leaked to users.
 
-          # Get the IDs of AIMessages that have orphaned tool calls
-          ai_msg_ids_to_remove = set()
+          synthetic_tool_msgs = []
           for tool_call_id, (msg_idx, tool_name, ai_msg_id) in orphaned.items():
-              if ai_msg_id:
-                  ai_msg_ids_to_remove.add(ai_msg_id)
-                  logging.info(
-                      f"🔧 Will remove AIMessage with orphaned tool_call: "
-                      f"msg_id={ai_msg_id[:20] if ai_msg_id else 'None'}..., "
-                      f"tool={tool_name}, tool_call_id={tool_call_id[:20]}..."
+              synthetic_tool_msgs.append(
+                  ToolMessage(
+                      content=f"Tool '{tool_name}' did not complete (session was interrupted).",
+                      tool_call_id=tool_call_id,
+                      name=tool_name,
                   )
-
-          if ai_msg_ids_to_remove:
-              # Remove only the problematic AIMessages
-              remove_messages = [RemoveMessage(id=msg_id) for msg_id in ai_msg_ids_to_remove]
-              await self.graph.aupdate_state(config, {"messages": remove_messages})
+              )
               logging.info(
-                  f"✅ Supervisor: Removed {len(ai_msg_ids_to_remove)} AIMessage(s) with orphaned tool calls. "
-                  f"Earlier conversation history preserved."
+                  f"🔧 Adding synthetic ToolMessage for orphaned tool: "
+                  f"{tool_name} (tool_call_id={tool_call_id[:20]}...)"
+              )
+
+          if synthetic_tool_msgs:
+              await self.graph.aupdate_state(
+                  config,
+                  {"messages": synthetic_tool_msgs},
+                  as_node="tools",
+              )
+              logging.info(
+                  f"✅ Supervisor: Repaired {len(synthetic_tool_msgs)} orphaned tool call(s) "
+                  f"with synthetic ToolMessages. Graph will route to model node next."
               )
           else:
-              # No message IDs found - fall back to just logging
               logging.warning(
-                  f"⚠️ Supervisor: Found orphaned tool calls but no message IDs to remove. "
-                  f"Orphaned tools: {orphaned_names}"
+                  f"⚠️ Supervisor: Found orphaned tool calls but could not build synthetic "
+                  f"ToolMessages. Orphaned tools: {orphaned_names}"
               )
 
       except Exception as e:
@@ -262,7 +303,7 @@ class AIPlatformEngineerA2ABinding:
               continue
       return None
 
-  def _build_task_plan_text(self) -> str:
+  def _build_task_plan_text(self, plan: PlanState) -> str:
       """Build execution plan text from tracked task (subagent) calls.
 
       Returns text in the emoji+bracket format the UI expects, e.g.:
@@ -276,14 +317,14 @@ class AIPlatformEngineerA2ABinding:
           "failed": "❌",
       }
       lines = []
-      for entry in self._task_plan_entries.values():
+      for entry in plan.task_plan_entries.values():
           icon = status_icons.get(entry["status"], "⏳")
           agent = entry["subagent"].title()
           lines.append(f"{icon} [{agent}] {entry['description']}")
       return "\n".join(lines)
 
-  def _build_todo_plan_text(self) -> str:
-      """Build execution plan text from tracked todos (_previous_todos).
+  def _build_todo_plan_text(self, plan: PlanState) -> str:
+      """Build execution plan text from tracked todos (plan.previous_todos).
 
       Todo content already contains [AgentName] prefix from the middleware/prompt.
       We just need to prepend the status emoji.
@@ -296,10 +337,10 @@ class AIPlatformEngineerA2ABinding:
       }
       lines = []
       for todo_id in sorted(
-          self._previous_todos.keys(),
+          plan.previous_todos.keys(),
           key=lambda x: (int(x) if str(x).isdigit() else float('inf')),
       ):
-          entry = self._previous_todos[todo_id]
+          entry = plan.previous_todos[todo_id]
           icon = status_icons.get(entry["status"], "⏳")
           content = entry["content"]
           lines.append(f"{icon} {content}")
@@ -459,6 +500,10 @@ class AIPlatformEngineerA2ABinding:
   ) -> AsyncIterable[dict[str, Any]]:
       logging.debug(f"Starting stream with query: {query}, context_id: {context_id}, trace_id: {trace_id}, has_command: {command is not None}, user_email: {user_email}")
 
+      # Per-request plan state — local variable so concurrent streams cannot
+      # cross-contaminate on the singleton binding instance.
+      plan = PlanState()
+
       # Ensure agent is initialized with MCP tools (lazy loading on first stream)
       await self.ensure_initialized()
 
@@ -480,6 +525,10 @@ class AIPlatformEngineerA2ABinding:
           # Store user_email in graph state for middleware to use in task prompts
           if user_email:
               state_dict['user_email'] = user_email
+          # Inject skills files into state for SkillsMiddleware / StateBackend
+          skills_files = getattr(self._mas_instance, '_skills_files', None)
+          if skills_files:
+              state_dict['files'] = dict(skills_files)
           inputs = state_dict
 
       config = self.tracing.create_config(context_id)
@@ -519,37 +568,26 @@ class AIPlatformEngineerA2ABinding:
       logging.debug(f"Created tracing config: {config}")
 
       # ========================================================================
-      # EXECUTION PLAN STATE: re-seed on HITL resume, reset on fresh query
+      # EXECUTION PLAN STATE: re-seed on HITL resume
       # ========================================================================
+      # plan is already a fresh PlanState(); only HITL resumes need re-seeding.
       if command is not None:
-          self._task_plan_entries = {}
-          self._in_self_service_workflow = False
           try:
               state = await self.graph.aget_state(config)
               existing_todos = (state.values or {}).get("todos", []) if state else []
               if existing_todos:
-                  self._execution_plan_sent = True
-                  self._previous_todos = {}
+                  plan.execution_plan_sent = True
                   for todo in existing_todos:
                       if isinstance(todo, dict):
-                          self._previous_todos[todo.get("id")] = {
+                          plan.previous_todos[todo.get("id")] = {
                               "status": todo.get("status", "pending"),
                               "content": todo.get("content", f"Step {todo.get('id')}"),
                           }
-                  logging.info(f"📋 HITL resume: re-seeded {len(self._previous_todos)} todos from graph state")
+                  logging.info(f"📋 HITL resume: re-seeded {len(plan.previous_todos)} todos from graph state")
               else:
-                  self._execution_plan_sent = False
-                  self._previous_todos = {}
                   logging.debug("HITL resume: no existing todos in graph state")
           except Exception as e:
               logging.warning(f"Could not re-seed todos on resume: {e}")
-              self._execution_plan_sent = False
-              self._previous_todos = {}
-      else:
-          self._execution_plan_sent = False
-          self._previous_todos = {}
-          self._task_plan_entries = {}
-          self._in_self_service_workflow = False
 
       # Reset RAG caps and hard-stop state so each new query starts fresh.
       # Cap counters use a TTL-based cleanup that spans 5 minutes; without an
@@ -620,10 +658,23 @@ class AIPlatformEngineerA2ABinding:
 
           # [FINAL ANSWER] marker split: buffer pre-marker text, stream post-marker tokens
           _final_answer_seen = False
+          _strip_post_marker_newlines = False  # strip leading \n from first post-marker chunks
           _pre_marker_buffer = ""
+          _MARKER = "[FINAL ANSWER]"
+          _MARKER_ALT = "[FINAL_ANSWER]"
+          _MARKER_MAX_LEN = max(len(_MARKER), len(_MARKER_ALT))
 
           # Response tracking (always None in [FINAL ANSWER] mode; kept for error-recovery path)
           response_format_result = None
+
+          # ResponseFormat tool_call_chunks streaming (ported from 0.4.0)
+          # Bedrock streams tool args as partial JSON in tool_call_chunks[].args.
+          # We accumulate these and parse incrementally to extract content deltas.
+          response_format_args = None           # Accumulated tool args dict
+          response_format_streaming = False     # True while streaming ResponseFormat chunks
+          response_format_content = None        # Extracted content string
+          _rf_last_content_len = 0              # Track last extracted content length for delta computation
+          _rf_word_buffer = ""                  # Buffer trailing partial word to avoid mid-word splits
 
           # Check if token-by-token streaming is enabled (default: true)
           # When disabled, uses 'values' mode which waits for complete messages
@@ -779,6 +830,39 @@ class AIPlatformEngineerA2ABinding:
               # 1. Todo transitions from middleware-injected write_todos
               # 2. Task (subagent) tool_calls with COMPLETE args (chunks have partial args)
               if event_type == 'updates' and isinstance(event, dict):
+                  # DEBUG: log update keys to diagnose structured response capture
+                  _update_keys = list(event.keys())
+                  _has_sr = any(
+                      (isinstance(v, dict) and 'structured_response' in v) for v in event.values()
+                  ) or 'structured_response' in event
+                  if _has_sr or any('struct' in str(k).lower() for k in _update_keys):
+                      logging.info(f"🔍 UPDATE EVENT with structured_response: keys={_update_keys}")
+
+                  # ── Structured response from ResponseFormat tool ──
+                  # In deepagents 0.3.8 / langchain agents, the structured
+                  # response is stored as 'structured_response' in state,
+                  # emitted within the model node's update dict. Check both
+                  # the old node name and any node that carries the key.
+                  structured_resp = None
+                  if 'generate_structured_response' in event:
+                      structured_resp = event['generate_structured_response'].get('structured_response')
+                  else:
+                      for _node_key, _node_val in event.items():
+                          if isinstance(_node_val, dict) and 'structured_response' in _node_val:
+                              structured_resp = _node_val['structured_response']
+                              break
+                      if structured_resp is None and 'structured_response' in event:
+                          structured_resp = event['structured_response']
+                  if structured_resp is not None:
+                      parsed = self.handle_structured_response(structured_resp)
+                      parsed['from_response_format_tool'] = True
+                      response_format_result = parsed
+                      logging.info(
+                          f"structured_response captured from updates "
+                          f"(content_len={len(parsed.get('content', ''))})"
+                      )
+                      yield parsed
+
                   todos_lists = []
                   messages_lists = []
                   for key, value in event.items():
@@ -815,8 +899,8 @@ class AIPlatformEngineerA2ABinding:
                               if len(task_desc) > 120:
                                   display_desc += "..."
 
-                              if tc_id not in self._task_plan_entries:
-                                  self._task_plan_entries[tc_id] = {
+                              if tc_id not in plan.task_plan_entries:
+                                  plan.task_plan_entries[tc_id] = {
                                       "subagent": subagent_type,
                                       "description": display_desc,
                                       "status": "in_progress",
@@ -826,13 +910,13 @@ class AIPlatformEngineerA2ABinding:
 
                   # Re-emit plan when new tasks detected or existing entries refined
                   if plan_dirty:
-                      if self._previous_todos:
-                          plan_text = self._build_todo_plan_text()
+                      if plan.previous_todos:
+                          plan_text = self._build_todo_plan_text(plan)
                       else:
-                          plan_text = self._build_task_plan_text()
-                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
-                      self._execution_plan_sent = True
-                      logging.info(f"📋 Emitting {artifact_name} from updates (entries={len(self._task_plan_entries)})")
+                          plan_text = self._build_task_plan_text(plan)
+                      artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
+                      plan.execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from updates (entries={len(plan.task_plan_entries)})")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -853,15 +937,15 @@ class AIPlatformEngineerA2ABinding:
                           if not isinstance(msg, ToolMessage):
                               continue
                           tc_id = msg.tool_call_id if hasattr(msg, 'tool_call_id') else None
-                          if tc_id and tc_id in self._task_plan_entries:
-                              if self._task_plan_entries[tc_id]["status"] != "completed":
-                                  self._task_plan_entries[tc_id]["status"] = "completed"
+                          if tc_id and tc_id in plan.task_plan_entries:
+                              if plan.task_plan_entries[tc_id]["status"] != "completed":
+                                  plan.task_plan_entries[tc_id]["status"] = "completed"
                                   completion_dirty = True
                                   logging.info(f"✅ Task completed (from updates stream): {tc_id}")
 
                   if completion_dirty:
-                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
-                      logging.info(f"📋 Emitting execution_plan_status_update: {sum(1 for e in self._task_plan_entries.values() if e['status'] == 'completed')}/{len(self._task_plan_entries)} tasks completed")
+                      plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
+                      logging.info(f"📋 Emitting execution_plan_status_update: {sum(1 for e in plan.task_plan_entries.values() if e['status'] == 'completed')}/{len(plan.task_plan_entries)} tasks completed")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -880,13 +964,13 @@ class AIPlatformEngineerA2ABinding:
                               continue
                           todo_id = todo.get("id") if todo.get("id") is not None else idx
                           new_status = todo.get("status", "pending")
-                          old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                          old_status = plan.previous_todos.get(todo_id, {}).get("status", "pending")
                           todo_content = todo.get("content", f"Step {todo_id}")
 
                           # New todo → always counts as a plan change
-                          if todo_id not in self._previous_todos:
+                          if todo_id not in plan.previous_todos:
                               plan_changed = True
-                              self._previous_todos[todo_id] = {
+                              plan.previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
@@ -918,17 +1002,17 @@ class AIPlatformEngineerA2ABinding:
                                       }
                                   }
 
-                              self._previous_todos[todo_id] = {
+                              plan.previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
 
                   # Re-emit execution plan artifact so the UI sidebar updates
-                  if plan_changed and self._previous_todos:
-                      plan_text = self._build_todo_plan_text()
-                      artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
-                      self._execution_plan_sent = True
-                      logging.info(f"📋 Emitting {artifact_name} from todo transition ({len(self._previous_todos)} todos)")
+                  if plan_changed and plan.previous_todos:
+                      plan_text = self._build_todo_plan_text(plan)
+                      artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
+                      plan.execution_plan_sent = True
+                      logging.info(f"📋 Emitting {artifact_name} from todo transition ({len(plan.previous_todos)} todos)")
                       yield {
                           "is_task_complete": False,
                           "require_user_input": False,
@@ -953,6 +1037,95 @@ class AIPlatformEngineerA2ABinding:
               if has_tool_calls:
                   logging.debug(f"Message with tool_calls detected: type={type(message).__name__}, tool_calls={message.tool_calls}")
 
+              # ── Bedrock tool_call_chunks: accumulate partial JSON for ResponseFormat ──
+              # Bedrock streams tool args incrementally via tool_call_chunks[].args.
+              # We accumulate the partial JSON and attempt incremental parsing to
+              # extract content deltas for real token-by-token streaming.
+              if hasattr(message, "tool_call_chunks") and message.tool_call_chunks:
+                  for chunk in message.tool_call_chunks:
+                      chunk_name = chunk.get("name", "")
+                      chunk_args = chunk.get("args", "")
+
+                      # Detect start of ResponseFormat tool call
+                      if chunk_name and chunk_name.lower() in ('responseformat', 'platformengineerresponse'):
+                          response_format_streaming = True
+                          if response_format_args is None:
+                              response_format_args = {"_partial_json": ""}
+                          logging.info("ResponseFormat tool streaming started (tool_call_chunks)")
+                          # Emit a "composing" notification so Slack shows
+                          # typing activity during the gap between the last
+                          # tool notification and the first content token.
+                          yield {
+                              "is_task_complete": False,
+                              "require_user_input": False,
+                              "content": "✍️ Composing answer...\n",
+                              "tool_call": {
+                                  "name": "composing_answer",
+                                  "status": "started",
+                                  "type": "notification",
+                              },
+                          }
+
+                      # Accumulate args string while streaming ResponseFormat
+                      if chunk_args and response_format_streaming:
+                          if response_format_args is None:
+                              response_format_args = {"_partial_json": ""}
+                          if "_partial_json" not in response_format_args:
+                              response_format_args["_partial_json"] = ""
+                          response_format_args["_partial_json"] += chunk_args
+
+                          # ── Incremental content extraction ──
+                          # Try to parse the accumulated partial JSON and extract
+                          # new content since the last successful extraction.
+                          # Strategy: try json.loads on the partial string, closing
+                          # it with various suffixes to make it valid JSON.
+                          partial_str = response_format_args["_partial_json"]
+                          _parsed_content = None
+                          # Try: raw (already complete), then close with common suffixes
+                          for _suffix in ("", '"}'  , '"}}'  , '"}}}'  , "}", "}}"):
+                              try:
+                                  partial_obj = json.loads(partial_str + _suffix)
+                                  _parsed_content = partial_obj.get("content", "") or ""
+                                  break
+                              except (json.JSONDecodeError, ValueError):
+                                  continue
+                          if _parsed_content is not None and len(_parsed_content) > _rf_last_content_len:
+                              delta = _parsed_content[_rf_last_content_len:]
+                              _rf_last_content_len = len(_parsed_content)
+                              if delta:
+                                  # Prepend any buffered partial word from previous chunk
+                                  delta = _rf_word_buffer + delta
+                                  _rf_word_buffer = ""
+                                  # Buffer trailing partial word to avoid mid-word splits
+                                  # like "Great quest" | "ion!" or "(pow" | "ered by"
+                                  _BOUNDARY_CHARS = frozenset(' \n\r\t.,!?:;-)]}>*#/\\[({<"\'`')
+                                  last_boundary = -1
+                                  for i in range(len(delta) - 1, -1, -1):
+                                      if delta[i] in _BOUNDARY_CHARS:
+                                          last_boundary = i
+                                          break
+                                  if last_boundary < 0:
+                                      # No boundary found at all — buffer entire delta
+                                      # (flush if buffer > 80 chars to avoid stalling)
+                                      if len(delta) > 80:
+                                          pass  # yield it as-is
+                                      else:
+                                          _rf_word_buffer = delta
+                                          delta = ""
+                                  elif last_boundary < len(delta) - 1:
+                                      # Partial word after last boundary — buffer it
+                                      _rf_word_buffer = delta[last_boundary + 1:]
+                                      delta = delta[:last_boundary + 1]
+                                  # Only yield if there's content to send
+                                  if delta:
+                                      yielded_chunk_count += 1
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": delta,
+                                          "is_final_answer": True,
+                                      }
+
               # Stream LLM tokens (includes execution plans and responses)
               if isinstance(message, AIMessageChunk):
                   # Check if this chunk has tool_calls (tool invocation)
@@ -970,9 +1143,26 @@ class AIPlatformEngineerA2ABinding:
                           if tc_id:
                               pending_tool_calls[tc_id] = tool_name
 
+                          # ── Flush pre-marker buffer at tool-call boundary ──
+                          # Any tool call proves we haven't reached [FINAL ANSWER]
+                          # yet, so the entire buffer is safe to flush.  This must
+                          # run before the per-tool `continue` guards below so that
+                          # narration written before task/write_todos/etc. is not
+                          # trapped in the buffer during tool execution.
+                          if not USE_STRUCTURED_RESPONSE and _pre_marker_buffer and not _final_answer_seen:
+                              logging.info(f"Flushing pre-marker buffer at tool-call boundary ({len(_pre_marker_buffer)} chars)")
+                              yielded_chunk_count += 1
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": _pre_marker_buffer,
+                                  "is_narration": True,
+                              }
+                              _pre_marker_buffer = ""
+
                           # invoke_self_service_task — enter self-service mode to suppress intermediate text
                           if tool_name == "invoke_self_service_task":
-                              self._in_self_service_workflow = True
+                              plan.in_self_service_workflow = True
                               logging.info("🔄 Self-service workflow detected — suppressing intermediate text streaming")
                               continue
 
@@ -988,24 +1178,34 @@ class AIPlatformEngineerA2ABinding:
                               logging.debug(f"Noted task chunk tool_call_id={tc_id}, deferring plan entry to full AIMessage")
                               continue
 
-                          logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
-
-                          # Emit narration word-by-word before the tool notification.
-                          # Haiku doesn't generate pre-tool text naturally, so we need
-                          # this to give users visible progress between tool calls.
-                          # When stream_ts is already set (2nd+ tool), text streams into
-                          # Slack. For the 1st tool, it briefly shows in the typing status.
-                          _call_id = tc_id or tool_name
-                          if _call_id not in _narrated_tool_call_ids:
-                              _narrated_tool_call_ids.add(_call_id)
-                              narration = _tool_narration(tool_name, tool_call.get("args", {}) or {})
-                              if narration and narration not in _narrated_texts:
-                                  _narrated_texts.add(narration)
-                                  yield {
-                                      "is_task_complete": False,
-                                      "require_user_input": False,
-                                      "content": narration,
+                          # ── ResponseFormat: capture complete tool args from AIMessageChunk ──
+                          if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                              tool_args = tool_call.get("args", {})
+                              if tool_args:
+                                  if response_format_args is None:
+                                      response_format_args = {}
+                                  response_format_args.update(tool_args)
+                              structured_content = (
+                                  tool_args.get("content", "")
+                                  or tool_args.get("message", "")
+                                  or tool_args.get("response", "")
+                              )
+                              if structured_content and USE_STRUCTURED_RESPONSE:
+                                  response_format_content = structured_content
+                                  response_format_result = {
+                                      'is_task_complete': tool_args.get('is_task_complete', True),
+                                      'require_user_input': tool_args.get('require_user_input', False),
+                                      'content': structured_content,
+                                      'metadata': tool_args.get('metadata'),
                                   }
+                                  logging.info(f"ResponseFormat captured from AIMessageChunk tool_calls ({len(structured_content)} chars)")
+                                  yield {
+                                      **response_format_result,
+                                      "from_response_format_tool": True,
+                                  }
+                              continue
+
+                          logging.debug(f"Tool call started (from AIMessageChunk): {tool_name}")
 
                           # Stream tool start notification to client with metadata
                           tool_name_formatted = tool_name.title()
@@ -1019,16 +1219,64 @@ class AIPlatformEngineerA2ABinding:
                                   "type": "notification"
                               }
                           }
-                      # Don't process content for tool call chunks
+                      # Before skipping to next chunk, extract any narration
+                      # content co-located in this AIMessageChunk. The LLM
+                      # often writes "I'll search the knowledge base..." in
+                      # the same turn as a tool call — yield it so Slack can
+                      # show it as a thinking/progress indicator.
+                      #
+                      # Tagged as is_narration so the Slack bot shows typing
+                      # status (not stream content). The marker gate below
+                      # doesn't run for tool-call messages because of the
+                      # continue, so we handle narration extraction here.
+                      if hasattr(message, "content") and message.content:
+                          _narration = message.content
+                          if isinstance(_narration, list):
+                              _narration = "".join(
+                                  item.get("text", "") if isinstance(item, dict) else str(item)
+                                  for item in _narration
+                                  if not (isinstance(item, dict) and item.get("type") == "tool_use")
+                              )
+                          if isinstance(_narration, str) and _narration.strip():
+                              accumulated_ai_content.append(_narration)
+                              yielded_chunk_count += 1
+                              narration_event = {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": _narration,
+                                  "is_narration": True,
+                              }
+                              yield narration_event
                       continue
 
                   content = message.content
                   # Normalize content (handle both string and list formats)
+                  # Also check for Bedrock tool_use blocks embedded in content
                   if isinstance(content, list):
                       text_parts = []
                       for item in content:
                           if isinstance(item, dict):
-                              text_parts.append(item.get('text', ''))
+                              # Bedrock embeds tool_use blocks in content[].input
+                              if item.get('type') == 'tool_use':
+                                  _tu_name = item.get('name', '')
+                                  _tu_input = item.get('input', {})
+                                  if _tu_name.lower() in ('responseformat', 'platformengineerresponse') and _tu_input:
+                                      logging.info(f"ResponseFormat found in content tool_use block ({list(_tu_input.keys())})")
+                                      response_format_args = _tu_input
+                                      response_format_content = _tu_input.get("content", "") or _tu_input.get("message", "")
+                                      if response_format_content and USE_STRUCTURED_RESPONSE:
+                                          response_format_result = {
+                                              'is_task_complete': _tu_input.get('is_task_complete', True),
+                                              'require_user_input': _tu_input.get('require_user_input', False),
+                                              'content': response_format_content,
+                                              'metadata': _tu_input.get('metadata'),
+                                          }
+                                          yield {
+                                              **response_format_result,
+                                              "from_response_format_tool": True,
+                                          }
+                              else:
+                                  text_parts.append(item.get('text', ''))
                           elif isinstance(item, str):
                               text_parts.append(item)
                           else:
@@ -1044,38 +1292,83 @@ class AIPlatformEngineerA2ABinding:
                   # During self-service workflows, suppress intermediate text
                   # (execution plan updates and tool notifications are still emitted
                   # via the write_todos and task handlers above)
-                  if content and self._in_self_service_workflow:
+                  if content and plan.in_self_service_workflow:
                       logging.debug(f"Suppressed intermediate text ({len(content)} chars) during self-service workflow")
                       continue
 
-                  # [FINAL ANSWER] real-time split:
-                  # Buffer tokens until the marker appears, then stream post-marker text only.
-                  # This suppresses the model's thinking/reasoning and streams only the answer.
+                  # Token streaming strategy depends on response mode:
+                  #
+                  # Structured response mode (USE_STRUCTURED_RESPONSE=true):
+                  #   Suppress narration tokens (LLM writes "I'll search..."
+                  #   before tool calls). The final answer comes from the
+                  #   ResponseFormat tool and is streamed via tool_call_chunks
+                  #   incremental parsing or _stream_final_content_as_chunks.
+                  #   Tool notifications (🔧 Supervisor: Calling Agent...)
+                  #   still provide visible progress.
+                  #
+                  # [FINAL ANSWER] marker mode (USE_STRUCTURED_RESPONSE=false):
+                  #   Buffer tokens until the marker appears, then stream only
+                  #   post-marker text. This suppresses reasoning and streams
+                  #   only the clean answer.
                   if content:
-                      _MARKER = "[FINAL ANSWER]"
-                      _MARKER_ALT = "[FINAL_ANSWER]"
-                      if not _final_answer_seen:
-                          _pre_marker_buffer += content
-                          marker_used = None
-                          if _MARKER in _pre_marker_buffer:
-                              marker_used = _MARKER
-                          elif _MARKER_ALT in _pre_marker_buffer:
-                              marker_used = _MARKER_ALT
-                          if marker_used:
-                              _final_answer_seen = True
-                              content = _pre_marker_buffer.split(marker_used, 1)[1]
-                              logging.info(f"[FINAL ANSWER] marker found; streaming post-marker content ({len(content)} chars)")
-                          else:
-                              # Pre-marker: suppress (thinking/reasoning)
-                              continue
-                      if content:
+                      if USE_STRUCTURED_RESPONSE:
+                          # Yield narration so clients can show it as a
+                          # typing/progress indicator ("I'll search...",
+                          # "Perfect! I found...").  The final answer comes
+                          # from the ResponseFormat tool and replaces the
+                          # stream, so narration won't concatenate with it.
                           yielded_chunk_count += 1
                           yield {
                               "is_task_complete": False,
                               "require_user_input": False,
                               "content": content,
-                              "is_final_answer": True,
                           }
+                      else:
+                          if not _final_answer_seen:
+                              _pre_marker_buffer += content
+                              marker_used = None
+                              if _MARKER in _pre_marker_buffer:
+                                  marker_used = _MARKER
+                              elif _MARKER_ALT in _pre_marker_buffer:
+                                  marker_used = _MARKER_ALT
+                              if marker_used:
+                                  _final_answer_seen = True
+                                  _strip_post_marker_newlines = True
+                                  content = _pre_marker_buffer.split(marker_used, 1)[1].lstrip("\n\r")
+                                  _pre_marker_buffer = ""
+                                  logging.info(f"[FINAL ANSWER] marker found; streaming post-marker content ({len(content)} chars)")
+                              else:
+                                  # Pre-marker narration: stream through so the user
+                                  # sees thinking messages as the LLM works. Hold back
+                                  # the tail (up to marker length) to avoid leaking
+                                  # partial marker text like "[FINAL" into the stream.
+                                  safe_len = len(_pre_marker_buffer) - _MARKER_MAX_LEN
+                                  if safe_len > 0:
+                                      to_yield = _pre_marker_buffer[:safe_len]
+                                      _pre_marker_buffer = _pre_marker_buffer[safe_len:]
+                                      yielded_chunk_count += 1
+                                      yield {
+                                          "is_task_complete": False,
+                                          "require_user_input": False,
+                                          "content": to_yield,
+                                          "is_narration": True,
+                                      }
+                                  continue
+                          # Strip leading newlines from first post-marker
+                          # chunks to avoid "Here\n's a summary" breaks
+                          # caused by token boundaries after the marker.
+                          if content and _strip_post_marker_newlines:
+                              content = content.lstrip("\n\r")
+                              if content:
+                                  _strip_post_marker_newlines = False
+                          if content:
+                              yielded_chunk_count += 1
+                              yield {
+                                  "is_task_complete": False,
+                                  "require_user_input": False,
+                                  "content": content,
+                                  "is_final_answer": True,
+                              }
 
               # Handle AIMessage with tool calls (tool start indicators)
               elif isinstance(message, AIMessage) and hasattr(message, "tool_calls") and message.tool_calls:
@@ -1095,9 +1388,34 @@ class AIPlatformEngineerA2ABinding:
 
                       logging.info(f"Tool call started: {tool_name}")
 
+                      # ── ResponseFormat: capture complete tool args from AIMessage ──
+                      if tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                          tool_args = tool_call.get("args", {})
+                          structured_content = (
+                              tool_args.get("content", "")
+                              or tool_args.get("message", "")
+                              or tool_args.get("response", "")
+                          )
+                          if structured_content:
+                              response_format_content = structured_content
+                              response_format_args = tool_args
+                              if USE_STRUCTURED_RESPONSE:
+                                  response_format_result = {
+                                      'is_task_complete': tool_args.get('is_task_complete', True),
+                                      'require_user_input': tool_args.get('require_user_input', False),
+                                      'content': structured_content,
+                                      'metadata': tool_args.get('metadata'),
+                                  }
+                                  logging.info(f"ResponseFormat captured from AIMessage ({len(structured_content)} chars)")
+                                  yield {
+                                      **response_format_result,
+                                      "from_response_format_tool": True,
+                                  }
+                          continue
+
                       # ── invoke_self_service_task: enter self-service mode ──
                       if tool_name == "invoke_self_service_task":
-                          self._in_self_service_workflow = True
+                          plan.in_self_service_workflow = True
                           logging.info("🔄 Self-service workflow detected (AIMessage) — suppressing intermediate text streaming")
                           continue
 
@@ -1108,10 +1426,10 @@ class AIPlatformEngineerA2ABinding:
                           for idx, todo in enumerate(todos):
                               todo_id = todo.get("id") if todo.get("id") is not None else idx
                               new_status = todo.get("status", "pending")
-                              old_status = self._previous_todos.get(todo_id, {}).get("status", "pending")
+                              old_status = plan.previous_todos.get(todo_id, {}).get("status", "pending")
                               todo_content = todo.get("content", f"Step {todo_id}")
 
-                              if todo_id not in self._previous_todos:
+                              if todo_id not in plan.previous_todos:
                                   plan_changed = True
 
                               if old_status != new_status:
@@ -1142,7 +1460,7 @@ class AIPlatformEngineerA2ABinding:
                                       }
 
                               # Update tracked state
-                              self._previous_todos[todo_id] = {
+                              plan.previous_todos[todo_id] = {
                                   "status": new_status,
                                   "content": todo_content,
                               }
@@ -1150,10 +1468,10 @@ class AIPlatformEngineerA2ABinding:
                           # Emit execution plan from write_todos args directly
                           # (don't rely on ToolMessage path — write_todos returns a
                           # Command whose inner ToolMessage may not stream)
-                          if todos and (plan_changed or not self._execution_plan_sent):
-                              plan_text = self._build_todo_plan_text()
-                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
-                              self._execution_plan_sent = True
+                          if todos and (plan_changed or not plan.execution_plan_sent):
+                              plan_text = self._build_todo_plan_text(plan)
+                              artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
+                              plan.execution_plan_sent = True
                               logging.info(f"📋 Emitting {artifact_name} from write_todos AIMessage ({len(todos)} todos)")
                               yield {
                                   "is_task_complete": False,
@@ -1175,15 +1493,15 @@ class AIPlatformEngineerA2ABinding:
                           if len(task_desc) > 120:
                               display_desc += "..."
                           tc_id = tool_call.get("id", "")
-                          if tc_id and tc_id not in self._task_plan_entries:
-                              self._task_plan_entries[tc_id] = {
+                          if tc_id and tc_id not in plan.task_plan_entries:
+                              plan.task_plan_entries[tc_id] = {
                                   "subagent": subagent_type,
                                   "description": display_desc,
                                   "status": "in_progress",
                               }
-                              plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
-                              artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
-                              self._execution_plan_sent = True
+                              plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
+                              artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
+                              plan.execution_plan_sent = True
                               logging.info(f"📋 Emitting {artifact_name} from task call: [{subagent_type}] {display_desc}")
                               yield {
                                   "is_task_complete": False,
@@ -1253,13 +1571,41 @@ class AIPlatformEngineerA2ABinding:
                       accumulated_subagent_responses[tool_name].append(tool_content)
                       logging.debug(f"📦 Tracked sub-agent response from {tool_name}: {len(tool_content)} chars")
 
+                  # ── ResponseFormat ToolMessage: parse JSON result ──
+                  if USE_STRUCTURED_RESPONSE and tool_name.lower() in ('responseformat', 'platformengineerresponse'):
+                      try:
+                          tool_result = json.loads(tool_content) if tool_content else {}
+                          structured_content = (
+                              tool_result.get("content", "")
+                              or tool_result.get("message", "")
+                              or tool_result.get("response", "")
+                          )
+                          if structured_content:
+                              response_format_args = tool_result
+                              response_format_content = structured_content
+                              response_format_result = {
+                                  'is_task_complete': tool_result.get('is_task_complete', True),
+                                  'require_user_input': tool_result.get('require_user_input', False),
+                                  'content': structured_content,
+                                  'metadata': tool_result.get('metadata'),
+                              }
+                              logging.info(f"ResponseFormat captured from ToolMessage ({len(structured_content)} chars)")
+                              yield {
+                                  **response_format_result,
+                                  "from_response_format_tool": True,
+                              }
+                              continue
+                      except json.JSONDecodeError as e:
+                          logging.warning(f"Failed to parse ResponseFormat ToolMessage as JSON: {e}")
+                          # Fall through to normal handling
+
                   # Get RAG tool names dynamically from the MAS instance
                   rag_tool_names = self._mas_instance.get_rag_tool_names()
 
                   # Mark task (subagent) completion in execution plan
-                  if tool_name == "task" and tool_call_id and tool_call_id in self._task_plan_entries:
-                      self._task_plan_entries[tool_call_id]["status"] = "completed"
-                      plan_text = self._build_todo_plan_text() if self._previous_todos else self._build_task_plan_text()
+                  if tool_name == "task" and tool_call_id and tool_call_id in plan.task_plan_entries:
+                      plan.task_plan_entries[tool_call_id]["status"] = "completed"
+                      plan_text = self._build_todo_plan_text(plan) if plan.previous_todos else self._build_task_plan_text(plan)
                       logging.info(f"✅ Emitting execution_plan_status_update: task {tool_call_id} completed")
                       yield {
                           "is_task_complete": False,
@@ -1281,13 +1627,13 @@ class AIPlatformEngineerA2ABinding:
                   if tool_name == "write_todos":
                       logging.debug("📋 Skipping write_todos ToolMessage for exec plan (handled by updates handler)")
                   elif tool_name in rag_tool_names:
-                    # For RAG tools, we don't want to stream the content, as its a LOT of text
-                      logging.debug(f"Suppressing RAG tool content for {tool_name} (tool_call notification already sent)")
+                      # For RAG tools, suppress raw content from stream (client uses tool_call notification)
+                      logging.debug(f"Suppressing tool content for {tool_name} (tool_call notification already sent)")
                   # Stream other tool content as a tool notification (not chat text)
                   # During self-service workflows, suppress intermediate tool output —
                   # the final structured response will contain a clean summary
                   elif tool_content and tool_content.strip():
-                      if self._in_self_service_workflow:
+                      if plan.in_self_service_workflow:
                           logging.debug(f"Suppressed tool output ({tool_name}, {len(tool_content)} chars) during self-service workflow")
                       else:
                           yield {
@@ -1304,7 +1650,7 @@ class AIPlatformEngineerA2ABinding:
                   # Stream completion notification (skip for write_todos and task —
                   # their lifecycle is handled via per-task notifications above)
                   # Also skip during self-service workflows to avoid noisy notifications
-                  if tool_name not in ("write_todos", "task") and not self._in_self_service_workflow:
+                  if tool_name not in ("write_todos", "task") and not plan.in_self_service_workflow:
                       tool_name_formatted = (tool_name or "unknown").title()
                       yield {
                           "is_task_complete": False,
@@ -1383,6 +1729,14 @@ class AIPlatformEngineerA2ABinding:
           accumulated_ai_content.clear()
           final_ai_message = None
           response_format_result = None
+          response_format_args = None
+          # NOTE: response_format_streaming, response_format_content,
+          # _rf_last_content_len, and _strip_post_marker_newlines are NOT
+          # reset here.  The retry path (Phase 1b below) uses a simplified
+          # stream handler that doesn't need the incremental ResponseFormat
+          # parser or the [FINAL ANSWER] marker-split state machine.  Those
+          # variables are only meaningful in the primary stream loop.
+          _rf_word_buffer = ""
           _final_answer_seen = False
           _pre_marker_buffer = ""
 
@@ -1589,18 +1943,18 @@ class AIPlatformEngineerA2ABinding:
                       continue
                   tid = todo.get("id")
                   new_s = todo.get("status", "pending")
-                  old_s = self._previous_todos.get(tid, {}).get("status", "pending")
-                  if tid not in self._previous_todos or old_s != new_s:
+                  old_s = plan.previous_todos.get(tid, {}).get("status", "pending")
+                  if tid not in plan.previous_todos or old_s != new_s:
                       plan_dirty = True
-                      self._previous_todos[tid] = {
+                      plan.previous_todos[tid] = {
                           "status": new_s,
                           "content": todo.get("content", f"Step {tid}"),
                       }
               if plan_dirty:
-                  plan_text = self._build_todo_plan_text()
-                  artifact_name = "execution_plan_update" if not self._execution_plan_sent else "execution_plan_status_update"
-                  self._execution_plan_sent = True
-                  logging.info(f"📋 Post-stream catch-all: emitting {artifact_name} ({len(self._previous_todos)} todos)")
+                  plan_text = self._build_todo_plan_text(plan)
+                  artifact_name = "execution_plan_update" if not plan.execution_plan_sent else "execution_plan_status_update"
+                  plan.execution_plan_sent = True
+                  logging.info(f"📋 Post-stream catch-all: emitting {artifact_name} ({len(plan.previous_todos)} todos)")
                   yield {
                       "is_task_complete": False,
                       "require_user_input": False,
@@ -1636,7 +1990,50 @@ class AIPlatformEngineerA2ABinding:
           except Exception as state_err:
               logging.warning(f"Could not retrieve graph state for final message: {state_err}")
 
-      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, final_answer_seen={_final_answer_seen}")
+      # Flush any remaining word-boundary buffer from incremental JSON parser.
+      # After this yield the generator is about to exit, so there's no need
+      # to reset _rf_word_buffer — it won't be read again.
+      if _rf_word_buffer:
+          yielded_chunk_count += 1
+          yield {
+              "is_task_complete": False,
+              "require_user_input": False,
+              "content": _rf_word_buffer,
+              "is_final_answer": True,
+          }
+
+      logging.info(f"🔍 POST-STREAM PARSING: final_ai_message={final_ai_message is not None}, accumulated_chunks={len(accumulated_ai_content)}, final_answer_seen={_final_answer_seen}, response_format_args={response_format_args is not None}")
+
+      # Parse accumulated _partial_json from tool_call_chunks (Bedrock streaming)
+      # This is the fallback for when incremental parsing didn't capture everything
+      if USE_STRUCTURED_RESPONSE and response_format_args and not response_format_result:
+          if "_partial_json" in response_format_args and response_format_args["_partial_json"]:
+              partial_str = response_format_args["_partial_json"]
+              logging.info(f"POST-STREAM: Parsing accumulated tool_call_chunks JSON ({len(partial_str)} chars)")
+              try:
+                  parsed = json.loads(partial_str)
+                  if isinstance(parsed, dict):
+                      response_format_args.update(parsed)
+                      del response_format_args["_partial_json"]
+                      logging.info(f"POST-STREAM: Parsed partial JSON successfully, keys={list(response_format_args.keys())}")
+              except json.JSONDecodeError as e:
+                  logging.warning(f"POST-STREAM: Failed to parse partial JSON: {e}")
+
+          structured_content = (
+              response_format_args.get("content", "")
+              or response_format_args.get("message", "")
+              or response_format_args.get("response", "")
+          )
+          if structured_content:
+              response_format_result = {
+                  'is_task_complete': response_format_args.get('is_task_complete', True),
+                  'require_user_input': response_format_args.get('require_user_input', False),
+                  'content': structured_content,
+                  'metadata': response_format_args.get('metadata'),
+                  'from_response_format_tool': True,
+              }
+              logging.info(f"POST-STREAM: ResponseFormat from accumulated args ({len(structured_content)} chars)")
+              yield response_format_result
 
       # If structured response was already extracted from ResponseFormat tool,
       # use it directly — no need to re-parse accumulated text content

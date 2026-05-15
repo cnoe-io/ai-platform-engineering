@@ -1,0 +1,25 @@
+# CAIPE Slack Bot — channel configuration example
+# ------------------------------------------------
+# This file is volume-mounted into the container at /etc/caipe/bot-config.yaml
+# when the Helm value `botConfig` is non-empty.
+#
+# Each top-level key is a Slack channel ID. The bot only interacts with
+# channels listed here.
+
+
+C0EXAMPLE01:
+  name: "#general"
+  agents:
+    - agent_id: "my-custom-agent"
+      users:
+        enabled: true
+        listen: "mention"        # "mention" (default) | "message" | "all"
+        overthink:
+          enabled: false
+      bots:
+        enabled: false
+        listen: "message"        # "message" (default) | "mention" | "all"
+        # bot_list: ["AlertBot"]
+      # escalation:
+      #   users: ["U_ONCALL1"]
+      #   emoji: { enabled: false, name: "rotating_light" }

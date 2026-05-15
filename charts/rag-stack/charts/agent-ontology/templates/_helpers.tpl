@@ -40,6 +40,7 @@ helm.sh/chart: {{ include "agent.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: agent-ontology
 {{- end }}
 
 {{/*
@@ -236,4 +237,8 @@ Get Neo4j password
         {{- end -}}
     {{- end -}}
     {{- $password -}}
+{{- end -}}
+
+{{- define "agent.appVersion" -}}
+{{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

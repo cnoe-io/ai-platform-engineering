@@ -1,6 +1,6 @@
 [project]
 name = "ai-platform-engineering"
-version = "0.2.43"
+version = "0.4.12-dev.10"
 description = "Multi-Agent Collaboration & Workflow Automation - AI agents collaborating across tools and teams to deliver high quality results"
 authors = [
   {name = "CNOE Contributors"}
@@ -10,15 +10,16 @@ readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "a2a-sdk==0.3.0",
+    "ag-ui-protocol==0.1.15",
     "agntcy-app-sdk==0.4.0",
-    "cnoe-agent-utils==0.3.15",
+    "cnoe-agent-utils==0.4.0",
     "config==0.5.1",
     "cryptography==46.0.7",
     "fastapi==0.124.2",
     "httpx==0.28.1",
     "hvac==2.4.0",
     "langchain==1.2.15",
-    "langchain-core==1.2.28",
+    "langchain-core==1.4.0",
     "langchain-mcp-adapters==0.2.1",
     "langfuse==3.14.3",
     "langgraph==1.1.6",
@@ -83,8 +84,9 @@ dev = [
     # Slack bot utils (e.g. tests importing ai.py) expect loguru at import time
     "loguru==0.7.3",
     "asyncpg==0.31.0",
+    "mongomock==4.3.0",
     "psycopg[binary]==3.3.3",
-    "pytest==9.0.2",
+    "pytest==9.0.3",
     "ruff==0.14.8",
 ]
 unittest = [
@@ -92,5 +94,9 @@ unittest = [
     "pytest-cov==7.1.0",
 ]
 
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+
 [tool.uv]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.0"]
+override-dependencies = ["protobuf==5.29.6"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]

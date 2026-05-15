@@ -4,6 +4,10 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
+import dotenv
+
+dotenv.load_dotenv()  # Ensure .env is in os.environ before any boto3/httpx clients are created
+
 from dynamic_agents.log_config import setup_logging
 
 # Setup logging before other imports that trigger cnoe-agent-utils
@@ -22,14 +26,15 @@ def fatal_exit(message: str) -> None:
 
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from dynamic_agents.config import get_settings
-from dynamic_agents.routes import agents, assistant, builtin_tools, chat, conversations, health, llm_models, mcp_servers
-from dynamic_agents.services.agent_runtime import get_runtime_cache
+from dynamic_agents.metrics import PrometheusHTTPMiddleware
+from dynamic_agents.routes import assistant, builtin_tools, chat, conversations, health, mcp_servers, middleware
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
-from dynamic_agents.services.seed_config import apply_seed_config
+from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
 
 
 @asynccontextmanager
@@ -37,6 +42,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     settings = get_settings()
     logger.info("Starting Dynamic Agents service...")
+
+    # Eagerly initialise tracing + scrubber so the OTel processor
+    # is registered before any span fires (FastAPI middleware,
+    # MongoDB ping, etc.). The per-AgentRuntime install is kept as
+    # a defence-in-depth idempotent fallback in case the lifespan
+    # hook is bypassed (e.g. some unit-test setups instantiate
+    # AgentRuntime without going through main:app).
+    # Vendored scrubber lives under
+    # ``dynamic_agents.services.skill_scrubber`` — see the file
+    # header for the source-of-truth location.
+    try:
+        from cnoe_agent_utils.tracing import TracingManager
+
+        from dynamic_agents.services.skill_scrubber import install_skill_content_scrubber
+
+        TracingManager()
+        install_skill_content_scrubber()
+    except Exception as exc:  # noqa: BLE001 — tracing is best-effort
+        logger.warning("Eager tracing/scrubber init failed: %s", exc)
 
     # MongoDB connection with retry logic
     max_retries = 5
@@ -59,17 +83,26 @@ async def lifespan(app: FastAPI):
         # All retries exhausted - crash the service
         fatal_exit(f"Failed to connect to MongoDB after {max_retries} attempts. Service cannot start without MongoDB.")
 
-    # Apply seed configuration (agents and MCP servers from config.yaml)
-    apply_seed_config(mongo, settings.seed_config_path)
+    # Start runtime cache background sweep
+    cache = get_runtime_cache()
+    cache.set_mongo_service(mongo)
+    cache.start()
+
+    # Ensure GridFS TTL index for automatic file expiry
+    if mongo._db is not None:
+        from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
+
+        store = MongoDBGridFSStore(db=mongo._db, bucket_name=settings.gridfs_bucket_name)
+        store.ensure_ttl_index()
+        logger.info("GridFS TTL index ensured (per-document expireAt)")
 
     yield
 
     # Cleanup on shutdown
     logger.info("Shutting down Dynamic Agents service...")
 
-    # Clear agent runtime cache
-    cache = get_runtime_cache()
-    await cache.clear()
+    # Stop sweep and clear agent runtime cache
+    await cache.stop()
 
     # Disconnect MongoDB
     mongo.disconnect()
@@ -95,15 +128,42 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Add Prometheus metrics middleware (serves /metrics, tracks request duration)
+    app.add_middleware(PrometheusHTTPMiddleware)
+
     # Mount routes
     app.include_router(health.router)
-    app.include_router(agents.router, prefix="/api/v1")
     app.include_router(builtin_tools.router, prefix="/api/v1")
-    app.include_router(llm_models.router, prefix="/api/v1")
     app.include_router(mcp_servers.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
+    app.include_router(middleware.router, prefix="/api/v1")
+
+    @app.exception_handler(RuntimeInitError)
+    async def runtime_init_error_handler(request: Request, exc: RuntimeInitError):
+        """Return a 503 with a descriptive message when runtime initialization fails."""
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": str(exc),
+                "agent_id": exc.agent_id,
+                "error_type": type(exc.cause).__name__,
+            },
+        )
+
+    @app.exception_handler(RuntimeCapacityError)
+    async def runtime_capacity_error_handler(request: Request, exc: RuntimeCapacityError):
+        """Return a 503 when the runtime cache is at capacity."""
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "agent_busy",
+                "message": "This agent is at capacity right now. Please try again in a moment.",
+                "retry_after_seconds": 5,
+            },
+            headers={"Retry-After": "5"},
+        )
 
     @app.get("/")
     async def root():

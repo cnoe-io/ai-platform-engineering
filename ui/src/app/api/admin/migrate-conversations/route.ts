@@ -70,8 +70,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           created_at: new Date(conv.createdAt),
           updated_at: now,
           metadata: {
-            agent_version: 'migrated',
-            model_used: 'unknown',
+            client_type: 'ui',
             total_messages: conv.messages?.length || 0,
           },
           sharing: {

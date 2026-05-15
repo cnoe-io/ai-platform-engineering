@@ -1,0 +1,188 @@
+name: "[Docs] New Release Post (skeleton)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.4.12)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-release-post:
+    name: Create release blog post skeleton
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Determine versions and dates
+        id: meta
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version }}"
+          NEW_VERSION="${NEW_VERSION#v}"
+
+          PREV_VERSION=$(git tag --sort=-version:refname \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | grep -v "^${NEW_VERSION}$" \
+            | head -1)
+
+          TAG_DATE=$(git log -1 --format=%cs "refs/tags/${NEW_VERSION}" 2>/dev/null || date +%Y-%m-%d)
+          SLUG=$(echo "$NEW_VERSION" | tr '.' '-')
+          BLOG_FILE="docs/releases/${TAG_DATE}-release-${SLUG}.md"
+
+          echo "new_version=$NEW_VERSION"   >> $GITHUB_OUTPUT
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          echo "tag_date=$TAG_DATE"         >> $GITHUB_OUTPUT
+          echo "blog_file=$BLOG_FILE"       >> $GITHUB_OUTPUT
+          echo "branch=docs/release-${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Collect reference data
+        env:
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
+        run: |
+          git log "${PREV_VERSION}..${NEW_VERSION}" \
+            --oneline --no-merges \
+            | grep -vE '^[a-f0-9]+ (chore|ci|test|refactor)' \
+            | head -80 > /tmp/git-log.txt || true
+
+          sed -n "/^## ${NEW_VERSION}/,/^## ${PREV_VERSION}/p" CHANGELOG.md 2>/dev/null \
+            | head -100 > /tmp/changelog.txt || true
+
+      - name: Create skeleton blog post
+        env:
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
+          TAG_DATE: ${{ steps.meta.outputs.tag_date }}
+          BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
+        run: |
+          mkdir -p docs/releases
+          {
+            echo "---"
+            echo "slug: release-${NEW_VERSION}"
+            echo "title: \"Release ${NEW_VERSION} — \""
+            echo "date: ${TAG_DATE}"
+            echo "authors: [sriaradhyula]"
+            echo "tags: [release]"
+            echo "---"
+            echo ""
+            echo "## Highlights"
+            echo ""
+            echo "<!-- TODO: 2-4 sentences summarising the most impactful changes for operators -->"
+            echo ""
+            echo "<!-- truncate -->"
+            echo ""
+            echo "## What's New"
+            echo ""
+            echo "<!-- TODO: group by feature area, link PRs -->"
+            echo ""
+            echo "## Bug Fixes"
+            echo ""
+            echo "<!-- TODO: list bug fixes with PR links -->"
+            echo ""
+            echo "## Breaking Changes"
+            echo ""
+            echo "No breaking changes. Drop-in upgrade from ${PREV_VERSION}."
+            echo ""
+            echo "## Known Issues"
+            echo ""
+            echo "None known at this time."
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Upgrade Guide: ${PREV_VERSION} → ${NEW_VERSION}"
+            echo ""
+            echo "### Overview"
+            echo ""
+            echo "<!-- TODO: one paragraph — drop-in or requires values.yaml edits? -->"
+            echo ""
+            echo "### Helm Values Changes"
+            echo ""
+            echo "No Helm values changes. Drop-in upgrade."
+            echo ""
+            echo "### Upgrade Runbook"
+            echo ""
+            echo '```bash'
+            echo "helm upgrade ai-platform-engineering \\"
+            echo "  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\"
+            echo "  --version ${NEW_VERSION} \\"
+            echo "  -f your-values.yaml"
+            echo '```'
+            echo ""
+            echo '```bash'
+            echo "kubectl get pods -n <namespace>"
+            echo '```'
+          } > "$BLOG_FILE"
+          echo "Skeleton created at $BLOG_FILE"
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
+          BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+          git add "$BLOG_FILE"
+          git commit -m "docs: skeleton release post for ${NEW_VERSION}"
+          git push origin "$BRANCH"
+
+          {
+            echo "## Release ${NEW_VERSION} Blog Post"
+            echo ""
+            echo "Skeleton created by the \`docs-release\` workflow. **Fill in the TODOs before merging.**"
+            echo ""
+            echo "### Commits since ${PREV_VERSION}"
+            echo ""
+            echo '```'
+            cat /tmp/git-log.txt
+            echo '```'
+            echo ""
+            echo "### CHANGELOG.md excerpt"
+            echo ""
+            echo '```'
+            cat /tmp/changelog.txt
+            echo '```'
+            echo ""
+            echo "### Checklist"
+            echo ""
+            echo "- [ ] Title subtitle filled in"
+            echo "- [ ] Highlights paragraph written"
+            echo "- [ ] What's New sections complete (link PRs)"
+            echo "- [ ] Bug Fixes section complete"
+            echo "- [ ] Breaking Changes accurate (or confirmed drop-in)"
+            echo "- [ ] Upgrade Guide / Helm values diff verified"
+          } > /tmp/pr-body.md
+
+          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
+            --title "docs: release ${NEW_VERSION} blog post" \
+            --base main \
+            --head "$BRANCH" \
+            --body-file /tmp/pr-body.md
+
+          echo "PR opened: $BRANCH"

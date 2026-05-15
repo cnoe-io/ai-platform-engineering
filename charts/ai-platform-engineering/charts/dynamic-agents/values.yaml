@@ -26,8 +26,27 @@ serviceAccount:
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
-securityContext: {}
+# Security contexts are set to satisfy the Kubernetes Pod Security Standards Baseline
+# profile (enforced) and meet all Restricted profile requirements except
+# readOnlyRootFilesystem, which is left false because agent workloads may write to
+# /tmp at runtime. To enforce the policy at the namespace level:
+#   kubectl label namespace <ns> \
+#     pod-security.kubernetes.io/enforce=baseline \
+#     pod-security.kubernetes.io/warn=restricted \
+#     pod-security.kubernetes.io/audit=restricted
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault
 
 # Service configuration
 service:
@@ -79,27 +98,46 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
+# VPA configuration. Requires VPA to be installed in the cluster.
+# Cannot be enabled alongside autoscaling (VPA conflicts with HPA on CPU/memory scaling).
+# Inherits global.vpa defaults; override any field here to customise for dynamic-agents.
+vpa:
+  enabled: false
+  updateMode: "InPlaceOrRecreate"
+  controlledResources: ["cpu", "memory"]
+  controlledValues: "RequestsAndLimits"
+  minAllowed:
+    cpu: 50m
+    memory: 128Mi
+  maxAllowed: {}
+
 volumes: []
 volumeMounts: []
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# Environment variables (direct injection)
-env: {}
-
 # ConfigMap for non-sensitive configuration
 config:
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
-  # Authentication
-  AUTH_ENABLED: "false"
-  # Agent runtime TTL in seconds
-  AGENT_RUNTIME_TTL_SECONDS: "3600"
+  # Agent runtime TTL in seconds (purged after this much inactivity)
+  AGENT_RUNTIME_TTL_SECONDS: "60"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
   # Tracing disabled by default
   ENABLE_TRACING: "false"
+  # Strip skill payloads (SKILL.md bodies, ancillary files,
+  # skills_metadata channel) and task_config workflow prompts
+  # (tasks/todos channels, workflow tool IO) from OTel spans
+  # before they ship to Langfuse. Has no effect when ENABLE_TRACING
+  # is false. Set to "false" for one-off debug sessions only.
+  SKILL_TRACE_SCRUB_ENABLED: "true"
+  # Defensive per-attribute byte cap to keep OTel spans under
+  # Langfuse's 1 MiB nginx body limit even when non-skill
+  # attributes (tool defs, message history) blow up. 256 KiB
+  # default. Set to "0" to disable.
+  SKILL_TRACE_MAX_ATTR_BYTES: "262144"
 
 # Pre-existing secret with MONGODB_URI and other sensitive values
 # Dynamic-agents uses the same MongoDB as CAIPE UI, so you can reference
@@ -119,53 +157,3 @@ externalSecrets:
     kind: "ClusterSecretStore"
   data: []
 
-# Seed configuration for MCP servers and agents
-# These are loaded at startup and marked as config_driven (cannot be edited via UI)
-# Environment variables in values support ${VAR_NAME} and ${VAR_NAME:-default} syntax
-seedConfig:
-  # Enable seed config ConfigMap creation and mounting
-  enabled: false
-
-  # Available LLM models for the model selector
-  models: []
-  # Example:
-  # - model_id: "claude-sonnet-4-20250514"
-  #   name: "Claude Sonnet 4"
-  #   provider: "anthropic-claude"
-  #   description: "Latest Claude Sonnet model"
-
-  # MCP server configurations
-  # Transport types: stdio, sse, http
-  mcp_servers: []
-  # Example for HTTP MCP server (Streamable HTTP):
-  # - id: "argocd"
-  #   name: "ArgoCD"
-  #   description: "ArgoCD operations via MCP"
-  #   transport: "http"
-  #   endpoint: "http://agent-argocd-mcp:8000/mcp"
-  #   enabled: true
-  #
-  # Example for stdio MCP server:
-  # - id: "github"
-  #   name: "GitHub"
-  #   transport: "stdio"
-  #   command: "uvx"
-  #   args: ["mcp-server-github"]
-  #   env:
-  #     GITHUB_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
-  #   enabled: true
-
-  # Agent configurations
-  agents: []
-  # Example:
-  # - id: "code-reviewer"
-  #   name: "Code Reviewer"
-  #   description: "Reviews code for best practices"
-  #   system_prompt: |
-  #     You are an expert code reviewer...
-  #   model_id: "claude-sonnet-4-20250514"
-  #   model_provider: "anthropic-claude"
-  #   visibility: "global"
-  #   allowed_tools:
-  #     github: []
-  #   enabled: true

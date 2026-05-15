@@ -2,11 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Comprehensive tests for generate_system_prompt and FINAL_ANSWER_MARKER_SECTION.
+Tests for generate_system_prompt.
 
 Tests cover:
-- FINAL_ANSWER_MARKER_SECTION content and structure
-- generate_system_prompt with use_structured_response (True/False)
 - generate_system_prompt with various agents configurations
 - generate_system_prompt with/without RAG agent
 - Fallback template when no YAML config template exists
@@ -15,66 +13,8 @@ Tests cover:
 from unittest.mock import patch
 
 from ai_platform_engineering.multi_agents.platform_engineer.prompts import (
-    FINAL_ANSWER_MARKER_SECTION,
     generate_system_prompt,
 )
-
-
-# =============================================================================
-# FINAL_ANSWER_MARKER_SECTION
-# =============================================================================
-
-
-class TestFinalAnswerMarkerSection:
-    """Test suite for FINAL_ANSWER_MARKER_SECTION constant."""
-
-    def test_contains_final_answer_marker(self):
-        """Verify FINAL_ANSWER_MARKER_SECTION contains [FINAL ANSWER]."""
-        assert "[FINAL ANSWER]" in FINAL_ANSWER_MARKER_SECTION
-
-    def test_is_non_empty_string(self):
-        """Verify FINAL_ANSWER_MARKER_SECTION is a non-empty string."""
-        assert isinstance(FINAL_ANSWER_MARKER_SECTION, str)
-        assert len(FINAL_ANSWER_MARKER_SECTION.strip()) > 0
-
-
-# =============================================================================
-# generate_system_prompt with use_structured_response
-# =============================================================================
-
-
-class TestGenerateSystemPromptUseStructuredResponse:
-    """Test generate_system_prompt behavior with use_structured_response parameter."""
-
-    @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {"system_prompt_template": None},
-    )
-    def test_default_false_includes_final_answer_marker(self):
-        """Default use_structured_response=False: prompt includes [FINAL ANSWER] text."""
-        prompt = generate_system_prompt(agents={})
-        assert "[FINAL ANSWER]" in prompt
-
-    @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {"system_prompt_template": None},
-    )
-    def test_structured_response_true_excludes_final_answer_marker(self):
-        """use_structured_response=True: prompt does NOT include [FINAL ANSWER]."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=True)
-        assert "[FINAL ANSWER]" not in prompt
-
-    @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {"system_prompt_template": None},
-    )
-    def test_structured_response_true_excludes_final_answer_section_text(self):
-        """use_structured_response=True: prompt does NOT include FINAL ANSWER marker section text."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=True)
-        # Key phrases from FINAL_ANSWER_MARKER_SECTION that should be absent
-        assert "OUTPUT FORMAT - MANDATORY" not in prompt or "[FINAL ANSWER]" not in prompt
-        # The marker itself is the main indicator
-        assert "[FINAL ANSWER]" not in prompt
 
 
 # =============================================================================
@@ -250,24 +190,6 @@ class TestGenerateSystemPromptFallbackTemplate:
         assert "Handles GitHub operations" in prompt
         assert "github" in prompt.lower()
 
-    @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {"system_prompt_template": None},
-    )
-    def test_fallback_includes_final_answer_instructions_when_unstructured(self):
-        """Fallback includes final_answer_instructions when use_structured_response=False."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=False)
-        assert "[FINAL ANSWER]" in prompt
-
-    @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {"system_prompt_template": None},
-    )
-    def test_fallback_excludes_final_answer_when_structured(self):
-        """Fallback excludes final_answer section when use_structured_response=True."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=True)
-        assert "[FINAL ANSWER]" not in prompt
-
 
 # =============================================================================
 # YAML template path (when template exists)
@@ -278,19 +200,9 @@ class TestGenerateSystemPromptWithYamlTemplate:
     """Test generate_system_prompt when YAML template is used."""
 
     @patch(
-        "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
-        {
-            "system_prompt_template": (
-                "Header\n{rag_instructions}\n{tool_instructions}\n{final_answer_instructions}"
-            ),
-        },
+        "ai_platform_engineering.multi_agents.platform_engineer.prompts.agent_prompts",
+        {},
     )
-    def test_yaml_template_with_final_answer_instructions(self):
-        """YAML template receives and includes final_answer_instructions when unstructured."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=False)
-        assert "Header" in prompt
-        assert "[FINAL ANSWER]" in prompt
-
     @patch(
         "ai_platform_engineering.multi_agents.platform_engineer.prompts.config",
         {
@@ -299,8 +211,9 @@ class TestGenerateSystemPromptWithYamlTemplate:
             ),
         },
     )
-    def test_yaml_template_excludes_final_answer_when_structured(self):
-        """YAML template receives empty final_answer_instructions when structured."""
-        prompt = generate_system_prompt(agents={}, use_structured_response=True)
+    def test_yaml_template_renders_with_placeholders(self):
+        """YAML template receives and renders all placeholders."""
+        agents = {"github": {"description": "GitHub agent"}}
+        prompt = generate_system_prompt(agents=agents)
         assert "Header" in prompt
-        assert "[FINAL ANSWER]" not in prompt
+        assert "github" in prompt.lower()

@@ -1,0 +1,25 @@
+# Local override for app-config.yaml.
+#
+# Usage:
+#   1. Copy to config/app-config.local.yaml (gitignored).
+#   2. Export CAIPE_APP_CONFIG_FILE=./config/app-config.local.yaml before
+#      `docker compose --profile caipe-ui up` so compose mounts this file
+#      instead of the shared default. See docker-compose.dev.yaml line ~1232.
+#   3. For host-running Next.js (`npm run dev` in ui/), point ui/.env.local's
+#      APP_CONFIG_PATH at this file (relative to ui/, e.g.
+#      `APP_CONFIG_PATH=../config/app-config.local.yaml`).
+#
+# Same schema as config/app-config.yaml. Entities here override / replace the
+# shared defaults — config-driven items in MongoDB are reconciled on every
+# Next.js startup (additions are upserted, removals are cleaned up).
+
+models:
+  # Example: pin a single Bedrock model for fast iteration.
+  - model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    name: "Claude Haiku 4.5 (Bedrock)"
+    provider: "aws-bedrock"
+    description: "Local default — fast/cheap for AI Assist iteration"
+
+mcp_servers: []
+
+agents: []

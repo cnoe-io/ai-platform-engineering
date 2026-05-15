@@ -6,13 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -24,32 +27,45 @@ import type {
   SubAgentRef,
   BuiltinToolsConfig,
   AgentUIConfig,
+  CustomThemeConfig,
+  FeaturesConfig,
+  InterruptOn,
 } from "@/types/dynamic-agent";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { InterruptConfigPicker } from "./InterruptConfigPicker";
+import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
-import { gradientThemes } from "@/lib/gradient-themes";
+import { SkillsSelector } from "./SkillsSelector";
+import { gradientThemes, getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import {
+  useAiReview,
+  AiReviewButton,
+  AiReviewPanel,
+  buildLastReview,
+} from "@/components/ai-review";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
+  readOnly?: boolean; // true for config-driven agents (view only)
   onSave: () => void;
   onCancel: () => void;
 }
 
 /**
- * Generate a URL-safe slug from an agent name.
- * e.g., "Knowledge Agent" -> "knowledge_agent"
+ * Generate a URL-safe slug from an agent name with agent- prefix.
+ * e.g., "Knowledge Agent" -> "agent-knowledge-agent"
  */
 function generateSlug(name: string): string {
-  return name
+  const slug = name
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9\s-]/g, "") // Remove special characters
-    .replace(/\s+/g, "_")          // Replace spaces with underscores
-    .replace(/-+/g, "_")           // Replace hyphens with underscores
-    .replace(/_+/g, "_")           // Collapse multiple underscores
-    .replace(/^_|_$/g, "");        // Trim leading/trailing underscores
+    .replace(/\s+/g, "-")          // Replace spaces with hyphens
+    .replace(/-+/g, "-")           // Collapse multiple hyphens
+    .replace(/^-|-$/g, "");        // Trim leading/trailing hyphens
+  return slug ? `agent-${slug}` : "";
 }
 
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
@@ -91,9 +107,14 @@ const STEPS = [
     hint: "Select which tools your agent can use" 
   },
   { 
-    id: "subagents" as const, 
-    label: "Subagents", 
-    hint: "Delegate tasks to other agents (optional)" 
+    id: "skills" as const, 
+    label: "Skills", 
+    hint: "Attach skills that guide your agent's behavior (optional)" 
+  },
+  { 
+    id: "advanced" as const, 
+    label: "Advanced", 
+    hint: "Subagents, approval rules, and middleware" 
   },
 ];
 
@@ -112,24 +133,24 @@ function StepIndicator({
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
-    <div className="flex items-center justify-center gap-0 py-4">
+    <div className="flex items-center gap-0 ml-auto">
       {steps.map((step, index) => (
         <React.Fragment key={step.id}>
           {index > 0 && (
-            <div className="w-8 h-0.5 bg-border mx-1" />
+            <div className="w-5 h-0.5 bg-border mx-0.5" />
           )}
           <button
             type="button"
             onClick={() => onStepClick(step.id)}
             className={cn(
-              "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[80px]",
+              "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
               currentStep === step.id 
                 ? "bg-primary/10 text-primary" 
                 : "hover:bg-muted text-muted-foreground"
             )}
           >
             <div className={cn(
-              "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium",
+              "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
               currentStep === step.id 
                 ? "bg-primary text-primary-foreground" 
                 : "bg-muted"
@@ -144,7 +165,143 @@ function StepIndicator({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: DynamicAgentEditorProps) {
+/**
+ * Collapsible sub-section used in the Advanced step.
+ */
+function CollapsibleSection({
+  title,
+  description,
+  badge,
+  defaultExpanded = false,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge?: string;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
+
+  return (
+    <div className="border rounded-lg">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-2 w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors rounded-lg"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <div className="flex-1">
+          <span className="text-sm font-semibold">{title}</span>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        {badge && (
+          <span className="text-xs text-muted-foreground font-medium">{badge}</span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 pt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Advanced step: collapsible sub-sections for subagents, interrupts, middleware.
+ */
+function AdvancedStep({
+  agent,
+  subagents,
+  setSubagents,
+  interruptOn,
+  setInterruptOn,
+  allowedTools,
+  builtinTools,
+  features,
+  setFeatures,
+  availableModels,
+  setMiddlewareError,
+  loading,
+  visibility,
+}: {
+  agent: DynamicAgentConfig | null;
+  subagents: SubAgentRef[];
+  setSubagents: (v: SubAgentRef[]) => void;
+  interruptOn: InterruptOn;
+  setInterruptOn: (v: InterruptOn) => void;
+  allowedTools: Record<string, string[]>;
+  builtinTools?: BuiltinToolsConfig;
+  features: FeaturesConfig | undefined;
+  setFeatures: (v: FeaturesConfig | undefined) => void;
+  availableModels: { model_id: string; name: string; provider: string }[];
+  setMiddlewareError: (v: boolean) => void;
+  loading: boolean;
+  visibility: VisibilityType;
+}) {
+  const interruptRuleCount = Object.values(interruptOn).reduce(
+    (sum, tools) => sum + Object.keys(tools).length, 0
+  );
+  const middlewareCount = features?.middleware?.length ?? 0;
+
+  return (
+    <div className="space-y-4 pt-2">
+      <CollapsibleSection
+        title="Subagents"
+        description="Delegate tasks to other custom agents"
+        badge={`${subagents.length} subagent${subagents.length !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <p className="text-xs text-muted-foreground mb-2">
+          <span className="font-medium">Note:</span> Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+        </p>
+        <SubagentPicker
+          agentId={agent?._id || null}
+          value={subagents}
+          onChange={setSubagents}
+          disabled={loading}
+          parentVisibility={visibility}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Human Approval"
+        description="Require approval before executing specific tools"
+        badge={`${interruptRuleCount} rule${interruptRuleCount !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <InterruptConfigPicker
+          value={interruptOn}
+          onChange={setInterruptOn}
+          allowedTools={allowedTools}
+          builtinTools={builtinTools}
+          disabled={loading}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Middleware"
+        description="Retries, limits, and preprocessing"
+        badge={`${middlewareCount} middleware${middlewareCount !== 1 ? "s" : ""}`}
+      >
+        <MiddlewarePicker
+          value={features}
+          onChange={setFeatures}
+          disabled={loading}
+          availableModels={availableModels}
+          onError={setMiddlewareError}
+        />
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCancel }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -171,14 +328,57 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   const [subagents, setSubagents] = React.useState<SubAgentRef[]>(
     source?.subagents || []
   );
-  const [modelId, setModelId] = React.useState(source?.model_id || "");
-  const [modelProvider, setModelProvider] = React.useState(source?.model_provider || "");
+  const [skills, setSkills] = React.useState<string[]>(
+    source?.skills || []
+  );
+  const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
+    source?.features
+  );
+  const [interruptOn, setInterruptOn] = React.useState<InterruptOn>(
+    source?.interrupt_on || { builtin: { request_user_input: true } }
+  );
+  const [modelId, setModelId] = React.useState(source?.model?.id || "");
+  const [modelProvider, setModelProvider] = React.useState(source?.model?.provider || "");
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
+  const [customThemeConfig, setCustomThemeConfig] = React.useState<CustomThemeConfig>(
+    source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
+  );
+  const [showCustomPicker, setShowCustomPicker] = React.useState(false);
+
+  // Sync request_user_input interrupt rule with builtin tool enabled state
+  React.useEffect(() => {
+    const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
+    const isEnabled = !!(cfg && cfg.enabled);
+    const hasRule = !!interruptOn?.builtin?.request_user_input;
+
+    if (isEnabled && !hasRule) {
+      // Tool enabled — add the rule
+      setInterruptOn((prev) => ({
+        ...prev,
+        builtin: { ...prev.builtin, request_user_input: true },
+      }));
+    } else if (!isEnabled && hasRule) {
+      // Tool disabled — remove the rule
+      setInterruptOn((prev) => {
+        const next = { ...prev };
+        if (next.builtin) {
+          const { request_user_input: _, ...rest } = next.builtin;
+          if (Object.keys(rest).length === 0) {
+            delete next.builtin;
+          } else {
+            next.builtin = rest;
+          }
+        }
+        return next;
+      });
+    }
+  }, [builtinTools]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [middlewareError, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
   >([]);
@@ -190,6 +390,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   // AI suggestion state
   const [generatingField, setGeneratingField] = React.useState<string | null>(null);
   const [promptTab, setPromptTab] = React.useState<"edit" | "preview">("edit");
+  const [editorHeight, setEditorHeight] = React.useState(480);
+  const dragRef = React.useRef<{ startY: number; startHeight: number } | null>(null);
   const [showSuggestPromptInput, setShowSuggestPromptInput] = React.useState(false);
   const [suggestPromptInstruction, setSuggestPromptInstruction] = React.useState("");
   const [showSuggestBasicInput, setShowSuggestBasicInput] = React.useState(false);
@@ -197,6 +399,46 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
   const [enhanceExisting, setEnhanceExisting] = React.useState(false);
   const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
   const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
+
+  // AI Review hook for the system prompt (Instructions step). The hook is a no-op
+  // when `/api/review-configs/agent-system-prompt` is not configured / disabled —
+  // both the button and panel render null in that case.
+  const review = useAiReview({
+    target: "agent-system-prompt",
+    content: systemPrompt,
+    context: {
+      name,
+      agent_description: description,
+      extra_context: undefined,
+    },
+    onApplyFix: setSystemPrompt,
+  });
+
+  // Editor resize drag handlers
+  const handleDragStart = React.useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startY: e.clientY, startHeight: editorHeight };
+
+    const handleDragMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = ev.clientY - dragRef.current.startY;
+      const newHeight = Math.max(200, Math.min(window.innerHeight * 0.85, dragRef.current.startHeight + delta));
+      setEditorHeight(newHeight);
+    };
+
+    const handleDragEnd = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", handleDragMove);
+      document.removeEventListener("mouseup", handleDragEnd);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.addEventListener("mousemove", handleDragMove);
+    document.addEventListener("mouseup", handleDragEnd);
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }, [editorHeight]);
 
   // CodeMirror extensions for markdown syntax highlighting
   const [cmExtensions, setCmExtensions] = React.useState<any[]>([]);
@@ -206,11 +448,15 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       import("@codemirror/lang-markdown"),
       import("@codemirror/language-data"),
       import("@codemirror/view"),
-    ]).then(([mdMod, langDataMod, viewMod]) => {
+      import("@/lib/codemirror/jinja2-highlight"),
+      import("@/lib/codemirror/markdown-highlight"),
+    ]).then(([mdMod, langDataMod, viewMod, jinja2Mod, mdHighlightMod]) => {
       if (!cancelled) {
         setCmExtensions([
           mdMod.markdown({ codeLanguages: langDataMod.languages }),
           viewMod.EditorView.lineWrapping,
+          mdHighlightMod.markdownHighlight,
+          jinja2Mod.jinja2Highlight,
         ]);
       }
     });
@@ -258,19 +504,19 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
           
-          if (source?.model_id) {
+          if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
               (m: { model_id: string; provider: string }) => 
-                m.model_id === source.model_id && m.provider === source.model_provider
+                m.model_id === source.model.id && m.provider === source.model.provider
             );
             if (existingModel) {
               // Model exists - ensure provider is in sync with config
               setModelProvider(existingModel.provider);
             } else {
               // Model no longer available - reset to first available
-              console.warn(`Agent model "${source.model_id}" no longer available, resetting to default`);
+              console.warn(`Agent model "${source.model.id}" no longer available, resetting to default`);
               if (data.data.length > 0) {
                 setModelId(data.data[0].model_id);
                 setModelProvider(data.data[0].provider);
@@ -286,6 +532,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
         console.error("Failed to fetch models:", err);
       } finally {
         setModelsLoading(false);
+        // Flip the snapshot sentinel after models load. This causes the dirty
+        // tracker to re-snapshot WITH the freshly applied default model, so a
+        // newly opened editor doesn't immediately appear dirty.
+        setModelDefaultsApplied(true);
       }
     }
     fetchModels();
@@ -310,6 +560,68 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
 
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+
+  // Local state for the in-app "you have unsaved changes" confirmation when the
+  // user clicks the back arrow. We don't route this through the global store's
+  // pendingNavigationHref because closing the editor isn't an href navigation —
+  // it's a parent-state flip controlled by the onCancel prop.
+  const [pendingClose, setPendingClose] = React.useState(false);
+
+  // Snapshot sentinel: flips once after the async models endpoint resolves and
+  // applies a default modelId/modelProvider to a previously empty form. This
+  // ensures the dirty-tracking snapshot is taken AFTER defaults are applied,
+  // preventing a false "dirty" right after model defaults populate.
+  const [modelDefaultsApplied, setModelDefaultsApplied] = React.useState(
+    !!source?.model?.id
+  );
+
+  // Aggregate all editable form fields into a single object so the
+  // dirty-tracking hook can compare current vs initial values.
+  const currentFormValues = React.useMemo(
+    () => ({
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    }),
+    [
+      name,
+      description,
+      systemPrompt,
+      visibility,
+      sharedWithTeams,
+      allowedTools,
+      builtinTools,
+      subagents,
+      skills,
+      features,
+      modelId,
+      modelProvider,
+      gradientTheme,
+    ]
+  );
+
+  // The snapshot key combines the source identity with the model-defaults
+  // sentinel. When either changes, the dirty hook re-snapshots so the form
+  // appears clean.
+  const snapshotIdentity =
+    agent?._id ?? cloneFrom?._id ?? "new";
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
+
+  const { dirty, resetSnapshot } = useEditorDirtyTracking({
+    enabled: !readOnly,
+    currentValues: currentFormValues,
+    snapshotKey,
+  });
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
 
@@ -319,7 +631,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     }
   };
 
-  const goToNextStep = () => {
+  const goToNextStep = async () => {
+    // Gate the instructions → tools transition behind a passing AI Review when
+    // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
+    // no-op when the config is disabled or informational.
+    if (activeStep === "instructions" && review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before continuing.");
+        return;
+      }
+    }
     if (currentStepIndex < STEPS.length - 1) {
       setActiveStep(STEPS[currentStepIndex + 1].id);
     }
@@ -356,8 +678,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                 }))
               : undefined,
           },
-          model_id: modelId,
-          model_provider: modelProvider,
+          model: { id: modelId, provider: modelProvider },
           ...(instruction ? { instruction } : {}),
           ...(field === "system_prompt" ? { prompt_style: promptStyle } : {}),
         }),
@@ -383,6 +704,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           setPromptTab("preview");
           break;
         case "theme": {
+          // Check for custom theme response: "custom:#hex1,#hex2,#hex3"
+          const customMatch = content.match(/custom:\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})\s*,\s*(#[0-9a-fA-F]{3,8})/);
+          if (customMatch) {
+            setGradientTheme("custom");
+            setCustomThemeConfig({
+              gradient_from: customMatch[1],
+              gradient_to: customMatch[2],
+              accent_color: customMatch[3],
+            });
+            setShowCustomPicker(true);
+            break;
+          }
           // Try exact match first (after normalization)
           const normalized = content.toLowerCase().replace(/[^a-z_]/g, "");
           const exactMatch = gradientThemes.find((t) => t.id === normalized);
@@ -455,6 +788,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     setLoading(true);
     setError(null);
 
+    // Gate save behind a passing AI Review when the admin has flagged this
+    // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
+    // disabled or informational.
+    if (review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before saving.");
+        setLoading(false);
+        return;
+      }
+    }
+
     // Validate required fields
     if (!modelId || !modelProvider) {
       setError("Model selection is required");
@@ -479,8 +824,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
     try {
       // Build UI config if gradient theme is set
       const uiConfig: AgentUIConfig | undefined = gradientTheme
-        ? { gradient_theme: gradientTheme }
+        ? {
+            gradient_theme: gradientTheme,
+            ...(gradientTheme === "custom" ? { custom_theme_config: customThemeConfig } : {}),
+          }
         : undefined;
+
+      // Stamp the latest in-memory review verdict onto the saved row so the
+      // list view can show a grade badge without re-running the LLM. Only
+      // emit the field when we actually have a result this session — never
+      // overwrite a prior `last_review` with null.
+      const lastReview = buildLastReview(review.result, "agent-system-prompt");
 
       if (isEditing) {
         // Update existing agent
@@ -493,9 +847,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          skills,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
+          features: features,
+          interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -520,9 +877,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
-          model_id: modelId,
-          model_provider: modelProvider,
+          skills,
+          model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
+          features: features,
+          interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -537,6 +897,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
         }
       }
 
+      // Clear unsaved-changes state BEFORE calling onSave(): the parent will
+      // unmount this editor in response to onSave, and we want the global flag
+      // to be false by the time any header/tab guards re-evaluate. resetSnapshot
+      // also re-points the snapshot at the just-saved values so a follow-up
+      // dirty check (in the unlikely case the editor stays mounted) is correct.
+      resetSnapshot();
+      useUnsavedChangesStore.getState().setUnsaved(false);
+
       onSave();
     } catch (err: any) {
       setError(err.message || "An error occurred");
@@ -547,41 +915,80 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
 
   const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
 
+  // Back-button click handler. When the form has unsaved changes, we surface
+  // an in-app confirmation modal instead of silently discarding work. The
+  // dialog itself is rendered at the bottom of this component.
+  const handleBackClick = () => {
+    if (dirty) {
+      setPendingClose(true);
+    } else {
+      onCancel();
+    }
+  };
+
+  const handleConfirmDiscard = () => {
+    setPendingClose(false);
+    // Belt-and-suspenders: clear the global flag here AND let the unmount
+    // cleanup in useEditorDirtyTracking do the same. Either alone is enough.
+    useUnsavedChangesStore.getState().setUnsaved(false);
+    onCancel();
+  };
+
+  const handleCancelDiscard = () => {
+    setPendingClose(false);
+  };
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onCancel}>
+          <Button variant="ghost" size="icon" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <CardTitle>
-              {isEditing ? "Edit Custom Agent" : isCloning ? "Clone Custom Agent" : "Create Custom Agent"}
+              {readOnly
+                ? `View Agent - ${agent?.name}`
+                : isEditing
+                ? `Edit Agent - ${agent?.name}`
+                : isCloning
+                ? "Clone Agent"
+                : "Create Agent"}
             </CardTitle>
             <CardDescription>
-              {isEditing
+              {readOnly
+                ? "This agent is managed by configuration and cannot be edited"
+                : isEditing
                 ? "Update the agent configuration"
                 : isCloning
                 ? `Creating a copy of "${cloneFrom?.name}"`
                 : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
+          <div
+            className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
+            style={getGradientStyle(gradientTheme, gradientTheme === "custom" ? customThemeConfig : null)}
+          >
+            <Bot className="h-5 w-5" style={{ color: getAccentColor(gradientTheme, customThemeConfig) || "white" }} />
+          </div>
         </div>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Step Indicator */}
-          <StepIndicator 
-            steps={STEPS} 
-            currentStep={activeStep} 
-            onStepClick={setActiveStep} 
-          />
-
-          {/* Step hint */}
-          <div className="text-center pb-2 border-b">
-            <h3 className="font-medium">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
-            <p className="text-sm text-muted-foreground">{currentStepConfig?.hint}</p>
+          {/* Step Indicator + title inline */}
+          <div className="flex items-center gap-4 border-b pb-3 mt-2">
+            <div className="shrink-0">
+              <h3 className="text-xl font-bold text-primary">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
+            </div>
+            <StepIndicator 
+              steps={STEPS} 
+              currentStep={activeStep} 
+              onStepClick={setActiveStep} 
+            />
           </div>
+
+          <fieldset disabled={readOnly} className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -756,7 +1163,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                     <button
                       key={theme.id}
                       type="button"
-                      onClick={() => setGradientTheme(theme.id)}
+                      onClick={() => { setGradientTheme(theme.id); setShowCustomPicker(false); }}
                       className={cn(
                         "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left",
                         gradientTheme === theme.id
@@ -783,6 +1190,120 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                       )}
                     </button>
                   ))}
+                  {/* Custom theme button */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => { setGradientTheme("custom"); setShowCustomPicker(!showCustomPicker); }}
+                      className={cn(
+                        "flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left w-full",
+                        gradientTheme === "custom"
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/50 hover:bg-muted/50"
+                      )}
+                      disabled={loading}
+                      title="Custom colors"
+                    >
+                      <div
+                        className="w-6 h-6 rounded-md shrink-0 border border-dashed border-muted-foreground/40 flex items-center justify-center"
+                        style={gradientTheme === "custom" ? { background: `linear-gradient(to bottom right, ${customThemeConfig.gradient_from}, ${customThemeConfig.gradient_to})` } : undefined}
+                      >
+                        {gradientTheme !== "custom" && <span className="text-[10px] text-muted-foreground">+</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[11px] font-medium block truncate">Custom</span>
+                        <span className="text-[10px] text-muted-foreground block truncate">
+                          Pick your own
+                        </span>
+                      </div>
+                      {gradientTheme === "custom" && (
+                        <Check className="h-3 w-3 text-primary shrink-0" />
+                      )}
+                    </button>
+
+                    {/* Custom theme picker popup — positioned to the left of the button */}
+                    {showCustomPicker && gradientTheme === "custom" && (
+                      <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
+                        {/* Preview */}
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-all"
+                            style={getGradientStyle("custom", customThemeConfig)}
+                          >
+                            <Bot className="h-6 w-6" style={{ color: customThemeConfig.accent_color }} />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Live preview
+                          </div>
+                        </div>
+
+                        {/* Color inputs */}
+                        <div className="space-y-2.5">
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient From</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_from}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_from: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#6366f1"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Gradient To</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.gradient_to}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, gradient_to: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#1e1b4b"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="text-[11px] font-medium w-24 shrink-0">Icon Color</label>
+                            <div className="flex items-center gap-1.5 flex-1">
+                              <input
+                                type="color"
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 w-7 rounded cursor-pointer border border-border shrink-0"
+                              />
+                              <Input
+                                value={customThemeConfig.accent_color}
+                                onChange={(e) => setCustomThemeConfig(prev => ({ ...prev, accent_color: e.target.value }))}
+                                className="h-7 text-xs font-mono"
+                                placeholder="#ffffff"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Done button */}
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setShowCustomPicker(false)}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -860,6 +1381,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                   <Label htmlFor="systemPrompt">
                     System Prompt <span className="text-destructive">*</span>
                   </Label>
+                  <div className="flex items-center gap-2">
                   <div className="relative">
                     <Button
                       type="button"
@@ -963,6 +1485,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                       )}
                     </AnimatePresence>
                   </div>
+                  {/* AI Review button — sibling to AI Suggest. Renders disabled
+                      when the target isn't configured; the panel below renders
+                      null in the same case so this is the only visible affordance. */}
+                  <AiReviewButton review={review} size="sm" />
+                  </div>
                 </div>
 
                 {/* Edit / Preview tabs */}
@@ -995,55 +1522,83 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
                   </button>
                 </div>
 
-                {promptTab === "edit" ? (
-                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e] min-h-[480px]">
-                    <React.Suspense
-                      fallback={
-                        <div className="flex items-center justify-center h-48 text-zinc-500">
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          <span className="text-sm">Loading editor...</span>
-                        </div>
-                      }
-                    >
-                      <CodeMirrorEditor
-                        value={systemPrompt}
-                        onChange={(val: string) => setSystemPrompt(val)}
-                        extensions={cmExtensions}
-                        theme="dark"
-                        height="480px"
-                        style={{ fontSize: "15px" }}
-                        basicSetup={{
-                          lineNumbers: true,
-                          foldGutter: true,
-                          highlightActiveLine: true,
-                          bracketMatching: true,
-                          autocompletion: false,
-                          indentOnInput: true,
-                        }}
-                        placeholder="You are a helpful AI assistant that specializes in..."
-                        editable={!loading && generatingField !== "system_prompt"}
-                      />
-                    </React.Suspense>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border p-4 min-h-[480px] max-h-[600px] overflow-y-auto prose prose-sm dark:prose-invert max-w-none">
-                    {systemPrompt.trim() ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={getMarkdownComponents()}
-                      >
-                        {systemPrompt}
-                      </ReactMarkdown>
+                {/* Editor column + AI Review panel side-by-side. Panel renders
+                    null when the target isn't configured / disabled, so the
+                    flex container collapses to just the editor in that case. */}
+                <div className="flex gap-3 min-h-0">
+                  <div className="flex-1 min-w-0">
+                    {promptTab === "edit" ? (
+                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
+                        <React.Suspense
+                          fallback={
+                            <div className="flex items-center justify-center h-48 text-zinc-500">
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              <span className="text-sm">Loading editor...</span>
+                            </div>
+                          }
+                        >
+                          <CodeMirrorEditor
+                            value={systemPrompt}
+                            onChange={(val: string) => setSystemPrompt(val)}
+                            extensions={cmExtensions}
+                            theme="dark"
+                            height={`${editorHeight}px`}
+                            style={{ fontSize: "15px" }}
+                            basicSetup={{
+                              lineNumbers: true,
+                              foldGutter: true,
+                              highlightActiveLine: true,
+                              bracketMatching: true,
+                              autocompletion: false,
+                              indentOnInput: true,
+                            }}
+                            placeholder="You are a helpful AI assistant that specializes in..."
+                            editable={!loading && generatingField !== "system_prompt"}
+                          />
+                        </React.Suspense>
+                      </div>
                     ) : (
-                      <p className="text-muted-foreground italic text-sm">
-                        Nothing to preview. Switch to Edit to write your system prompt.
-                      </p>
+                      <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
+                        {systemPrompt.trim() ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={getMarkdownComponents()}
+                          >
+                            {systemPrompt}
+                          </ReactMarkdown>
+                        ) : (
+                          <p className="text-muted-foreground italic text-sm">
+                            Nothing to preview. Switch to Edit to write your system prompt.
+                          </p>
+                        )}
+                      </div>
                     )}
+
+                    {/* Drag handle to resize editor */}
+                    <div
+                      onMouseDown={handleDragStart}
+                      className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
+                    >
+                      <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                    </div>
                   </div>
-                )}
+                  <AiReviewPanel
+                    review={review}
+                    style={{ height: `${editorHeight + 12}px` }}
+                    onClickAnchor={(anchor) => {
+                      // Phase 1: no-op stub. A follow-up will scroll the
+                      // CodeMirror view to `anchor.line_start` and flash a
+                      // gutter decoration. Logging keeps the wiring observable
+                      // during development.
+                      if (process.env.NODE_ENV !== "production") {
+                        console.debug("[ai-review] anchor click", anchor);
+                      }
+                    }}
+                  />
+                </div>
 
                 <p className="text-sm text-muted-foreground">
-                  Define your agent&apos;s behavior, personality, and capabilities. 
+                  Define your agent&apos;s behavior, personality, and capabilities.
                   You can paste content from an AGENTS.md file here.
                 </p>
               </div>
@@ -1079,28 +1634,41 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
             </div>
           )}
 
-          {/* Subagents Step */}
-          {activeStep === "subagents" && (
-            <div className="space-y-4 pt-2">
+          {/* Step: Skills */}
+          {activeStep === "skills" && (
+            <div className="space-y-4">
               <div>
-                <Label>Subagent Delegation</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Configure other custom agents that this agent can delegate tasks to.
-                  The LLM will automatically decide when to use each subagent based on the description you provide.
-                </p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-                  Note: Subagents cannot be nested. The agents you add here will not have access to their own subagents when invoked.
+                <p className="text-sm text-muted-foreground">
+                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
+                  for specific tasks. The agent reads skill content on demand via progressive disclosure.
                 </p>
               </div>
 
-              <SubagentPicker
-                agentId={agent?._id || null}
-                value={subagents}
-                onChange={setSubagents}
+              <SkillsSelector
+                value={skills}
+                onChange={setSkills}
                 disabled={loading}
-                parentVisibility={visibility}
               />
             </div>
+          )}
+
+          {/* Advanced Step */}
+          {activeStep === "advanced" && (
+            <AdvancedStep
+              agent={agent}
+              subagents={subagents}
+              setSubagents={setSubagents}
+              interruptOn={interruptOn}
+              setInterruptOn={setInterruptOn}
+              allowedTools={allowedTools}
+              builtinTools={builtinTools}
+              features={features}
+              setFeatures={setFeatures}
+              availableModels={availableModels}
+              setMiddlewareError={setMiddlewareError}
+              loading={loading}
+              visibility={visibility}
+            />
           )}
 
           {/* Error */}
@@ -1109,6 +1677,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
+          </fieldset>
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
@@ -1122,10 +1691,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={goToNextStep}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void goToNextStep()}
               disabled={currentStepIndex === STEPS.length - 1 || loading}
               size="sm"
             >
@@ -1139,25 +1708,41 @@ export function DynamicAgentEditor({ agent, cloneFrom, onSave, onCancel }: Dynam
       {/* Action Buttons - Outside the card content */}
       <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
         <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
-          {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
-          {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+          {readOnly ? (
+            "This agent is config-driven and cannot be modified"
+          ) : (
+            <>
+              {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
+              {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+            </>
+          )}
         </div>
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-          Cancel
+          {readOnly ? "Close" : "Cancel"}
         </Button>
-        <Button onClick={handleSubmit} disabled={loading || !isValid}>
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {isEditing ? "Saving..." : "Creating..."}
-            </>
-          ) : isEditing ? (
-            "Save Changes"
-          ) : (
-            "Create Agent"
-          )}
-        </Button>
+        {!readOnly && (
+          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {isEditing ? "Saving..." : "Creating..."}
+              </>
+            ) : isEditing ? (
+              "Save Changes"
+            ) : (
+              "Create Agent"
+            )}
+          </Button>
+        )}
       </div>
+
+      <UnsavedChangesDialog
+        open={pendingClose}
+        onCancel={handleCancelDiscard}
+        onDiscard={handleConfirmDiscard}
+        title="Unsaved changes"
+        description="You have unsaved changes in the agent editor. They will be lost if you leave now."
+      />
     </Card>
   );
 }

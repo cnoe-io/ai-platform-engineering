@@ -24,7 +24,9 @@ APP_NAME ?= ai-platform-engineering
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
-	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate
+	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate \
+	scan-images scan-image \
+	ui
 
 .DEFAULT_GOAL := run
 
@@ -168,6 +170,8 @@ caipe-cli-build: ## Build CAIPE CLI binary (current platform)
 	@cd cli && bun install && npm run compile
 
 ## ========== CAIPE UI ==========
+
+ui: caipe-ui ## Alias for caipe-ui
 
 caipe-ui: caipe-ui-install caipe-ui-dev ## Build and run the CAIPE UI (install + dev server)
 
@@ -313,6 +317,10 @@ test-mcp-jira: ## Run Jira MCP tests
 test-mcp-komodor: ## Run Komodor MCP tests
 	@echo "Running Komodor MCP tests..."
 	@cd ai_platform_engineering/agents/komodor/mcp && $(MAKE) test
+
+test-mcp-litellm: ## Run LiteLLM MCP tests
+	@echo "Running LiteLLM MCP tests..."
+	@cd ai_platform_engineering/agents/litellm/mcp && $(MAKE) test
 
 test-mcp-pagerduty: ## Run PagerDuty MCP tests
 	@echo "Running PagerDuty MCP tests..."
@@ -502,6 +510,35 @@ docs-helm-validate: docs-helm-charts docs-build ## End-to-end validation: genera
 		exit 1; \
 	fi
 	@echo "✓ Helm chart docs validation passed"
+
+## ========== Security Scanning ==========
+
+IMAGE_TAG ?= localtag
+
+GRYPE_SEVERITY ?= high
+
+scan-images: ## Scan all locally built images with grype (make scan-images GRYPE_SEVERITY=high)
+	@command -v grype >/dev/null 2>&1 || { echo "grype not found. Install: brew install grype"; exit 1; }
+	@echo "Scanning images with grype (severity >= $(GRYPE_SEVERITY))..."
+	@failed=0; \
+	for img in $$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "cnoe-io.*$(IMAGE_TAG)"); do \
+		echo ""; \
+		echo "=== $$img ==="; \
+		grype "$$img" --fail-on "$(GRYPE_SEVERITY)" --quiet 2>/dev/null || failed=1; \
+	done; \
+	if [ "$$failed" -eq 1 ]; then \
+		echo ""; \
+		echo "FAIL: one or more images have vulnerabilities >= $(GRYPE_SEVERITY)"; \
+		exit 1; \
+	else \
+		echo ""; \
+		echo "✓ All images passed grype scan"; \
+	fi
+
+scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-io/mcp-splunk:localtag)
+	@command -v grype >/dev/null 2>&1 || { echo "grype not found. Install: brew install grype"; exit 1; }
+	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
+	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
 ## ========== Help ==========
 

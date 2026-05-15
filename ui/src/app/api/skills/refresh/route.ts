@@ -14,12 +14,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, _user, session) => {
     requireAdmin(session);
 
-    const backendUrl = process.env.BACKEND_SKILLS_URL;
+    const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (!backendUrl) {
       return NextResponse.json(
         {
           error: "backend_not_configured",
-          message: "BACKEND_SKILLS_URL is not set; cannot refresh supervisor skills.",
+          message: "NEXT_PUBLIC_A2A_BASE_URL is not set; cannot refresh supervisor skills.",
         },
         { status: 503 },
       );
