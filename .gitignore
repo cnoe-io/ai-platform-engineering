@@ -300,3 +300,6 @@ PR_BODY.md
 PR_BODY.txt
 .pr-body.md
 COMMIT_BODY.md
+
+# GitHub App credentials (never commit)
+.github-apps-credentials/

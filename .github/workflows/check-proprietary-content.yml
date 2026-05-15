@@ -11,6 +11,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-proprietary-content:
     runs-on: ubuntu-latest
@@ -194,22 +198,16 @@ jobs:
               per_page: 100
             });
 
-            const oldSuccessComments = comments.filter(comment =>
-              comment.body?.trim() === body &&
-              comment.user?.type === 'Bot'
+            const existing = comments.find(c =>
+              c.body?.trim() === body &&
+              c.user?.type === 'Bot'
             );
 
-            for (const comment of oldSuccessComments) {
-              await github.rest.issues.deleteComment({
+            if (!existing) {
+              await github.rest.issues.createComment({
                 owner,
                 repo,
-                comment_id: comment.id
+                issue_number,
+                body
               });
             }
-
-            await github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number,
-              body
-            });

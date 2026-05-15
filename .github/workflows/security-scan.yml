@@ -39,6 +39,10 @@ permissions:
   contents: read
   security-events: write  # required to upload SARIF to GitHub Code Scanning
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scan-filesystem:
     name: Filesystem scan
