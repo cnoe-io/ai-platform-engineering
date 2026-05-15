@@ -9,11 +9,16 @@
  * All three paths store the resulting TokenSet via keychain.ts.
  * All endpoints are derived from the configured serverUrl.
  */
+// assisted-by Codex Codex-sonnet-4-6
 
+import { execFile } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
+import { promisify } from "node:util";
 import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
 import { type TokenSet, storeTokens } from "./keychain.js";
+
+const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Resolved endpoint cache per process (discovery runs once per invocation)
@@ -109,8 +114,10 @@ export function startCallbackServer(port: number): {
       // Tear down the server after the browser has had time to read the response.
       setTimeout(() => {
         server.close();
-        if (typeof (server as any).closeAllConnections === "function") {
-          (server as any).closeAllConnections();
+        const closeAllConnections = (server as typeof server & { closeAllConnections?: () => void })
+          .closeAllConnections;
+        if (typeof closeAllConnections === "function") {
+          closeAllConnections.call(server);
         }
       }, 2000);
     });
@@ -136,15 +143,28 @@ export function startCallbackServer(port: number): {
  * Silently fails if no browser is available (headless/SSH).
  */
 export async function openBrowser(url: string): Promise<void> {
-  const { execa } = await import("execa");
+  const browserUrl = normalizeBrowserUrl(url);
   const platform = process.platform;
-  const cmd = platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", url] : [url];
+  const cmd = platform === "darwin" ? "open" : platform === "win32" ? "rundll32" : "xdg-open";
+  const args =
+    platform === "darwin"
+      ? ["--", browserUrl]
+      : platform === "win32"
+        ? ["url.dll,FileProtocolHandler", browserUrl]
+        : [browserUrl];
   try {
-    await execa(cmd, args, { stdio: "ignore" });
+    await execFileAsync(cmd, args, { windowsHide: true });
   } catch {
     // Ignore — user will get the URL printed below
   }
+}
+
+function normalizeBrowserUrl(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Unsupported browser URL protocol: ${parsed.protocol}`);
+  }
+  return parsed.toString();
 }
 
 // ---------------------------------------------------------------------------

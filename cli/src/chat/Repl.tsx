@@ -10,6 +10,7 @@
  *   - The dynamic area (input bar + status) is only ~4 lines, so its
  *     1 Hz elapsed-timer updates are imperceptible.
  */
+// assisted-by Codex Codex-sonnet-4-6
 
 import { Box, Static, Text, useApp, useInput } from "ink";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -41,10 +42,15 @@ interface ReplProps {
  * never touched again — this is what prevents flashing.
  */
 type StaticItem =
-  | { _key: number; kind: "user"; text: string }
-  | { _key: number; kind: "assistant"; text: string }
-  | { _key: number; kind: "chunk"; text: string }
-  | { _key: number; kind: "tool"; name: string };
+  | ({ kind: "user"; text: string } & { _key: number })
+  | ({ kind: "assistant"; text: string } & { _key: number })
+  | ({ kind: "chunk"; text: string } & { _key: number })
+  | ({ kind: "tool"; name: string } & { _key: number });
+type StaticItemInput =
+  | { kind: "user"; text: string }
+  | { kind: "assistant"; text: string }
+  | { kind: "chunk"; text: string }
+  | { kind: "tool"; name: string };
 
 // Internal message for history tracking (not rendered directly)
 type HistoryEntry = { role: "user" | "assistant"; content: string };
@@ -477,7 +483,7 @@ export function Repl({
 
   // ── Helpers to push items to the Static list ──
   // biome-ignore lint/correctness/useExhaustiveDependencies: nextKey is a stable ref-based counter, not a reactive dependency
-  const pushStatic = useCallback((item: Omit<StaticItem, "_key">) => {
+  const pushStatic = useCallback((item: StaticItemInput) => {
     const _key = nextKey();
     setStaticItems((prev) => [...prev, { ...item, _key } as StaticItem]);
   }, []);

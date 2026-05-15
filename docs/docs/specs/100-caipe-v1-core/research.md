@@ -347,6 +347,33 @@ CLI                          CAIPE server
 
 ---
 
+## Decision 12 — Goose Integration Path
+
+**Decision**: Do not replace the v1 CAIPE CLI runtime with [aaif-goose/goose](https://github.com/aaif-goose/goose) in this PR. Keep v1 as a first-party CAIPE protocol client for authenticated A2A and AG-UI chat, skills, memory, agents, and DCO workflows. Track Goose as a v2 integration path through one of three options:
+
+1. **CAIPE MCP extension for Goose**: expose CAIPE agents, skills, and platform workflows as MCP tools that a Goose session can invoke.
+2. **CAIPE Goose distribution**: fork/customize Goose using its custom distribution model, preconfigure CAIPE-specific providers/extensions/recipes, and ship that as an optional developer workstation agent.
+3. **Protocol bridge**: build an ACP or `goosed` REST bridge that lets CAIPE UI/server components delegate local task execution to Goose while CAIPE remains the authenticated routing plane.
+
+**Rationale**:
+- Goose already provides a mature local agent runtime, CLI, desktop app, API, provider abstraction, MCP extension model, and custom distribution story.
+- CAIPE CLI v1 has a narrower contract: authenticate to CAIPE, select server agents, stream A2A/AG-UI responses, manage skills, and enforce project conventions. Replacing it now would introduce a Rust/Goose distribution build into a PR that is already implementing and documenting a CAIPE-specific protocol client.
+- Goose does not natively speak the CAIPE A2A/AG-UI server contract. A direct replacement would still need an adapter for CAIPE auth, agent registry, protocol selection, skills catalog, and DCO behavior.
+- The lowest-risk path is to finish v1, then prototype Goose interoperability as a separate milestone with clear success criteria.
+
+**Follow-up proof of concept**:
+- Build a small CAIPE MCP server for Goose with tools for `agents.list`, `chat.send`, and `skills.search`.
+- Verify OAuth/device auth reuse or token handoff without writing plaintext credentials.
+- Compare UX against native `caipe chat --agent <name>` for one platform workflow.
+- Decide whether the result should be an optional Goose integration, a branded Goose distribution, or a future replacement of local tool-execution behavior.
+
+**Alternatives considered**:
+- **Use Goose as v1 directly**: rejected for this PR; too much scope shift and still requires CAIPE protocol/auth adapters.
+- **Ignore Goose**: rejected; it is a strong upstream candidate for local execution, MCP tools, recipes, and custom distributions.
+- **Vendor Goose into this repository**: rejected; unnecessary maintenance burden and unclear release ownership.
+
+---
+
 ## Technology Stack (v1)
 
 | Concern | Choice | Rationale |
@@ -365,4 +392,5 @@ CLI                          CAIPE server
 | Server URL config | `settings.json` `server.url` + `--url` override | Single URL drives all endpoints; first-run wizard; no hardcoded default |
 | Headless auth | JWT > API Key > Client Credentials (presence-based) | Covers federated CI (JWT/OIDC passthrough), simple pipelines (API Key), service-to-service (Client Credentials) |
 | SSH/headless one-time auth | Device Authorization Grant (RFC 8628) via `--device` | Short code UX; no browser on same machine; `--manual` fallback |
+| Goose | Not a v1 runtime dependency; v2 integration candidate | Strong local agent/MCP/custom distro story; needs CAIPE A2A/AG-UI/auth bridge |
 | Testing | Bun test (built-in) | Zero config; compatible with Jest API |
