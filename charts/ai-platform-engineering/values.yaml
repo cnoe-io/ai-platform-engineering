@@ -686,6 +686,10 @@ caipe-ui:
   config:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    # Bootstrap default agent for new chats. Overridden at runtime by Admin → Settings UI.
+    # Set to a dynamic agent ID to pre-configure the default without manual admin action.
+    # Leave empty to use the supervisor (Platform Engineer) as default.
+    DEFAULT_AGENT_ID: ""
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
     # Live-skills skill template (mounted from ConfigMap "skills-live-skills").

@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,7 @@ import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -197,7 +198,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review', 'settings'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -823,7 +824,8 @@ function AdminPage() {
                   + (getConfig('npsEnabled') ? 1 : 0)
                   + (auditLogsEnabled && isAdmin ? 1 : 0)
                   + (isAdmin ? 1 : 0)
-                  + (isAdmin ? 1 : 0);
+                  + (isAdmin ? 1 : 0)
+                  + (isAdmin ? 1 : 0); // settings tab
                 const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11' };
                 return cols[n] ?? 'grid-cols-6';
               })()}`}>
@@ -879,6 +881,12 @@ function AdminPage() {
                   <TabsTrigger value="ai-review" className="gap-2">
                     <ShieldCheck className="h-4 w-4" />
                     AI Review
+                  </TabsTrigger>
+                )}
+                {isAdmin && (
+                  <TabsTrigger value="settings" className="gap-2">
+                    <Settings className="h-4 w-4" />
+                    Settings
                   </TabsTrigger>
                 )}
               </TabsList>
@@ -2530,6 +2538,13 @@ function AdminPage() {
               {isAdmin && (
                 <TabsContent value="ai-review" className="space-y-4">
                   <ReviewConfigsTab />
+                </TabsContent>
+              )}
+
+              {/* Platform Settings (admin only) */}
+              {isAdmin && (
+                <TabsContent value="settings" className="space-y-4">
+                  <PlatformSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
             </Tabs>
