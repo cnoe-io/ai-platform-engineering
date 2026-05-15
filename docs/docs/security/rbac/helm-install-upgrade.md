@@ -87,7 +87,18 @@ env:
   KC_DB_USERNAME: "keycloak"
 
 admin:
-  secretRef: caipe-keycloak-admin
+  externalSecret:
+    enabled: true
+    secretStoreRef:
+      name: vault
+      kind: ClusterSecretStore
+    remoteRefs:
+      username:
+        key: secret/data/caipe/keycloak
+        property: KEYCLOAK_ADMIN_USERNAME
+      password:
+        key: secret/data/caipe/keycloak
+        property: KEYCLOAK_ADMIN_PASSWORD
 
 idp:
   enabled: true
@@ -112,14 +123,10 @@ uiClient:
     - https://caipe.example.com
 ```
 
-Create the referenced secrets out of band:
+Create the referenced non-admin secrets out of band. The Keycloak admin Secret should come from your secret manager through `admin.externalSecret`, not a chart-generated password.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n caipe create secret generic caipe-keycloak-admin \
-  --from-literal=username=admin \
-  --from-literal=password="$(openssl rand -hex 32)"
 
 kubectl -n caipe create secret generic caipe-keycloak-idp \
   --from-literal=IDP_CLIENT_SECRET="${IDP_CLIENT_SECRET}"
@@ -147,7 +154,9 @@ helm upgrade --install caipe \
 
 ### Expose `idp.caipe.example.com`
 
-The Keycloak subchart can render an Ingress through `keycloak.ingress`. For nginx Ingress:
+The Keycloak subchart can render an Ingress through `keycloak.ingress`. Public ingress should expose only the application realm and static login assets. Keep `/admin` and `/realms/master` private behind the ClusterIP service for `kubectl port-forward` or private networking.
+
+For nginx Ingress:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -169,13 +178,27 @@ spec:
     - host: idp.caipe.example.com
       http:
         paths:
-          - path: /
+          - path: /realms/caipe
             pathType: Prefix
             backend:
               service:
                 name: caipe-keycloak
                 port:
                   number: 8080
+          - path: /resources
+            pathType: Prefix
+            backend:
+              service:
+                name: caipe-keycloak
+                port:
+                  number: 8080
+```
+
+Use port-forward for Keycloak Admin Console or master realm operations:
+
+```bash
+kubectl -n caipe port-forward svc/caipe-keycloak 18080:8080
+# Open http://localhost:18080/admin/
 ```
 
 After DNS and TLS are ready, verify:

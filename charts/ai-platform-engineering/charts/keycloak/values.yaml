@@ -178,7 +178,12 @@ ingress:
   hosts:
     - host: idp.local
       paths:
-        - path: /
+        # Public ingress should expose only the application realm and static
+        # login assets. Keep `/admin` and `/realms/master` private behind the
+        # ClusterIP service for `kubectl port-forward` or private networking.
+        - path: /realms/caipe
+          pathType: Prefix
+        - path: /resources
           pathType: Prefix
   tls: []
   # - secretName: keycloak-tls
