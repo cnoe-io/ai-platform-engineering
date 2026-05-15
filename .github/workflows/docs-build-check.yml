@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build Docusaurus site
@@ -38,6 +42,8 @@ jobs:
           cd docs
           npm install
       - name: Build Docusaurus site
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
           cd docs
           npm run build

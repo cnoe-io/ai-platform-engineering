@@ -43,6 +43,7 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    create_curl_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_format_file_tool,
@@ -500,6 +501,14 @@ class AgentRuntime:
             allowed_domains = fetch_url_config.allowed_domains or "*"
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
+
+        # curl tool (disabled by default) — supports PUT/POST/PATCH/DELETE
+        curl_config = config.builtin_tools.curl
+        if curl_config and curl_config.enabled:
+            allowed_domains = curl_config.allowed_domains or "*"
+            https_only = curl_config.https_only if curl_config.https_only is not None else True
+            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only))
+            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only}
 
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime

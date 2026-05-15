@@ -101,7 +101,7 @@ fi
 
 cleanup_on_exit() {
   # Kill tracked PIDs
-  for pid in "${PF_PIDS[@]:-}"; do
+  for pid in "${PF_PIDS[@]}"; do
     kill "$pid" 2>/dev/null || true
   done
   # Fallback: kill any kubectl port-forward processes started for our services
@@ -2867,6 +2867,7 @@ patch_deployment_with_ca() {
 #    - PlatformEngineerResponse schema needs additionalProperties:false and
 #      all properties in required for OpenAI gpt-5.x strict mode.
 #    - httpx follow_redirects=True for MCP trailing-slash 307 redirects.
+#    Note: agent sys.path setup is handled in the Dockerfile PYTHONPATH, not here.
 # 2b.   OpenAI response dedup fix (agent-fix ConfigMap, supervisor only)
 #    - Mounts a patched agent.py that sets from_response_format_tool=True
 #      when handle_structured_response parses a PlatformEngineerResponse
@@ -2884,19 +2885,6 @@ _create_agent_patches_configmap() {
   kubectl create configmap agent-patches -n caipe \
     --from-literal=sitecustomize.py='
 import importlib, json, sys, os
-
-# ── Fix 0: Expose standalone agent packages for single-node (all-in-one) mode ──
-# In the ai-platform-engineering image, each agent package lives under:
-#   /app/ai_platform_engineering/agents/<name>/agent_<name>/
-# For "from agent_github.tools import ..." to work (as used in deep_agent_single.py),
-# the parent directory must be in sys.path. Add all agent parent dirs so that
-# single-node mode can import agent_github, agent_backstage, etc. directly.
-_agents_base = "/app/ai_platform_engineering/agents"
-if os.path.isdir(_agents_base):
-    for _agent_name in os.listdir(_agents_base):
-        _agent_dir = os.path.join(_agents_base, _agent_name)
-        if os.path.isdir(_agent_dir) and _agent_dir not in sys.path:
-            sys.path.insert(0, _agent_dir)
 
 # ── Fix 1: OpenAI Responses API strict schema ──
 # PlatformEngineerResponse and nested models need additionalProperties:false
@@ -4454,7 +4442,7 @@ run_validation() {
   else
     fail=$((fail + 1))
   fi
-  if check_http "http://localhost:${SUPERVISOR_PORT}" "Supervisor A2A"; then
+  if check_http "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" "Supervisor A2A"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
@@ -4647,20 +4635,27 @@ run_sanity_tests() {
     fail=$((fail + 1))
   fi
 
-  # ── Test 4: Sub-agent direct health (in-cluster) ──
-  for agent_svc in caipe-agent-weather caipe-agent-netutils; do
-    local agent_label="${agent_svc#caipe-agent-}"
-    local agent_card_resp
-    agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
-      curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-    if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
-      print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
-      pass=$((pass + 1))
-    else
-      print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
-      fail=$((fail + 1))
-    fi
-  done
+  # ── Test 4: Sub-agent direct health (distributed mode only) ──
+  # In single-node mode agents run in-process inside the supervisor — no separate
+  # K8s services exist. Detect mode via the ConfigMap that Helm only creates in
+  # single-node deployments.
+  if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
+    print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
+  else
+    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
+      local agent_label="${agent_svc#caipe-agent-}"
+      local agent_card_resp
+      agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
+        curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
+      if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
+        print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
+        fail=$((fail + 1))
+      fi
+    done
+  fi
 
   # ── Test 5: RAG server health (if RAG enabled) ──
   if $ENABLE_RAG; then
@@ -5295,7 +5290,7 @@ monitor_port_forwards() {
     local now
     now=$(date +%s)
 
-    for i in "${!PF_PIDS[@]:-}"; do
+    for i in "${!PF_PIDS[@]}"; do
       local _pf_port
       # shellcheck disable=SC2086
       _pf_port=$(echo ${PF_SVCS[$i]} | awk '{print $3}')

@@ -6,9 +6,7 @@ on:
     branches:
       - main
       - 'release/**'
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
-  pull_request_review:
-    types: [submitted, dismissed]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: write
@@ -16,6 +14,10 @@ permissions:
   pull-requests: write
   packages: write
   actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   eligibility:
@@ -36,6 +38,24 @@ jobs:
               core.setOutput('should_run', 'false');
               core.setOutput('reason', `unsupported base branch ${pr.base.ref}`);
               core.info(`should_run=false: unsupported base branch ${pr.base.ref}`);
+              return;
+            }
+
+            // For label events, the label name is in the payload — no API call needed.
+            // Only helm labels require a version-bump run; all others are irrelevant.
+            const action = context.payload.action || '';
+            if (action === 'labeled' || action === 'unlabeled') {
+              const helmLabels = new Set(['helm-chart-bump', 'helm-prerelease']);
+              const labelName = context.payload.label?.name;
+              if (!helmLabels.has(labelName)) {
+                core.setOutput('should_run', 'false');
+                core.setOutput('reason', `label event for non-helm label: ${labelName}`);
+                core.info(`should_run=false: label event for non-helm label: ${labelName}`);
+                return;
+              }
+              core.setOutput('should_run', 'true');
+              core.setOutput('reason', `helm label event: ${labelName}`);
+              core.info(`should_run=true: helm label event: ${labelName}`);
               return;
             }
 
@@ -131,7 +151,7 @@ jobs:
             const prNumber = context.payload.pull_request.number;
 
             let pr;
-            for (let attempt = 0; attempt < 6; attempt++) {
+            for (let attempt = 0; attempt < 3; attempt++) {
               const response = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -375,7 +395,7 @@ jobs:
         with:
           version: ${{ steps.release-check.outputs.version }}
 
-      # ── Sync chart-bump label from review state before version bumping ─
+      # ── Determine chart-bump state from label before version bumping ──────
       - name: 🏷️ Check helm labels
         id: helm-labels
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -387,154 +407,24 @@ jobs:
             const helmPrereleaseLabel = 'helm-prerelease';
             const eventName = context.eventName;
             const action = context.payload.action || '';
-            const reviewState = (context.payload.review?.state || '').toLowerCase();
 
             const labelNames = new Set((pr.labels || []).map(label => label.name));
-            let chartBumpPresent = labelNames.has(chartBumpLabel);
+            const chartBumpPresent = labelNames.has(chartBumpLabel);
 
-            const reviews = await github.paginate(github.rest.pulls.listReviews, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-              per_page: 100
-            });
-
-            const latestDecisionByReviewer = new Map();
-            for (const review of reviews) {
-              const state = (review.state || '').toUpperCase();
-              if (!['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(state)) {
-                continue;
-              }
-              const reviewer = review.user?.login;
-              if (!reviewer) {
-                continue;
-              }
-              const submittedAt = review.submitted_at || review.dismissed_at || review.updated_at || review.submittedAt || '';
-              const previous = latestDecisionByReviewer.get(reviewer);
-              if (!previous || new Date(submittedAt) >= new Date(previous.submittedAt)) {
-                latestDecisionByReviewer.set(reviewer, { state, submittedAt });
-              }
-            }
-
-            const hasActiveApproval = [...latestDecisionByReviewer.values()]
-              .some(review => review.state === 'APPROVED');
-            const approvalSubmitted = eventName === 'pull_request_review' && action === 'submitted' && reviewState === 'approved';
-            const approvalDismissed = eventName === 'pull_request_review' && action === 'dismissed';
             const chartBumpLabelRemoved = eventName === 'pull_request' && action === 'unlabeled' && context.payload.label?.name === chartBumpLabel;
 
-            async function ensureLabel() {
-              try {
-                await github.rest.issues.getLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: chartBumpLabel
-                });
-              } catch (error) {
-                if (error.status !== 404) {
-                  throw error;
-                }
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: chartBumpLabel,
-                  color: '5319e7',
-                  description: 'Bump Helm Chart.yaml versions before merge'
-                });
-              }
-            }
-
-            if (approvalSubmitted && !chartBumpPresent) {
-              await ensureLabel();
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                labels: [chartBumpLabel]
-              });
-              chartBumpPresent = true;
-              core.info(`Added ${chartBumpLabel} after PR approval`);
-            }
-
-            let removedAfterDismissal = false;
-            if (approvalDismissed && !hasActiveApproval && chartBumpPresent) {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                name: chartBumpLabel
-              });
-              chartBumpPresent = false;
-              removedAfterDismissal = true;
-              core.info(`Removed ${chartBumpLabel} because the PR no longer has an active approval`);
-            }
-
-            const undoCharts = chartBumpLabelRemoved || removedAfterDismissal || (approvalDismissed && !hasActiveApproval);
+            const undoCharts = chartBumpLabelRemoved;
             const bumpCharts = chartBumpPresent && !undoCharts;
             const shouldPrebuild = pr.head.ref.startsWith('prebuild/') || labelNames.has(helmPrereleaseLabel);
 
             core.setOutput('bump_charts', String(bumpCharts));
             core.setOutput('should_run', String(shouldPrebuild));
             core.setOutput('undo_charts', String(undoCharts));
-            core.setOutput('has_active_approval', String(hasActiveApproval));
             core.setOutput('helm_chart_bump_label', String(chartBumpPresent));
-            core.setOutput('waiting_for_chart_bump_approval', String(!bumpCharts && !undoCharts && !hasActiveApproval));
 
             core.info(`bump_charts=${bumpCharts}`);
             core.info(`undo_charts=${undoCharts}`);
             core.info(`should_prebuild=${shouldPrebuild}`);
-            core.info(`has_active_approval=${hasActiveApproval}`);
-
-      - name: 💬 Comment if chart bump is waiting for approval
-        if: steps.helm-labels.outputs.waiting_for_chart_bump_approval == 'true'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const markerPrefix = '<!-- pr-version-bump:waiting-for-chart-bump-approval';
-            const marker = `<!-- pr-version-bump:waiting-for-chart-bump-approval sha=${process.env.HEAD_SHA} -->`;
-            const body = `${marker}
-            ## Helm chart bump waiting for approval
-
-            This failure is expected. Helm chart version bumps are deferred until the PR is approved or the \`helm-chart-bump\` label is added.
-
-            Once the PR is approved, CI will add \`helm-chart-bump\`, commit the Chart.yaml version updates, and rerun.`;
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
-
-            const existing = comments.find(comment =>
-              comment.user?.type === 'Bot' && (comment.body || '').includes(markerPrefix)
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body
-              });
-              core.info(`Updated waiting-for-approval comment: ${existing.html_url}`);
-            } else {
-              const response = await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body
-              });
-              core.info(`Created waiting-for-approval comment: ${response.data.html_url}`);
-            }
-
-      - name: ❌ Require approval before chart bump
-        if: steps.helm-labels.outputs.waiting_for_chart_bump_approval == 'true'
-        run: |
-          echo "::error::Helm chart version bumps are deferred until PR approval or the helm-chart-bump label is added. This failure is expected before approval."
-          exit 1
 
       # ── Normal path: determine-version + update-version-files ──────────
       - name: 🏷️ Determine version

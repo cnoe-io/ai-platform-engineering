@@ -368,6 +368,7 @@ def handle_mention(event, say, client):
       "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
       "overthink": bool(overthink and overthink.enabled),
+      "is_overthink_message": not is_thread_reply,
     }
     if overthink and overthink.enabled:
       client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
@@ -760,9 +761,9 @@ def handle_message_events(body, say, client):
 
   channel_config = config.channels[channel_id]
 
-  # Skip threaded user replies (handled by @mention); bots can post in threads
+  # Skip thread replies; only root messages trigger the agent.
   is_thread = event.get("thread_ts") is not None
-  if is_thread and not is_bot:
+  if is_thread:
     return
 
   # Skip @mentions — handled by handle_mention
