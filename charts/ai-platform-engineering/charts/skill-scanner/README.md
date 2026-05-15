@@ -39,3 +39,8 @@ skill-scanner:
 Built from `build/Dockerfile.skill-scanner` in this repo. Pin
 `SKILL_SCANNER_VERSION` (the upstream pip package) at build time and the
 chart `image.tag` at deploy time.
+
+The image currently applies a narrow temporary patch from
+`build/skill-scanner-patches/` so malformed `SKILL.md` loader errors are
+returned as validation failures instead of generic internal scanner errors.
+Remove the patch when the pinned upstream package includes equivalent behavior.

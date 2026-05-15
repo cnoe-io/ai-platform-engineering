@@ -1,0 +1,10 @@
+# Patterns to ignore when packaging the ai-platform-engineering chart.
+.DS_Store
+*.tmp
+*.swp
+*.secret.yaml
+secrets/
+.kube/
+kubeconfig*
+*.key
+*.crt
