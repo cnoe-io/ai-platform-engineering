@@ -107,9 +107,9 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               value={selectedAgentId ?? ''}
               onChange={(e) => setSelectedAgentId(e.target.value || null)}
               disabled={!isAdmin}
-              className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
+              className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
             >
-              <option value="">None — use supervisor (Platform Engineer)</option>
+              <option value="">Default CAIPE Supervisor</option>
               {agents.map((a) => (
                 <option key={a._id} value={a._id}>
                   {a.name}
