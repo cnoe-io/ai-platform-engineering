@@ -3,12 +3,12 @@ description: "Test Helm charts"
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/**' ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/**' ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
@@ -101,6 +101,19 @@ jobs:
           --debug \
           --set tags.basic=true \
           --set tags.rag-stack=false
+
+    - name: Test ai-platform-engineering installation (dry-run) - RBAC runtime
+      run: |
+        cd charts/ai-platform-engineering
+        helm template test-rbac-runtime . \
+          --debug \
+          --set tags.keycloak=true \
+          --set openfga.enabled=true \
+          --set openfgaAuthzBridge.enabled=true \
+          --set agentgateway.enabled=true \
+          --set openfga-authz-bridge.tokenValidation.issuer=https://idp.example.com/realms/caipe \
+          --set openfga-authz-bridge.tokenValidation.audiences[0]=agentgateway \
+          --set openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform
 
     - name: Test ai-platform-engineering installation (dry-run) - Minimal configuration
       run: |
