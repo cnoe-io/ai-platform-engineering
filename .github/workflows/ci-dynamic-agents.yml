@@ -19,8 +19,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   determine-changes:
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}

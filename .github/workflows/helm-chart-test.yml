@@ -20,8 +20,13 @@ permissions:
   contents: read
   packages: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   helm-chart-test:
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
