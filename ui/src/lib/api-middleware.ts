@@ -511,19 +511,20 @@ export async function requireConversationAccess(
     };
   }
 
+  // Inv-D: autonomous-agent conversations resolve to shared_readonly for
+  // every non-owner — admin or not. Runs BEFORE the admin fallback so an
+  // admin viewing an autonomous chat does not get the "Read-Only Audit
+  // Mode" treatment. Autonomous chats are unattended task runs (no per-
+  // user PII / secrets) under a synthetic owner; any authenticated user
+  // gets read-only access for operator visibility, and write-side
+  // handlers reject shared_readonly identically to admin_audit.
+  if (conversation.source === 'autonomous') {
+    return { conversation, access_level: 'shared_readonly' };
+  }
+
   // Admins get read-only audit access to any conversation
   if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
-  }
-
-  // Autonomous-agent conversations are produced by the autonomous_agents
-  // service under a synthetic owner (e.g., 'autonomous@system'). They
-  // represent unattended task runs (no per-user PII / secrets), so any
-  // authenticated user is granted read-only access for operator/audit
-  // visibility. Writes are still blocked because shared_readonly is
-  // checked on POST paths.
-  if (conversation.source === 'autonomous') {
-    return { conversation, access_level: 'shared_readonly' };
   }
 
   throw new ApiError('Forbidden: You do not have access to this conversation', 403, 'FORBIDDEN');

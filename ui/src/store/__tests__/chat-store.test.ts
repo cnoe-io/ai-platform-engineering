@@ -2351,4 +2351,606 @@ describe('chat-store', () => {
     });
   });
 
+  // --------------------------------------------------------------------------
+  // Refresh state bug fixes — Inv-A (dedupe-by-id) and Inv-E (partialize scope)
+  // --------------------------------------------------------------------------
+
+  describe('refresh-state — autonomous loader dedupes by id (Inv-A)', () => {
+    let mockListTasks: jest.Mock;
+    let mockListRuns: jest.Mock;
+
+    beforeEach(() => {
+      jest.useRealTimers();
+      mockListTasks = jest.fn();
+      mockListRuns = jest.fn();
+      jest.doMock('@/components/autonomous/api', () => ({
+        autonomousApi: {
+          listTasks: (...args: unknown[]) => mockListTasks(...args),
+          listRuns: (...args: unknown[]) => mockListRuns(...args),
+        },
+      }));
+    });
+
+    afterEach(() => {
+      jest.dontMock('@/components/autonomous/api');
+    });
+
+    // Canonical UUIDv5 of "task:t1" under the autonomous namespace —
+    // pinned by the synth fixture; matches existing autonomous tests.
+    const T1_CANONICAL_ID = 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8';
+
+    function makeAutonomousTask(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 't1',
+        name: 'Cron task',
+        description: null,
+        agent: null,
+        prompt: 'do the thing',
+        llm_provider: null,
+        trigger: { type: 'cron', schedule: '0 9 * * *' },
+        enabled: true,
+        timeout_seconds: null,
+        max_retries: null,
+        ...overrides,
+      };
+    }
+
+    function makeRun(overrides: Record<string, unknown> = {}) {
+      return {
+        run_id: 'r1',
+        task_id: 't1',
+        task_name: 'Cron task',
+        status: 'success',
+        started_at: '2026-05-13T10:00:00.000Z',
+        finished_at: '2026-05-13T10:01:00.000Z',
+        response_full: 'done',
+        events: [],
+        ...overrides,
+      };
+    }
+
+    it('loadAutonomousConversationsFromService dedupes by id (Inv-A)', async () => {
+      // Seed an entry whose id matches the canonical autonomous id but
+      // whose source tag was lost (mimicking a persisted/API-fetched row
+      // that pre-dates the autonomous-source label).
+      const stripped: Conversation = makeConversation({
+        id: T1_CANONICAL_ID,
+        title: 'Persisted without source',
+        source: undefined,
+      });
+      useChatStore.setState({
+        conversations: [stripped],
+        activeConversationId: T1_CANONICAL_ID,
+      });
+
+      mockListTasks.mockResolvedValue([makeAutonomousTask()]);
+      mockListRuns.mockResolvedValue([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+
+      const convs = useChatStore.getState().conversations;
+      const matches = convs.filter((c) => c.id === T1_CANONICAL_ID);
+      expect(matches).toHaveLength(1); // FR-001, FR-003
+      expect(matches[0].source).toBe('autonomous'); // Inv-B
+      // FR-002: active id still resolves to exactly one entry.
+      const activeId = useChatStore.getState().activeConversationId;
+      expect(activeId).toBe(T1_CANONICAL_ID);
+      expect(convs.filter((c) => c.id === activeId)).toHaveLength(1);
+    });
+
+    it('autonomous loader preserves user-typed messages on dedupe', async () => {
+      const userTyped = makeMessage({
+        id: 'user-msg-1',
+        role: 'user',
+        content: 'hello',
+        timestamp: new Date('2026-05-13T11:00:00.000Z'),
+      });
+      const stripped: Conversation = makeConversation({
+        id: T1_CANONICAL_ID,
+        source: undefined, // collision case: synth must claim this row
+        messages: [userTyped],
+      });
+      useChatStore.setState({ conversations: [stripped] });
+
+      mockListTasks.mockResolvedValue([makeAutonomousTask()]);
+      mockListRuns.mockResolvedValue([makeRun()]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+
+      const surviving = useChatStore
+        .getState()
+        .conversations.find((c) => c.id === T1_CANONICAL_ID);
+      expect(surviving).toBeDefined();
+      expect(surviving!.source).toBe('autonomous');
+      // Synthesized canonical messages plus the user-typed message,
+      // sorted by timestamp ascending.
+      expect(
+        surviving!.messages.find((m) => m.id === 'user-msg-1'),
+      ).toBeDefined();
+      expect(surviving!.messages.length).toBeGreaterThan(1);
+      const ts = surviving!.messages.map((m) => m.timestamp.getTime());
+      const sorted = [...ts].sort((a, b) => a - b);
+      expect(ts).toEqual(sorted);
+    });
+  });
+
+  describe('refresh-state — server loader dedupes by id (Inv-A)', () => {
+    it('loadConversationsFromServer produces unique ids after local-only preservation', async () => {
+      // Seed a local-only entry that is the active conversation. The
+      // server response also returns the same id; without the dedupe
+      // pass, both inserts would land in the merged list.
+      const localActive = makeConversation({
+        id: 'Y',
+        title: 'Local copy',
+        source: undefined,
+        messages: [makeMessage({ id: 'local-msg-1' })],
+      });
+      useChatStore.setState({
+        conversations: [localActive],
+        activeConversationId: 'Y',
+      });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'Y',
+            title: 'Server copy',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const matches = useChatStore
+        .getState()
+        .conversations.filter((c) => c.id === 'Y');
+      expect(matches).toHaveLength(1);
+    });
+  });
+
+  describe('refresh-state — onRehydrateStorage dedupes duplicate ids in persisted localStorage (Inv-A site 1)', () => {
+    it('back-to-back-refresh resilience: dedupe on rehydrate, no network call', () => {
+      jest.isolateModules(() => {
+        const SHARED_ID = 'b25e9fc5-8be0-528f-98d8-e2fd6f73dcc8';
+        const payload = {
+          state: {
+            conversations: [
+              {
+                id: SHARED_ID,
+                source: undefined,
+                title: 'Persisted without source',
+                createdAt: new Date('2026-05-13T10:00:00.000Z').toISOString(),
+                updatedAt: new Date('2026-05-13T10:00:00.000Z').toISOString(),
+                messages: [
+                  {
+                    id: 'user-typed-1',
+                    role: 'user',
+                    content: 'manual reply',
+                    timestamp: new Date(
+                      '2026-05-13T11:00:00.000Z',
+                    ).toISOString(),
+                    events: [],
+                  },
+                ],
+              },
+              {
+                id: SHARED_ID,
+                source: 'autonomous',
+                title: 'Synth row',
+                createdAt: new Date('2026-05-13T09:00:00.000Z').toISOString(),
+                updatedAt: new Date('2026-05-13T12:00:00.000Z').toISOString(),
+                messages: [
+                  {
+                    id: 'synth-msg-1',
+                    role: 'assistant',
+                    content: 'task created',
+                    timestamp: new Date(
+                      '2026-05-13T09:00:00.000Z',
+                    ).toISOString(),
+                    events: [],
+                  },
+                ],
+              },
+            ],
+            activeConversationId: SHARED_ID,
+            selectedTurnIdsArray: [],
+          },
+          version: 0,
+        };
+
+        localStorage.setItem('caipe-chat-history', JSON.stringify(payload));
+
+        (global as any).__mockStorageMode = 'localStorage';
+        jest.doMock('@/lib/storage-config', () => ({
+          getStorageMode: () => 'localStorage',
+          shouldUseLocalStorage: () => true,
+        }));
+
+        const apiSpy = jest.fn();
+        jest.doMock('@/lib/api-client', () => ({
+          apiClient: {
+            getConversations: (...args: unknown[]) => apiSpy(...args),
+            getMessages: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+            addMessage: jest.fn(),
+            createConversation: jest.fn(),
+            deleteConversation: jest.fn(),
+            updateConversation: jest.fn(),
+          },
+        }));
+        const autonomousSpy = jest.fn();
+        jest.doMock('@/components/autonomous/api', () => ({
+          autonomousApi: {
+            listTasks: (...args: unknown[]) => autonomousSpy(...args),
+            listRuns: jest.fn(),
+          },
+        }));
+
+        const { useChatStore: freshStore } =
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require('../chat-store') as typeof import('../chat-store');
+
+        const convs = freshStore.getState().conversations;
+        const sharedMatches = convs.filter((c) => c.id === SHARED_ID);
+        // (a) exactly one entry survives.
+        expect(sharedMatches).toHaveLength(1);
+        // (b) the autonomous entry wins on collision (Inv-B).
+        expect(sharedMatches[0].source).toBe('autonomous');
+        // (c) the merged messages contain BOTH synth and user-typed
+        // messages, sorted by timestamp ascending.
+        const ids = sharedMatches[0].messages.map((m) => m.id);
+        expect(ids).toContain('synth-msg-1');
+        expect(ids).toContain('user-typed-1');
+        const ts = sharedMatches[0].messages.map((m) => m.timestamp.getTime());
+        const sorted = [...ts].sort((a, b) => a - b);
+        expect(ts).toEqual(sorted);
+        // (d) no network call was made between rehydrate and assertion.
+        expect(apiSpy).not.toHaveBeenCalled();
+        expect(autonomousSpy).not.toHaveBeenCalled();
+
+        localStorage.removeItem('caipe-chat-history');
+        (global as any).__mockStorageMode = 'mongodb';
+      });
+    });
+  });
+
+  describe('refresh-state — partialize denylist (Inv-E / Inv-F)', () => {
+    it('strips top-level and recursive denylisted keys from persisted output', () => {
+      jest.isolateModules(() => {
+        (global as any).__mockStorageMode = 'localStorage';
+        jest.doMock('@/lib/storage-config', () => ({
+          getStorageMode: () => 'localStorage',
+          shouldUseLocalStorage: () => true,
+        }));
+
+        // Capture the partialize fn by spying on createJSONStorage; simpler
+        // path: rebuild the persist config inline by importing the store and
+        // pulling state, then constructing what partialize would return.
+        // The store's persist middleware exposes the partialize function via
+        // its options closure, but it's not externally accessible. Instead,
+        // we reproduce the contract by calling the helper directly and
+        // asserting against the persisted shape constants exported via the
+        // module-private TOP_LEVEL_DENYLIST / RECURSIVE_DENYLIST. Since
+        // those constants are not exported, this test mirrors them locally
+        // and validates the shape the persist write actually produces.
+
+        // Mirror denylist constants from chat-store.ts. Keep in sync.
+        const TOP_LEVEL = [
+          'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
+          'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
+          'role', 'userRole',
+        ];
+        const RECURSIVE = TOP_LEVEL.filter((k) => k !== 'role');
+
+        const { useChatStore: freshStore } =
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require('../chat-store') as typeof import('../chat-store');
+
+        // Seed state — substring path: titles + message bodies that
+        // contain the literal denylist substrings. Defeats any naive
+        // serialized-string substring matcher.
+        const conv: Conversation = makeConversation({
+          id: 'partialize-test-1',
+          title: 'access_level accessLevel isAdmin adminOrigin',
+          source: undefined,
+          messages: [
+            makeMessage({
+              id: 'um-1',
+              role: 'user',
+              content: 'access_level adminOrigin readOnlyReason',
+            }),
+            makeMessage({
+              id: 'am-1',
+              role: 'assistant',
+              content: 'isAdmin canViewAdmin',
+            }),
+          ],
+        });
+
+        // Inject denylisted KEYS at root, conversation, and message
+        // levels. The `as any` casts make the test compile against the
+        // current ChatState / Conversation / ChatMessage types even
+        // though they do not declare these keys.
+        freshStore.setState({ conversations: [conv] });
+        const stateNow = freshStore.getState() as any;
+        stateNow.accessLevel = 'admin_audit';
+        stateNow.readOnlyReason = 'admin_audit';
+        stateNow.adminOrigin = 'audit-logs';
+        stateNow.isAdmin = true;
+        (stateNow.conversations[0] as any).access_level = 'admin_audit';
+        (stateNow.conversations[0] as any).accessLevel = 'admin_audit';
+        (stateNow.conversations[0] as any).readOnlyReason = 'admin_audit';
+        (stateNow.conversations[0] as any).adminOrigin = 'audit-logs';
+        (stateNow.conversations[0].messages[0] as any).accessLevel =
+          'admin_audit';
+        (stateNow.conversations[0].messages[0] as any).adminOrigin =
+          'audit-logs';
+        (stateNow.conversations[0].messages[0] as any).isAdmin = true;
+        freshStore.setState(stateNow);
+
+        // Read back what persist actually wrote to localStorage. The
+        // persist middleware writes synchronously after the setState
+        // above when storage is mocked to localStorage. The serialized
+        // shape is `{ state: { ...partialize-output }, version }`.
+        const raw = localStorage.getItem('caipe-chat-history');
+        expect(raw).not.toBeNull();
+        const parsed = JSON.parse(raw!);
+        const persistedState = parsed.state ?? parsed;
+
+        // (a) No own enumerable key of the root object matches TOP_LEVEL.
+        const rootKeys = Object.keys(persistedState);
+        for (const k of TOP_LEVEL) {
+          expect(rootKeys).not.toContain(k);
+        }
+
+        // (b) No own enumerable key of any element of conversations[]
+        // matches TOP_LEVEL.
+        for (const c of persistedState.conversations as Record<string, unknown>[]) {
+          const ck = Object.keys(c);
+          for (const k of TOP_LEVEL) {
+            expect(ck).not.toContain(k);
+          }
+        }
+
+        // (c) Walk every nested object and assert no own enumerable key
+        // matches RECURSIVE. Bare `role` is allowed (ChatMessage.role).
+        const visit = (obj: unknown): void => {
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            for (const k of Object.keys(obj as Record<string, unknown>)) {
+              expect(RECURSIVE).not.toContain(k);
+              visit((obj as Record<string, unknown>)[k]);
+            }
+          } else if (Array.isArray(obj)) {
+            for (const v of obj) visit(v);
+          }
+        };
+        visit(persistedState);
+
+        localStorage.removeItem('caipe-chat-history');
+        (global as any).__mockStorageMode = 'mongodb';
+      });
+    });
+  });
+
+  describe('refresh-state — cross-loader interleave (Inv-G)', () => {
+    let mockListTasks: jest.Mock;
+    let mockListRuns: jest.Mock;
+
+    beforeEach(() => {
+      jest.useRealTimers();
+      mockListTasks = jest.fn();
+      mockListRuns = jest.fn();
+      jest.doMock('@/components/autonomous/api', () => ({
+        autonomousApi: {
+          listTasks: (...args: unknown[]) => mockListTasks(...args),
+          listRuns: (...args: unknown[]) => mockListRuns(...args),
+        },
+      }));
+    });
+
+    afterEach(() => {
+      jest.dontMock('@/components/autonomous/api');
+    });
+
+    it('server loader preserves autonomous-source entries written between snapshot-read and write', async () => {
+      // Build a controllable promise the server loader will await; we
+      // resolve it after the autonomous loader has already written.
+      let resolveServer: (value: any) => void = () => {};
+      const serverPromise = new Promise<any>((resolve) => {
+        resolveServer = resolve;
+      });
+      mockApiClient.getConversations.mockImplementation(() => serverPromise);
+
+      // Autonomous task with canonical id 'a25e9fc5-...' (from
+      // uuidv5("task:t1")).
+      mockListTasks.mockResolvedValue([
+        {
+          id: 't1',
+          name: 'Cron task',
+          description: null,
+          agent: null,
+          prompt: 'do the thing',
+          llm_provider: null,
+          trigger: { type: 'cron', schedule: '0 9 * * *' },
+          enabled: true,
+          timeout_seconds: null,
+          max_retries: null,
+        },
+      ]);
+      mockListRuns.mockResolvedValue([
+        {
+          run_id: 'r1',
+          task_id: 't1',
+          task_name: 'Cron task',
+          status: 'success',
+          started_at: '2026-05-13T10:00:00.000Z',
+          finished_at: '2026-05-13T10:01:00.000Z',
+          response_full: 'done',
+          events: [],
+        },
+      ]);
+
+      // Kick off server loader (do not await — it will block on
+      // serverPromise).
+      const serverDone = useChatStore.getState().loadConversationsFromServer();
+
+      // Yield once so the server loader reads its snapshot before
+      // awaiting the in-flight network call.
+      await Promise.resolve();
+
+      // Run the autonomous loader to completion: it writes
+      // {id: 'a25e...', source: 'autonomous'} via callback-form set().
+      await useChatStore
+        .getState()
+        .loadAutonomousConversationsFromService();
+
+      // Now resolve the server loader's promise with one server-side
+      // conversation 'S' that the autonomous loader does not know about.
+      resolveServer({
+        items: [
+          {
+            _id: 'S',
+            title: 'Server-only conversation',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await serverDone;
+
+      const ids = useChatStore
+        .getState()
+        .conversations.map((c) => c.id);
+      // Both 'S' and the autonomous canonical id must survive the
+      // server loader's set().
+      expect(ids).toContain('S');
+      const autonomousId = 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8';
+      expect(ids).toContain(autonomousId);
+      const surviving = useChatStore
+        .getState()
+        .conversations.find((c) => c.id === autonomousId);
+      expect(surviving!.source).toBe('autonomous');
+    });
+  });
+
+  describe('refresh-state — stale activeConversationId fallback (US3 — FR-006, FR-009)', () => {
+    it('empty server response clears stale active id without fabricating a stub', async () => {
+      useChatStore.setState({
+        conversations: [],
+        activeConversationId: 'STALE',
+      });
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const state = useChatStore.getState();
+      expect(state.conversations.find((c) => c.id === 'STALE')).toBeUndefined();
+      expect(state.activeConversationId).toBeNull();
+      expect(state.a2aEvents).toEqual([]);
+    });
+
+    it('server returns a different conversation, stale active id is replaced or cleared', async () => {
+      useChatStore.setState({
+        conversations: [],
+        activeConversationId: 'STALE',
+      });
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'REAL',
+            title: 'Real conversation',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const state = useChatStore.getState();
+      expect(
+        state.conversations.filter((c) => c.id === 'REAL'),
+      ).toHaveLength(1);
+      // Spec contract: stale pointer cleared; either null or fallback
+      // to most-recent valid conversation is acceptable.
+      expect(state.activeConversationId).not.toBe('STALE');
+      expect([null, 'REAL']).toContain(state.activeConversationId);
+    });
+  });
+
+  describe('refresh-state — dedupe is source-agnostic (US3 cross-source guard)', () => {
+    let mockListTasks: jest.Mock;
+    let mockListRuns: jest.Mock;
+
+    beforeEach(() => {
+      jest.useRealTimers();
+      mockListTasks = jest.fn();
+      mockListRuns = jest.fn();
+      jest.doMock('@/components/autonomous/api', () => ({
+        autonomousApi: {
+          listTasks: (...args: unknown[]) => mockListTasks(...args),
+          listRuns: (...args: unknown[]) => mockListRuns(...args),
+        },
+      }));
+    });
+
+    afterEach(() => {
+      jest.dontMock('@/components/autonomous/api');
+    });
+
+    it('autonomous loader collapses (source: undefined) + (source: autonomous) entries with the same id to one', async () => {
+      const SHARED = 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8';
+      const stripped = makeConversation({
+        id: SHARED,
+        source: undefined,
+        title: 'web/persisted clone',
+      });
+      useChatStore.setState({ conversations: [stripped] });
+
+      mockListTasks.mockResolvedValue([
+        {
+          id: 't1',
+          name: 'Cron',
+          description: null,
+          agent: null,
+          prompt: 'p',
+          llm_provider: null,
+          trigger: { type: 'cron', schedule: '0 9 * * *' },
+          enabled: true,
+          timeout_seconds: null,
+          max_retries: null,
+        },
+      ]);
+      mockListRuns.mockResolvedValue([]);
+
+      await useChatStore.getState().loadAutonomousConversationsFromService();
+
+      const matches = useChatStore
+        .getState()
+        .conversations.filter((c) => c.id === SHARED);
+      expect(matches).toHaveLength(1);
+      expect(matches[0].source).toBe('autonomous');
+    });
+  });
+
 });

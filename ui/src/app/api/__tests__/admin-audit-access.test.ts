@@ -164,6 +164,60 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
+  it('admin viewing autonomous-source conversation returns shared_readonly (Inv-D)', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'owner@example.com',
+      title: 'Autonomous Task',
+      sharing: { shared_with: [], shared_with_teams: [] },
+      source: 'autonomous',
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue(null);
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'admin@example.com',
+      mockGetCollection,
+      { role: 'admin' }
+    );
+
+    expect(result.access_level).toBe('shared_readonly');
+    expect(result.conversation).toEqual(conv);
+  });
+
+  it('admin viewing non-autonomous non-owned conversation still returns admin_audit (regression guard)', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'owner@example.com',
+      title: 'Web conversation',
+      sharing: { shared_with: [], shared_with_teams: [] },
+      // No `source` field — exercises the non-autonomous path.
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue(null);
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'admin@example.com',
+      mockGetCollection,
+      { role: 'admin' }
+    );
+
+    expect(result.access_level).toBe('admin_audit');
+    expect(result.conversation).toEqual(conv);
+  });
+
   it('returns access_level admin_audit when canViewAdmin=true session is provided', async () => {
     const conv = {
       _id: CONV_ID,

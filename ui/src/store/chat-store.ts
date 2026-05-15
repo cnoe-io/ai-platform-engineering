@@ -108,6 +108,66 @@ interface ChatState {
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
 
+// Inv-E: persistence-scope denylists. The TOP_LEVEL list applies to the root
+// persisted object and to each Conversation; the RECURSIVE list applies at
+// every nesting depth. The single difference is `role`, which is legitimate
+// on ChatMessage (sender) and must survive — any future authorization-role
+// field MUST use a disambiguated name (sessionRole / authRole / userRole).
+// Kept in sync with the matching constants in chat-store.test.ts.
+const TOP_LEVEL_DENYLIST = [
+  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
+  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
+  'role', 'userRole',
+] as const;
+const RECURSIVE_DENYLIST = [
+  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
+  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
+  'userRole',
+] as const;
+
+// Inv-E runtime enforcement: strip every key in `keys` from a shallow clone of
+// `obj`. Used inside partialize so even if a future setter writes one of these
+// keys onto store state, persist will not carry it through to localStorage.
+function stripDenylistedKeys<T extends Record<string, unknown>>(
+  obj: T,
+  keys: readonly string[],
+): Partial<T> {
+  const out: Record<string, unknown> = { ...obj };
+  for (const k of keys) delete out[k];
+  return out as Partial<T>;
+}
+
+// Inv-A site 1: deterministic, NaN-safe winner selection for two persisted
+// Conversation entries that share an id at rehydrate time. Rule order:
+//   (a) source === 'autonomous' wins (consistent with Inv-B)
+//   (b) more messages wins
+//   (c) finite/valid updatedAt wins over invalid
+//   (d) most-recent valid updatedAt wins
+//   (e) lexicographic id sort (last-resort tiebreak — strictly deterministic)
+function pickRehydrateWinner(
+  a: Conversation,
+  b: Conversation,
+): Conversation {
+  // (a) autonomous-source wins
+  const aAuto = a.source === 'autonomous';
+  const bAuto = b.source === 'autonomous';
+  if (aAuto !== bAuto) return aAuto ? a : b;
+  // (b) more messages wins
+  const aLen = a.messages?.length ?? 0;
+  const bLen = b.messages?.length ?? 0;
+  if (aLen !== bLen) return aLen > bLen ? a : b;
+  // (c) finite/valid updatedAt wins
+  const aTs = a.updatedAt ? new Date(a.updatedAt).getTime() : NaN;
+  const bTs = b.updatedAt ? new Date(b.updatedAt).getTime() : NaN;
+  const aValid = Number.isFinite(aTs);
+  const bValid = Number.isFinite(bTs);
+  if (aValid !== bValid) return aValid ? a : b;
+  // (d) most-recent valid updatedAt wins
+  if (aValid && bValid && aTs !== bTs) return aTs > bTs ? a : b;
+  // (e) last-resort: lexicographic id (deterministic)
+  return a.id <= b.id ? a : b;
+}
+
 // NOTE: savedMessageIds / savedMessageState tracking removed.
 // With the upsert-based API, saveMessagesToServer sends ALL messages every
 // time and the server handles insert-or-update via message_id. This eliminates
@@ -1008,20 +1068,60 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Keeping ${localOnlyPreserved.length} local-only conversations (streaming or active audit/shared)`);
           }
 
-          const allConversations = [...serverConversations, ...localOnlyPreserved];
-          const sortedConversations = allConversations.sort(compareConversationsForSidebar);
+          // Inv-A site 2: Map-based dedupe-by-id over
+          // [...serverConversations, ...localOnlyPreserved]. Server entries
+          // are authoritative for source/metadata, so on collision the
+          // server entry wins (do NOT overwrite). In practice the upstream
+          // `serverIds` filter already excludes any id that appears on the
+          // server, but this is defense in depth against a future refactor
+          // that drops that filter.
+          const dedupeMap = new Map<string, Conversation>();
+          for (const c of serverConversations) dedupeMap.set(c.id, c);
+          for (const c of localOnlyPreserved) {
+            if (!dedupeMap.has(c.id)) dedupeMap.set(c.id, c);
+          }
+          const sortedConversations = Array.from(dedupeMap.values()).sort(
+            compareConversationsForSidebar,
+          );
 
           // Check if active conversation was deleted on another device
           const activeId = currentState.activeConversationId;
-          const activeStillExists = activeId ? sortedConversations.some(c => c.id === activeId) : true;
 
-          set({
-            conversations: sortedConversations,
-            ...(activeId && !activeStillExists ? {
-              activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
-              a2aEvents: [],
-            } : {}),
+          // Inv-G: callback-form set() so any autonomous-source entries
+          // written by loadAutonomousConversationsFromService between our
+          // snapshot read (above) and this write are NOT clobbered. Reads
+          // the latest state and re-unions with cross-loader additions.
+          set((state) => {
+            const serverIdSet = new Set(sortedConversations.map((c) => c.id));
+            const crossLoaderAdditions = state.conversations.filter(
+              (c) =>
+                !serverIdSet.has(c.id) &&
+                (c.source === 'autonomous' ||
+                  state.streamingConversations.has(c.id)),
+            );
+            const merged = [...sortedConversations, ...crossLoaderAdditions];
+            const finalMap = new Map<string, Conversation>();
+            for (const c of merged) finalMap.set(c.id, c);
+            const deduped = Array.from(finalMap.values()).sort(
+              compareConversationsForSidebar,
+            );
+            const activeStillExists = activeId
+              ? deduped.some((c) => c.id === activeId)
+              : true;
+            return {
+              conversations: deduped,
+              ...(activeId && !activeStillExists
+                ? {
+                    activeConversationId:
+                      deduped.length > 0 ? deduped[0].id : null,
+                    a2aEvents: [],
+                  }
+                : {}),
+            };
           });
+          const activeStillExists = activeId
+            ? sortedConversations.some((c) => c.id === activeId)
+            : true;
 
           if (activeId && !activeStillExists) {
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
@@ -1170,7 +1270,14 @@ const storeImplementation = (set: any, get: any) => ({
           });
 
           const others = state.conversations.filter((c) => c.source !== 'autonomous');
-          const final = [...others, ...merged].sort(
+          // Inv-A site 3: Map-based dedupe by id. Insert `others` first so
+          // any same-id `merged` entry overwrites — autonomous-synth wins
+          // on collision (Inv-B). User-typed messages from the surviving
+          // non-autonomous copy are already merged in by message.id above.
+          const dedupeMap = new Map<string, Conversation>();
+          for (const c of others) dedupeMap.set(c.id, c);
+          for (const c of merged) dedupeMap.set(c.id, c);
+          const final = Array.from(dedupeMap.values()).sort(
             compareConversationsForSidebar,
           );
           return { conversations: final };
@@ -1867,21 +1974,48 @@ export const useChatStore = shouldUseLocalStorage()
       persist(storeImplementation, {
         name: "caipe-chat-history",
         storage: createJSONStorage(() => localStorage),
+        // Inv-E: partialize persists conversation DATA only — never
+        // session/authorization/admin-origin signals. The two scopes below are
+        // enforced at runtime by stripDenylistedKeys (TOP_LEVEL_DENYLIST and
+        // RECURSIVE_DENYLIST), and the test gate in chat-store.test.ts walks
+        // the parsed output asserting neither denylist appears.
+        //
+        //   TOP_LEVEL_DENYLIST (root + each Conversation, 11 keys):
+        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
+        //     isAdmin, canViewAdmin, sessionRole, authRole, role, userRole
+        //   RECURSIVE_DENYLIST (any nesting depth, 10 keys = top-level minus
+        //     'role' — ChatMessage.role is the legitimate non-authorization
+        //     sender field 'user' | 'assistant' | 'system' and must survive):
+        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
+        //     isAdmin, canViewAdmin, sessionRole, authRole, userRole
+        //
+        // Broader principle: persist conversation data only. Transient/UI/
+        // loading/timing flags (e.g. isLoadingConversations, streamingConversations,
+        // pendingMessage, inputDraft) belong in module-level variables or
+        // component-local useState (e.g. ChatContainer's accessLevel/agentInfo),
+        // NEVER in persisted store state. Future authorization-role fields
+        // MUST use sessionRole / authRole / userRole — never bare 'role'.
         partialize: (state) => ({
-          conversations: state.conversations.map((conv) => ({
+          conversations: state.conversations.map((conv) => stripDenylistedKeys({
             ...conv,
             a2aEvents: [], // Don't persist events (too large)
             streamEvents: [], // Don't persist stream events (too large)
-            messages: conv.messages.map((msg) => ({
+            messages: conv.messages.map((msg) => stripDenylistedKeys({
               ...msg,
               events: [], // Don't persist events
-            })),
-          })),
+            }, RECURSIVE_DENYLIST)),
+          }, TOP_LEVEL_DENYLIST)),
           activeConversationId: state.activeConversationId,
           selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
         }),
         onRehydrateStorage: () => (state) => {
           if (state) {
+            // Null-state guard: if rehydration produced an unexpected shape,
+            // start empty rather than crash.
+            if (!state || !Array.isArray(state.conversations)) {
+              return;
+            }
+
             // One-time migration: drop legacy `autonomous-${task.id}`
             // rows so the next sync resynthesises them under canonical
             // UUIDv5 ids that match the publisher (services/chat_history.py)
@@ -1892,6 +2026,56 @@ export const useChatStore = shouldUseLocalStorage()
             state.conversations = state.conversations.filter(
               (c) => c.source !== 'autonomous' || UUID_RE.test(c.id),
             );
+
+            // REHYDRATE DEDUPE (Inv-A site 1): heals duplicates persisted
+            // before the dedupe shipped, and makes back-to-back F5
+            // refreshes self-healing without a network call. Critical in
+            // localStorage mode + autonomousAgentsEnabled=false where
+            // neither network loader does meaningful work.
+            //
+            // Skip entries with non-string/empty ids — defends against
+            // tampered or corrupted localStorage.
+            const dedupeMap = new Map<string, Conversation>();
+            for (const conv of state.conversations) {
+              if (typeof conv.id !== 'string' || conv.id.length === 0) {
+                continue;
+              }
+              const existing = dedupeMap.get(conv.id);
+              if (!existing) {
+                dedupeMap.set(conv.id, conv);
+                continue;
+              }
+              // Deterministic, NaN-safe winner selection on collision.
+              const winner = pickRehydrateWinner(existing, conv);
+              const loser = winner === existing ? conv : existing;
+              // Merge messages from BOTH entries by message.id; winner's
+              // messages take precedence on per-id collision.
+              const msgMap = new Map<string, ChatMessage>();
+              for (const m of winner.messages) msgMap.set(m.id, m);
+              for (const m of loser.messages) {
+                if (!msgMap.has(m.id)) msgMap.set(m.id, m);
+              }
+              const mergedMessages = Array.from(msgMap.values()).sort(
+                (a, b) => {
+                  const at = new Date(a.timestamp).getTime();
+                  const bt = new Date(b.timestamp).getTime();
+                  // NaN-safe: non-finite timestamps sort to the end.
+                  const av = Number.isFinite(at)
+                    ? at
+                    : Number.POSITIVE_INFINITY;
+                  const bv = Number.isFinite(bt)
+                    ? bt
+                    : Number.POSITIVE_INFINITY;
+                  return av - bv;
+                },
+              );
+              dedupeMap.set(winner.id, {
+                ...winner,
+                messages: mergedMessages,
+              });
+            }
+            state.conversations = Array.from(dedupeMap.values());
+
             // Clear stale activeConversationId pointing at a dropped row.
             if (
               state.activeConversationId &&

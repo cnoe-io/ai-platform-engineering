@@ -401,8 +401,28 @@ export function ChatContainer() {
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
-  const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
-  const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
+  // Inv-C: audit banner requires BOTH server admin_audit AND a recognized
+  // in-session ?from= value (closed set: 'audit-logs' or 'feedback').
+  // Inv-C2: when the server says admin_audit but the gate fails, route
+  // through the existing shared_readonly UI branch so the user sees a
+  // clear read-only banner instead of a silent send-failure. The
+  // adminOrigin signal is presentation-only — the server is authoritative
+  // for authorization. Runs only on the API-roundtrip path; the
+  // local-store-hit path above derives accessLevel from owner_id +
+  // sharing.* and never produces admin_audit by construction (Inv-E).
+  const adminAuditActive =
+    accessLevel === 'admin_audit'
+    && (adminOrigin === 'audit-logs' || adminOrigin === 'feedback');
+  const isReadOnly =
+    adminAuditActive
+    || accessLevel === 'admin_audit'
+    || accessLevel === 'shared_readonly';
+  const readOnlyReason: 'admin_audit' | 'shared_readonly' | undefined =
+    adminAuditActive
+      ? 'admin_audit'
+      : (accessLevel === 'admin_audit' || accessLevel === 'shared_readonly')
+        ? 'shared_readonly'
+        : undefined;
 
   // Only show loading if we haven't finished fetching yet. After fetchDone=true,
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.
