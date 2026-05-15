@@ -20,7 +20,11 @@ Keycloak admin console: `http://localhost:7080/admin` (admin / admin)
 
 ---
 
-## Built-in Test Users (`caipe` realm)
+## Optional Test Users (`caipe` realm)
+
+Shared and production realms should not contain sample password users. The
+Keycloak Helm chart disables them by default with `keycloak.demoUsers.enabled=false`.
+Enable demo users only in an isolated local/CI RBAC test stack.
 
 | Username | Password | Roles | Boundary to test |
 |----------|----------|-------|-----------------|

@@ -38,6 +38,12 @@ spec:
                   key: password
             - name: KC_REALM
               value: {{ .Values.realm.name | quote }}
+            - name: KEYCLOAK_SEED_DEMO_USERS
+              value: {{ .Values.demoUsers.enabled | quote }}
+            {{- if .Values.admin.frontendUrl }}
+            - name: KEYCLOAK_ADMIN_FRONTEND_URL
+              value: {{ .Values.admin.frontendUrl | quote }}
+            {{- end }}
             - name: IDP_ALIAS
               value: {{ .Values.idp.alias | quote }}
             - name: IDP_DISPLAY_NAME

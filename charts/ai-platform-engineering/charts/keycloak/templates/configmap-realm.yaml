@@ -16,4 +16,13 @@ data:
       {{- $clients = append $clients $client -}}
     {{- end -}}
     {{- $_ := set $realm "clients" $clients -}}
+    {{- if not .Values.demoUsers.enabled -}}
+      {{- $users := list -}}
+      {{- range $user := $realm.users -}}
+        {{- if $user.serviceAccountClientId -}}
+          {{- $users = append $users $user -}}
+        {{- end -}}
+      {{- end -}}
+      {{- $_ := set $realm "users" $users -}}
+    {{- end -}}
     {{- $realm | toPrettyJson | nindent 4 }}

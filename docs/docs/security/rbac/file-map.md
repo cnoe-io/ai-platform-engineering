@@ -6,9 +6,9 @@ When you need to change something in the auth path, this table tells you which f
 |-------------------------|------|
 | Short primer: Keycloak JWTs prove identity/context while OpenFGA proves relationship access | `docs/docs/security/rbac/jwt-and-openfga.md` |
 | Helm installation and upgrade runbook for the RBAC/OpenFGA refactor, including optional in-chart Keycloak, AgentGateway, OpenFGA, and OpenFGA bridge runtime components | `docs/docs/security/rbac/helm-install-upgrade.md` |
-| Keycloak Helm realm import: roles, clients, test users | `charts/ai-platform-engineering/charts/keycloak/realm-config.json` |
-| Keycloak Helm runtime: deployment args, management health probes, ingress, and mounted realm import | `charts/ai-platform-engineering/charts/keycloak/templates/deployment.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/ingress.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/configmap-realm.yaml` |
-| Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper, IdP group import and `caipe-ui` groups claim mapper | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` |
+| Keycloak Helm realm import: roles, clients, and optional demo users | `charts/ai-platform-engineering/charts/keycloak/realm-config.json` |
+| Keycloak Helm runtime: deployment args, management health probes, ingress, and mounted realm import; filters demo users unless `keycloak.demoUsers.enabled=true` | `charts/ai-platform-engineering/charts/keycloak/templates/deployment.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/ingress.yaml`, `charts/ai-platform-engineering/charts/keycloak/templates/configmap-realm.yaml` |
+| Keycloak runtime patches: silent flow, user profile, role composites, slack-bot audience mapper, IdP group import and `caipe-ui` groups claim mapper; seeds spec test personas only when `KEYCLOAK_SEED_DEMO_USERS=true` | `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh` |
 | Export client secrets to env/dotenv/K8s Secret | `deploy/keycloak/export-client-secrets.sh` |
 | UI session & NextAuth OIDC config, group claim extraction, and login-time identity sync trigger | `ui/src/lib/auth-config.ts` |
 | UI RBAC middleware (dual bearer/session auth, per-route RBAC enforcement, compatibility gates for legacy `withAuth` handlers) | `ui/src/lib/api-middleware.ts` |

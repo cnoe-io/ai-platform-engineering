@@ -77,6 +77,10 @@ realm:
   name: caipe
   sslRequired: external
 
+demoUsers:
+  # Keep false for shared/prod realms. Set true only for local RBAC matrix runs.
+  enabled: false
+
 env:
   KC_HOSTNAME: "https://idp.caipe.example.com"
   # Admin console and master realm stay private. Use kubectl port-forward to
@@ -90,6 +94,9 @@ env:
   KC_DB_USERNAME: "keycloak"
 
 admin:
+  # Keeps the master-realm admin console usable through the private
+  # port-forward URL while public ingress exposes only /realms/caipe.
+  frontendUrl: "http://localhost:18080"
   externalSecret:
     enabled: true
     secretStoreRef:
@@ -127,6 +134,8 @@ uiClient:
 ```
 
 Create the referenced non-admin secrets out of band. The Keycloak admin Secret should come from your secret manager through `admin.externalSecret`, not a chart-generated password.
+
+`demoUsers.enabled=false` prevents the chart from importing sample password users and keeps `init-idp.sh` from seeding spec test personas. This is the production default; enable it only in isolated local/CI environments that intentionally exercise the RBAC matrix personas.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
@@ -197,7 +206,7 @@ spec:
                   number: 8080
 ```
 
-Use port-forward for Keycloak Admin Console or master realm operations:
+Use port-forward for Keycloak Admin Console or master realm operations. If public ingress blocks `/admin` and `/realms/master`, also set `keycloak.admin.frontendUrl` to the same private admin base URL so the admin console authenticates against the port-forwarded master realm instead of the public issuer hostname.
 
 ```bash
 kubectl -n caipe port-forward svc/caipe-keycloak 18080:8080

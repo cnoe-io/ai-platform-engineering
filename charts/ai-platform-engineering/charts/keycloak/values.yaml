@@ -41,6 +41,10 @@ admin:
   username: admin
   password: ""
   secretRef: ""
+  # Optional master realm frontend URL used by private admin-console installs.
+  # Set to the private admin base, for example http://localhost:18080, when
+  # public ingress intentionally blocks /admin and /realms/master.
+  frontendUrl: ""
   externalSecret:
     enabled: false
     refreshInterval: "1h"
@@ -65,6 +69,12 @@ realm:
   name: caipe
   # "none" for dev, "external" for prod (HTTPS terminated at ingress)
   sslRequired: "external"
+
+# ---------- Demo/test users ----------
+# Disabled by default so production realms do not import sample password users or
+# seed spec test personas. Enable only for local dev/CI RBAC matrix runs.
+demoUsers:
+  enabled: false
 
 # ---------- CAIPE UI OIDC client ----------
 # The realm import renders these into the `caipe-ui` confidential client.

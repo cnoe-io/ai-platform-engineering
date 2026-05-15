@@ -53,7 +53,7 @@ Spec 104 introduced a second tier of realm roles that bound *resources* (tools, 
 | `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
 
 Roles are created and assigned by:
-- `init-idp.sh` (dev/CI seed; runs in the `keycloak-init` job; reads `BOOTSTRAP_ADMIN_EMAILS` to seed the demo bundle).
+- `init-idp.sh` (runs in the `keycloak-init` job; seeds demo personas only when `KEYCLOAK_SEED_DEMO_USERS=true`; reads `BOOTSTRAP_ADMIN_EMAILS` only for explicit bootstrap admin grants).
 - The Admin UI **Team Resources panel** (`Admin → Teams → selected team → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
   1. Writes relationship intent to OpenFGA before Mongo persistence: `team:<slug>#member can_use agent:<id>`, `team:<slug>#member can_manage agent:<id>`, and `team:<slug>#member can_call tool:<prefix|*>`.
   2. Resolves current team members to Keycloak `sub` values and writes OpenFGA `user:<sub> member team:<slug>` membership tuples when possible.
@@ -131,10 +131,13 @@ IDP_CLIENT_ID=<okta-app-client-id>
 IDP_CLIENT_SECRET=<okta-app-client-secret>
 IDP_ACCESS_GROUP=caipe-users                   # Okta group → chat_user role (optional)
 IDP_ADMIN_GROUP=caipe-admins                   # Okta group → admin role (optional)
+KEYCLOAK_ADMIN_FRONTEND_URL=http://localhost:18080  # optional private master-realm admin URL
 OIDC_IDP_HINT=okta                             # auto-redirect browser to this IdP alias
 ```
 
 **`OIDC_IDP_HINT`** (set in `ui/.env.local`) is passed to Keycloak as `kc_idp_hint` on every auth request. It skips the Keycloak login page entirely and redirects straight to the named IdP. Set it to the same value as `IDP_ALIAS`.
+
+**`KEYCLOAK_ADMIN_FRONTEND_URL`** is optional and only affects the `master` realm admin console. Use it when public ingress intentionally exposes only `/realms/caipe` and `/resources`; the `caipe` realm issuer and Duo broker redirect remain on the public Keycloak hostname.
 
 In production, the browser-facing issuer is Keycloak, not the upstream IdP. For the Grid RBAC environment the UI uses:
 

@@ -38,9 +38,8 @@ KC_URL="${KC_URL:-http://localhost:7080}"
 # -------------------------------------------------------------------
 # Persona seeding (spec 102 T019).
 #
-# Always runs (regardless of IDP_* env vars) because the spec-102
-# RBAC tests need the six personas in the realm whether or not an
-# upstream IdP broker is configured.  Idempotent — re-runnable.
+# Runs only when KEYCLOAK_SEED_DEMO_USERS=true because these are local
+# dev/CI personas, not production users. Idempotent — re-runnable.
 #
 # Personas (see spec.md §Personas):
 #   alice_admin            → realm role "admin"
@@ -164,7 +163,11 @@ seed_personas_main() {
   echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
 }
 
-seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+if [ "${KEYCLOAK_SEED_DEMO_USERS:-false}" = "true" ] || [ "${KEYCLOAK_SEED_DEMO_USERS:-false}" = "1" ]; then
+  seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+else
+  echo "[init-idp] [spec-102] KEYCLOAK_SEED_DEMO_USERS is not true — skipping demo persona seeding."
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec 104: Team-scoped RBAC seed
@@ -349,6 +352,41 @@ _ensure_caipe_platform_user_roles() {
 }
 
 _ensure_caipe_platform_user_roles
+
+if [ -n "${KEYCLOAK_ADMIN_FRONTEND_URL:-}" ]; then
+  echo "[init-idp] Ensuring master realm frontendUrl for private admin console ..."
+  ADMIN_FRONTEND_TOKEN_RESP=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}") || {
+    echo "[init-idp]   WARNING: could not authenticate to update master realm frontendUrl."
+    ADMIN_FRONTEND_TOKEN_RESP=""
+  }
+  ADMIN_FRONTEND_TOKEN=$(json_field "${ADMIN_FRONTEND_TOKEN_RESP}" "access_token")
+  if [ -n "${ADMIN_FRONTEND_TOKEN}" ]; then
+    ADMIN_FRONTEND_AUTH="Authorization: Bearer ${ADMIN_FRONTEND_TOKEN}"
+    MASTER_REALM_JSON=$(curl -sf -H "${ADMIN_FRONTEND_AUTH}" \
+      "${KC_URL}/admin/realms/master") || {
+      echo "[init-idp]   WARNING: could not read master realm before frontendUrl update."
+      MASTER_REALM_JSON=""
+    }
+    if [ -n "${MASTER_REALM_JSON}" ]; then
+      ADMIN_FRONTEND_PAYLOAD=$(printf '%s' "${MASTER_REALM_JSON}" | python3 -c '
+import json
+import os
+import sys
+
+realm = json.load(sys.stdin)
+realm["attributes"] = realm.get("attributes") or {}
+realm["attributes"]["frontendUrl"] = os.environ["KEYCLOAK_ADMIN_FRONTEND_URL"]
+print(json.dumps(realm))
+')
+      curl -sf -X PUT -H "${ADMIN_FRONTEND_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/master" \
+        -d "${ADMIN_FRONTEND_PAYLOAD}" && \
+        echo "[init-idp]   master realm frontendUrl set for admin console." || \
+        echo "[init-idp]   WARNING: failed to update master realm frontendUrl."
+    fi
+  fi
+fi
 
 if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
   echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
