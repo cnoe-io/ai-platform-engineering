@@ -410,19 +410,37 @@ export function ChatContainer() {
   // for authorization. Runs only on the API-roundtrip path; the
   // local-store-hit path above derives accessLevel from owner_id +
   // sharing.* and never produces admin_audit by construction (Inv-E).
+  //
+  // Autonomous-source short-circuit: autonomous chats are interactive for
+  // every authenticated user (server returns access_level === 'shared').
+  // We hard-suppress any read-only banner here so a stale accessLevel
+  // value from a previous conversation (e.g. an admin_audit chat the
+  // user just left) cannot leak onto an autonomous view during the
+  // brief window before the new effect runs.
+  const isAutonomousConv = conversation
+    ? ('_id' in conversation
+        ? (conversation as { source?: string }).source === 'autonomous'
+        : (conversation as LocalConversation).source === 'autonomous')
+    : false;
   const adminAuditActive =
-    accessLevel === 'admin_audit'
+    !isAutonomousConv
+    && accessLevel === 'admin_audit'
     && (adminOrigin === 'audit-logs' || adminOrigin === 'feedback');
   const isReadOnly =
-    adminAuditActive
-    || accessLevel === 'admin_audit'
-    || accessLevel === 'shared_readonly';
+    !isAutonomousConv
+    && (
+      adminAuditActive
+      || accessLevel === 'admin_audit'
+      || accessLevel === 'shared_readonly'
+    );
   const readOnlyReason: 'admin_audit' | 'shared_readonly' | undefined =
-    adminAuditActive
-      ? 'admin_audit'
-      : (accessLevel === 'admin_audit' || accessLevel === 'shared_readonly')
-        ? 'shared_readonly'
-        : undefined;
+    isAutonomousConv
+      ? undefined
+      : adminAuditActive
+        ? 'admin_audit'
+        : (accessLevel === 'admin_audit' || accessLevel === 'shared_readonly')
+          ? 'shared_readonly'
+          : undefined;
 
   // Only show loading if we haven't finished fetching yet. After fetchDone=true,
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.

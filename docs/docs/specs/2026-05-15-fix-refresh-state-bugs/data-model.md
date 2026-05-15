@@ -204,21 +204,29 @@ Reorder the cascade so the `source === 'autonomous'` branch runs **before** the 
 4. Team grant                     → 'shared' | 'shared_readonly'
 5. Email-grant subcollection      → 'shared' | 'shared_readonly'
 6. NEW POSITION:
-   conversation.source === 'autonomous' → 'shared_readonly'
+   conversation.source === 'autonomous' → 'shared'   (revised — see addendum below)
 7. session.role === 'admin' || canViewAdmin → 'admin_audit'
 8. Else                           → 403
 ```
 
 ### Invariant enforced
 
-- **Inv-D — Autonomous never resolves to admin_audit**: For every conversation with `source === 'autonomous'` and a non-owner user, `requireConversationAccess` returns `access_level === 'shared_readonly'`. Admin status does not change this.
+- **Inv-D — Autonomous never resolves to admin_audit**: For every conversation with `source === 'autonomous'` and a non-owner user, `requireConversationAccess` returns `access_level === 'shared'`. Admin status does not change this.
 
 ### Backward compatibility
 
-- The `ConversationAccessLevel` union and the API response shape are unchanged. Only the **value** returned for one previously-misclassified case changes (admin + autonomous: was `admin_audit`, now `shared_readonly`).
+- The `ConversationAccessLevel` union and the API response shape are unchanged. Only the **value** returned for one previously-misclassified case changes (admin + autonomous: was `admin_audit`, now `'shared'`).
 - Admin auditing of **non-autonomous** conversations the admin does not otherwise have access to is unchanged: step 7 still fires and returns `admin_audit`.
-- Write-side endpoints already reject mutations on conversations with `access_level === 'shared_readonly'` for non-owners; behavior for admin + autonomous remains read-only.
-- **Non-admin users on autonomous conversations**: behaviour is unchanged by T025. Pre-fix, non-admins fell through step 6 (admin check fails) and landed on step 7 (autonomous → `shared_readonly`). Post-fix, they hit the autonomous branch one step earlier. Same return value, same UI.
+- Autonomous conversations are interactive — write-side endpoints accept POST/PUT for `'shared'` (only `'admin_audit'` and `'shared_readonly'` are 403'd in `messages/route.ts` and `turns/route.ts`).
+- **Non-admin users on autonomous conversations**: pre-fix they got `'shared_readonly'` (silent 403 on writes); post-revision they get `'shared'` (writable). Authorship is captured per-message via `sender_email` (set from the authenticated session in the messages POST route), so audit trail is preserved even though access is broad.
+
+### Phase 1 addendum (2026-05-15) — autonomous-chat read-only contract revised
+
+The original Inv-D returned `'shared_readonly'` for `source === 'autonomous'`, citing the README's "operator visibility only" framing. Post-implementation review revealed this contradicted actual product usage: operators routinely add manual follow-up messages to autonomous task threads, and those typed messages were silently 403'd by the messages POST route, then disappeared on refresh because they were never persisted. The revised Inv-D returns `'shared'` instead. Effects:
+
+1. **Server**: `requireConversationAccess` autonomous branch returns `'shared'`. Manual follow-ups POST successfully and round-trip through `loadMessagesFromServer`.
+2. **Client (`ChatContainer.tsx`)**: an autonomous-source short-circuit hard-suppresses any read-only banner derivation when `conversation.source === 'autonomous'`, defending against a stale `accessLevel` `useState` value (e.g. left over from an `admin_audit` chat the user just navigated away from) leaking onto the autonomous view.
+3. **Inv-G strengthening**: `loadConversationsFromServer`'s callback `set()` now also handles the **same-id** collision case where the server's autonomous row has `messages: []` (synth messages are client-only) but the live state already has the autonomous loader's synth messages. Without this fix, the server loader would clobber the synth messages with the empty server payload, producing the "manual chat history disappears in autonomous task chat" symptom that resolved itself only after a sidebar tab-switch retriggered the autonomous loader.
 
 ## Cross-cutting: read-only-trigger inventory (FR-008)
 

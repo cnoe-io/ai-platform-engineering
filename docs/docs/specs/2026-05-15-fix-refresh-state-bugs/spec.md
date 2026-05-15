@@ -3,7 +3,7 @@
 **Feature Branch**: `2026-05-15-fix-refresh-state-bugs`
 **Created**: 2026-05-15
 **Closed**: 2026-05-15
-**Status**: Implemented
+**Status**: Implemented (with 2026-05-15 follow-up — see Phase 1 addendum in `data-model.md`)
 **Input**: User description: "There's a problem that I keep facing on the UI side. One big issue is when the browser is refreshed, sometimes a duplicate of the tab appears and is selected along with the autonomous chat. Another problem that appears when the page resets is that you're sometimes put in audit mode."
 
 ## Background *(informational)*

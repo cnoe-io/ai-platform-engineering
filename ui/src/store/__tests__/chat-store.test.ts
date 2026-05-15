@@ -2841,6 +2841,66 @@ describe('chat-store', () => {
         .conversations.find((c) => c.id === autonomousId);
       expect(surviving!.source).toBe('autonomous');
     });
+
+    it('server loader preserves autonomous synth messages on same-id collision', async () => {
+      // The autonomous task's canonical id is also persisted server-side
+      // (chat_history publisher creates a MongoDB row with messages: []),
+      // so loadConversationsFromServer returns it. Without the same-id
+      // preservation, the server's empty messages would clobber the
+      // autonomous loader's synth messages, leaving the chat thread
+      // empty until the next autonomous-loader tick — matching the
+      // "manual chat history disappears" symptom.
+      const autonomousId = 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8';
+      const synthMessage = makeMessage({
+        id: 'creation-intent-1',
+        role: 'user',
+        content: 'do the thing',
+        timestamp: new Date('2026-05-13T09:00:00.000Z'),
+      });
+      const userTyped = makeMessage({
+        id: 'user-followup-1',
+        role: 'user',
+        content: 'follow up',
+        timestamp: new Date('2026-05-13T11:00:00.000Z'),
+      });
+      const liveAutonomous = makeConversation({
+        id: autonomousId,
+        title: 'Cron task',
+        source: 'autonomous',
+        messages: [synthMessage, userTyped],
+      });
+      useChatStore.setState({ conversations: [liveAutonomous] });
+
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: autonomousId,
+            title: 'Cron task',
+            owner_id: 'autonomous@system',
+            source: 'autonomous',
+            created_at: new Date('2026-05-13T08:00:00.000Z').toISOString(),
+            updated_at: new Date('2026-05-13T09:00:00.000Z').toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      const surviving = useChatStore
+        .getState()
+        .conversations.find((c) => c.id === autonomousId);
+      expect(surviving).toBeDefined();
+      expect(surviving!.source).toBe('autonomous');
+      // Both the synth and user-typed messages survive the server write.
+      const ids = surviving!.messages.map((m) => m.id);
+      expect(ids).toContain('creation-intent-1');
+      expect(ids).toContain('user-followup-1');
+      expect(surviving!.messages).toHaveLength(2);
+    });
   });
 
   describe('refresh-state — stale activeConversationId fallback (US3 — FR-006, FR-009)', () => {

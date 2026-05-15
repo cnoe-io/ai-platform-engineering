@@ -164,7 +164,7 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
-  it('admin viewing autonomous-source conversation returns shared_readonly (Inv-D)', async () => {
+  it('admin viewing autonomous-source conversation returns shared (interactive — Inv-D revised)', async () => {
     const conv = {
       _id: CONV_ID,
       owner_id: 'owner@example.com',
@@ -187,8 +187,41 @@ describe('requireConversationAccess — admin audit', () => {
       { role: 'admin' }
     );
 
-    expect(result.access_level).toBe('shared_readonly');
+    // Autonomous chats are interactive for every authenticated user, so
+    // the access level must NOT be a read-only variant — write-side
+    // routes (messages/route.ts, turns/route.ts) explicitly 403 on
+    // 'shared_readonly' and 'admin_audit'.
+    expect(result.access_level).toBe('shared');
+    expect(['shared_readonly', 'admin_audit']).not.toContain(
+      result.access_level,
+    );
     expect(result.conversation).toEqual(conv);
+  });
+
+  it('non-admin viewing autonomous-source conversation also returns shared (any authenticated user can write)', async () => {
+    const conv = {
+      _id: CONV_ID,
+      owner_id: 'autonomous@system',
+      title: 'Autonomous Task',
+      sharing: { shared_with: [], shared_with_teams: [] },
+      source: 'autonomous',
+    };
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    mockCollections['conversations'] = convsCol;
+
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue(null);
+    mockCollections['sharing_access'] = sharingAccessCol;
+
+    const result = await requireConversationAccess(
+      CONV_ID,
+      'user@example.com',
+      mockGetCollection,
+      { role: 'user' }
+    );
+
+    expect(result.access_level).toBe('shared');
   });
 
   it('admin viewing non-autonomous non-owned conversation still returns admin_audit (regression guard)', async () => {

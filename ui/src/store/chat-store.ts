@@ -1089,17 +1089,61 @@ const storeImplementation = (set: any, get: any) => ({
 
           // Inv-G: callback-form set() so any autonomous-source entries
           // written by loadAutonomousConversationsFromService between our
-          // snapshot read (above) and this write are NOT clobbered. Reads
-          // the latest state and re-unions with cross-loader additions.
+          // snapshot read (above) and this write are NOT clobbered. Two
+          // collision shapes are handled:
+          //   1. New-id case (autonomous task with no MongoDB row yet):
+          //      preserve the autonomous entry as-is via cross-loader
+          //      additions (id not in serverIdSet).
+          //   2. Same-id case (autonomous task that does have a MongoDB
+          //      row, so it appears in BOTH sortedConversations and the
+          //      live state with `source === 'autonomous'`): the server
+          //      version has `messages: []` because synth messages are
+          //      client-side only — we must keep the live entry's synth
+          //      messages / a2aEvents / streamEvents instead of letting
+          //      the empty server payload win.
           set((state) => {
-            const serverIdSet = new Set(sortedConversations.map((c) => c.id));
+            const stateById = new Map<string, Conversation>(
+              state.conversations.map((c) => [c.id, c] as [string, Conversation]),
+            );
+            const reconciled = sortedConversations.map((serverConv: Conversation) => {
+              const live = stateById.get(serverConv.id);
+              if (!live) return serverConv;
+              // Same-id collision: prefer live's messages/events when the
+              // live entry is autonomous-synth or actively streaming, OR
+              // when the live entry simply has more messages than the
+              // server's empty payload (defense in depth — covers any
+              // future loader that populates messages between snapshot
+              // and write).
+              const isAutonomousLive = live.source === 'autonomous';
+              const isStreamingLive = state.streamingConversations.has(
+                serverConv.id,
+              );
+              const liveHasMoreMessages =
+                live.messages.length > serverConv.messages.length;
+              if (isAutonomousLive || isStreamingLive || liveHasMoreMessages) {
+                return {
+                  ...serverConv,
+                  messages: live.messages.length > 0
+                    ? live.messages
+                    : serverConv.messages,
+                  a2aEvents: live.a2aEvents.length > 0
+                    ? live.a2aEvents
+                    : serverConv.a2aEvents,
+                  streamEvents: live.streamEvents && live.streamEvents.length > 0
+                    ? live.streamEvents
+                    : serverConv.streamEvents,
+                };
+              }
+              return serverConv;
+            });
+            const serverIdSet = new Set(reconciled.map((c) => c.id));
             const crossLoaderAdditions = state.conversations.filter(
               (c) =>
                 !serverIdSet.has(c.id) &&
                 (c.source === 'autonomous' ||
                   state.streamingConversations.has(c.id)),
             );
-            const merged = [...sortedConversations, ...crossLoaderAdditions];
+            const merged = [...reconciled, ...crossLoaderAdditions];
             const finalMap = new Map<string, Conversation>();
             for (const c of merged) finalMap.set(c.id, c);
             const deduped = Array.from(finalMap.values()).sort(
