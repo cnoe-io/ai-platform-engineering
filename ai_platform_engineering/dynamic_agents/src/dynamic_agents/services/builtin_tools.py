@@ -4,13 +4,15 @@ This module provides wrapper functions for built-in tools that can be
 configured per-agent with access controls (e.g., domain restrictions).
 """
 
+import ipaddress
 import json
 import logging
 import shlex
+import socket
 import subprocess
 from datetime import datetime, timezone
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,6 +22,71 @@ from langgraph.store.base import GetOp, PutOp
 from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
 
 logger = logging.getLogger(__name__)
+
+_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+_MAX_FETCH_REDIRECTS = 10
+
+
+# assisted-by claude code claude-sonnet-4-6
+def _is_publicly_routable_ip(ip_address: str) -> bool:
+    addr = ipaddress.ip_address(ip_address)
+    return addr.is_global and not (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_private
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def _resolve_host_addresses(hostname: str) -> list[str]:
+    try:
+        return [str(ipaddress.ip_address(hostname))]
+    except ValueError:
+        pass
+
+    results = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    return [sockaddr[0] for _family, _type, _proto, _canonname, sockaddr in results]
+
+
+def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
+    if not hostname:
+        return False, "missing hostname"
+
+    try:
+        addresses = _resolve_host_addresses(hostname)
+    except (socket.gaierror, OSError) as e:
+        return False, f"hostname could not be resolved: {e}"
+
+    if not addresses:
+        return False, "hostname did not resolve to any address"
+
+    for address in addresses:
+        try:
+            if not _is_publicly_routable_ip(address):
+                return False, f"{address} is not publicly routable"
+        except ValueError:
+            return False, f"{address} is not a valid IP address"
+
+    return True, ""
+
+
+def _validate_fetch_url(url: str, allowed_domains: str) -> tuple[bool, str, str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, "Invalid URL - must start with http:// or https://", ""
+
+    domain = (parsed.hostname or "").lower()
+    is_routable, route_error = _is_publicly_routable_host(domain)
+    if not is_routable:
+        return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+
+    is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
+    if not is_allowed:
+        return False, error_msg, domain
+
+    return True, "", domain
 
 
 def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
@@ -163,7 +230,7 @@ def is_domain_allowed(url_domain: str, allowed_domains_str: str) -> tuple[bool, 
     return False, f"Domain '{url_domain}' is not allowed. Allowed patterns: {allowed_domains_str}"
 
 
-def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -> str:
+def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int, allowed_domains: str) -> str:
     """Fetch content from a URL (internal implementation).
 
     Args:
@@ -175,7 +242,27 @@ def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -
         Fetched content as string, or "ERROR: <message>" on failure
     """
     try:
-        response = requests.get(url, timeout=timeout, allow_redirects=True)
+        current_url = url
+        response = None
+        for _redirect_count in range(_MAX_FETCH_REDIRECTS + 1):
+            is_valid, error_msg, _domain = _validate_fetch_url(current_url, allowed_domains)
+            if not is_valid:
+                return f"ERROR: {error_msg}"
+
+            response = requests.get(current_url, timeout=timeout, allow_redirects=False)
+            if getattr(response, "status_code", None) not in _REDIRECT_STATUS_CODES:
+                break
+
+            location = response.headers.get("location")
+            if not location:
+                break
+            current_url = urljoin(current_url, location)
+        else:
+            return f"ERROR: Too many redirects (>{_MAX_FETCH_REDIRECTS})"
+
+        if response is None:
+            return "ERROR: No response received"
+
         response.raise_for_status()
 
         content_type = response.headers.get("content-type", "").lower()
@@ -248,14 +335,8 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Check domain ACL
         try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.lower()
-            # Strip port if present
-            if ":" in domain:
-                domain = domain.split(":")[0]
-
-            is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
-            if not is_allowed:
+            is_valid, error_msg, domain = _validate_fetch_url(url, allowed_domains)
+            if not is_valid:
                 logger.warning(f"fetch_url domain blocked: {domain} (patterns: {allowed_domains})")
                 return f"ERROR: {error_msg}"
 
@@ -264,7 +345,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Fetch the content
         logger.debug(f"fetch_url: fetching {url} (domain allowed)")
-        return _fetch_url_content(url, format, timeout)
+        return _fetch_url_content(url, format, timeout, allowed_domains)
 
     return fetch_url
 
@@ -337,17 +418,13 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
                     logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
                     return msg
 
-        # Check domain ACL (same logic as fetch_url)
+        # Check domain ACL and SSRF protection (same validation as fetch_url)
         for token in args[1:]:
-            if token.startswith("https://"):
+            if token.startswith("https://") or token.startswith("http://"):
                 try:
-                    parsed = urlparse(token)
-                    domain = parsed.netloc.lower()
-                    if ":" in domain:
-                        domain = domain.split(":")[0]
-                    is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
-                    if not is_allowed:
-                        logger.warning(f"curl domain blocked: {domain} (patterns: {allowed_domains})")
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
+                    if not is_valid:
+                        logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
                         return f"ERROR: {error_msg}"
                 except Exception as e:
                     return f"ERROR: Failed to parse URL: {e}"
