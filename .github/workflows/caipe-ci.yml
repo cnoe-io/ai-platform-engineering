@@ -16,6 +16,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# assisted-by Codex Codex-sonnet-4-6
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test (${{ matrix.os }})
@@ -50,7 +54,7 @@ jobs:
 
       - name: Build (verify compilation succeeds)
         working-directory: cli
-        run: bun build src/index.ts --outdir dist --target bun
+        run: bun build src/index.ts --outdir dist --target node --external keytar --external fsevents
 
       - name: Cold-start check (<1s)
         working-directory: cli

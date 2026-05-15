@@ -11,6 +11,8 @@ CAIPE CLI is a terminal AI assistant purpose-built for platform engineers. It co
 
 The v1 implementation is a TypeScript + Bun project using React + Ink for the TUI, OAuth 2.0 PKCE for authentication, and a GitHub Releases static manifest for the skills catalog.
 
+Goose (`aaif-goose/goose`) is a strong follow-up candidate for local agent execution, MCP tools, recipes, and branded/custom distributions, but it is not a drop-in replacement for this v1 PR. The v1 CLI remains a CAIPE-specific authenticated A2A/AG-UI protocol client. Goose interoperability should be prototyped after v1 through a CAIPE MCP extension, an ACP/`goosed` bridge, or an optional CAIPE Goose distribution.
+
 ## Technical Context
 
 **Language/Version**: TypeScript 5.x, Bun 1.x  

@@ -10,6 +10,7 @@
  * ServerNotConfigured in interactive mode.  In headless mode the error
  * propagates and the process exits 1.
  */
+// assisted-by Codex Codex-sonnet-4-6
 
 import { Box, Text, useApp, useInput } from "ink";
 import { render } from "ink";
@@ -31,16 +32,12 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
 
   useInput((char, key) => {
     if (key.return) {
-      const url = input.trim().replace(/\/+$/, "");
-      const isLocalhost = url.startsWith("http://localhost") || url.startsWith("http://127.0.0.1");
-      if (!url.startsWith("https://") && !isLocalhost) {
-        setError("URL must start with https:// (or http://localhost for local dev)");
+      const result = validateSetupUrlInput(input);
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-      if (url.includes("example.com") || url.includes("your-company")) {
-        setError("Please enter your actual CAIPE server URL, not the example.");
-        return;
-      }
+      const url = result.url;
       setError(null);
       const settings = readSettings();
       settings.auth = { ...settings.auth, url };
@@ -84,6 +81,39 @@ function SetupWizard({ onDone }: WizardProps): React.ReactElement {
         <Text dimColor>Press Enter to confirm. Ctrl+C to cancel.</Text>
       </Box>
     </Box>
+  );
+}
+
+export function validateSetupUrlInput(
+  input: string,
+): { ok: true; url: string } | { ok: false; error: string } {
+  const trimmed = input.trim().replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, error: "Enter a valid URL." };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocalhost =
+    parsed.protocol === "http:" && (hostname === "localhost" || hostname === "127.0.0.1");
+  if (parsed.protocol !== "https:" && !isLocalhost) {
+    return { ok: false, error: "URL must start with https:// (or http://localhost for local dev)" };
+  }
+  if (isExampleHostname(hostname)) {
+    return { ok: false, error: "Please enter your actual CAIPE server URL, not the example." };
+  }
+
+  return { ok: true, url: parsed.toString().replace(/\/+$/, "") };
+}
+
+function isExampleHostname(hostname: string): boolean {
+  return (
+    hostname === "example.com" ||
+    hostname.endsWith(".example.com") ||
+    hostname === "your-company.com" ||
+    hostname.endsWith(".your-company.com")
   );
 }
 

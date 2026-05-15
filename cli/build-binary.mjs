@@ -10,19 +10,18 @@
  *
  * Outputs: dist/caipe  (signed with codesign -s - on macOS)
  */
+// assisted-by Codex Codex-sonnet-4-6
 
 import { build } from "esbuild";
 import {
-  copyFileSync, readFileSync, writeFileSync,
-  existsSync, mkdirSync, chmodSync, rmSync,
+  copyFileSync, writeFileSync,
+  existsSync, chmodSync, rmSync,
 } from "fs";
 import { execSync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require   = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // 1. esbuild — bundle everything except keytar + fsevents
