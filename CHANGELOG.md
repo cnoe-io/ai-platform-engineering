@@ -1,3 +1,21 @@
+## 0.5.1 (2026-05-16)
+
+### Fix
+
+- **ui**: route supervisor traffic through same-origin proxy
+- **keycloak**: own auth reconcile hook in chart
+- **keycloak**: suppress verify profile prompt
+
+## 0.5.1-rc.2 (2026-05-16)
+
+### Feat
+
+- **keycloak**: add customizable login theme
+
+### Fix
+
+- **docker**: exclude runtime artifacts from build context
+
 ## 0.5.1-rc.1 (2026-05-16)
 
 ## 0.4.12-dev.11 (2026-05-16)
