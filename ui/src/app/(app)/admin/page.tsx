@@ -30,6 +30,7 @@ import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
 import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
 import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
+import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
 import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
@@ -40,6 +41,7 @@ import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { UserManagementTab } from "@/components/admin/UserManagementTab";
 import { UserDetailModal } from "@/components/admin/UserDetailModal";
+import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
@@ -203,9 +205,9 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga', 'ai-review', 'settings'] as const;
 
-type CategoryKey = 'people' | 'insights' | 'platform' | 'security';
+type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
 
 interface Category {
   key: CategoryKey;
@@ -221,8 +223,18 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   {
+    key: 'system',
+    label: 'System',
+    icon: Settings,
+    tabs: [
+      { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
+      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
+    ],
+  },
+  {
     key: 'people',
-    label: 'People & Access',
+    label: 'Users & Teams',
     icon: Users,
     tabs: [
       { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
@@ -237,7 +249,6 @@ const CATEGORIES: Category[] = [
     label: 'Insights',
     icon: TrendingUp,
     tabs: [
-      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
       { value: 'nps', label: 'NPS', icon: Star, gateKey: 'nps' },
       { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
@@ -245,7 +256,7 @@ const CATEGORIES: Category[] = [
   },
   {
     key: 'platform',
-    label: 'Platform',
+    label: 'Metrics & Health',
     icon: Activity,
     tabs: [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
@@ -277,7 +288,7 @@ function AdminPage() {
   const router = useRouter();
   const pathname = usePathname();
   const { isAdmin } = useAdminRole();
-  const { gates, loading: gatesLoading } = useAdminTabGates();
+  const { gates } = useAdminTabGates();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const npsEnabled = getConfig('npsEnabled');
@@ -300,20 +311,32 @@ function AdminPage() {
       : categoryForTab(activeTab)
   );
 
+  const tabGateValues = useMemo<Record<string, boolean>>(
+    () => ({
+      ...gates,
+      feedback: Boolean(gates.feedback && feedbackEnabled),
+      nps: Boolean(gates.nps && npsEnabled),
+      audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
+      settings: isAdmin,
+      ai_review: isAdmin,
+    }),
+    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, npsEnabled]
+  );
+
   const visibleCategories = useMemo(
     () =>
       CATEGORIES.filter((cat) =>
-        cat.tabs.some((t) => (gates as Record<string, boolean>)[t.gateKey])
+        cat.tabs.some((t) => tabGateValues[t.gateKey])
       ),
-    [gates]
+    [tabGateValues]
   );
 
   const visibleTabsForCategory = useMemo(
     () =>
       (CATEGORIES.find((c) => c.key === activeCategory)?.tabs ?? []).filter(
-        (t) => (gates as Record<string, boolean>)[t.gateKey]
+        (t) => tabGateValues[t.gateKey]
       ),
-    [activeCategory, gates]
+    [activeCategory, tabGateValues]
   );
 
   const handleCategoryChange = useCallback(
@@ -321,9 +344,7 @@ function AdminPage() {
       setActiveCategory(catKey);
       const cat = CATEGORIES.find((c) => c.key === catKey);
       if (!cat) return;
-      const firstVisible = cat.tabs.find(
-        (t) => (gates as Record<string, boolean>)[t.gateKey]
-      );
+      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
       if (firstVisible) {
         setActiveTab(firstVisible.value);
         const params = new URLSearchParams(searchParams.toString());
@@ -332,58 +353,8 @@ function AdminPage() {
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       }
     },
-    [gates, searchParams, router, pathname]
+    [pathname, router, searchParams, tabGateValues]
   );
-  const initialCategory = searchParams.get('cat') as CategoryKey | null;
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
-    initialCategory && ADMIN_CATEGORIES.some((category) => category.key === initialCategory)
-      ? initialCategory
-      : categoryForTab(activeTab)
-  );
-  const isTabVisible = useCallback((tab: AdminTabConfig): boolean => {
-    switch (tab.gate) {
-      case 'feedback':
-        return feedbackEnabled;
-      case 'nps':
-        return npsEnabled;
-      case 'admin':
-        return isAdmin;
-      case 'audit-admin':
-        return auditLogsEnabled && isAdmin;
-      case 'always':
-      default:
-        return true;
-    }
-  }, [auditLogsEnabled, feedbackEnabled, isAdmin, npsEnabled]);
-  const visibleCategories = useMemo(
-    () =>
-      ADMIN_CATEGORIES
-        .map((category) => ({
-          ...category,
-          tabs: category.tabs.filter(isTabVisible),
-        }))
-        .filter((category) => category.tabs.length > 0),
-    [isTabVisible]
-  );
-  const visibleTabsForCategory = useMemo(
-    () =>
-      visibleCategories.find((category) => category.key === activeCategory)?.tabs
-      ?? visibleCategories[0]?.tabs
-      ?? [],
-    [activeCategory, visibleCategories]
-  );
-  const handleCategoryChange = useCallback((categoryKey: CategoryKey) => {
-    const category = visibleCategories.find((item) => item.key === categoryKey);
-    const firstTab = category?.tabs[0];
-    if (!category || !firstTab) return;
-
-    setActiveCategory(categoryKey);
-    setActiveTab(firstTab.value);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('cat', categoryKey);
-    params.set('tab', firstTab.value);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams, visibleCategories]);
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
@@ -951,6 +922,18 @@ function AdminPage() {
                 })}
               </TabsList>
 
+              {tabGateValues.settings && (
+                <TabsContent value="settings" className="space-y-4">
+                  <PlatformSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.ai_review && (
+                <TabsContent value="ai-review" className="space-y-4">
+                  <ReviewConfigsTab />
+                </TabsContent>
+              )}
+
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
                 <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
@@ -1235,7 +1218,7 @@ function AdminPage() {
               </TabsContent>
 
               {/* Feedback Tab */}
-              {feedbackEnabled && <TabsContent value="feedback" className="space-y-4">
+              {tabGateValues.feedback && <TabsContent value="feedback" className="space-y-4">
                 {/* Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -1468,7 +1451,7 @@ function AdminPage() {
               </TabsContent>}
 
               {/* NPS Tab */}
-              {gates.nps && <TabsContent value="nps" className="space-y-4">
+              {tabGateValues.nps && <TabsContent value="nps" className="space-y-4">
                 {/* Campaign Management */}
                 {isAdmin && (
                   <Card>
@@ -2507,33 +2490,41 @@ function AdminPage() {
                 <HealthTab />
               </TabsContent>
 
-              {gates.audit_logs && (
+              {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
-              {gates.action_audit && (
+              {tabGateValues.action_audit && (
                 <TabsContent value="action-audit" className="space-y-4">
                   <UnifiedAuditTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 
-              <TabsContent value="openfga" className="space-y-4">
-                <OpenFgaRebacTab isAdmin={isAdmin} />
-              </TabsContent>
+              {tabGateValues.openfga && (
+                <TabsContent value="openfga" className="space-y-4">
+                  <OpenFgaRebacTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
-              <TabsContent value="roles" className="space-y-4">
-                <RolesAccessTab isAdmin={isAdmin} />
-              </TabsContent>
+              {tabGateValues.roles && (
+                <TabsContent value="roles" className="space-y-4">
+                  <RolesAccessTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
-              <TabsContent value="identity-groups" className="space-y-4">
-                <IdentityGroupSyncTab isAdmin={isAdmin} />
-              </TabsContent>
+              {tabGateValues.identity_group_sync && (
+                <TabsContent value="identity-groups" className="space-y-4">
+                  <IdentityGroupSyncTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
-              <TabsContent value="slack" className="space-y-4">
-                <SlackUsersTab isAdmin={isAdmin} />
-              </TabsContent>
+              {tabGateValues.slack && (
+                <TabsContent value="slack" className="space-y-4">
+                  <SlackUsersTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
             </Tabs>
           </div>
         </ScrollArea>
