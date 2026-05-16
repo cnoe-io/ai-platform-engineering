@@ -166,6 +166,7 @@ Keycloak 26+ enforces a user profile schema. Custom attributes are silently drop
 
 - Adds `slack_user_id` to the user profile schema with `admin`-only view/edit permissions
 - Sets `unmanagedAttributePolicy=ADMIN_EDIT` so other Admin API attribute writes succeed
+- Makes `firstName` and `lastName` optional, disables Keycloak's `VERIFY_PROFILE` required-action provider, and clears any assigned `VERIFY_PROFILE` actions from existing users so enterprise SSO users are never stopped at Keycloak's "Update Account Information" form
 
 The Keycloak container exposes login/API traffic on `8080` and management health on `9000`; Helm readiness/liveness probes target the management port.
 

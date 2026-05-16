@@ -507,11 +507,13 @@ if [ -n "${DEFAULT_ROLE_ID}" ]; then
   fi
 fi
 
-# --- configure user profile: allow slack_user_id attribute ---
+# --- configure user profile: allow slack_user_id attribute and avoid profile prompts ---
 # Keycloak 26+ silently drops custom attributes not in the user profile schema.
 # We add slack_user_id and enable unmanagedAttributePolicy=ADMIN_EDIT so that
 # the Admin API (used by identity linking and user management) can set attributes.
-echo "[init-idp] Configuring user profile for slack_user_id ..."
+# We also explicitly make firstName/lastName optional. Upstream enterprise IdPs
+# are the profile source of truth; CAIPE must not interrupt SSO to collect names.
+echo "[init-idp] Configuring user profile ..."
 PROFILE=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "")
 
@@ -531,6 +533,12 @@ if 'slack_user_id' not in names:
         'permissions': {'view': ['admin'], 'edit': ['admin']},
         'multivalued': False
     })
+# The VERIFY_PROFILE required action is triggered when Keycloak sees missing
+# required profile attributes. Ensure brokered users are never prompted for
+# first/last name during login.
+for attr in p.get('attributes', []):
+    if attr.get('name') in ('firstName', 'lastName'):
+        attr.pop('required', None)
 # Enable unmanaged attributes for admin
 p['unmanagedAttributePolicy'] = 'ADMIN_EDIT'
 json.dump(p, sys.stdout)
@@ -540,7 +548,7 @@ json.dump(p, sys.stdout)
     curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/users/profile" \
       -d "${UPDATED_PROFILE}" && \
-      echo "[init-idp]   User profile updated (slack_user_id + unmanagedAttributePolicy=ADMIN_EDIT)." || \
+      echo "[init-idp]   User profile updated (slack_user_id + optional firstName/lastName + unmanagedAttributePolicy=ADMIN_EDIT)." || \
       echo "[init-idp]   WARNING: failed to update user profile."
   else
     echo "[init-idp]   WARNING: failed to parse user profile JSON (python3 required)."
@@ -960,14 +968,79 @@ else
   echo "[init-idp]   Review Profile execution not found — may already be disabled."
 fi
 
-# Also set firstName/lastName as NOT required on the realm to prevent the form
-# from blocking login even if the mapper hasn't populated the fields yet.
-echo "[init-idp] Ensuring firstName/lastName are not required in realm user profile ..."
-curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-  "${KC_URL}/admin/realms/${REALM}" \
-  -d '{"registrationEmailAsUsername":true}' 2>/dev/null && \
-  echo "[init-idp]   Realm profile updated." || \
-  echo "[init-idp]   WARNING: could not update realm profile settings."
+# Keycloak 26 can still assign the VERIFY_PROFILE required action independently
+# of the first-broker-login review execution. Disable the provider and remove
+# already-assigned VERIFY_PROFILE actions so users are not trapped on
+# /login-actions/required-action?execution=VERIFY_PROFILE.
+echo "[init-idp] Disabling VERIFY_PROFILE required action ..."
+KC_ADMIN_TOKEN=$(printf '%s' "${AUTH}" | sed 's/^Authorization: Bearer //')
+export KC_URL REALM KC_ADMIN_TOKEN
+python3 <<'PY'
+import json
+import os
+import urllib.parse
+import urllib.request
+
+base = os.environ["KC_URL"].rstrip("/")
+realm = os.environ["REALM"]
+token = os.environ["KC_ADMIN_TOKEN"]
+
+
+def kc_request(method, path, data=None):
+    headers = {"Authorization": f"Bearer {token}"}
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(f"{base}{path}", data=body, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=30) as response:
+        text = response.read().decode()
+        return json.loads(text) if text else None
+
+
+required_actions_path = f"/admin/realms/{urllib.parse.quote(realm)}/authentication/required-actions"
+try:
+    actions = kc_request("GET", required_actions_path) or []
+    verify_profile = next((a for a in actions if a.get("alias") == "VERIFY_PROFILE"), None)
+    if verify_profile:
+        verify_profile["enabled"] = False
+        verify_profile["defaultAction"] = False
+        kc_request("PUT", f"{required_actions_path}/VERIFY_PROFILE", verify_profile)
+        print("[init-idp]   VERIFY_PROFILE provider disabled.")
+    else:
+        print("[init-idp]   VERIFY_PROFILE provider not present.")
+except Exception as exc:
+    print(f"[init-idp]   WARNING: could not disable VERIFY_PROFILE provider: {exc}")
+
+try:
+    first = 0
+    page_size = 100
+    cleared = 0
+    while True:
+        users = kc_request(
+            "GET",
+            (
+                f"/admin/realms/{urllib.parse.quote(realm)}/users"
+                f"?first={first}&max={page_size}&briefRepresentation=false"
+            ),
+        ) or []
+        if not users:
+            break
+        for user in users:
+            actions = user.get("requiredActions") or []
+            if "VERIFY_PROFILE" not in actions:
+                continue
+            user["requiredActions"] = [action for action in actions if action != "VERIFY_PROFILE"]
+            kc_request("PUT", f"/admin/realms/{urllib.parse.quote(realm)}/users/{user['id']}", user)
+            cleared += 1
+        if len(users) < page_size:
+            break
+        first += page_size
+
+    print(f"[init-idp]   Cleared VERIFY_PROFILE from {cleared} user(s).")
+except Exception as exc:
+    print(f"[init-idp]   WARNING: could not clear VERIFY_PROFILE from users: {exc}")
+PY
 
 # --- auto-redirect to the IdP (skip Keycloak login page) ---
 # Configures the "Identity Provider Redirector" execution in the browser
