@@ -76,6 +76,10 @@ realm:
 demoUsers:
   enabled: false
 
+# Comma-separated emails that receive bootstrap admin roles when the IdP init
+# hook runs. Leave empty by default; set only for explicit initial admins.
+bootstrapAdminEmails: ""
+
 # ---------- CAIPE UI OIDC client ----------
 # The realm import renders these into the `caipe-ui` confidential client.
 # Production installs should override these to match NEXTAUTH_URL, for example:
@@ -106,6 +110,9 @@ idp:
   secretRef: ""
   accessGroup: ""
   adminGroup: ""
+  # When true, the realm browser flow requires the IdP redirector and disables
+  # the local username/password form so app users never see the Keycloak login page.
+  forceRedirect: true
   externalSecret:
     enabled: false
     refreshInterval: "1h"

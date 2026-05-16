@@ -40,6 +40,10 @@ spec:
               value: {{ .Values.realm.name | quote }}
             - name: KEYCLOAK_SEED_DEMO_USERS
               value: {{ .Values.demoUsers.enabled | quote }}
+            {{- if .Values.bootstrapAdminEmails }}
+            - name: BOOTSTRAP_ADMIN_EMAILS
+              value: {{ .Values.bootstrapAdminEmails | quote }}
+            {{- end }}
             {{- if .Values.admin.frontendUrl }}
             - name: KEYCLOAK_ADMIN_FRONTEND_URL
               value: {{ .Values.admin.frontendUrl | quote }}
@@ -66,6 +70,8 @@ spec:
               value: {{ .Values.idp.accessGroup | quote }}
             - name: IDP_ADMIN_GROUP
               value: {{ .Values.idp.adminGroup | quote }}
+            - name: KEYCLOAK_FORCE_IDP_REDIRECT
+              value: {{ .Values.idp.forceRedirect | quote }}
           volumeMounts:
             - name: init-scripts
               mountPath: /scripts

@@ -81,6 +81,10 @@ demoUsers:
   # Keep false for shared/prod realms. Set true only for local RBAC matrix runs.
   enabled: false
 
+# Optional explicit initial admins. These users receive Keycloak `admin` and
+# `admin_user` roles when they already exist in the realm.
+bootstrapAdminEmails: "admin@example.com"
+
 env:
   KC_HOSTNAME: "https://idp.caipe.example.com"
   # Admin console and master realm stay private. Use kubectl port-forward to
@@ -117,7 +121,10 @@ idp:
   issuer: "https://your-enterprise-idp.example.com"
   clientId: caipe
   accessGroup: caipe-users
+  # Users in this upstream group receive the Keycloak `admin` realm role.
   adminGroup: caipe-admins
+  # Default true: require the IdP redirector and disable local app-realm login.
+  forceRedirect: true
   secretRef: caipe-keycloak-idp
 
 tokenExchange:
@@ -136,6 +143,10 @@ uiClient:
 Create the referenced non-admin secrets out of band. The Keycloak admin Secret should come from your secret manager through `admin.externalSecret`, not a chart-generated password.
 
 `demoUsers.enabled=false` prevents the chart from importing sample password users and keeps `init-idp.sh` from seeding spec test personas. This is the production default; enable it only in isolated local/CI environments that intentionally exercise the RBAC matrix personas.
+
+`idp.forceRedirect=true` is also the production default when an external IdP is enabled. The init hook makes the `caipe` realm browser flow enterprise-IdP-only by requiring the Identity Provider Redirector and disabling the local Keycloak username/password form. The `master` realm admin login is unaffected and should remain private through `admin.frontendUrl`.
+
+Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config if you need the UI fallback before enterprise group claims have propagated. For steady-state admin access, prefer `idp.adminGroup` / `OIDC_REQUIRED_ADMIN_GROUP` backed by your enterprise group, such as `eti_sre_admin`.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
