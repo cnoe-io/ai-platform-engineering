@@ -1,3 +1,94 @@
+## 0.5.1-rc.1 (2026-05-16)
+
+## 0.4.12-dev.11 (2026-05-16)
+
+### Feat
+
+- **caipe-ui**: configurable default agent (#1378)
+
+### Fix
+
+- **ui**: group admin tabs for default agent settings
+- **ci**: disable quick-sanity-on-tag workflow instead of deleting it
+- **ci**: remove caipe-webex-bot from grype scan and delete quick-sanity-on-tag workflow
+- **setup**: remove invalid :-  default from array expansions
+
+## 0.4.12-dev.10 (2026-05-14)
+
+### Fix
+
+- **validate**: fix false-positive failures in setup-caipe.sh validate
+
+## 0.4.12-dev.9 (2026-05-14)
+
+### Fix
+
+- **supervisor**: move agent sys.path setup to Dockerfile, remove runtime hack
+- **supervisor**: remove litellm mcp __init__.py that shadows PyPI mcp package
+- **security**: block SSRF-prone URL fetches
+- **ci**: concurrency groups, skip label API calls, filter bot commits
+- **ci**: reduce GitHub API calls to avoid installation rate limits
+
+## 0.4.12-dev.8 (2026-05-14)
+
+### Fix
+
+- **deps**: refresh vulnerable dependency locks
+
+## 0.4.12-dev.7 (2026-05-14)
+
+## 0.4.12-dev.6 (2026-05-14)
+
+### Feat
+
+- **ui**: rename Dynamic agents label to Agents in AI Review admin
+- **ui**: add AI Review module for skills and dynamic agents
+
+### Fix
+
+- **ci**: increase Node heap to 8 GB for Docusaurus builds
+
+## 0.4.12-dev.5 (2026-05-14)
+
+### Fix
+
+- **deps**: upgrade cnoe-agent-utils to 0.4.0 and fix langchain-openai CVE
+- **ci**: use GITHUB_TOKEN for gh pr create in docs workflows
+- **ci**: replace heredocs with echo blocks in docs workflows
+
+## 0.4.12-dev.4 (2026-05-14)
+
+### Fix
+
+- **deps**: bump vulnerable packages to fix Dependabot CVEs
+- **docs**: fix confirmed broken links across docs
+- **caipe-ui**: add initContainers support to deployment template
+- **slack**: update overthink tests to pass is_overthink_message in client_context
+- **slack**: use is_overthink_message context var to always respond to thread @mentions
+
+## 0.4.12-dev.3 (2026-05-13)
+
+### Fix
+
+- **slack-bot**: skip bot thread replies to prevent duplicate responses (#1417)
+
+## 0.4.12-dev.2 (2026-05-13)
+
+### Fix
+
+- **slack**: skip overthink check for thread @mentions
+
+## 0.4.12-dev.1 (2026-05-13)
+
+### Feat
+
+- **dynamic-agents**: add warning to curl tool configuration description
+- **dynamic-agents**: add curl builtin tool for PUT/POST support
+
+### Fix
+
+- **ci**: remove invalid top-level description field from docs workflows
+
 ## 0.4.12 (2026-05-13)
 
 ### Fix
