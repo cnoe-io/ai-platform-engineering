@@ -677,10 +677,10 @@ describe('getServerConfig', () => {
   // ---------- Production defaults ----------
 
   describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
+    it('should use the same-origin A2A proxy when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+      expect(getServerConfig().caipeUrl).toBe('/api/a2a');
     });
 
     it('should use k8s service URLs for ragUrl in production', () => {
@@ -813,10 +813,11 @@ describe('getInternalA2AUrl', () => {
   });
 
   it('getServerConfig().caipeUrl does NOT use A2A_BASE_URL', () => {
+    process.env.NODE_ENV = 'production';
     process.env.A2A_BASE_URL = 'http://docker-internal:8000';
     delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    // caipeUrl should fall back to its own default, not pick up A2A_BASE_URL
-    expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+    // caipeUrl should fall back to the browser-safe proxy, not pick up A2A_BASE_URL
+    expect(getServerConfig().caipeUrl).toBe('/api/a2a');
   });
 });
 
@@ -1366,7 +1367,7 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
+    expect(getConfig('caipeUrl')).toBe('/api/a2a');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

@@ -199,7 +199,7 @@ const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 's
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
-  caipeUrl: 'http://localhost:8000',
+  caipeUrl: '/api/a2a',
   ragUrl: 'http://localhost:9446',
   isDev: false,
   isProd: false,
@@ -318,7 +318,8 @@ export function getServerConfig(): Config {
   // caipeUrl is the browser-facing supervisor URL embedded in __APP_CONFIG__.
   // Read it dynamically so container runtime ConfigMaps work; direct
   // process.env.NEXT_PUBLIC_* reads can be inlined during `next build`.
-  const caipeUrl = publicEnv('A2A_BASE_URL') || 'http://localhost:8000';
+  const caipeUrl = publicEnv('A2A_BASE_URL')
+    || (isProduction ? '/api/a2a' : 'http://localhost:8000');
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL
