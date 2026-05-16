@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
 
+    # Seed configuration path (for MCP servers and agents loaded at startup)
+    seed_config_path: str | None = None
+
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

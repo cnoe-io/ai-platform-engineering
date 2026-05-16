@@ -20,8 +20,12 @@ packages = ["mcp_komodor"]
       python-dotenv = "==1.2.2"
       pydantic = "==2.12.5"
       mcp = "==1.27.1"
+      mcp-agent-auth = "*"
       fastmcp = "==3.2.4"
       typing-extensions = "==4.15.0"
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

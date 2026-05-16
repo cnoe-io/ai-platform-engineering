@@ -55,7 +55,9 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     const fetchServers = async () => {
       setLoading(true);
       try {
-        const response = await fetch("/api/mcp-servers?page_size=100");
+        const response = await fetch("/api/mcp-servers?page_size=100", {
+          credentials: "include",
+        });
         const data = await response.json();
         if (data.success) {
           // Only show enabled servers
@@ -81,6 +83,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     try {
       const response = await fetch(`/api/mcp-servers/probe?id=${serverId}`, {
         method: "POST",
+        credentials: "include",
       });
       const data = await response.json();
       if (data.success) {

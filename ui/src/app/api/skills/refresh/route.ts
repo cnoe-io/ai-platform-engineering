@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 
 /**
@@ -11,8 +11,8 @@ import {
  * Admin only.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
     if (!backendUrl) {
@@ -61,5 +61,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         { status: 502 },
       );
     }
-  });
 });

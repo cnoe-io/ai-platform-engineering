@@ -2,6 +2,15 @@
 
 This guide explains how to set up and configure Keycloak as an OAuth2 server for CAIPE A2A authentication.
 
+> **Note on init scripts:** `init-idp.sh` and `init-token-exchange.sh` in this directory
+> are **symlinks** into the canonical location `charts/ai-platform-engineering/charts/keycloak/scripts/`.
+> The Helm chart consumes them via `.Files.Get` (which is sandboxed to the chart dir),
+> and `docker-compose.dev.yaml` bind-mounts them via `./deploy/keycloak/init-*.sh`
+> (Docker resolves the host symlink before mounting). **Edit only the canonical files
+> in `charts/.../keycloak/scripts/`** — never replace the symlinks with a copy.
+> Both scripts must remain busybox-`sh`/`sed` portable since they run inside
+> `alpine/curl` containers in both Docker Compose and Kubernetes.
+
 ## Quick Start
 
 1. **Start Keycloak Server**

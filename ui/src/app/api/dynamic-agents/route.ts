@@ -9,14 +9,14 @@ import { NextRequest } from "next/server";
 import { Collection } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
   getPaginationParams,
   paginatedResponse,
   getUserTeamIds,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type {
   DynamicAgentConfig,
@@ -179,7 +179,9 @@ async function validateSubagentVisibility(
  * - enabled_only=true: Only return enabled agents (useful for subagent selection)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "view");
+
     const collection =
       await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
@@ -235,7 +237,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
 
     return paginatedResponse(normalizedItems, total, page, pageSize);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -248,8 +249,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
  * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "manage");
 
     const body = await request.json();
 
@@ -337,7 +338,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await collection.insertOne(doc as any);
 
     return successResponse(doc, 201);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -357,8 +357,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "manage");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -415,7 +415,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     return successResponse(normalizeAgentDoc(updated as unknown as Record<string, unknown>));
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -435,8 +434,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "dynamic_agent", "manage");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -462,5 +461,4 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });
-  });
 });

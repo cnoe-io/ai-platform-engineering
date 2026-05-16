@@ -10,6 +10,24 @@ jest.mock('jose', () => ({
 
 import { hasRequiredGroup, isAdminUser, canViewAdminDashboard, canAccessDynamicAgents, authOptions, _resetInflightRefreshes } from '../auth-config'
 
+function withDefaultRequiredGroup<T>(cb: (mod: typeof import('../auth-config')) => T): T {
+  const previous = process.env.OIDC_REQUIRED_GROUP
+  delete process.env.OIDC_REQUIRED_GROUP
+  try {
+    let result!: T
+    jest.isolateModules(() => {
+      result = cb(require('../auth-config'))
+    })
+    return result
+  } finally {
+    if (previous === undefined) {
+      delete process.env.OIDC_REQUIRED_GROUP
+    } else {
+      process.env.OIDC_REQUIRED_GROUP = previous
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Utility: build a fake fetch mock that handles OIDC discovery + token exchange
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,18 +84,18 @@ describe('auth-config', () => {
   describe('hasRequiredGroup', () => {
     it('should return true when user has exact required group (default: backstage-access)', () => {
       const groups = ['backstage-access', 'other-group']
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
 
 
     it('should return false when user does not have required group', () => {
       const groups = ['other-group', 'another-group']
-      expect(hasRequiredGroup(groups)).toBe(false)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(false)
     })
 
     it('should be case-insensitive', () => {
       const groups = ['BACKSTAGE-ACCESS', 'other-group']
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
 
     it('should handle LDAP DN format for groups', () => {
@@ -85,7 +103,7 @@ describe('auth-config', () => {
         'CN=backstage-access,OU=Groups,DC=example,DC=com',
         'other-group',
       ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
 
     it('should handle mixed case in LDAP DN', () => {
@@ -93,7 +111,7 @@ describe('auth-config', () => {
         'cn=BACKSTAGE-ACCESS,ou=Groups,dc=example,dc=com',
         'other-group',
       ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
 
     it('should handle partial DN matches', () => {
@@ -101,19 +119,19 @@ describe('auth-config', () => {
         'cn=Backstage-Access,ou=Groups',
         'other-group',
       ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
 
     it('should not match substring in non-DN groups', () => {
       const groups = ['my-backstage-access-team', 'other-group']
       // Should not match because we're looking for "cn=backstage-access" in DN format
       // and exact match for simple group names
-      expect(hasRequiredGroup(groups)).toBe(false)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(false)
     })
 
     it('should handle empty groups array', () => {
       const groups: string[] = []
-      expect(hasRequiredGroup(groups)).toBe(false)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(false)
     })
 
     it('should handle multiple matching groups', () => {
@@ -122,7 +140,7 @@ describe('auth-config', () => {
         'CN=backstage-access,OU=Groups,DC=example,DC=com',
         'other-group',
       ]
-      expect(hasRequiredGroup(groups)).toBe(true)
+      expect(withDefaultRequiredGroup(({ hasRequiredGroup }) => hasRequiredGroup(groups))).toBe(true)
     })
   })
 
@@ -172,7 +190,7 @@ describe('auth-config', () => {
       process.env = originalEnv
     })
 
-    it('should include offline_access scope when refresh tokens enabled', () => {
+    it('should request groups scope when refresh tokens enabled (no offline_access)', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'true'
 
       jest.isolateModules(() => {
@@ -181,11 +199,12 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
-        expect(scope).toContain('offline_access')
+        expect(scope).toContain('groups')
+        expect(scope).not.toContain('offline_access')
       })
     })
 
-    it('should not include offline_access scope when refresh tokens disabled', () => {
+    it('should still request groups scope when refresh tokens disabled', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
 
       jest.isolateModules(() => {
@@ -194,6 +213,7 @@ describe('auth-config', () => {
 
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
+        expect(scope).toContain('groups')
         expect(scope).not.toContain('offline_access')
       })
     })
@@ -216,6 +236,7 @@ describe('auth-config', () => {
         expect(scope).toContain('openid')
         expect(scope).toContain('email')
         expect(scope).toContain('profile')
+        expect(scope).toContain('groups')
       })
     })
   })
@@ -263,7 +284,7 @@ describe('auth-config', () => {
       })
 
       expect(result.accessToken).toBe('at')
-      expect(result.idToken).toBe('idt')
+      expect(result.idToken).toBeUndefined()
       expect(result.refreshToken).toBe('rt')
       expect(result.expiresAt).toBe(now + 3600)
       expect(result.isAuthorized).toBe(true)
@@ -273,8 +294,9 @@ describe('auth-config', () => {
 
     it('should set isAuthorized=false when user lacks required group', async () => {
       const now = Math.floor(Date.now() / 1000)
-
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await withDefaultRequiredGroup(async ({ authOptions }) => (
+        authOptions.callbacks!.jwt! as Function
+      )({
         token: {},
         account: {
           access_token: 'at',
@@ -286,7 +308,7 @@ describe('auth-config', () => {
           email: 'nogroup@example.com',
           groups: ['unrelated-group'],
         },
-      })
+      }))
 
       expect(result.isAuthorized).toBe(false)
     })
@@ -604,7 +626,7 @@ describe('auth-config', () => {
       })
 
       expect(result.accessToken).toBe('at')
-      expect(result.idToken).toBe('idt')
+      expect(result.idToken).toBeUndefined()
       expect(result.isAuthorized).toBe(true)
       expect(result.role).toBe('user')
     })

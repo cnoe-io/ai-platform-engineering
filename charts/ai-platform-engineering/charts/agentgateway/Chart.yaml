@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agentgateway
+description: AgentGateway standalone proxy for CAIPE MCP traffic
+type: application
+version: 0.5.1-rc.1
+appVersion: 0.5.1-rc.1

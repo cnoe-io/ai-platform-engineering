@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Agent Gateway configuration for CAIPE platform (098 Enterprise RBAC)
+# PDP-2: validates JWTs issued by Keycloak and delegates authorization to
+# OpenFGA through AgentGateway ext_authz.
+#
+# Docs: https://agentgateway.dev/docs/standalone/latest/configuration/security/
+
+binds:
+- port: 4000
+  listeners:
+  # Listener policies: LocalGatewayPolicy (jwtAuth only). Route-level authorization delegates to ext_authz.
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: http://localhost:7080/realms/caipe
+        # Spec 104: Slack-bot OBO tokens are minted with `aud=agentgateway`,
+        # UI-issued tokens stay on `aud=caipe-platform`. Either is accepted
+        # at the listener; fine-grained team scoping is checked by the
+        # ext_authz/OpenFGA bridge using the signed JWT claims.
+        audiences: [caipe-platform, agentgateway]
+        # Docker DNS resolves "keycloak" via compose service name.
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - policies:
+        extAuthz:
+        # OpenFGA is the remote PDP for AgentGateway authorization. The bridge
+        # adapts AgentGateway's Envoy gRPC ext_authz contract to OpenFGA Check.
+          host: openfga-authz-bridge:9100
+          failureMode:
+            denyWithStatus: 403
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub}'
+        authorization:
+          rules:
+          # AGW 0.12 evaluates `has(jwt.sub)` as `false` here even when the
+          # JWT was validated and `sub` is in the claims (debug logs confirm).
+          # Authentication already happened at the listener (`jwtAuth` strict).
+          # ext_authz owns the gateway authorization decision.
+          - allow: 'true'
+      backends:
+      -
+        mcp:
+          targets:
+          # NOTE: AGW initializes ALL targets in a backend at once when a session
+          # is created. If any target's `initialize` returns an error (e.g.
+          # `github-mcp-server` requires a GitHub OAuth header AGW doesn't
+          # forward), the whole session fails for every target — including jira.
+          # The github upstream is temporarily disabled until we either
+          # (a) split each MCP into its own backend block, or
+          # (b) configure AGW to inject Authorization Bearer with the github
+          #     personal access token on the github upstream only.
+          # - name: github
+          #   mcp:
+          #     host: http://github-mcp-server:8082/sse
+          # rag-server hostname is the canonical compose service (renamed
+          # from `rag_server` because AGW's hickory-dns resolver rejects
+          # underscores in DNS labels per RFC 1035). The old `rag_server`
+          # name is kept as a network alias for backwards compatibility.
+          - name: rag
+            mcp:
+              host: http://rag-server:9446/mcp
+          # Jira MCP — fronted by AgentGateway so ext_authz/OpenFGA remains the
+          # source of truth for RBAC (FR-016). The upstream `mcp-jira` service must run
+          # with `MCP_AUTH_MODE=none` (no per-MCP middleware) on the AG path so
+          # the gateway is the sole PEP. The custom mcp-agent-auth middleware is
+          # only used when an MCP is reached directly (local/embedded path).
+          - name: jira
+            mcp:
+              host: http://mcp-jira:8000/mcp
+
+config:
+  # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: debug
+    format: json

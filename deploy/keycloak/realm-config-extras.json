@@ -1,0 +1,10 @@
+{
+  "$comment": "Spec 102 (data-model.md §E3, T013). Sibling to realm-config.json. Carries data the Keycloak importer doesn't itself consume but that the TS and Python middlewares need: per-resource PDP-unavailable fallback rules. Resources NOT listed here get implicit { mode: 'deny_all' } behaviour. Schema: docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/realm-config-extras.schema.json. Validator: scripts/validate-realm-config.py.",
+  "version": 1,
+  "pdp_unavailable_fallback": {
+    "admin_ui": {
+      "mode": "realm_role",
+      "role": "admin"
+    }
+  }
+}

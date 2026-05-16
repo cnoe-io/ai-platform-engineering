@@ -14,6 +14,11 @@ import type {
   TaskConfigVisibility,
 } from "@/types/task-config";
 import { extractEnvVars, toTaskConfigYamlFormat } from "@/types/task-config";
+import { syncTaskResource } from "@/lib/rbac/keycloak-resource-sync";
+import {
+  extractRealmRolesFromSession,
+  extractTaskAccessFromJwtRoles,
+} from "@/lib/rbac/task-skill-realm-access";
 
 /**
  * Task Config API Routes
@@ -82,11 +87,29 @@ async function deleteTaskConfig(
   }
 
   await collection.deleteOne({ id });
+
+  if (!existing.is_system) {
+    await syncTaskResource("delete", id, existing.name);
+  }
 }
 
-async function getTaskConfigs(ownerEmail: string): Promise<TaskConfig[]> {
+async function getTaskConfigs(
+  ownerEmail: string,
+  opts: { isAdmin: boolean; realmRoles: string[] }
+): Promise<TaskConfig[]> {
   const collection = await getCollection<TaskConfig>("task_configs");
+
+  if (opts.isAdmin) {
+    return collection
+      .find({})
+      .sort({ is_system: -1, category: 1, name: 1 })
+      .toArray();
+  }
+
   const userTeamIds = await getUserTeamIds(ownerEmail);
+  const { allGrantedTaskIds } = extractTaskAccessFromJwtRoles(opts.realmRoles);
+  const roleClause =
+    allGrantedTaskIds.length > 0 ? [{ id: { $in: allGrantedTaskIds } }] : [];
 
   return collection
     .find({
@@ -97,6 +120,7 @@ async function getTaskConfigs(ownerEmail: string): Promise<TaskConfig[]> {
         ...(userTeamIds.length > 0
           ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
           : []),
+        ...roleClause,
       ],
     })
     .sort({ is_system: -1, category: 1, name: 1 })
@@ -105,10 +129,18 @@ async function getTaskConfigs(ownerEmail: string): Promise<TaskConfig[]> {
 
 async function getTaskConfigById(
   id: string,
-  ownerEmail: string
+  ownerEmail: string,
+  opts: { isAdmin: boolean; realmRoles: string[] }
 ): Promise<TaskConfig | null> {
   const collection = await getCollection<TaskConfig>("task_configs");
+
+  if (opts.isAdmin) {
+    return collection.findOne({ id });
+  }
+
   const userTeamIds = await getUserTeamIds(ownerEmail);
+  const { allGrantedTaskIds } = extractTaskAccessFromJwtRoles(opts.realmRoles);
+  const grantedByRole = new Set(allGrantedTaskIds);
 
   return collection.findOne({
     id,
@@ -119,6 +151,7 @@ async function getTaskConfigById(
       ...(userTeamIds.length > 0
         ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
         : []),
+      ...(grantedByRole.has(id) ? [{ id }] : []),
     ],
   });
 }
@@ -188,6 +221,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     await saveTaskConfig(config);
 
+    await syncTaskResource("create", id, body.name, visibility);
+
     return successResponse({ id, message: "Task config created successfully" }, 201);
   });
 });
@@ -201,16 +236,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const id = searchParams.get("id");
   const format = searchParams.get("format");
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
+    const realmRoles = extractRealmRolesFromSession(session);
+    const isAdmin = user.role === "admin";
+    const listOpts = { isAdmin, realmRoles };
+
     if (id) {
-      const config = await getTaskConfigById(id, user.email);
+      const config = await getTaskConfigById(id, user.email, listOpts);
       if (!config) {
         throw new ApiError("Task config not found", 404);
       }
       return NextResponse.json(config) as NextResponse;
     }
 
-    const configs = await getTaskConfigs(user.email);
+    const configs = await getTaskConfigs(user.email, listOpts);
 
     if (format === "yaml") {
       const yamlObj = toTaskConfigYamlFormat(configs);

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
   validateCredentialsRef,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   normalizeHubLocation,
@@ -65,8 +65,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     return NextResponse.json({ hubs: [] });
   }
 
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "view");
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
@@ -126,7 +126,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         };
       }),
     });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -134,8 +133,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Skill hubs require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = await request.json();
 
@@ -212,5 +211,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await collection.insertOne(hubDoc as any);
 
     return NextResponse.json(sanitizeHub(hubDoc), { status: 201 });
-  });
 });

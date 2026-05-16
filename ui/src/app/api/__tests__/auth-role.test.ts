@@ -38,7 +38,11 @@ jest.mock('@/lib/mongodb', () => ({ getCollection: jest.fn() }));
 const mockGetCollection = jest.requireMock<{ getCollection: jest.Mock }>('@/lib/mongodb')
   .getCollection;
 
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});

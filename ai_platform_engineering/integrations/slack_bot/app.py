@@ -13,6 +13,14 @@ import sys
 import time
 import requests as _requests
 
+# 098: install the log redaction filter BEFORE importing slack_bolt / slack_sdk
+# so their module-level loggers pick it up. Slack Bolt has been observed to log
+# entire request payloads (containing the per-request `token`, OAuth bearers,
+# JWTs, etc.) when a middleware short-circuits without calling next() — see
+# `utils.log_redaction` for the full list of patterns scrubbed.
+from utils.log_redaction import install as _install_log_redaction  # noqa: E402
+_install_log_redaction()
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
@@ -24,7 +32,7 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 
-from sse_client import SSEClient
+from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import get_escalation_config
@@ -38,6 +46,194 @@ def _msg_link(channel_id: str, ts: str) -> str:
   if not _WORKSPACE_URL or not ts:
     return ""
   return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
+
+# 098 Enterprise RBAC enforcement
+RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
+
+if RBAC_ENABLED:
+    import asyncio
+    from utils.identity_linker import (
+        resolve_slack_user,
+        generate_linking_url,
+        auto_bootstrap_slack_user,
+        SLACK_FORCE_LINK,
+        should_preauth_prompt,
+        mark_preauth_prompted,
+    )
+    from utils.channel_team_resolver import (
+        resolve_channel_team,
+        is_dm_channel,
+        PERSONAL_ACTIVE_TEAM,
+    )
+    from utils.obo_exchange import impersonate_user, OboExchangeError
+    from utils.slack_rebac import get_slack_channel_rebac_evaluator
+    from utils.rbac_middleware import format_slack_channel_rebac_denial
+
+    async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
+        """Resolve identity and enrich Bolt context.
+
+        Returns 'unlinked', ('deny', message), or 'ok'.
+        Stores team/workspace context for downstream OpenFGA channel checks.
+        Channel→agent routing is now relationship-based: the selected Slack
+        agent is authorized later against the channel's ReBAC grants.
+        """
+        keycloak_user_id = await resolve_slack_user(slack_user_id)
+        if keycloak_user_id is None:
+            if not SLACK_FORCE_LINK:
+                keycloak_user_id = await auto_bootstrap_slack_user(slack_user_id)
+            if keycloak_user_id is None:
+                return "unlinked"
+
+        context["keycloak_user_id"] = keycloak_user_id
+
+        channel_id = (
+            body.get("event", {}).get("channel")
+            or body.get("channel", {}).get("id")
+        )
+        if channel_id:
+            context["slack_channel_id"] = channel_id
+
+        workspace_id = (
+            body.get("team_id")
+            or body.get("event", {}).get("team")
+            or os.environ.get("SLACK_WORKSPACE_ID")
+            or "unknown"
+        )
+        context["slack_workspace_id"] = str(workspace_id)
+
+        # Spec 104: every OBO token now carries a signed `active_team` claim.
+        # Resolve which team the channel belongs to (or use the personal
+        # sentinel for DMs), verify the user is allowed to act in that team,
+        # then mint the token with the matching Keycloak client scope.
+        if is_dm_channel(channel_id):
+            active_team = PERSONAL_ACTIVE_TEAM
+            context["active_team"] = active_team
+            logger.info(
+                "DM channel=%s for user=%s → active_team=%s",
+                channel_id, keycloak_user_id, active_team,
+            )
+        else:
+            team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+            if not team_resolution.team_slug:
+                # Group channel without a team mapping (or user isn't in the
+                # mapped team). Hard reject — we never want to silently fall
+                # back to "personal" for a group channel because that would
+                # bypass the channel's intended team RBAC.
+                return ("deny", team_resolution.deny_message or
+                        "This channel isn't assigned to a CAIPE team yet.")
+            active_team = team_resolution.team_slug
+            context["active_team"] = active_team
+            context["team_id"] = team_resolution.team_id
+            context["team_name"] = team_resolution.team_name
+            logger.info(
+                "Channel=%s mapped to team=%s (slug=%s) for user=%s",
+                channel_id, team_resolution.team_name, active_team, keycloak_user_id,
+            )
+
+        try:
+            obo = await impersonate_user(keycloak_user_id, active_team=active_team)
+            context["obo_token"] = obo.access_token
+            logger.info(
+                "OBO impersonation succeeded for user=%s active_team=%s",
+                keycloak_user_id, active_team,
+            )
+        except OboExchangeError as e:
+            # Spec 104: failing the OBO exchange is a HARD failure now —
+            # there is no SA fallback that would preserve the user's team and
+            # OpenFGA relationships, so we reject the request rather than
+            # silently downgrading to bot identity.
+            logger.error(
+                "OBO impersonation failed for user=%s active_team=%s: %s",
+                keycloak_user_id, active_team, e,
+            )
+            return ("deny",
+                    "Could not establish your team-scoped session. "
+                    "This usually means the team's Keycloak scope hasn't "
+                    "been provisioned — ask your admin to retry.")
+
+        return "ok"
+
+    logger.info("Enterprise RBAC enforcement enabled for Slack bot")
+else:
+    logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
+
+
+def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | None) -> str | None:
+    """Return a denial message when channel ReBAC does not allow this agent."""
+    if not RBAC_ENABLED or context is None or not channel_id or not agent_id:
+        return None
+    try:
+        active_team = context.get("active_team")
+        if active_team == PERSONAL_ACTIVE_TEAM or is_dm_channel(channel_id):
+            return None
+        workspace_id = context.get("slack_workspace_id") or os.environ.get("SLACK_WORKSPACE_ID") or "unknown"
+        obo_token = context.get("obo_token")
+    except AttributeError:
+        return None
+
+    decision = get_slack_channel_rebac_evaluator().check_agent_access(
+        workspace_id=str(workspace_id),
+        channel_id=str(channel_id),
+        agent_id=str(agent_id),
+        active_team=str(active_team or ""),
+        obo_token=obo_token if isinstance(obo_token, str) else None,
+    )
+    if decision.allowed:
+        return None
+
+    logger.info(
+        "Slack ReBAC denied channel=%s agent=%s reason=%s channel_allowed=%s user_allowed=%s",
+        channel_id,
+        agent_id,
+        decision.reason,
+        decision.channel_allowed,
+        decision.user_allowed,
+    )
+    return format_slack_channel_rebac_denial()
+
+
+def _obo_token_from_context(context):
+    """Extract OBO JWT from Bolt context (FR-019).
+
+    Returns the user-scoped OBO token set by ``_rbac_enrich_context``,
+    or ``None`` when RBAC is disabled or the OBO exchange failed.
+    """
+    if not RBAC_ENABLED or context is None:
+        return None
+    try:
+        tok = context.get("obo_token")
+        return tok if isinstance(tok, str) and tok else None
+    except AttributeError:
+        return None
+
+
+def _bind_obo_for_handler(context):
+    """Bind the per-request OBO token onto the SSE client's ContextVar.
+
+    Spec 104 Story 3 — every Slack handler that calls into ``sse_client``
+    (directly or via ``utils/ai.py``) must call this once at entry. The
+    SSE client's ``_get_headers`` then prefers the user-scoped OBO token
+    over the bot's service-account token, so downstream services
+    (``caipe-ui`` BFF, ``dynamic-agents``) see the real user's
+    ``sub`` + ``act.sub`` claims and can apply per-user RBAC.
+
+    No-ops cleanly when:
+      - RBAC is disabled (no impersonation step ran)
+      - The OBO exchange failed (we DON'T fall back to SA — that would
+        defeat the whole point; instead the SSE client falls back to SA
+        on its own and we surface a clear "auth degraded" warning).
+
+    The ContextVar is naturally task-scoped so we don't need to reset it
+    in a finally block; it disappears when the Bolt handler task exits.
+    """
+    obo = _obo_token_from_context(context)
+    if obo:
+        set_obo_token(obo)
+    else:
+        # Explicitly clear any stale token from a previous handler running
+        # on the same thread/event loop slot. Belt-and-braces — Bolt
+        # spawns a fresh task per event so this should already be None.
+        set_obo_token(None)
 
 
 AUTH_ENABLED = os.environ.get("SLACK_INTEGRATION_ENABLE_AUTH", "false").lower() == "true"
@@ -91,6 +287,27 @@ for attempt in range(1, max_retries + 1):
     else:
       logger.error(f"Failed to connect to {APP_NAME} after {max_retries} attempts: {e}.")
       sys.exit(1)
+
+
+def _get_agent_id(channel_config=None, mapped_agent_id: str | None = None) -> str:
+  """Resolve agent_id: DB mapping > channel config > global default.
+
+  Spec-098 RBAC helper. When the BFF/MongoDB has a per-channel
+  agent mapping, `mapped_agent_id` is the slug to use; otherwise
+  fall back to the channel's static config and finally to the
+  global default. Currently used as a fallback path; most call
+  sites prefer `_match_agents()` (main's multi-agent dispatcher)
+  with an RBAC override applied separately. Kept here so other
+  spec-098 surfaces that import it continue to work.
+  """
+  if mapped_agent_id:
+    return mapped_agent_id
+  if channel_config and hasattr(channel_config, "agent_id") and channel_config.agent_id:
+    return channel_config.agent_id
+  if config.defaults.default_agent_id:
+    return config.defaults.default_agent_id
+  logger.warning("No agent_id configured — using empty string")
+  return ""
 
 
 def _agent_listens_to(agent_listen, requested):
@@ -266,13 +483,176 @@ def _call_ai(
 
 
 # =============================================================================
+# 098 RBAC Global Middleware
+# =============================================================================
+# Deduplicate Slack event retries (Socket Mode delivers retries as new events)
+_seen_events: dict[str, float] = {}
+_SEEN_TTL = 30.0  # seconds
+
+# Rate-limit "account not linked" prompts — at most once per hour per user
+_linking_prompt_sent: dict[str, float] = {}
+_LINKING_PROMPT_COOLDOWN = float(os.environ.get("SLACK_LINKING_PROMPT_COOLDOWN", "3600"))
+
+@app.middleware
+def rbac_global_middleware(body, context, next, logger):
+    # Deduplicate retried events
+    event_id = body.get("event_id")
+    if event_id:
+        import time as _time
+        now = _time.time()
+        # Prune old entries
+        stale = [k for k, v in _seen_events.items() if now - v > _SEEN_TTL]
+        for k in stale:
+            _seen_events.pop(k, None)
+        if event_id in _seen_events:
+            logger.debug("Ignoring duplicate event_id=%s", event_id)
+            return
+        _seen_events[event_id] = now
+    """Enterprise RBAC enforcement checkpoint (098).
+
+    When SLACK_RBAC_ENABLED=true:
+    1. Extracts Slack user ID from the event/action payload.
+    2. Resolves the Slack user to a Keycloak identity (identity link).
+    3. If unlinked, sends an ephemeral message prompting account linking.
+    4. If linked, performs OBO token exchange so downstream requests
+       carry the user's identity (sub=user, act.sub=bot).
+    5. Stores the OBO access token and user_sub on the Bolt context
+       for per-handler RBAC checks.
+    """
+    if not RBAC_ENABLED:
+        next()
+        return
+
+    # Skip system/bot messages (joins, leaves, topic changes, etc.)
+    event = body.get("event", {})
+    subtype = event.get("subtype", "")
+    if subtype in (
+        "channel_join", "channel_leave", "channel_topic", "channel_purpose",
+        "channel_name", "bot_message", "message_changed", "message_deleted",
+        "group_join", "group_leave",
+    ):
+        next()
+        return
+
+    slack_user_id = (
+        event.get("user")
+        or body.get("user", {}).get("id")
+        or body.get("user_id")
+    )
+
+    if not slack_user_id:
+        next()
+        return
+
+    context["rbac_enabled"] = True
+    context["slack_user_id"] = slack_user_id
+
+    # @mentions work in any channel; Q&A messages require a channel-to-team mapping
+    is_mention = event.get("type") == "app_mention"
+
+    try:
+        loop = asyncio.new_event_loop()
+        rbac_status = loop.run_until_complete(
+            _rbac_enrich_context(body, slack_user_id, context, require_mapping=not is_mention)
+        )
+    except Exception as exc:
+        logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
+        channel = (
+            body.get("event", {}).get("channel")
+            or body.get("channel", {}).get("id")
+        )
+        if channel:
+            try:
+                context["client"].chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    text="Identity verification is temporarily unavailable. Please try again later.",
+                )
+            except Exception:
+                logger.warning("Could not send RBAC error message to %s", slack_user_id)
+        return
+    finally:
+        loop.close()
+
+    channel = (
+        body.get("event", {}).get("channel")
+        or body.get("channel", {}).get("id")
+    )
+
+    if rbac_status == "unlinked":
+        import time as _time
+        now = _time.time()
+        last_sent = _linking_prompt_sent.get(slack_user_id, 0)
+        if now - last_sent < _LINKING_PROMPT_COOLDOWN:
+            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
+            return
+        if channel:
+            try:
+                # Spec 103 FR-007: replace the previous dead-end message
+                # with an actionable HMAC-signed linking URL whenever the
+                # auto-link path returns "unlinked" — regardless of whether
+                # JIT was disabled, the email domain was not allow-listed,
+                # JIT failed (e.g. Keycloak 5xx), or the operator has
+                # SLACK_FORCE_LINK enabled. The user always gets a path
+                # forward; the previous text told them to "contact your
+                # admin" which is not a path the user can self-serve.
+                try:
+                    linking_url = asyncio.run(generate_linking_url(slack_user_id))
+                except Exception:
+                    linking_url = None
+
+                if linking_url:
+                    text = (
+                        "Your Slack account is not linked to an enterprise identity. "
+                        f"<{linking_url}|Click here to link your account> "
+                        "before using this feature."
+                    )
+                else:
+                    # Last-resort: no HMAC secret configured, so we cannot
+                    # mint a link. Keep the old dead-end message but make
+                    # it accurate (it really is a config issue at this point).
+                    text = (
+                        "Your Slack account could not be linked because the bot is "
+                        "not configured to mint linking URLs. Please contact your admin."
+                    )
+                context["client"].chat_postEphemeral(
+                    channel=channel,
+                    user=slack_user_id,
+                    text=text,
+                )
+                _linking_prompt_sent[slack_user_id] = now
+            except Exception:
+                logger.warning("Could not send linking prompt to %s", slack_user_id)
+        return
+
+    if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
+        msg = rbac_status[1]
+        if channel:
+            msg += f"\n_Channel: <#{channel}>_"
+            try:
+                thread_ts = body.get("event", {}).get("thread_ts") or body.get("event", {}).get("ts")
+                context["client"].chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=msg,
+                )
+            except Exception:
+                logger.warning("Could not send RBAC denial to %s in %s", slack_user_id, channel)
+        return
+
+    next()
+
+
+# =============================================================================
 # @mention handler (manually invoke CAIPE)
 # =============================================================================
 @app.event("app_mention")
-def handle_mention(event, say, client):
+def handle_mention(event, say, client, context=None):
   """Handle @mentions of the bot to query CAIPE."""
   try:
+    # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
+    _bind_obo_for_handler(context)
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
       return
@@ -338,6 +718,11 @@ def handle_mention(event, say, client):
         logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
+
+    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    if denial:
+      say(text=denial, thread_ts=thread_ts)
+      return
 
     overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
@@ -431,6 +816,10 @@ def handle_mention(event, say, client):
     session_manager.set_thread_owner(thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed CAIPE request for {user_name}")
 
+    # Telemetry: record interaction metadata. _track_interaction also
+    # updates `last_processed_ts` (delta-context fast path on follow-ups,
+    # spec from commit 706a1994), so this single call replaces what was
+    # previously an inline `update_conversation_metadata` POST.
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -456,10 +845,21 @@ def handle_mention(event, say, client):
       logger.exception(f"Failed to send error message: {say_error}")
 
 
-def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot_username=None):
-  """Unified handler for both user and bot messages."""
+def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot_username=None, context=None):
+  """Unified handler for both user and bot messages.
+
+  Replaces the previous `handle_qanda_message` Q&A-mode handler. The
+  spec-098 RBAC commit (02589bdd) collapsed channel→team mapping into
+  unified channel→dynamic-agent routing, and main's multi-agent
+  dispatcher (`_match_agents`) is the single dispatch point now.
+
+  `context` is the Slack Bolt request context — needed by the channel ReBAC
+  authorization check and by `_bind_obo_for_handler()` so OBO tokens flow into
+  MCP calls. Both default to no-ops when RBAC is disabled.
+  """
   try:
     t0 = time.monotonic()
+    _bind_obo_for_handler(context)
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
@@ -487,6 +887,11 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       return
 
     agent_id = agent_match.agent_id
+
+    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    if denial:
+      say(text=denial, thread_ts=thread_ts)
+      return
 
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
@@ -596,10 +1001,12 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       logger.exception(f"Failed to send error message: {say_error}")
 
 
-def handle_dm_message(event, say, client):
+def handle_dm_message(event, say, client, context=None):
   """Handle direct messages to the bot."""
   try:
+    # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
+    _bind_obo_for_handler(context)
     if event.get("bot_id"):
       return
 
@@ -620,6 +1027,52 @@ def handle_dm_message(event, say, client):
     if not message_text or not message_text.strip():
       say(text="Please include a question or message!", thread_ts=thread_ts)
       return
+
+    # 098 RBAC: Check if user needs pre-auth prompt on first message
+    if RBAC_ENABLED:
+      try:
+        should_prompt = asyncio.run(should_preauth_prompt(user_id))
+        if should_prompt:
+          linking_url = generate_linking_url(user_id)
+          asyncio.run(mark_preauth_prompted(user_id))
+
+          say(
+            blocks=[
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": f"Hi {user_name}! 👋\n\nBefore I can help you, I need to authenticate your account.",
+                },
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Authenticate Now"},
+                    "style": "primary",
+                    "url": linking_url,
+                  },
+                ],
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "This is a one-time setup. After authentication, I'll be able to answer your questions.",
+                  },
+                ],
+              },
+            ],
+            text=f"Hi {user_name}, please authenticate to proceed.",
+            thread_ts=thread_ts,
+          )
+          logger.info(f"[{thread_ts}] Sent pre-auth prompt to unlinked user {user_id}")
+          return
+      except Exception as e:
+        logger.warning(f"[{thread_ts}] Error checking preauth status: {e}")
 
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
@@ -712,6 +1165,9 @@ def handle_dm_message(event, say, client):
 
     logger.info(f"[{thread_ts}] Completed DM request for {user_name}")
 
+    # Telemetry: record interaction metadata. _track_interaction also
+    # updates `last_processed_ts` (delta-context fast path on follow-ups),
+    # so this single call replaces the older inline metadata POST.
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -737,7 +1193,7 @@ def handle_dm_message(event, say, client):
 
 
 @app.event("message")
-def handle_message_events(body, say, client):
+def handle_message_events(body, say, client, context=None):
   event = body.get("event")
   if not event:
     return
@@ -749,7 +1205,7 @@ def handle_message_events(body, say, client):
   # Route DMs to dedicated handler
   channel_type = event.get("channel_type")
   if channel_type == "im" and not event.get("bot_id"):
-    handle_dm_message(event, say, client)
+    handle_dm_message(event, say, client, context)
     return
 
   channel_id = event.get("channel")
@@ -783,7 +1239,9 @@ def handle_message_events(body, say, client):
 
   # First-match wins: config order is the priority order. Only one agent responds
   # per event so that thread memory stays coherent on follow-ups.
-  _route_to_agent(event, say, client, channel_config, matches[0], is_bot=is_bot, bot_username=bot_username)
+  # `context` is plumbed through so _route_to_agent can authorize the selected
+  # agent against channel ReBAC and bind the OBO bearer for downstream MCP calls.
+  _route_to_agent(event, say, client, channel_config, matches[0], is_bot=is_bot, bot_username=bot_username, context=context)
 
 
 # =============================================================================

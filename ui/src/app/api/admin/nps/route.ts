@@ -4,10 +4,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getConfig } from '@/lib/config';
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdminView,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -29,8 +29,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
     const url = new URL(request.url);
     const campaignIdFilter = url.searchParams.get('campaign_id') || undefined;
@@ -162,5 +162,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       recent_responses: recentResponses,
       campaigns,
     });
-  });
 });
