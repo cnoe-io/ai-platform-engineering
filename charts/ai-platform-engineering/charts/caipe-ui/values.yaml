@@ -139,6 +139,18 @@ vpa:
     memory: 128Mi
   maxAllowed: {}
 
+# Additional init containers for the Deployment.
+# Runs before the main container starts. Useful for pre-creating directories
+# needed by subPath volume mounts on runtimes (e.g. kind) that do not
+# auto-create missing parent paths.
+initContainers: []
+# - name: init-skill-dirs
+#   image: busybox:1.36
+#   command: ["sh", "-c", "mkdir -p /data/skills/my-skill"]
+#   volumeMounts:
+#     - name: skill-data-dir
+#       mountPath: /data
+
 # Additional volumes on the output Deployment definition.
 volumes: []
 # - name: foo
@@ -168,9 +180,11 @@ config:
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
   # Built-in skill IDs to seed (comma-separated whitelist).
-  # When set, only listed templates are seeded; unlisted ones are removed.
-  # Leave empty to seed all built-in templates.
-  # BUILTIN_SKILL_IDS: ""
+  # "none" (default) disables auto-seeding entirely — use "Import template skills"
+  # in the Skills UI to load templates explicitly. Set to a comma-separated list
+  # of template IDs to seed only those; leave empty to seed all built-in templates.
+  # assisted-by claude code claude-sonnet-4-6
+  BUILTIN_SKILL_IDS: "none"
   # NextAuth URL (non-sensitive)
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment

@@ -182,6 +182,7 @@ pyrightconfig.json
 .env
 .env.*
 .env*
+!ai_platform_engineering/agents/litellm/mcp/.env.example
 
 # Others
 a2a-python
@@ -320,3 +321,6 @@ PR_BODY.md
 PR_BODY.txt
 .pr-body.md
 COMMIT_BODY.md
+
+# GitHub App credentials (never commit)
+.github-apps-credentials/

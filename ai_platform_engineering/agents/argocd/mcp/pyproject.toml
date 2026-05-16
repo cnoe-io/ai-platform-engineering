@@ -9,12 +9,12 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "fastmcp==3.2.3",
+  "fastmcp==3.2.4",
   "httpx==0.28.1",
   "mcp==1.26.0",
   "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "pydantic==2.12.5",
-  "python-dotenv==1.2.1",
+  "python-dotenv==1.2.2",
 ]
 
 [tool.uv.sources]

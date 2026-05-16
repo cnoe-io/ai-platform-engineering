@@ -1,6 +1,8 @@
+import ipaddress
 import json
 import logging
 import os
+import socket
 from json import JSONEncoder
 import traceback
 import asyncio
@@ -88,6 +90,60 @@ def remove_circular_refs(ob, _seen=None):
   return res
 
 
+# assisted-by claude code claude-sonnet-4-6
+def _is_publicly_routable_ip(ip_address: str) -> bool:
+  addr = ipaddress.ip_address(ip_address)
+  return addr.is_global and not (
+    addr.is_loopback
+    or addr.is_link_local
+    or addr.is_multicast
+    or addr.is_private
+    or addr.is_reserved
+    or addr.is_unspecified
+  )
+
+
+def _resolve_host_addresses(hostname: str) -> list[str]:
+  try:
+    return [str(ipaddress.ip_address(hostname))]
+  except ValueError:
+    pass
+
+  results = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+  return [sockaddr[0] for _family, _type, _proto, _canonname, sockaddr in results]
+
+
+def is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
+  if not hostname:
+    return False, "missing hostname"
+
+  try:
+    addresses = _resolve_host_addresses(hostname)
+  except (socket.gaierror, OSError) as e:
+    return False, f"hostname could not be resolved: {e}"
+
+  if not addresses:
+    return False, "hostname did not resolve to any address"
+
+  for address in addresses:
+    try:
+      if not _is_publicly_routable_ip(address):
+        return False, f"{address} is not publicly routable"
+    except ValueError:
+      return False, f"{address} is not a valid IP address"
+
+  return True, ""
+
+
+def is_publicly_routable_url(url: str) -> tuple[bool, str]:
+  parsed = urlparse(url)
+  if parsed.scheme not in ("http", "https"):
+    return False, f"unsupported URL scheme: {parsed.scheme}"
+  if not parsed.netloc:
+    return False, "missing domain name"
+  return is_publicly_routable_host(parsed.hostname or "")
+
+
 def sanitize_url(url: str) -> str:
   url = url.strip()
   parsed = urlparse(url)  # Parse the URL
@@ -97,6 +153,10 @@ def sanitize_url(url: str) -> str:
     raise ValueError(f"Invalid URL scheme. Only HTTP and HTTPS are supported, got: {parsed.scheme}")
   if not parsed.netloc:  # Validate that we have a netloc (domain)
     raise ValueError("Invalid URL: missing domain name")
+  hostname = parsed.hostname or ""
+  is_safe, reason = is_publicly_routable_host(hostname)
+  if not is_safe:
+    raise ValueError(f"Invalid URL: hostname '{hostname}' must resolve only to publicly routable IP addresses: {reason}")
   url = parsed.geturl()  # Reconstruct the URL to ensure it's properly formatted
   return url
 

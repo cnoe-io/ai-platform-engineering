@@ -319,6 +319,10 @@ export interface DynamicAgentConfig {
   owner_id: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  /** Compact AI Review verdict from the last save. Drives the Grade column
+   *  in the agent list. Optional — agents created before AI Review was wired
+   *  up have this missing. */
+  last_review?: import("./ai-review").LastReview;
   created_at: string;
   updated_at: string;
 }
@@ -339,6 +343,7 @@ export interface DynamicAgentConfigCreate {
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;
   enabled?: boolean;
+  last_review?: import("./ai-review").LastReview;
 }
 
 export interface DynamicAgentConfigUpdate {
@@ -356,6 +361,7 @@ export interface DynamicAgentConfigUpdate {
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;
   enabled?: boolean;
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**

@@ -4,6 +4,12 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const versionsConfig = require('./versions-config.json') as {
+  lastVersion: string;
+  versions: Record<string, { label: string; path: string; badge: boolean }>;
+};
+
 const config: Config = {
   title: 'CAIPE',
   tagline: 'AI-powered Platform Engineering — deploy intelligent agents for your platform stack.',
@@ -238,7 +244,7 @@ const config: Config = {
             },
             {
               label: 'Meeting Recordings',
-              href: 'https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings',
+              href: 'https://www.youtube.com/@cnoe-community',
             },
             {
               label: 'CNOE Agentic AI SIG Governance',

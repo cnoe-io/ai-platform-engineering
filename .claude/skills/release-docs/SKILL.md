@@ -261,11 +261,35 @@ cat > docs/releases/<YYYY-MM-DD>-release-<X-Y-Z>.md << 'EOF'
 EOF
 ```
 
-Commit:
+---
+
+## Step 6 — Snapshot and prune Docusaurus versions (coding agent)
+
+After writing the blog post, snapshot the current `docs/` tree as the new version
+and prune old snapshots to stay within the retention policy.
+
+**Retention policy**:
+- Latest **5** releases from the current minor series (e.g. `0.4.7`–`0.4.11`)
+- Highest release from **each previous minor series** (e.g. `0.3.11`, `0.2.x`)
+
+Run from repo root:
+
+```bash
+NEW_VERSION=<to> node docs/scripts/snapshot-and-prune-versions.js
+```
+
+This script:
+1. Runs `docusaurus docs:version <to>` — snapshots `docs/` into `versioned_docs/version-<to>/`
+2. Prunes `versioned_docs/`, `versioned_sidebars/`, and `versions.json` to the retention policy
+3. Updates `docs/versions-config.json` — sets `lastVersion`, marks `<to>` as `(Latest)`, removes pruned entries
+
+Commit all release artifacts together:
 
 ```bash
 git add docs/releases/<YYYY-MM-DD>-release-<X-Y-Z>.md
-git commit -s -m "docs: release notes + upgrade guide for <from> → <to>"
+git add docs/versioned_docs/ docs/versioned_sidebars/
+git add docs/versions.json docs/versions-config.json
+git commit -s -m "docs: release <to> — blog post, docs snapshot, version prune"
 ```
 
 ---

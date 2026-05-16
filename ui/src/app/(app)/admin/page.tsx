@@ -279,6 +279,8 @@ function AdminPage() {
   const { isAdmin } = useAdminRole();
   const { gates, loading: gatesLoading } = useAdminTabGates();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
+  const feedbackEnabled = getConfig('feedbackEnabled');
+  const npsEnabled = getConfig('npsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
@@ -332,6 +334,56 @@ function AdminPage() {
     },
     [gates, searchParams, router, pathname]
   );
+  const initialCategory = searchParams.get('cat') as CategoryKey | null;
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
+    initialCategory && ADMIN_CATEGORIES.some((category) => category.key === initialCategory)
+      ? initialCategory
+      : categoryForTab(activeTab)
+  );
+  const isTabVisible = useCallback((tab: AdminTabConfig): boolean => {
+    switch (tab.gate) {
+      case 'feedback':
+        return feedbackEnabled;
+      case 'nps':
+        return npsEnabled;
+      case 'admin':
+        return isAdmin;
+      case 'audit-admin':
+        return auditLogsEnabled && isAdmin;
+      case 'always':
+      default:
+        return true;
+    }
+  }, [auditLogsEnabled, feedbackEnabled, isAdmin, npsEnabled]);
+  const visibleCategories = useMemo(
+    () =>
+      ADMIN_CATEGORIES
+        .map((category) => ({
+          ...category,
+          tabs: category.tabs.filter(isTabVisible),
+        }))
+        .filter((category) => category.tabs.length > 0),
+    [isTabVisible]
+  );
+  const visibleTabsForCategory = useMemo(
+    () =>
+      visibleCategories.find((category) => category.key === activeCategory)?.tabs
+      ?? visibleCategories[0]?.tabs
+      ?? [],
+    [activeCategory, visibleCategories]
+  );
+  const handleCategoryChange = useCallback((categoryKey: CategoryKey) => {
+    const category = visibleCategories.find((item) => item.key === categoryKey);
+    const firstTab = category?.tabs[0];
+    if (!category || !firstTab) return;
+
+    setActiveCategory(categoryKey);
+    setActiveTab(firstTab.value);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', categoryKey);
+    params.set('tab', firstTab.value);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams, visibleCategories]);
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
@@ -1183,7 +1235,7 @@ function AdminPage() {
               </TabsContent>
 
               {/* Feedback Tab */}
-              {getConfig('feedbackEnabled') && <TabsContent value="feedback" className="space-y-4">
+              {feedbackEnabled && <TabsContent value="feedback" className="space-y-4">
                 {/* Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">

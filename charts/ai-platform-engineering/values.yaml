@@ -241,7 +241,7 @@ ragPromptConfig: ""           # Custom RAG prompt config (overrides default if s
 
 # ---------------------------------------------------------------------------
 # Live-skills command template (rendered as the `/skills` slash command
-# in the "Skills API Gateway" UI page). Customizable per-deployment.
+# in the "Skills Gateway" UI page). Customizable per-deployment.
 #
 # Resolution order (mirrors promptConfig):
 #   1. .Values.skillsLiveSkills          - inline multi-line string (highest)
@@ -751,6 +751,10 @@ caipe-ui:
   config:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
     A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    # Bootstrap default agent for new chats. Overridden at runtime by Admin → Settings UI.
+    # Set to a dynamic agent ID to pre-configure the default without manual admin action.
+    # Leave empty to use the supervisor (Platform Engineer) as default.
+    DEFAULT_AGENT_ID: ""
     # Skills template directory (mounted from ConfigMap)
     SKILLS_DIR: "/app/data/skills"
     # Live-skills skill template (mounted from ConfigMap "skills-live-skills").
@@ -867,6 +871,80 @@ caipe-ui:
         #   remoteRef:
         #     key: dev/mongodb
         #     property: password
+
+######### LiteLLM MCP configuration #########
+# Standalone MCP server for LiteLLM FinOps reporting.
+# Enable this when dynamic agents should call LiteLLM tools directly.
+litellmMcp:
+  enabled: false
+  nameOverride: "litellm-mcp"
+  fullnameOverride: ""
+  replicaCount: 1
+  revisionHistoryLimit: 3
+  image:
+    repository: "ghcr.io/cnoe-io/mcp-litellm"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  imagePullSecrets: []
+  service:
+    type: ClusterIP
+    port: 8000
+  # Non-sensitive environment variables.
+  config:
+    SERVER_NAME: "LITELLM"
+    LITELLM_API_URL: ""
+    LITELLM_API_TIMEOUT: "120"
+    LITELLM_VERIFY_SSL: "true"
+  # Existing Secret containing LITELLM_API_KEY. Takes precedence over secret.name.
+  existingSecret: ""
+  # Simple Secret creation for local/dev installs. Prefer existingSecret or
+  # externalSecrets in shared clusters.
+  secret:
+    create: false
+    name: ""
+    data: {}
+      # LITELLM_API_KEY: ""
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: LITELLM_API_KEY
+      #   remoteRef:
+      #     key: dev/litellm-mcp
+      #     property: LITELLM_API_KEY
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+    # requests:
+    #   cpu: 100m
+    #   memory: 256Mi
+    # limits:
+    #   cpu: 500m
+    #   memory: 512Mi
+  livenessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 ######### Dynamic Agents configuration #########
 # Dynamic Agents service for custom agent creation and management

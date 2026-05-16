@@ -209,6 +209,24 @@ class FetchUrlToolConfig(BaseModel):
     )
 
 
+class CurlToolConfig(BaseModel):
+    """Configuration for the curl built-in tool."""
+
+    enabled: bool = Field(False, description="Whether the tool is enabled")
+    allowed_domains: str = Field(
+        default="*",
+        description=(
+            "Comma-separated domain patterns. "
+            "Use * for all, *.domain.com for subdomains, or exact domain. "
+            "Empty string blocks all domains."
+        ),
+    )
+    https_only: bool = Field(
+        default=True,
+        description="If True (default), reject non-https:// URLs.",
+    )
+
+
 class CurrentDatetimeToolConfig(BaseModel):
     """Configuration for the current_datetime built-in tool."""
 
@@ -253,6 +271,10 @@ class BuiltinToolsConfig(BaseModel):
     fetch_url: FetchUrlToolConfig | None = Field(
         None,
         description="Configuration for the fetch_url tool (fetches content from URLs)",
+    )
+    curl: CurlToolConfig | None = Field(
+        None,
+        description="Configuration for the curl tool (HTTP requests including PUT/POST/PATCH/DELETE)",
     )
     current_datetime: CurrentDatetimeToolConfig | None = Field(
         None,

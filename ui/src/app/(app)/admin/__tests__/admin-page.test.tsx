@@ -57,6 +57,14 @@ jest.mock('@/components/admin/HealthTab', () => ({
   HealthTab: () => <div data-testid="health-tab">HealthTab</div>,
 }));
 
+jest.mock('@/components/admin/ReviewConfigsTab', () => ({
+  ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
+}));
+
+jest.mock('@/components/admin/PlatformSettingsTab', () => ({
+  PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
+}));
+
 jest.mock('@/components/admin/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
@@ -459,6 +467,36 @@ describe('Admin Dashboard Page', () => {
       const table = screen.getByRole('table');
       expect(within(table).getByText('admin')).toBeInTheDocument();
       expect(within(table).getByText('user')).toBeInTheDocument();
+    });
+
+    it('groups admin tabs by category and moves system tabs into the first category', async () => {
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('System')).toBeInTheDocument();
+      });
+
+      const categoryButtons = ['System', 'Users & Teams', 'Insights', 'Metrics & Health', 'Security & Policy']
+        .map((label) => screen.getByRole('button', { name: label }));
+      expect(categoryButtons[0]).toHaveTextContent('System');
+
+      fireEvent.click(screen.getByRole('button', { name: 'System' }));
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'Default Agent',
+        'AI Review',
+        'Skills',
+      ]);
+      expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /default agent/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /settings/i })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /metrics & health/i }));
+
+      expect(screen.getByRole('tab', { name: /metrics/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /skills/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /ai review/i })).not.toBeInTheDocument();
     });
   });
 

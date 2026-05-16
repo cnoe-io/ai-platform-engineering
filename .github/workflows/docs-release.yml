@@ -1,14 +1,10 @@
-name: "[Docs] Generate Release Post"
-description: "Auto-generate a release blog post + upgrade guide when a semver tag is pushed"
+name: "[Docs] New Release Post (skeleton)"
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to document (e.g., 0.4.9)'
+        description: 'Release version (e.g. 0.4.12)'
         required: true
         type: string
 
@@ -17,8 +13,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  generate-release-docs:
-    name: Generate release blog post
+  create-release-post:
+    name: Create release blog post skeleton
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
@@ -39,209 +35,154 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Determine versions
-        id: versions
+      - name: Determine versions and dates
+        id: meta
         run: |
-          NEW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          # Strip leading 'v' if present
+          NEW_VERSION="${{ github.event.inputs.version }}"
           NEW_VERSION="${NEW_VERSION#v}"
 
-          # Previous semver tag (skip RC/hotfix tags)
           PREV_VERSION=$(git tag --sort=-version:refname \
             | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
             | grep -v "^${NEW_VERSION}$" \
             | head -1)
 
-          echo "new_version=$NEW_VERSION"   >> $GITHUB_OUTPUT
-          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
-
-          # Derive blog filename date (tag commit date)
           TAG_DATE=$(git log -1 --format=%cs "refs/tags/${NEW_VERSION}" 2>/dev/null || date +%Y-%m-%d)
           SLUG=$(echo "$NEW_VERSION" | tr '.' '-')
-          echo "tag_date=$TAG_DATE"                               >> $GITHUB_OUTPUT
-          echo "blog_file=docs/releases/${TAG_DATE}-release-${SLUG}.md" >> $GITHUB_OUTPUT
+          BLOG_FILE="docs/releases/${TAG_DATE}-release-${SLUG}.md"
 
-          echo "New: $NEW_VERSION  Prev: $PREV_VERSION  Date: $TAG_DATE"
+          echo "new_version=$NEW_VERSION"   >> $GITHUB_OUTPUT
+          echo "prev_version=$PREV_VERSION" >> $GITHUB_OUTPUT
+          echo "tag_date=$TAG_DATE"         >> $GITHUB_OUTPUT
+          echo "blog_file=$BLOG_FILE"       >> $GITHUB_OUTPUT
+          echo "branch=docs/release-${NEW_VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Install helm-docs
+      - name: Collect reference data
         env:
-          HELM_DOCS_VERSION: "1.14.2"
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
         run: |
-          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" \
-            | tar -xz helm-docs
-          sudo mv helm-docs /usr/local/bin/helm-docs
-
-      - name: Regenerate Helm chart docs
-        run: make helm-docs
-
-      - name: Collect release data
-        id: data
-        env:
-          NEW_VERSION: ${{ steps.versions.outputs.new_version }}
-          PREV_VERSION: ${{ steps.versions.outputs.prev_version }}
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          # Git log between versions
-          GIT_LOG=$(git log "${PREV_VERSION}..${NEW_VERSION}" \
+          git log "${PREV_VERSION}..${NEW_VERSION}" \
             --oneline --no-merges \
-            --grep-reflog="" 2>/dev/null \
             | grep -vE '^[a-f0-9]+ (chore|ci|test|refactor)' \
-            | head -80 || true)
+            | head -80 > /tmp/git-log.txt || true
 
-          # CHANGELOG section
-          CHANGELOG=$(sed -n "/^## ${NEW_VERSION}/,/^## ${PREV_VERSION}/p" CHANGELOG.md 2>/dev/null \
-            | head -100 || true)
+          sed -n "/^## ${NEW_VERSION}/,/^## ${PREV_VERSION}/p" CHANGELOG.md 2>/dev/null \
+            | head -100 > /tmp/changelog.txt || true
 
-          # Helm values diff (best-effort — skip if auth fails)
-          CHART="oci://ghcr.io/cnoe-io/charts/ai-platform-engineering"
-          helm pull "$CHART" --version "$PREV_VERSION" --untar --untardir /tmp/prev-chart 2>/dev/null || true
-          helm pull "$CHART" --version "$NEW_VERSION"  --untar --untardir /tmp/new-chart  2>/dev/null || true
-          if [[ -f "/tmp/prev-chart/ai-platform-engineering/values.yaml" && \
-                -f "/tmp/new-chart/ai-platform-engineering/values.yaml" ]]; then
-            HELM_DIFF=$(diff -u \
-              /tmp/prev-chart/ai-platform-engineering/values.yaml \
-              /tmp/new-chart/ai-platform-engineering/values.yaml || true)
-          else
-            HELM_DIFF="(helm values diff unavailable — chart not yet published)"
-          fi
-
-          # Write to temp files to avoid env-var size limits
-          echo "$GIT_LOG"   > /tmp/git-log.txt
-          echo "$CHANGELOG" > /tmp/changelog.txt
-          echo "$HELM_DIFF" > /tmp/helm-diff.txt
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: 'lts/*'
-
-      - name: Install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
-
-      - name: Generate release blog post
+      - name: Create skeleton blog post
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NEW_VERSION: ${{ steps.versions.outputs.new_version }}
-          PREV_VERSION: ${{ steps.versions.outputs.prev_version }}
-          TAG_DATE: ${{ steps.versions.outputs.tag_date }}
-          BLOG_FILE: ${{ steps.versions.outputs.blog_file }}
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
+          TAG_DATE: ${{ steps.meta.outputs.tag_date }}
+          BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
         run: |
-          SLUG=$(echo "$NEW_VERSION" | tr '.' '-')
+          mkdir -p docs/releases
+          {
+            echo "---"
+            echo "slug: release-${NEW_VERSION}"
+            echo "title: \"Release ${NEW_VERSION} — \""
+            echo "date: ${TAG_DATE}"
+            echo "authors: [sriaradhyula]"
+            echo "tags: [release]"
+            echo "---"
+            echo ""
+            echo "## Highlights"
+            echo ""
+            echo "<!-- TODO: 2-4 sentences summarising the most impactful changes for operators -->"
+            echo ""
+            echo "<!-- truncate -->"
+            echo ""
+            echo "## What's New"
+            echo ""
+            echo "<!-- TODO: group by feature area, link PRs -->"
+            echo ""
+            echo "## Bug Fixes"
+            echo ""
+            echo "<!-- TODO: list bug fixes with PR links -->"
+            echo ""
+            echo "## Breaking Changes"
+            echo ""
+            echo "No breaking changes. Drop-in upgrade from ${PREV_VERSION}."
+            echo ""
+            echo "## Known Issues"
+            echo ""
+            echo "None known at this time."
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Upgrade Guide: ${PREV_VERSION} → ${NEW_VERSION}"
+            echo ""
+            echo "### Overview"
+            echo ""
+            echo "<!-- TODO: one paragraph — drop-in or requires values.yaml edits? -->"
+            echo ""
+            echo "### Helm Values Changes"
+            echo ""
+            echo "No Helm values changes. Drop-in upgrade."
+            echo ""
+            echo "### Upgrade Runbook"
+            echo ""
+            echo '```bash'
+            echo "helm upgrade ai-platform-engineering \\"
+            echo "  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\"
+            echo "  --version ${NEW_VERSION} \\"
+            echo "  -f your-values.yaml"
+            echo '```'
+            echo ""
+            echo '```bash'
+            echo "kubectl get pods -n <namespace>"
+            echo '```'
+          } > "$BLOG_FILE"
+          echo "Skeleton created at $BLOG_FILE"
 
-          PROMPT="You are running in a GitHub Actions workflow for cnoe-io/ai-platform-engineering.
-          Generate a release blog post for version $NEW_VERSION (upgrading from $PREV_VERSION).
-
-          Use the release-docs skill format. Write the output as a single Docusaurus blog post file.
-
-          File to write: $BLOG_FILE
-
-          Frontmatter:
-          ---
-          slug: release-$NEW_VERSION
-          title: \"Release $NEW_VERSION — <2-5 word subtitle from the biggest changes>\"
-          date: $TAG_DATE
-          authors: [sriaradhyula]
-          tags: [release]
-          ---
-
-          Structure:
-          1. ## Highlights (2-4 sentences, operator-focused)
-          2. <!-- truncate -->
-          3. ## What's New (grouped by feature area, link to PR numbers from the git log)
-          4. ## Bug Fixes
-          5. ## Breaking Changes (if any, otherwise 'No breaking changes. Drop-in upgrade from $PREV_VERSION.')
-          6. ## Known Issues (if none, say 'None known at this time.')
-          7. ---
-          8. ## Upgrade Guide: $PREV_VERSION → $NEW_VERSION
-             - ### Overview (one paragraph)
-             - ### Helm Values Changes (use the diff; if empty, say 'No values changes. Drop-in upgrade.')
-             - ### Upgrade Runbook (helm upgrade command + verify steps)
-
-          Git log (non-chore commits between $PREV_VERSION and $NEW_VERSION):
-          $(cat /tmp/git-log.txt)
-
-          CHANGELOG.md section:
-          $(cat /tmp/changelog.txt)
-
-          Helm values diff:
-          $(cat /tmp/helm-diff.txt)
-
-          Write the complete file now. Do not include any explanation outside the file content."
-
-          claude --print \
-            --allowedTools "Write,Read,Bash" \
-            -p "$PROMPT"
-
-      - name: Verify blog post was created
-        env:
-          BLOG_FILE: ${{ steps.versions.outputs.blog_file }}
-        run: |
-          if [[ ! -f "$BLOG_FILE" ]]; then
-            echo "ERROR: Claude did not create $BLOG_FILE"
-            ls docs/releases/
-            exit 1
-          fi
-          echo "Blog post created: $BLOG_FILE"
-          head -10 "$BLOG_FILE"
-
-      - name: Validate Docusaurus build
-        run: |
-          cd docs
-          npm install --silent
-          npm run build
-
-      - name: Open PR with release docs
+      - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          NEW_VERSION: ${{ steps.versions.outputs.new_version }}
-          PREV_VERSION: ${{ steps.versions.outputs.prev_version }}
-          BLOG_FILE: ${{ steps.versions.outputs.blog_file }}
+          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.meta.outputs.new_version }}
+          PREV_VERSION: ${{ steps.meta.outputs.prev_version }}
+          BLOG_FILE: ${{ steps.meta.outputs.blog_file }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
         run: |
-          BRANCH="docs/release-${NEW_VERSION}"
-
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH"
-
-          # Stage helm docs regeneration + new blog post
-          git add docs/
-          find docs -name "*.md" -newer /tmp/git-log.txt -exec git add {} +
-
-          if git diff --cached --quiet; then
-            echo "No doc changes to commit"
-            exit 0
-          fi
-
-          git commit -m "docs: release notes + upgrade guide for ${PREV_VERSION} → ${NEW_VERSION}"
+          git add "$BLOG_FILE"
+          git commit -m "docs: skeleton release post for ${NEW_VERSION}"
           git push origin "$BRANCH"
 
-          gh pr create \
-            --title "docs: release $NEW_VERSION" \
+          {
+            echo "## Release ${NEW_VERSION} Blog Post"
+            echo ""
+            echo "Skeleton created by the \`docs-release\` workflow. **Fill in the TODOs before merging.**"
+            echo ""
+            echo "### Commits since ${PREV_VERSION}"
+            echo ""
+            echo '```'
+            cat /tmp/git-log.txt
+            echo '```'
+            echo ""
+            echo "### CHANGELOG.md excerpt"
+            echo ""
+            echo '```'
+            cat /tmp/changelog.txt
+            echo '```'
+            echo ""
+            echo "### Checklist"
+            echo ""
+            echo "- [ ] Title subtitle filled in"
+            echo "- [ ] Highlights paragraph written"
+            echo "- [ ] What's New sections complete (link PRs)"
+            echo "- [ ] Bug Fixes section complete"
+            echo "- [ ] Breaking Changes accurate (or confirmed drop-in)"
+            echo "- [ ] Upgrade Guide / Helm values diff verified"
+          } > /tmp/pr-body.md
+
+          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
+            --title "docs: release ${NEW_VERSION} blog post" \
             --base main \
             --head "$BRANCH" \
-            --body "$(cat <<EOF
-          ## Release $NEW_VERSION Docs
+            --body-file /tmp/pr-body.md
 
-          Auto-generated by the \`docs-release\` workflow triggered by the \`$NEW_VERSION\` tag.
-
-          ### What's in this PR
-
-          - **Release blog post**: \`$BLOG_FILE\`
-            - Release notes narrative (Highlights, What's New, Bug Fixes, Breaking Changes)
-            - Embedded upgrade guide ($PREV_VERSION → $NEW_VERSION)
-          - **Helm chart reference pages**: regenerated via \`make helm-docs\`
-
-          ### Review checklist
-
-          - [ ] Highlights paragraph is accurate and operator-focused
-          - [ ] All significant PRs from the git log are represented
-          - [ ] Breaking changes section is complete (or correctly says 'No breaking changes')
-          - [ ] Upgrade runbook steps are correct
-          - [ ] Helm values diff is accurate
-
-          > Generated by Claude Code via the \`release-docs\` skill.
-          EOF
-          )"
-
-          echo "PR opened: docs/release-${NEW_VERSION}"
+          echo "PR opened: $BRANCH"

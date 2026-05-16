@@ -9,10 +9,9 @@
  *   - The generated bash script is well-formed: starts with
  *     `#!/usr/bin/env bash`, runs under `set -euo pipefail`, and never
  *     inlines the catalog API key (the script asks for it at runtime).
- *   - Per-agent + per-scope install paths are resolved as a multi-target
- *     bash array — both the agent-specific tree
- *     (`~/.claude/skills/<name>/SKILL.md`) AND the vendor-neutral mirror
- *     (`~/.agents/skills/<name>/SKILL.md`).
+ *   - Per-agent + per-scope install paths resolve to the vendor-neutral
+ *     `~/.agents/skills/<name>/SKILL.md` tree only. Claude-specific files
+ *     are limited to the SessionStart hook under `~/.claude/hooks`.
  *   - User-supplied `command_name` is templated into the install paths;
  *     the live-skills callback URL embeds the same parameters.
  *   - Hostile inputs (bad command_name, bad base_url) are sanitized.
@@ -158,13 +157,10 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
     expect(res.body).toContain("SCOPE='user'");
   });
 
-  it("emits multi-target SKILL_PATH_TEMPLATES and SKILL_ROOT_DIRS arrays", async () => {
+  it("emits Claude-native and vendor-neutral SKILL_PATH_TEMPLATES for Claude", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    // Both arrays MUST be present and contain the agent-specific tree
-    // AND the vendor-neutral mirror so a single install satisfies every
-    // supported agent.
     expect(res.body).toContain("SKILL_PATH_TEMPLATES=(");
     expect(res.body).toContain("'~/.claude/skills/{name}/SKILL.md'");
     expect(res.body).toContain("'~/.agents/skills/{name}/SKILL.md'");
@@ -203,10 +199,10 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
   it.each([
     ["claude", "user", "~/.claude/skills/{name}/SKILL.md"],
     ["claude", "project", "./.claude/skills/{name}/SKILL.md"],
-    ["cursor", "user", "~/.claude/skills/{name}/SKILL.md"],
-    ["codex", "user", "~/.claude/skills/{name}/SKILL.md"],
-    ["gemini", "user", "~/.claude/skills/{name}/SKILL.md"],
-    ["opencode", "user", "~/.claude/skills/{name}/SKILL.md"],
+    ["cursor", "user", "~/.agents/skills/{name}/SKILL.md"],
+    ["codex", "user", "~/.agents/skills/{name}/SKILL.md"],
+    ["gemini", "user", "~/.agents/skills/{name}/SKILL.md"],
+    ["opencode", "user", "~/.agents/skills/{name}/SKILL.md"],
   ])(
     "agent=%s scope=%s embeds the universal install path %s",
     async (agent, scope, expectedPath) => {
@@ -226,24 +222,34 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&command_name=my-skills",
     );
     expect(res.body).toContain("COMMAND_NAME='my-skills'");
-    // Live-skills + update-skills URLs preserve the chosen agent/scope.
+    expect(res.body).toContain("UPDATE_COMMAND_NAME='update-my-skills'");
+    // Live-skills + update-skills URLs preserve the chosen agent/scope
+    // and use paired custom command names.
     expect(res.body).toMatch(
       /LIVE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/live-skills\?[^']*agent=claude/,
     );
     expect(res.body).toMatch(
+      /LIVE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/live-skills\?[^']*command_name=my-skills/,
+    );
+    expect(res.body).toMatch(
       /UPDATE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/update-skills\?[^']*agent=claude/,
     );
-    // Universal-path templates carry {name} (the bash side substitutes
-    // {COMMAND_NAME} at install time).
+    expect(res.body).toMatch(
+      /UPDATE_SKILLS_URL='https:\/\/app\.example\.com\/api\/skills\/update-skills\?[^']*command_name=update-my-skills/,
+    );
+    // Claude-native + vendor-neutral path templates carry {name} (the
+    // bash side substitutes {COMMAND_NAME} at install time).
     expect(res.body).toContain("'./.claude/skills/{name}/SKILL.md'");
+    expect(res.body).toContain("'./.agents/skills/{name}/SKILL.md'");
   });
 
-  it("sanitizes hostile command_name and falls back to 'skills'", async () => {
+  it("sanitizes hostile command_name and falls back to 'caipe-skills'", async () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=project&command_name=" +
         encodeURIComponent("rm -rf /"),
     );
-    expect(res.body).toContain("COMMAND_NAME='skills'");
+    expect(res.body).toContain("COMMAND_NAME='caipe-skills'");
+    expect(res.body).toContain("UPDATE_COMMAND_NAME='update-caipe-skills'");
   });
 
   it("sanitizes hostile base_url and falls back to the request origin", async () => {
@@ -325,6 +331,14 @@ describe("GET /api/skills/install.sh — script content (bulk-with-helpers defau
     );
     expect(res.body).toContain("already_registered");
     expect(res.body).toContain("is not valid JSON; skipping hook registration");
+  });
+
+  it("backs up Claude settings before writing the SessionStart hook patch", async () => {
+    const res = await callGET(
+      "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
+    );
+    expect(res.body).toContain(".caipe-backup-");
+    expect(res.body).toContain("shutil.copy2(settings_path, backup_path)");
   });
 
   it("does NOT add the legacy allowlist entries on hook install (relies on SKILL.md frontmatter instead)", async () => {
@@ -513,7 +527,7 @@ describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {
     // The python invocation must include "${RESOLVED_SKILL_ROOTS[@]}"
     // BEFORE the <<'PY' heredoc -- not piped in via printf.
     expect(res.body).toMatch(
-      /python3 - "\$catalog_tmp"[^\n]*"\${RESOLVED_SKILL_ROOTS\[@\]}"\s+<<'PY'/,
+      /python3 - "\$catalog_tmp"[^\n]*"\$COMMAND_NAME" "\$UPDATE_COMMAND_NAME" "\${RESOLVED_SKILL_ROOTS\[@\]}"\s+<<'PY'/,
     );
     // Hard guard: the broken pattern (printf | python3 ... <<'PY')
     // must NOT reappear for the bulk install. Match any printf that
@@ -523,7 +537,7 @@ describe("GET /api/skills/install.sh — heredoc-vs-stdin regression", () => {
     );
     // The Python script must use *roots = sys.argv[1:] unpacking.
     expect(res.body).toContain(
-      "src, manifest_path, agent, scope, force_s, upgrade_s, *roots = sys.argv[1:]",
+      "src, manifest_path, agent, scope, force_s, upgrade_s, command_name, update_command_name, *roots = sys.argv[1:]",
     );
   });
 
@@ -593,6 +607,8 @@ describe("GET /api/skills/install.sh — flagged-skill security gate", () => {
     const res = await callGET(
       "https://app.example.com/api/skills/install.sh?agent=claude&scope=user",
     );
-    expect(res.body).toContain('RESERVED = {"skills", "update-skills"}');
+    expect(res.body).toContain(
+      'RESERVED = {command_name, update_command_name, "skills", "update-skills"}',
+    );
   });
 });

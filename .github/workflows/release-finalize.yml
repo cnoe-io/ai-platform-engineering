@@ -168,11 +168,6 @@ jobs:
             --repo="${{ github.repository }}" \
             --field tag="$TAG" || echo "⚠️ Failed to trigger Grype scan"
 
-          echo "🧪 Triggering post-release integration test..."
-          gh workflow run tests-quick-sanity-integration-on-latest-tag.yml \
-            --repo="${{ github.repository }}" \
-            --field chart_version="$TAG" || echo "⚠️ Failed to trigger integration test"
-
           echo "✅ Post-release workflows dispatched for $TAG"
 
       - name: 🧹 Clean up old RC tags

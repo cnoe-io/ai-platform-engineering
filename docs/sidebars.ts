@@ -302,6 +302,7 @@ const sidebars: SidebarsConfig = {
           items: [
             { type: 'doc', id: 'ui/index', label: 'Overview' },
             { type: 'doc', id: 'ui/features', label: 'Features' },
+            { type: 'doc', id: 'features/admin-settings', label: 'Admin Settings' },
             { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
             { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
             { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },

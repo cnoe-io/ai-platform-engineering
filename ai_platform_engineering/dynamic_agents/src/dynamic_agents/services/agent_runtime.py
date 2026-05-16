@@ -43,6 +43,7 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    create_curl_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
     create_format_file_tool,
@@ -368,7 +369,12 @@ class AgentRuntime:
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
 
         # 5. Instantiate LLM
+        logger.info(
+            f"[llm] Instantiating LLM for agent '{self.config.name}': "
+            f"provider={self.config.model.provider}, model={self.config.model.id}"
+        )
         llm = get_llm(self.config.model.provider, self.config.model.id)
+        logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # ─────────────────────────────────────────────────────────────────
         # Extensions
@@ -524,6 +530,14 @@ class AgentRuntime:
             tools.append(create_fetch_url_tool(allowed_domains=allowed_domains))
             config_summary["fetch_url"] = {"allowed_domains": allowed_domains}
 
+        # curl tool (disabled by default) — supports PUT/POST/PATCH/DELETE
+        curl_config = config.builtin_tools.curl
+        if curl_config and curl_config.enabled:
+            allowed_domains = curl_config.allowed_domains or "*"
+            https_only = curl_config.https_only if curl_config.https_only is not None else True
+            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only))
+            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only}
+
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime
         if current_datetime_config and current_datetime_config.enabled:
@@ -558,6 +572,7 @@ class AgentRuntime:
             gradient_theme = config.ui.gradient_theme if config.ui else None
             tools.append(
                 create_self_identity_tool(
+                    agent_id=config.id,
                     name=config.name,
                     description=config.description,
                     model_id=config.model.id,
