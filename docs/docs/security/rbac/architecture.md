@@ -160,6 +160,18 @@ Duo credentials stay on the Keycloak IdP broker only. The Duo application's redi
 
 > The login sequence diagram (one-time login + the silent first-broker-login flow) lives in [Workflows › Login](./workflows.md#login--first-time-broker-login).
 
+### Keycloak Auth Reconciliation Job
+
+Keycloak browser-flow and identity-provider settings are persisted inside Keycloak's database, not in Kubernetes objects. Upgrades can recreate pods and chart resources without automatically reasserting the `Identity Provider Redirector`, local-login disablement, first-broker-login flow, or required-action settings. The durable design is:
+
+- Keep an idempotent `keycloak-auth-reconcile` Job.
+- Make it chart-owned, not a Grid-only `extraDeploy` override.
+- Run it as an early ArgoCD/Helm sync hook on install and upgrade.
+- Use `BeforeHookCreation,HookSucceeded` cleanup.
+- Remove any temporary Grid-specific reconcile job once the chart contains the same behavior.
+
+A `CronJob` is intentionally avoided. Periodic reconciliation would hide ownership drift and repeatedly exercise Keycloak admin credentials when nothing changed. The desired model is one job pod per install/upgrade event, with idempotent Admin API calls that restore the browser-flow and IdP invariants for every downstream install.
+
 ### User Profile & Custom Attributes
 
 Keycloak 26+ enforces a user profile schema. Custom attributes are silently dropped unless declared or `unmanagedAttributePolicy=ADMIN_EDIT` is set on the user profile API. The Helm realm import JSON must not include `unmanagedAttributePolicy` as a top-level realm field because Keycloak 26.3 rejects that `RealmRepresentation` property during import. `init-idp.sh` patches both supported user-profile settings after the server starts:

@@ -123,6 +123,26 @@ idp:
       key: ""
       property: ""
 
+# ---------- Auth reconciliation ----------
+# Keycloak browser-flow, IdP broker, and required-action settings are stored in
+# Keycloak's database, not Kubernetes objects. This early upgrade hook reasserts
+# those settings before unrelated sync hooks can block. On a first install it
+# skips if Keycloak or the required secrets are not available yet; the regular
+# init-idp post-install hook still performs the first full configuration pass.
+authReconcile:
+  enabled: true
+  hook:
+    # Argo CD hook semantics. Downstream GitOps installs can set these to match
+    # their sync strategy while keeping the job chart-owned.
+    argocdHook: PreSync
+    argocdSyncWave: "-10"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
+    # Helm CLI hook semantics. `post-install` handles fresh Helm installs after
+    # Keycloak exists; `pre-upgrade` restores persisted settings before upgrades.
+    helmHook: post-install,pre-upgrade
+    helmHookWeight: "-10"
+    helmHookDeletePolicy: before-hook-creation,hook-succeeded
+
 # ---------- Token exchange (RFC 8693) for the Slack bot ----------
 # The init-token-exchange Job configures Keycloak's authorization service
 # so caipe-slack-bot can mint OBO tokens. If `botClientSecret` (or the
