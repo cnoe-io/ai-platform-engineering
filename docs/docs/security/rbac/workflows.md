@@ -26,6 +26,8 @@ caipe-silent-broker-login  (both executions: ALTERNATIVE)
 
 This only works correctly because `trustEmail=true` is set on the IdP. That flag tells Keycloak to treat the email claim from the upstream IdP (Okta, Duo SSO, Azure AD, …) as authoritative for account matching.
 
+Production installs should also keep `keycloak.idp.forceRedirect=true` (exported to `KEYCLOAK_FORCE_IDP_REDIRECT=true`). That makes the app realm's browser flow require the IdP redirector and disables the local Keycloak username/password form, so users go to the enterprise IdP even if a client does not send `kc_idp_hint`.
+
 **Security implication:** if the upstream IdP can be compromised to issue arbitrary email claims, an attacker could link to any existing account. This is acceptable here because Okta and Duo SSO (and other supported IdPs) are corporate SSO providers — trust in the email claim is the same as trust in the IdP.
 
 The complete one-time login sequence (Browser → Keycloak → upstream IdP → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. It only happens once per workday.
@@ -80,7 +82,7 @@ sequenceDiagram
       User->>SB: "list my ArgoCD apps"
       note over SB: Slack already linked to Keycloak user via<br/>/api/admin/slack-links → uses stored slack_user_id→sub mapping
       SB->>KC: POST /token (RFC 8693 token-exchange for Alice)<br/>subject_token=slack-bot-service-account<br/>requested_subject=alice
-      KC-->>SB: OBO JWT<br/>iss=http://localhost:7080/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
+      KC-->>SB: OBO JWT<br/>iss=https://idp.caipe.example.com/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
 
       SB->>SUP: POST /a2a<br/>Authorization: Bearer OBO_JWT
 
@@ -89,7 +91,7 @@ sequenceDiagram
 
       note over AG: jwtAuth: validate signature + iss + aud + exp<br/>(all local — AG never talks to Duo or KC on this path)
       AG->>AG: lookup kid in JWKS cache → verify RS256
-      AG->>AG: iss == http://localhost:7080/realms/caipe ✓
+      AG->>AG: iss == https://idp.caipe.example.com/realms/caipe ✓
       AG->>AG: "caipe-platform" in aud ✓
       AG->>AG: now < exp ✓
 

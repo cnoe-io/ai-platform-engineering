@@ -18,6 +18,17 @@ service:
   port: 4000
   adminPort: 15000
 
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: agentgateway.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
 config:
   binds:
     - port: 4000

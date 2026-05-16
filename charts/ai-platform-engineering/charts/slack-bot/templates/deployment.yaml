@@ -40,13 +40,15 @@ spec:
                  contribute entries:
                    1. botConfig          → SLACK_INTEGRATION_BOT_CONFIG path
                    2. oauth2.*           → OAUTH2_CLIENT_SECRET (OBO flow)
-                   3. keycloakAdmin.*    → KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET
+                   3. keycloakBot.*      → KEYCLOAK_BOT_CLIENT_SECRET
+                   4. keycloakAdmin.*    → KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET
                                             (slack-bot Admin-API user lookup)
                  At least one must be present for the YAML key to be valid. */ -}}
           {{- $hasOauth2Secret := and .Values.oauth2 .Values.oauth2.clientSecretFromSecret .Values.oauth2.clientSecretFromSecret.name }}
+          {{- $hasKcBotSecret := and .Values.keycloakBot .Values.keycloakBot.clientSecretFromSecret .Values.keycloakBot.clientSecretFromSecret.name }}
           {{- $hasKcAdminSecret := and .Values.keycloakAdmin .Values.keycloakAdmin.clientSecretFromSecret .Values.keycloakAdmin.clientSecretFromSecret.name }}
           {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
-          {{- $needEnv := or .Values.botConfig $hasOauth2Secret $hasKcAdminSecret $hasKcAdminClientId }}
+          {{- $needEnv := or .Values.botConfig $hasOauth2Secret $hasKcBotSecret $hasKcAdminSecret $hasKcAdminClientId }}
           {{- if $needEnv }}
           env:
             {{- if .Values.botConfig }}
@@ -66,6 +68,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.oauth2.clientSecretFromSecret.name | quote }}
                   key: {{ .Values.oauth2.clientSecretFromSecret.key | default "KC_BOT_CLIENT_SECRET" | quote }}
+            {{- end }}
+            {{- if $hasKcBotSecret }}
+            # Keycloak bot client_secret for Slack OBO token exchange.
+            - name: KEYCLOAK_BOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakBot.clientSecretFromSecret.name | quote }}
+                  key: {{ .Values.keycloakBot.clientSecretFromSecret.key | default "KC_BOT_CLIENT_SECRET" | quote }}
             {{- end }}
             {{- if $hasKcAdminClientId }}
             # Slack-bot Admin REST API client_id (for user lookup by slack_user_id).

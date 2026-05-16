@@ -85,6 +85,14 @@ oauth2:
     name: ""
     key: "KC_BOT_CLIENT_SECRET"
 
+# -- Cross-chart binding to the Keycloak bot client_secret used by the Slack
+# bot's RFC 8693 OBO exchange helper. In umbrella installs this usually points
+# at the same Secret/key as oauth2.clientSecretFromSecret.
+keycloakBot:
+  clientSecretFromSecret:
+    name: ""
+    key: "KC_BOT_CLIENT_SECRET"
+
 # -- Cross-chart binding to the Keycloak Admin-API credentials used by the slack-bot
 # for user-attribute lookups (find Keycloak user by `slack_user_id` attribute,
 # read/write `team_id` etc.). This is a SEPARATE auth flow from the OAuth2 OBO

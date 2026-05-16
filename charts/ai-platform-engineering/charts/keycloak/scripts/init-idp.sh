@@ -19,6 +19,7 @@
 #   IDP_DISPLAY_NAME   – human label (default: Upstream OIDC)
 #   IDP_ACCESS_GROUP   – upstream group claim value → chat_user role (basic access)
 #   IDP_ADMIN_GROUP    – upstream group claim value → admin role
+#   KEYCLOAK_FORCE_IDP_REDIRECT – true disables local app-realm login fallback
 #   KC_REALM           – realm name (default: caipe)
 # -------------------------------------------------------------------
 set -eu
@@ -38,9 +39,8 @@ KC_URL="${KC_URL:-http://localhost:7080}"
 # -------------------------------------------------------------------
 # Persona seeding (spec 102 T019).
 #
-# Always runs (regardless of IDP_* env vars) because the spec-102
-# RBAC tests need the six personas in the realm whether or not an
-# upstream IdP broker is configured.  Idempotent — re-runnable.
+# Runs only when KEYCLOAK_SEED_DEMO_USERS=true because these are local
+# dev/CI personas, not production users. Idempotent — re-runnable.
 #
 # Personas (see spec.md §Personas):
 #   alice_admin            → realm role "admin"
@@ -164,7 +164,11 @@ seed_personas_main() {
   echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
 }
 
-seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+if [ "${KEYCLOAK_SEED_DEMO_USERS:-false}" = "true" ] || [ "${KEYCLOAK_SEED_DEMO_USERS:-false}" = "1" ]; then
+  seed_personas_main || echo "[init-idp] [spec-102] persona seeding had errors (see above)"
+else
+  echo "[init-idp] [spec-102] KEYCLOAK_SEED_DEMO_USERS is not true — skipping demo persona seeding."
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec 104: Team-scoped RBAC seed
@@ -241,9 +245,10 @@ seed_spec104_main() {
       || echo "[init-idp] [spec-104]   = ${EMAIL} → ${ROLE_NAME} (already assigned)"
   }
 
-  # Coarse identity/bootstrap roles only. Team membership remains for the
-  # transition-era active_team claim; resource grants are OpenFGA tuples.
-  local SP104_ROLES="admin_user team_member:demo-team"
+  # Coarse identity/bootstrap roles only. `admin` is the legacy coarse Admin UI
+  # role; `admin_user` is the spec-104 resource superuser. Resource grants are
+  # OpenFGA tuples.
+  local SP104_ROLES="admin admin_user team_member:demo-team"
 
   # Realm role creation (idempotent).
   for r in ${SP104_ROLES}; do
@@ -252,7 +257,7 @@ seed_spec104_main() {
 
   # Bootstrap admins → coarse admin + demo-team membership.
   if [ -n "${BOOTSTRAP_ADMIN_EMAILS:-}" ]; then
-    local ADMIN_ROLES_FOR_BOOTSTRAP="admin_user team_member:demo-team"
+    local ADMIN_ROLES_FOR_BOOTSTRAP="admin admin_user team_member:demo-team"
     # Split BOOTSTRAP_ADMIN_EMAILS on comma. We must restore IFS before the
     # inner space-separated loop over ADMIN_ROLES_FOR_BOOTSTRAP, otherwise the
     # whole role string is treated as one token.
@@ -349,6 +354,41 @@ _ensure_caipe_platform_user_roles() {
 }
 
 _ensure_caipe_platform_user_roles
+
+if [ -n "${KEYCLOAK_ADMIN_FRONTEND_URL:-}" ]; then
+  echo "[init-idp] Ensuring master realm frontendUrl for private admin console ..."
+  ADMIN_FRONTEND_TOKEN_RESP=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}") || {
+    echo "[init-idp]   WARNING: could not authenticate to update master realm frontendUrl."
+    ADMIN_FRONTEND_TOKEN_RESP=""
+  }
+  ADMIN_FRONTEND_TOKEN=$(json_field "${ADMIN_FRONTEND_TOKEN_RESP}" "access_token")
+  if [ -n "${ADMIN_FRONTEND_TOKEN}" ]; then
+    ADMIN_FRONTEND_AUTH="Authorization: Bearer ${ADMIN_FRONTEND_TOKEN}"
+    MASTER_REALM_JSON=$(curl -sf -H "${ADMIN_FRONTEND_AUTH}" \
+      "${KC_URL}/admin/realms/master") || {
+      echo "[init-idp]   WARNING: could not read master realm before frontendUrl update."
+      MASTER_REALM_JSON=""
+    }
+    if [ -n "${MASTER_REALM_JSON}" ]; then
+      ADMIN_FRONTEND_PAYLOAD=$(printf '%s' "${MASTER_REALM_JSON}" | python3 -c '
+import json
+import os
+import sys
+
+realm = json.load(sys.stdin)
+realm["attributes"] = realm.get("attributes") or {}
+realm["attributes"]["frontendUrl"] = os.environ["KEYCLOAK_ADMIN_FRONTEND_URL"]
+print(json.dumps(realm))
+')
+      curl -sf -X PUT -H "${ADMIN_FRONTEND_AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/master" \
+        -d "${ADMIN_FRONTEND_PAYLOAD}" && \
+        echo "[init-idp]   master realm frontendUrl set for admin console." || \
+        echo "[init-idp]   WARNING: failed to update master realm frontendUrl."
+    fi
+  fi
+fi
 
 if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
   echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
@@ -931,37 +971,94 @@ curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
 
 # --- auto-redirect to the IdP (skip Keycloak login page) ---
 # Configures the "Identity Provider Redirector" execution in the browser
-# flow to default to this IdP.  Users can still bypass with ?kc_idp_hint=
-# or by navigating to the Keycloak login page directly.
+# flow to default to this IdP. When KEYCLOAK_FORCE_IDP_REDIRECT=true, the
+# redirector is required and the local login form is disabled for the app realm.
 echo "[init-idp] Setting '${ALIAS}' as default IdP redirector in browser flow ..."
 BROWSER_EXECS=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" 2>/dev/null || echo "[]")
 
-REDIR_ID=$(echo "${BROWSER_EXECS}" | grep -B2 '"identity-provider-redirector"' \
-  | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+REDIR_INFO=$(printf '%s' "${BROWSER_EXECS}" | python3 -c '
+import json
+import sys
+
+executions = json.load(sys.stdin)
+redirector = next((e for e in executions if e.get("providerId") == "identity-provider-redirector"), {})
+forms = next((e for e in executions if e.get("displayName") == "forms" or e.get("flowAlias") == "forms"), {})
+print("\t".join([
+    redirector.get("id", ""),
+    redirector.get("authenticationConfig") or "",
+    redirector.get("providerId") or "",
+    forms.get("id", ""),
+    forms.get("providerId") or "",
+]))
+')
+IFS='	' read -r REDIR_ID REDIR_CONFIG_ID REDIR_PROVIDER_ID FORMS_ID FORMS_PROVIDER_ID <<EOF
+${REDIR_INFO}
+EOF
 
 if [ -n "${REDIR_ID}" ]; then
-  # Get existing authenticator config (if any)
-  REDIR_CONFIG_ID=$(echo "${BROWSER_EXECS}" | grep -A5 '"identity-provider-redirector"' \
-    | grep -o '"authenticationConfig" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
-
   if [ -n "${REDIR_CONFIG_ID}" ]; then
     # Update existing config
+    REDIR_CONFIG_ALIAS="${ALIAS}-redirector-${REDIR_CONFIG_ID}"
     curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/authentication/config/${REDIR_CONFIG_ID}" \
-      -d "{\"id\":\"${REDIR_CONFIG_ID}\",\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      -d "{\"id\":\"${REDIR_CONFIG_ID}\",\"alias\":\"${REDIR_CONFIG_ALIAS}\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
       echo "[init-idp]   Updated IdP redirector to default to '${ALIAS}'." || \
       echo "[init-idp]   WARNING: failed to update IdP redirector config."
   else
     # Create new config for the execution
+    REDIR_CONFIG_ALIAS="${ALIAS}-redirector-$(date +%s)"
     curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/authentication/executions/${REDIR_ID}/config" \
-      -d "{\"alias\":\"${ALIAS}-redirector\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
+      -d "{\"alias\":\"${REDIR_CONFIG_ALIAS}\",\"config\":{\"defaultProvider\":\"${ALIAS}\"}}" && \
       echo "[init-idp]   Created IdP redirector defaulting to '${ALIAS}'." || \
       echo "[init-idp]   WARNING: failed to create IdP redirector config."
   fi
 else
   echo "[init-idp]   WARNING: identity-provider-redirector execution not found in browser flow."
+fi
+
+update_browser_execution_requirement() {
+  local execution_id="$1"
+  local provider_id="$2"
+  local requirement="$3"
+  local label="$4"
+
+  if [ -z "${execution_id}" ]; then
+    echo "[init-idp]   WARNING: browser flow execution '${label}' not found."
+    return 0
+  fi
+
+  PAYLOAD=$(EXECUTION_ID="${execution_id}" PROVIDER_ID="${provider_id}" REQUIREMENT="${requirement}" python3 -c '
+import json
+import os
+
+payload = {
+    "id": os.environ["EXECUTION_ID"],
+    "requirement": os.environ["REQUIREMENT"],
+}
+provider_id = os.environ.get("PROVIDER_ID", "")
+if provider_id:
+    payload["providerId"] = provider_id
+print(json.dumps(payload))
+')
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/authentication/flows/browser/executions" \
+    -d "${PAYLOAD}" && \
+    echo "[init-idp]   Set browser flow '${label}' requirement to ${requirement}." || \
+    echo "[init-idp]   WARNING: failed to set '${label}' requirement to ${requirement}."
+}
+
+FORCE_IDP_REDIRECT="$(printf '%s' "${KEYCLOAK_FORCE_IDP_REDIRECT:-false}" | tr '[:upper:]' '[:lower:]')"
+if [ "${FORCE_IDP_REDIRECT}" = "true" ] || [ "${FORCE_IDP_REDIRECT}" = "1" ] || [ "${FORCE_IDP_REDIRECT}" = "yes" ]; then
+  echo "[init-idp] Enforcing '${ALIAS}' as the only browser login path ..."
+  update_browser_execution_requirement "${REDIR_ID}" "${REDIR_PROVIDER_ID:-identity-provider-redirector}" "REQUIRED" "Identity Provider Redirector"
+  update_browser_execution_requirement "${FORMS_ID}" "${FORMS_PROVIDER_ID}" "DISABLED" "forms"
+else
+  echo "[init-idp] Keeping local Keycloak login form available as an IdP fallback."
+  update_browser_execution_requirement "${REDIR_ID}" "${REDIR_PROVIDER_ID:-identity-provider-redirector}" "ALTERNATIVE" "Identity Provider Redirector"
+  update_browser_execution_requirement "${FORMS_ID}" "${FORMS_PROVIDER_ID}" "ALTERNATIVE" "forms"
 fi
 
 # Spec 103: caipe-platform realm-management role pinning was already invoked

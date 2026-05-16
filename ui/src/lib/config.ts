@@ -262,6 +262,14 @@ function env(name: string): string | undefined {
 }
 
 /**
+ * Read a browser-facing runtime env var dynamically so Next.js does not inline
+ * a build-time NEXT_PUBLIC_* value into the server bundle.
+ */
+function publicEnv(name: string): string | undefined {
+  return process.env[`NEXT_PUBLIC_${name}`] || undefined;
+}
+
+/**
  * Server-only config values that must NEVER be sent to the browser.
  * Access via getServerOnlyConfig().
  */
@@ -307,11 +315,10 @@ export function getServerConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const isDev = process.env.NODE_ENV === 'development';
 
-  // caipeUrl is the browser-facing supervisor URL (embedded in __APP_CONFIG__).
-  // It must be externally routable — use NEXT_PUBLIC_A2A_BASE_URL (e.g. http://localhost:8000
-  // for local dev, or https://caipe.example.com for production). A2A_BASE_URL is the
-  // internal Docker service URL for server-side proxies and must NOT be used here.
-  const caipeUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';
+  // caipeUrl is the browser-facing supervisor URL embedded in __APP_CONFIG__.
+  // Read it dynamically so container runtime ConfigMaps work; direct
+  // process.env.NEXT_PUBLIC_* reads can be inlined during `next build`.
+  const caipeUrl = publicEnv('A2A_BASE_URL') || 'http://localhost:8000';
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL

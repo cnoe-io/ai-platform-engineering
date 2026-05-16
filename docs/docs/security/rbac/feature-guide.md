@@ -693,7 +693,7 @@ The `rbac` profile brings up the OpenFGA components. The UI, AgentGateway, and b
 
 ### Reference Remote Compose Deployment
 
-For the CAIPE RBAC reference host, the runtime deployment is a compose-based stack on `caipe-rbac.outshift.io`.
+For the CAIPE RBAC reference host, the runtime deployment is a compose-based stack on `caipe.example.com`.
 
 The core rebuild set for this feature is:
 

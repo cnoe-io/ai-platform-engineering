@@ -141,6 +141,7 @@ Key fields for security architects:
 | Privilege escalation via claim manipulation | JWT is signed; any claim modification invalidates the RS256 signature |
 | Tenant data leakage | `tenant` claim in JWT used for query scoping at MCP layer and service-side filters |
 | PDP outage fail-open | AgentGateway `extAuthz.failureMode.denyWithStatus=403` fails closed if OpenFGA/bridge is unavailable |
+| AgentGateway admin exposure | Only the data-plane listener (`4000`) should be ingress-exposed; the admin listener (`15000`) remains private inside the cluster |
 | Unlinked Slack users bypassing RBAC | `rbac_global_middleware` blocks all unlinked users before the supervisor is called |
 | `AUTH_ENABLED=false` in production | Startup log emits a `WARNING` when auth is disabled; also documented in [Architecture › Dynamic Agents env vars](./architecture.md#key-environment-variables-2) |
 | Bootstrap admin left permanently enabled | No automatic enforcement — documented operational risk; must be removed post-setup |

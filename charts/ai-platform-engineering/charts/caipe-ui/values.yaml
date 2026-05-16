@@ -213,7 +213,7 @@ config:
   OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
   # Bootstrap admin emails — comma-separated list for initial admin setup.
   # Remove after configuring proper role mappings via the Admin > Roles tab.
-  # BOOTSTRAP_ADMIN_EMAILS: ""
+  BOOTSTRAP_ADMIN_EMAILS: ""
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Additional JWKS URIs for token validation (JSON array, non-sensitive)

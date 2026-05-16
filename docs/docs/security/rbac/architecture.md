@@ -50,10 +50,10 @@ Spec 104 introduced a second tier of realm roles that bound *resources* (tools, 
 | `agent_admin:<agent_id>` | `agent_admin:test-april-2025` | Caller may modify the agent's config. Implies `agent_user:<agent_id>`. |
 | `team_member:<slug>` | `team_member:demo-team` | Temporary compatibility marker for older team-context paths. New membership writes create OpenFGA `user:<sub> member team:<slug>` tuples instead of minting new realm-role assignments. |
 | `team_admin:<slug>` | `team_admin:demo-team` | Caller manages team membership and resource assignments. |
-| `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
+| `admin_user` | `admin_user` | Realm-wide superuser for the spec-104 model. Bypasses every per-resource check. Distinct from the legacy flat `admin` so we can deprecate the old model later. Granted automatically, along with the legacy `admin` role, to every email in `BOOTSTRAP_ADMIN_EMAILS` by `init-idp.sh`. |
 
 Roles are created and assigned by:
-- `init-idp.sh` (dev/CI seed; runs in the `keycloak-init` job; reads `BOOTSTRAP_ADMIN_EMAILS` to seed the demo bundle).
+- `init-idp.sh` (runs in the `keycloak-init` job; seeds demo personas only when `KEYCLOAK_SEED_DEMO_USERS=true`; reads `BOOTSTRAP_ADMIN_EMAILS` only for explicit bootstrap admin grants).
 - The Admin UI **Team Resources panel** (`Admin → Teams → selected team → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
   1. Writes relationship intent to OpenFGA before Mongo persistence: `team:<slug>#member can_use agent:<id>`, `team:<slug>#member can_manage agent:<id>`, and `team:<slug>#member can_call tool:<prefix|*>`.
   2. Resolves current team members to Keycloak `sub` values and writes OpenFGA `user:<sub> member team:<slug>` membership tuples when possible.
@@ -61,6 +61,8 @@ Roles are created and assigned by:
   The Resources tab covers Use+Manage per agent and per-MCP-server tool grants plus a single "All tools" wildcard checkbox. Mongo persistence happens **after** OpenFGA reconciliation so a PDP outage doesn't leave Mongo ahead of the enforcement store.
 - The Admin UI **Team Slack Channels panel** (`Admin → Teams → <team> → Slack Channels` tab, spec 098 US9) — bind Slack channels to a team so the bot resolves the channel's effective team via `channel_team_mappings`. Agent/resource access is configured separately in the OpenFGA ReBAC Slack Channels panel, where one Slack channel can have many grants. `PUT /api/admin/teams/[id]/slack-channels` is an idempotent full-replace: it deactivates this team's previous mappings that aren't in the new payload (only when `team_id` still matches — never touches another team's rows), upserts the active set, and denormalises a thin `slack_channels` array onto the team document for the team-card chip count. The UI offers a live `conversations.list` discovery picker (server-side `SLACK_BOT_TOKEN` only, 60s in-process cache) plus a manual ID entry fallback for when the bot isn't in the channel yet.
 - The Admin UI **Team Roles panel** (`Admin → Teams → selected team → Roles` tab) — for global realm roles such as `admin_user`, `chat_user`, and custom coarse roles. Resource-scoped roles (`agent_user:*`, `agent_admin:*`, `tool_user:*`, `kb_reader:*`, `kb_ingestor:*`, `kb_admin:*`, task roles, and skill roles) are hidden and rejected because those grants belong in OpenFGA relationships.
+
+`BOOTSTRAP_ADMIN_EMAILS` is an explicit break-glass/initial-admin list. The Keycloak init hook grants those users `admin`, `admin_user`, and the bootstrap team membership role when matching users already exist, while the UI also treats those emails as admin for the management-plane fallback path. Keep the list small and prefer enterprise group membership (`IDP_ADMIN_GROUP`, for example `eti_sre_admin`) for ongoing admin access.
 
 #### When Realm Roles Are Created
 
@@ -131,10 +133,27 @@ IDP_CLIENT_ID=<okta-app-client-id>
 IDP_CLIENT_SECRET=<okta-app-client-secret>
 IDP_ACCESS_GROUP=caipe-users                   # Okta group → chat_user role (optional)
 IDP_ADMIN_GROUP=caipe-admins                   # Okta group → admin role (optional)
+KEYCLOAK_ADMIN_FRONTEND_URL=http://localhost:18080  # optional private master-realm admin URL
+KEYCLOAK_FORCE_IDP_REDIRECT=true               # disable local app-realm login fallback
 OIDC_IDP_HINT=okta                             # auto-redirect browser to this IdP alias
 ```
 
 **`OIDC_IDP_HINT`** (set in `ui/.env.local`) is passed to Keycloak as `kc_idp_hint` on every auth request. It skips the Keycloak login page entirely and redirects straight to the named IdP. Set it to the same value as `IDP_ALIAS`.
+
+**`KEYCLOAK_FORCE_IDP_REDIRECT=true`** makes the app realm configured-IdP only: `init-idp.sh` sets the browser flow's Identity Provider Redirector `defaultProvider` to `IDP_ALIAS`, marks that redirector as required, and disables the local username/password form. This prevents CAIPE users from seeing the Keycloak login screen even if a client omits `kc_idp_hint`. Keep the `master` realm admin console on its private URL for operational access.
+
+**`KEYCLOAK_ADMIN_FRONTEND_URL`** is optional and only affects the `master` realm admin console. Use it when public ingress intentionally exposes only `/realms/caipe` and `/resources`; the `caipe` realm issuer and Duo broker redirect remain on the public Keycloak hostname.
+
+In production, the browser-facing issuer is Keycloak, not the upstream IdP. For the Grid RBAC environment the UI uses:
+
+```bash
+OIDC_ISSUER=https://idp.caipe.example.com/realms/caipe
+OIDC_CLIENT_ID=caipe-ui
+OIDC_IDP_HINT=duo-sso
+NEXTAUTH_URL=https://caipe.example.com
+```
+
+Duo credentials stay on the Keycloak IdP broker only. The Duo application's redirect URI points to Keycloak's broker endpoint (`https://idp.caipe.example.com/realms/caipe/broker/duo-sso/endpoint`), while the Keycloak `caipe-ui` client allows NextAuth's callback (`https://caipe.example.com/api/auth/callback/oidc`). Keycloak must be started with a public hostname such as `KC_HOSTNAME=https://idp.caipe.example.com` and `KC_PROXY_HEADERS=xforwarded` so discovery metadata and JWT `iss` match the public issuer.
 
 **Claim mapping chain:** The IdP sends `email`, `given_name`/`firstname`, `family_name`/`lastname`, and `groups` claims. Keycloak IdP mappers write these to the local user record. Role mappers translate `IDP_ACCESS_GROUP` membership to `chat_user` and `IDP_ADMIN_GROUP` to `admin`. If neither group var is set, all brokered users receive `chat_user` automatically via a hardcoded role mapper.
 
@@ -142,10 +161,12 @@ OIDC_IDP_HINT=okta                             # auto-redirect browser to this I
 
 ### User Profile & Custom Attributes
 
-Keycloak 26+ enforces a user profile schema. Custom attributes are silently dropped unless declared or `unmanagedAttributePolicy=ADMIN_EDIT` is set. `init-idp.sh` patches both:
+Keycloak 26+ enforces a user profile schema. Custom attributes are silently dropped unless declared or `unmanagedAttributePolicy=ADMIN_EDIT` is set on the user profile API. The Helm realm import JSON must not include `unmanagedAttributePolicy` as a top-level realm field because Keycloak 26.3 rejects that `RealmRepresentation` property during import. `init-idp.sh` patches both supported user-profile settings after the server starts:
 
 - Adds `slack_user_id` to the user profile schema with `admin`-only view/edit permissions
 - Sets `unmanagedAttributePolicy=ADMIN_EDIT` so other Admin API attribute writes succeed
+
+The Keycloak container exposes login/API traffic on `8080` and management health on `9000`; Helm readiness/liveness probes target the management port.
 
 ### Account Linking (Slack)
 
@@ -249,6 +270,8 @@ Keycloak realm roles remain supported as migration compatibility signals, but `/
 | `OPENFGA_RECONCILE_ENABLED` | Enables Team Resources → OpenFGA tuple reconciliation in the BFF | Defaults to `false` so non-RBAC local UI runs do not require OpenFGA; enable only when the OpenFGA profile is healthy. |
 | `OPENFGA_HTTP` | Docker-internal OpenFGA HTTP API URL used by the BFF tuple writer | Keep this on the private service network; do not point browser clients at OpenFGA. |
 | `OPENFGA_STORE_NAME` / `OPENFGA_STORE_ID` | Selects the OpenFGA store for tuple writes | Prefer `OPENFGA_STORE_ID` in locked-down deployments to avoid discovery ambiguity. |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | Confidential Keycloak client used by BFF admin APIs for Keycloak Admin REST calls such as user listing, role assignment, and team scope provisioning | Use a service-account client with only the required `realm-management` roles; production should not rely on the dev `admin-cli` password-grant fallback. |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | Matching client secret for `KEYCLOAK_ADMIN_CLIENT_ID` | Store in Vault/ExternalSecret/Kubernetes Secret only; never commit the secret value. |
 | `OIDC_ACCEPTED_AUDIENCES` | Additional bearer JWT audiences accepted by the UI BFF | The dev compose stack defaults this to `caipe-platform` so RBAC persona tokens minted by the Keycloak resource-server client can exercise BFF routes; production deployments should set the narrow audience list they actually issue. |
 | `IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED` | Enables best-effort login-time reconciliation from OIDC group claims | Defaults off; do not make login availability depend on directory sync health. |
 | `IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID` | Provider id used to select mapping rules for claim-derived sync | Defaults to `oidc-claims`; keep separate from direct Okta providers so provenance stays clear. |
@@ -348,6 +371,14 @@ AgentGateway uses `jwtAuth` for authentication and `extAuthz` for authorization.
 The `openfga-authz-bridge` adapts Envoy's gRPC authorization check into an
 OpenFGA `Check`, so gateway authorization is maintained through ReBAC tuples
 rather than CEL policy authoring.
+
+### Data-Plane Ingress
+
+The Helm chart can expose AgentGateway's MCP data path with
+`agentgateway.ingress.enabled=true`. That ingress always routes to the service
+HTTP port (`service.port`, default `4000`). The admin listener
+(`service.adminPort`, default `15000`) is not exposed by the ingress and should
+remain reachable only from inside the cluster.
 
 ### Why This Is the Right Architecture for a PEP
 
@@ -644,6 +675,8 @@ The Slack bot calls caipe-ui's API as a machine client, not as a logged-in user.
 | `SLACK_INTEGRATION_AUTH_TOKEN_URL` | `${KEYCLOAK_URL}/realms/caipe/protocol/openid-connect/token` |
 | `SLACK_INTEGRATION_AUTH_CLIENT_ID` | `caipe-slack-bot` (pre-created in `realm-config.json`) |
 | `SLACK_INTEGRATION_AUTH_CLIENT_SECRET` | Fetched from Keycloak — see "Provisioning service-client secrets" below |
+| `OAUTH2_CLIENT_SECRET` | Helm fallback env var for the same `caipe-slack-bot` client secret, normally sourced from the `keycloak-bot` Secret |
+| `KEYCLOAK_BOT_CLIENT_SECRET` | Same secret again for the Slack OBO helper (`utils/obo_exchange.py`) |
 
 **Token shape** (fields that matter):
 
@@ -698,8 +731,11 @@ Separate from the OBO flow above. The Slack bot also calls Keycloak's **Admin RE
 | `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID` | Confidential Keycloak client for slack-bot's Admin API calls (lookup + JIT create). **Default `caipe-platform`** — that client's service account is granted `view-users` + `query-users` + `manage-users` on `realm-management` by the realm seeder. |
 | `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET` | Matching client_secret. In dev, defaults to `caipe-platform-dev-secret`. |
 | `KEYCLOAK_URL`, `KEYCLOAK_REALM` | Same values as everywhere else. |
+| `SLACK_RBAC_ENABLED` | Enables Slack-side identity lookup, team/channel resolution, OBO exchange, and channel ReBAC checks before the bot forwards a request. |
 | `SLACK_JIT_CREATE_USER` (spec 103) | `true` (default) auto-creates a federated-only Keycloak shell user on first DM when no Keycloak user with the Slack email exists. `false` falls through to the HMAC link URL so onboarding requires the web UI. Reuses `KEYCLOAK_SLACK_BOT_ADMIN_*` — no new secret. See [plan R-8](../../specs/103-slack-jit-user-creation/plan.md) for the single-credential trade-off. |
 | `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (spec 103) | Optional comma-separated allowlist (e.g. `corp.com,acme.io`). Empty = any domain. Recommended for prod when the federated IdP can return non-corporate emails. |
+
+In Helm and GitOps installs, `charts/ai-platform-engineering/charts/slack-bot/templates/deployment.yaml` wires `OAUTH2_CLIENT_SECRET` and `KEYCLOAK_BOT_CLIENT_SECRET` from the Keycloak bot Secret, while the Slack tokens and `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET` can come from an ExternalSecret such as Vault path `projects/caipe/rbac/slackbot`.
 
 > **Why `KEYCLOAK_SLACK_BOT_ADMIN_*` and not just `KEYCLOAK_ADMIN_*` or `KEYCLOAK_BOT_ADMIN_*`?** Two reasons:
 >

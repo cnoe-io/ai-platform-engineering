@@ -25,30 +25,30 @@ For a production install, plan three layers:
 
 ## Recommended Public Hostnames
 
-For an instance domain such as `grid.outshift.io`, use separate hostnames:
+For an instance domain such as `caipe.example.com`, use separate hostnames:
 
 | Host | Audience | Recommended exposure |
 |------|----------|----------------------|
-| `grid.outshift.io` | End users | Public HTTPS Ingress for the CAIPE UI. |
-| `idp.grid.outshift.io` | End users and services | Public HTTPS Ingress for Keycloak OIDC login, callbacks, JWKS, and token endpoints. |
-| `agentgateway.grid.outshift.io` | Internal service callers or controlled clients | Prefer private or authenticated exposure. Do not expose the admin port publicly. |
-| `openfga.grid.outshift.io` | Platform services only | Prefer private cluster/network exposure. Public exposure is not required for normal CAIPE users. |
+| `caipe.example.com` | End users | Public HTTPS Ingress for the CAIPE UI. |
+| `idp.caipe.example.com` | End users and services | Public HTTPS Ingress for Keycloak OIDC login, callbacks, JWKS, and token endpoints. |
+| `agentgateway.caipe.example.com` | Internal service callers or controlled clients | Prefer private or authenticated exposure. Do not expose the admin port publicly. |
+| `openfga.caipe.example.com` | Platform services only | Prefer private cluster/network exposure. Public exposure is not required for normal CAIPE users. |
 
-End users should normally use `grid.outshift.io`. AgentGateway is the MCP data-plane policy enforcement point, not the primary user interface. If you expose any AgentGateway admin UI or Envoy admin port, put it behind admin SSO, network allow lists, and TLS; do not expose it as a general end-user surface.
+End users should normally use `caipe.example.com`. AgentGateway is the MCP data-plane policy enforcement point, not the primary user interface. If you expose any AgentGateway admin UI or Envoy admin port, put it behind admin SSO, network allow lists, and TLS; do not expose it as a general end-user surface.
 
 ## Prerequisites
 
 Before installing the refactor, prepare:
 
 - A Kubernetes namespace, for example `caipe`.
-- DNS and TLS for `grid.outshift.io` and `idp.grid.outshift.io`.
+- DNS and TLS for `caipe.example.com` and `idp.caipe.example.com`.
 - A trusted Ingress controller or Gateway API implementation.
 - Gateway API CRDs if using the chart's AgentGateway route resources.
 - A production OpenFGA datastore, usually PostgreSQL, exposed through a Kubernetes Secret consumed by `openfga.datastore.uriSecretRef`.
 - The OpenFGA model initialized by the `openfga-init` Helm hook.
 - The OpenFGA bridge enabled as an internal service reachable by AgentGateway `ext_authz`.
 - External Secrets Operator or pre-created Kubernetes Secrets for production secrets.
-- A production Keycloak database. The current Keycloak subchart is dev-oriented: it runs `start-dev`, defaults to embedded H2, has no Ingress template, and does not yet expose secret-sourced database environment variables. For production, either harden this subchart first or use a platform-managed Keycloak installation with the same realm import and init job behavior.
+- A production Keycloak database. The current Keycloak subchart is dev-oriented: it runs `start-dev`, defaults to embedded H2, and does not yet expose secret-sourced database environment variables. For production, either harden this subchart first or use a platform-managed Keycloak installation with the same realm import and init job behavior.
 
 ## Install Keycloak
 
@@ -77,8 +77,19 @@ realm:
   name: caipe
   sslRequired: external
 
+demoUsers:
+  # Keep false for shared/prod realms. Set true only for local RBAC matrix runs.
+  enabled: false
+
+# Optional explicit initial admins. These users receive Keycloak `admin` and
+# `admin_user` roles when they already exist in the realm.
+bootstrapAdminEmails: "admin@example.com"
+
 env:
-  KC_HOSTNAME: "https://idp.grid.outshift.io"
+  KC_HOSTNAME: "https://idp.caipe.example.com"
+  # Admin console and master realm stay private. Use kubectl port-forward to
+  # localhost:18080 instead of exposing /admin on public ingress.
+  KC_HOSTNAME_ADMIN: "http://localhost:18080"
   KC_HOSTNAME_STRICT: "true"
   KC_PROXY_HEADERS: "xforwarded"
   KC_HTTP_ENABLED: "true"
@@ -87,7 +98,21 @@ env:
   KC_DB_USERNAME: "keycloak"
 
 admin:
-  secretRef: caipe-keycloak-admin
+  # Keeps the master-realm admin console usable through the private
+  # port-forward URL while public ingress exposes only /realms/caipe.
+  frontendUrl: "http://localhost:18080"
+  externalSecret:
+    enabled: true
+    secretStoreRef:
+      name: vault
+      kind: ClusterSecretStore
+    remoteRefs:
+      username:
+        key: secret/data/caipe/keycloak
+        property: KEYCLOAK_ADMIN_USERNAME
+      password:
+        key: secret/data/caipe/keycloak
+        property: KEYCLOAK_ADMIN_PASSWORD
 
 idp:
   enabled: true
@@ -96,23 +121,35 @@ idp:
   issuer: "https://your-enterprise-idp.example.com"
   clientId: caipe
   accessGroup: caipe-users
+  # Users in this upstream group receive the Keycloak `admin` realm role.
   adminGroup: caipe-admins
+  # Default true: require the IdP redirector and disable local app-realm login.
+  forceRedirect: true
   secretRef: caipe-keycloak-idp
 
 tokenExchange:
   enabled: true
   botClientId: caipe-slack-bot
   secretRef: caipe-keycloak-bot
+
+uiClient:
+  redirectUris:
+    - https://caipe.example.com/api/auth/callback/oidc
+    - https://caipe.example.com/*
+  webOrigins:
+    - https://caipe.example.com
 ```
 
-Create the referenced secrets out of band:
+Create the referenced non-admin secrets out of band. The Keycloak admin Secret should come from your secret manager through `admin.externalSecret`, not a chart-generated password.
+
+`demoUsers.enabled=false` prevents the chart from importing sample password users and keeps `init-idp.sh` from seeding spec test personas. This is the production default; enable it only in isolated local/CI environments that intentionally exercise the RBAC matrix personas.
+
+`idp.forceRedirect=true` is also the production default when an external IdP is enabled. The init hook makes the `caipe` realm browser flow enterprise-IdP-only by requiring the Identity Provider Redirector and disabling the local Keycloak username/password form. The `master` realm admin login is unaffected and should remain private through `admin.frontendUrl`.
+
+Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config if you need the UI fallback before enterprise group claims have propagated. For steady-state admin access, prefer `idp.adminGroup` / `OIDC_REQUIRED_ADMIN_GROUP` backed by your enterprise group, such as `eti_sre_admin`.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n caipe create secret generic caipe-keycloak-admin \
-  --from-literal=username=admin \
-  --from-literal=password="$(openssl rand -hex 32)"
 
 kubectl -n caipe create secret generic caipe-keycloak-idp \
   --from-literal=IDP_CLIENT_SECRET="${IDP_CLIENT_SECRET}"
@@ -138,9 +175,11 @@ helm upgrade --install caipe \
   --values values-keycloak-prod.yaml
 ```
 
-### Expose `idp.grid.outshift.io`
+### Expose `idp.caipe.example.com`
 
-The Keycloak subchart does not currently render an Ingress. Create one with your cluster's Ingress or Gateway standard. For nginx Ingress:
+The Keycloak subchart can render an Ingress through `keycloak.ingress`. Public ingress should expose only the application realm and static login assets. Keep `/admin` and `/realms/master` private behind the ClusterIP service for `kubectl port-forward` or private networking.
+
+For nginx Ingress:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -155,14 +194,21 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - secretName: idp-grid-outshift-io-tls
+    - secretName: idp-caipe-example-com-tls
       hosts:
-        - idp.grid.outshift.io
+        - idp.caipe.example.com
   rules:
-    - host: idp.grid.outshift.io
+    - host: idp.caipe.example.com
       http:
         paths:
-          - path: /
+          - path: /realms/caipe
+            pathType: Prefix
+            backend:
+              service:
+                name: caipe-keycloak
+                port:
+                  number: 8080
+          - path: /resources
             pathType: Prefix
             backend:
               service:
@@ -171,22 +217,29 @@ spec:
                   number: 8080
 ```
 
+Use port-forward for Keycloak Admin Console or master realm operations. If public ingress blocks `/admin` and `/realms/master`, also set `keycloak.admin.frontendUrl` to the same private admin base URL so the admin console authenticates against the port-forwarded master realm instead of the public issuer hostname.
+
+```bash
+kubectl -n caipe port-forward svc/caipe-keycloak 18080:8080
+# Open http://localhost:18080/admin/
+```
+
 After DNS and TLS are ready, verify:
 
 ```bash
-curl -fsS https://idp.grid.outshift.io/realms/caipe/.well-known/openid-configuration
-curl -fsS https://idp.grid.outshift.io/realms/caipe/protocol/openid-connect/certs
+curl -fsS https://idp.caipe.example.com/realms/caipe/.well-known/openid-configuration
+curl -fsS https://idp.caipe.example.com/realms/caipe/protocol/openid-connect/certs
 ```
 
 ### Redirect URIs
 
-The imported development realm contains localhost redirect URIs. For production, update the `caipe-ui` client in Keycloak so redirects and web origins include:
+The imported development realm contains localhost redirect URIs by default. For production, set `keycloak.uiClient.redirectUris` and `keycloak.uiClient.webOrigins` so the rendered `caipe-ui` client includes:
 
 ```text
-https://grid.outshift.io/*
+https://caipe.example.com/*
 ```
 
-The clean long-term fix is to template production redirect URIs in the Keycloak chart or add a post-install job parameter for UI hostnames. Until that exists, make this part of the install runbook and verify it after every new realm import.
+Verify this after every new realm import because an existing Keycloak database will not re-import changed client settings automatically.
 
 ## Install OpenFGA and the Bridge
 
@@ -225,7 +278,7 @@ openfga-authz-bridge:
     storeName: caipe-openfga
   tokenValidation:
     jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
-    issuer: "https://idp.grid.outshift.io/realms/caipe"
+    issuer: "https://idp.caipe.example.com/realms/caipe"
     audiences:
       - agentgateway
       - caipe-platform
@@ -250,7 +303,7 @@ agentgateway:
             policies:
               jwtAuth:
                 mode: strict
-                issuer: https://idp.grid.outshift.io/realms/caipe
+                issuer: https://idp.caipe.example.com/realms/caipe
                 audiences: [caipe-platform, agentgateway]
                 jwks:
                   url: http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs
@@ -302,17 +355,17 @@ caipe-ui:
       cert-manager.io/cluster-issuer: letsencrypt-prod
       nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     hosts:
-      - host: grid.outshift.io
+      - host: caipe.example.com
         paths:
           - path: /
             pathType: Prefix
     tls:
-      - secretName: grid-outshift-io-tls
+      - secretName: caipe-example-com-tls
         hosts:
-          - grid.outshift.io
+          - caipe.example.com
 
   config:
-    NEXTAUTH_URL: "https://grid.outshift.io"
+    NEXTAUTH_URL: "https://caipe.example.com"
     SSO_ENABLED: "true"
     OIDC_REQUIRED_GROUP: "caipe-users"
     OIDC_REQUIRED_ADMIN_GROUP: "caipe-admins"
@@ -334,7 +387,7 @@ Create `caipe-ui-secrets` through your secret manager or CI pipeline. It should 
 ```text
 NEXTAUTH_SECRET
 MONGODB_URI
-OIDC_ISSUER=https://idp.grid.outshift.io/realms/caipe
+OIDC_ISSUER=https://idp.caipe.example.com/realms/caipe
 OIDC_CLIENT_ID=caipe-ui
 OIDC_CLIENT_SECRET=<client-secret-from-keycloak>
 OPENFGA_HTTP=<internal-openfga-api-url>
@@ -359,7 +412,7 @@ Verify:
 ```bash
 kubectl -n caipe get pods
 kubectl -n caipe get ingress
-curl -fsS https://grid.outshift.io/api/health
+curl -fsS https://caipe.example.com/api/health
 ```
 
 ## Slack Bot OBO Configuration
@@ -378,7 +431,7 @@ slack-bot:
       key: KC_BOT_CLIENT_SECRET
   config:
     SLACK_INTEGRATION_ENABLE_AUTH: "true"
-    OAUTH2_TOKEN_URL: "https://idp.grid.outshift.io/realms/caipe/protocol/openid-connect/token"
+    OAUTH2_TOKEN_URL: "https://idp.caipe.example.com/realms/caipe/protocol/openid-connect/token"
     OAUTH2_CLIENT_ID: "caipe-slack-bot"
 ```
 
@@ -420,7 +473,7 @@ kubectl -n caipe logs job/caipe-keycloak-init-idp
 Verify:
 
 - `caipe-ui` exists as an OIDC client.
-- Redirect URIs include `https://grid.outshift.io/*`.
+- Redirect URIs include `https://caipe.example.com/*`.
 - `caipe-slack-bot` exists and token exchange is enabled.
 - Realm roles include only coarse/bootstrap roles for new assignments.
 - Resource-specific Keycloak roles are no longer used for new grants.
@@ -483,11 +536,11 @@ Rollback should keep data ownership clear:
 
 Run these checks before declaring the install production-ready:
 
-- `https://grid.outshift.io/api/health` returns `200`.
-- `https://idp.grid.outshift.io/realms/caipe/.well-known/openid-configuration` returns the production issuer.
-- `NEXTAUTH_URL` exactly matches `https://grid.outshift.io`.
-- `OIDC_ISSUER` exactly matches `https://idp.grid.outshift.io/realms/caipe`.
-- Keycloak `caipe-ui` redirect URIs include `https://grid.outshift.io/*`.
+- `https://caipe.example.com/api/health` returns `200`.
+- `https://idp.caipe.example.com/realms/caipe/.well-known/openid-configuration` returns the production issuer.
+- `NEXTAUTH_URL` exactly matches `https://caipe.example.com`.
+- `OIDC_ISSUER` exactly matches `https://idp.caipe.example.com/realms/caipe`.
+- Keycloak `caipe-ui` redirect URIs include `https://caipe.example.com/*`.
 - Keycloak token exchange job completed successfully.
 - OpenFGA HTTP URL, store name, and store ID are set in the UI and bridge environment.
 - Team membership writes create OpenFGA `user:<sub> member team:<slug>` tuples.
@@ -502,7 +555,7 @@ Run these checks before declaring the install production-ready:
 To make this a true one-command Helm installation, add:
 
 1. Keycloak dependency wiring in the umbrella chart or a documented release split with parent values removed.
-2. Keycloak Ingress/Gateway templates and production redirect URI values.
+2. Production Keycloak database secret wiring.
 3. OpenFGA subchart or dependency with datastore settings.
 4. OpenFGA model/init job.
 5. OpenFGA bridge Deployment, Service, probes, and network policy.

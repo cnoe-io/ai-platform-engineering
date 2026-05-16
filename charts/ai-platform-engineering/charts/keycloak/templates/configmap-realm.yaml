@@ -6,4 +6,23 @@ metadata:
     {{- include "keycloak.labels" . | nindent 4 }}
 data:
   realm-config.json: |-
-    {{- .Files.Get "realm-config.json" | nindent 4 }}
+    {{- $realm := .Files.Get "realm-config.json" | fromJson -}}
+    {{- $clients := list -}}
+    {{- range $client := $realm.clients -}}
+      {{- if eq $client.clientId "caipe-ui" -}}
+        {{- $_ := set $client "redirectUris" $.Values.uiClient.redirectUris -}}
+        {{- $_ := set $client "webOrigins" $.Values.uiClient.webOrigins -}}
+      {{- end -}}
+      {{- $clients = append $clients $client -}}
+    {{- end -}}
+    {{- $_ := set $realm "clients" $clients -}}
+    {{- if not .Values.demoUsers.enabled -}}
+      {{- $users := list -}}
+      {{- range $user := $realm.users -}}
+        {{- if $user.serviceAccountClientId -}}
+          {{- $users = append $users $user -}}
+        {{- end -}}
+      {{- end -}}
+      {{- $_ := set $realm "users" $users -}}
+    {{- end -}}
+    {{- $realm | toPrettyJson | nindent 4 }}
