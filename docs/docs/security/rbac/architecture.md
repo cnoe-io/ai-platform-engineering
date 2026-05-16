@@ -12,6 +12,7 @@ Component-by-component reference. Each section describes **what it owns**, **wha
 The `0.5.0` umbrella chart can own the RBAC runtime stack for demo and managed environments:
 
 - `tags.keycloak=true` enables the Keycloak subchart, realm import, and IdP/token-exchange init hooks.
+- The Keycloak subchart packages the `caipe` login theme by default and mounts it as a ConfigMap under `/opt/keycloak/themes/caipe`. Deployments can customize branding with `keycloak.theme.brandName`, `keycloak.theme.colors.*`, or full `keycloak.theme.files.*` overrides; `keycloak.theme.existingConfigMap` remains available for externally managed theme ConfigMaps.
 - `openfga.enabled=true` enables the OpenFGA service and the CAIPE authorization model loader hook.
 - `openfgaAuthzBridge.enabled=true` enables the gRPC `ext_authz` bridge that validates the bearer JWT again, extracts the verified `sub`, and translates AgentGateway checks into OpenFGA checks.
 - `agentgateway.enabled=true` enables the standalone AgentGateway proxy chart. `global.agentgateway.enabled=true` is still the Gateway API route-resource path for clusters using the AgentGateway controller model.
@@ -153,7 +154,7 @@ OIDC_IDP_HINT=duo-sso
 NEXTAUTH_URL=https://caipe.example.com
 ```
 
-Duo credentials stay on the Keycloak IdP broker only. The Duo application's redirect URI points to Keycloak's broker endpoint (`https://idp.caipe.example.com/realms/caipe/broker/duo-sso/endpoint`), while the Keycloak `caipe-ui` client allows NextAuth's callback (`https://caipe.example.com/api/auth/callback/oidc`). Keycloak must be started with a public hostname such as `KC_HOSTNAME=https://idp.caipe.example.com` and `KC_PROXY_HEADERS=xforwarded` so discovery metadata and JWT `iss` match the public issuer.
+Duo credentials stay on the Keycloak IdP broker only. The Duo application's redirect URI points to Keycloak's broker endpoint (`https://idp.caipe.example.com/realms/caipe/broker/duo-sso/endpoint`), while the Keycloak `caipe-ui` client allows NextAuth's callback (`https://caipe.example.com/api/auth/callback/oidc`). Keycloak must be started with a public hostname such as `KC_HOSTNAME=https://idp.caipe.example.com` and `KC_PROXY_HEADERS=xforwarded` so discovery metadata and JWT `iss` match the public issuer. The Docker Compose public-host override (`docker-compose.caipe-rbac-https.yaml`) sets those Keycloak values alongside the UI/RAG/Dynamic Agents `OIDC_ISSUER` overrides; otherwise browser login links can point back at the local dev default (`http://localhost:7080`).
 
 **Claim mapping chain:** The IdP sends `email`, `given_name`/`firstname`, `family_name`/`lastname`, and `groups` claims. Keycloak IdP mappers write these to the local user record. Role mappers translate `IDP_ACCESS_GROUP` membership to `chat_user` and `IDP_ADMIN_GROUP` to `admin`. If neither group var is set, all brokered users receive `chat_user` automatically via a hardcoded role mapper.
 

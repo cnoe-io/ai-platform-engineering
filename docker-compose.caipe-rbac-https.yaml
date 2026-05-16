@@ -13,6 +13,11 @@ services:
       OIDC_ISSUER: https://caipe-rbac.outshift.io/realms/caipe
       OIDC_ISSUER_URL: https://caipe-rbac.outshift.io/realms/caipe
 
+  keycloak:
+    environment:
+      KC_HOSTNAME: https://caipe-rbac.outshift.io
+      KC_PROXY_HEADERS: xforwarded
+
   agentgateway:
     volumes:
       - ./deploy/agentgateway/config.caipe-rbac.yaml:/etc/agentgateway/config.yaml:ro

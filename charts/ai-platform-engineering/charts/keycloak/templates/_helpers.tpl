@@ -102,6 +102,19 @@ This Secret is consumed by BOTH:
 {{- end }}
 
 {{/*
+Keycloak login theme ConfigMap name.
+- explicit existingConfigMap wins
+- otherwise the chart owns a ConfigMap for the packaged theme
+*/}}
+{{- define "keycloak.themeConfigMapName" -}}
+{{- if .Values.theme.existingConfigMap }}
+{{- .Values.theme.existingConfigMap }}
+{{- else }}
+{{- printf "%s-%s-theme" (include "keycloak.fullname" .) .Values.theme.name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{/*
 Whether the chart should *create* the IdP Secret (vs. trusting an external
 Secret to already exist). True when:
   - idp.enabled  AND

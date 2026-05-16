@@ -11,9 +11,14 @@ spec:
       {{- include "keycloak.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- if or .Values.podAnnotations (and .Values.theme.enabled (not .Values.theme.existingConfigMap)) }}
       annotations:
+        {{- if and .Values.theme.enabled (not .Values.theme.existingConfigMap) }}
+        checksum/keycloak-theme: {{ include (print $.Template.BasePath "/configmap-theme.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       labels:
         {{- include "keycloak.selectorLabels" . | nindent 8 }}
@@ -80,6 +85,11 @@ spec:
             - name: realm-config
               mountPath: /opt/keycloak/data/import
               readOnly: true
+            {{- if .Values.theme.enabled }}
+            - name: keycloak-theme
+              mountPath: /opt/keycloak/themes/{{ .Values.theme.name }}
+              readOnly: true
+            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -91,6 +101,13 @@ spec:
         - name: realm-config
           configMap:
             name: {{ include "keycloak.fullname" . }}-realm
+        {{- if .Values.theme.enabled }}
+        - name: keycloak-theme
+          configMap:
+            name: {{ include "keycloak.themeConfigMapName" . }}
+            items:
+              {{- toYaml .Values.theme.items | nindent 14 }}
+        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

@@ -220,6 +220,43 @@ env: {}
   # KC_DB_USERNAME: keycloak
   # KC_DB_PASSWORD: changeme
 
+# ---------- Login theme ----------
+theme:
+  # The realm import sets loginTheme=caipe. Keep the packaged theme enabled
+  # when Keycloak is enabled so browser login never falls back to the default UI.
+  enabled: true
+  name: caipe
+  brandName: CAIPE
+  colors:
+    background: "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)"
+    primary: "#00bcd4"
+    primaryHover: "#00acc1"
+    cardShadow: "0 8px 32px rgba(0, 0, 0, 0.4)"
+    socialBackground: "#1e1e2e"
+    socialHoverBackground: "#2a2a3e"
+    socialBorder: "#333"
+    socialText: "#e0e0e0"
+    socialHoverText: "#fff"
+    inputBorder: "#333"
+    dividerText: "#888"
+    alertErrorBorder: "#ef5350"
+  # Set to an externally managed ConfigMap to override the packaged logo/CSS
+  # without forking the chart. The ConfigMap must provide the keys below.
+  existingConfigMap: ""
+  # Full file overrides for downstream branding. Leave empty to use the
+  # packaged theme files rendered with the values above.
+  files:
+    themeProperties: ""
+    css: ""
+    logoSvg: ""
+  items:
+    - key: theme.properties
+      path: login/theme.properties
+    - key: caipe.css
+      path: login/resources/css/caipe.css
+    - key: logo.svg
+      path: login/resources/img/logo.svg
+
 # ---------- Resources ----------
 resources:
   requests:
