@@ -56,6 +56,9 @@ ai_platform_engineering/cli/**
 volumes
 volumes/
 volumes/**
+**/volumes
+**/volumes/
+**/volumes/**
 docker-compose/volumes
 docker-compose/volumes/
 docker-compose/volumes/**
@@ -84,8 +87,14 @@ build/
 # UI build artifacts must never enter the root Docker build context. If a
 # stale `.next` directory is copied before `next build`, Turbopack can reuse
 # obsolete server route chunks even when the TypeScript source has changed.
+node_modules/
 ui/.next/
 ui/node_modules/
+.git/
+.beads/
+test-results/
+ui/test-results/
+ui/playwright-report/
 develop-eggs/
 dist/
 downloads/
