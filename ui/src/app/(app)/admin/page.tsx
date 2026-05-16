@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,7 @@ import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -197,7 +198,80 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review', 'settings'];
+
+type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
+type TabGate = 'always' | 'feedback' | 'nps' | 'admin' | 'audit-admin';
+
+interface AdminTabConfig {
+  value: string;
+  label: string;
+  icon: LucideIcon;
+  gate: TabGate;
+}
+
+interface AdminCategoryConfig {
+  key: CategoryKey;
+  label: string;
+  icon: LucideIcon;
+  tabs: AdminTabConfig[];
+}
+
+const ADMIN_CATEGORIES: AdminCategoryConfig[] = [
+  {
+    key: 'system',
+    label: 'System',
+    icon: Settings,
+    tabs: [
+      { value: 'settings', label: 'Default Agent', icon: Settings, gate: 'admin' },
+      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gate: 'admin' },
+      { value: 'skills', label: 'Skills', icon: Layers, gate: 'always' },
+    ],
+  },
+  {
+    key: 'people',
+    label: 'Users & Teams',
+    icon: Users,
+    tabs: [
+      { value: 'users', label: 'Users', icon: Users, gate: 'always' },
+      { value: 'teams', label: 'Teams', icon: UsersIcon, gate: 'always' },
+    ],
+  },
+  {
+    key: 'insights',
+    label: 'Insights',
+    icon: TrendingUp,
+    tabs: [
+      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gate: 'feedback' },
+      { value: 'nps', label: 'NPS', icon: Star, gate: 'nps' },
+      { value: 'stats', label: 'Statistics', icon: TrendingUp, gate: 'always' },
+    ],
+  },
+  {
+    key: 'platform',
+    label: 'Metrics & Health',
+    icon: Activity,
+    tabs: [
+      { value: 'metrics', label: 'Metrics', icon: Activity, gate: 'always' },
+      { value: 'health', label: 'Health', icon: Database, gate: 'always' },
+    ],
+  },
+  {
+    key: 'security',
+    label: 'Security & Policy',
+    icon: Shield,
+    tabs: [
+      { value: 'audit-logs', label: 'Audit Logs', icon: FileText, gate: 'audit-admin' },
+      { value: 'policy', label: 'Policy', icon: Shield, gate: 'admin' },
+    ],
+  },
+];
+
+function categoryForTab(tab: string): CategoryKey {
+  return ADMIN_CATEGORIES.find((category) =>
+    category.tabs.some((item) => item.value === tab)
+  )?.key ?? 'people';
+}
 
 function AdminPage() {
   const { status } = useSession();
@@ -206,6 +280,8 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin } = useAdminRole();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
+  const feedbackEnabled = getConfig('feedbackEnabled');
+  const npsEnabled = getConfig('npsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
@@ -224,6 +300,56 @@ function AdminPage() {
   const [activeTab, setActiveTab] = useState(
     initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
   );
+  const initialCategory = searchParams.get('cat') as CategoryKey | null;
+  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
+    initialCategory && ADMIN_CATEGORIES.some((category) => category.key === initialCategory)
+      ? initialCategory
+      : categoryForTab(activeTab)
+  );
+  const isTabVisible = useCallback((tab: AdminTabConfig): boolean => {
+    switch (tab.gate) {
+      case 'feedback':
+        return feedbackEnabled;
+      case 'nps':
+        return npsEnabled;
+      case 'admin':
+        return isAdmin;
+      case 'audit-admin':
+        return auditLogsEnabled && isAdmin;
+      case 'always':
+      default:
+        return true;
+    }
+  }, [auditLogsEnabled, feedbackEnabled, isAdmin, npsEnabled]);
+  const visibleCategories = useMemo(
+    () =>
+      ADMIN_CATEGORIES
+        .map((category) => ({
+          ...category,
+          tabs: category.tabs.filter(isTabVisible),
+        }))
+        .filter((category) => category.tabs.length > 0),
+    [isTabVisible]
+  );
+  const visibleTabsForCategory = useMemo(
+    () =>
+      visibleCategories.find((category) => category.key === activeCategory)?.tabs
+      ?? visibleCategories[0]?.tabs
+      ?? [],
+    [activeCategory, visibleCategories]
+  );
+  const handleCategoryChange = useCallback((categoryKey: CategoryKey) => {
+    const category = visibleCategories.find((item) => item.key === categoryKey);
+    const firstTab = category?.tabs[0];
+    if (!category || !firstTab) return;
+
+    setActiveCategory(categoryKey);
+    setActiveTab(firstTab.value);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', categoryKey);
+    params.set('tab', firstTab.value);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams, visibleCategories]);
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
@@ -813,74 +939,47 @@ function AdminPage() {
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
               setActiveTab(tab);
+              const nextCategory = categoryForTab(tab);
+              setActiveCategory(nextCategory);
               const params = new URLSearchParams(searchParams.toString());
+              params.set('cat', nextCategory);
               params.set('tab', tab);
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
-              <TabsList className={`grid w-full ${(() => {
-                const n = 6
-                  + (getConfig('feedbackEnabled') ? 1 : 0)
-                  + (getConfig('npsEnabled') ? 1 : 0)
-                  + (auditLogsEnabled && isAdmin ? 1 : 0)
-                  + (isAdmin ? 1 : 0)
-                  + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11' };
-                return cols[n] ?? 'grid-cols-6';
-              })()}`}>
-                <TabsTrigger value="users" className="gap-2">
-                  <Users className="h-4 w-4" />
-                  Users
-                </TabsTrigger>
-                <TabsTrigger value="teams" className="gap-2">
-                  <UsersIcon className="h-4 w-4" />
-                  Teams
-                </TabsTrigger>
-                <TabsTrigger value="skills" className="gap-2">
-                  <Layers className="h-4 w-4" />
-                  Skills
-                </TabsTrigger>
-                {getConfig('feedbackEnabled') && (
-                <TabsTrigger value="feedback" className="gap-2">
-                  <ThumbsUp className="h-4 w-4" />
-                  Feedback
-                </TabsTrigger>
-                )}
-                {getConfig('npsEnabled') && (
-                <TabsTrigger value="nps" className="gap-2">
-                  <Star className="h-4 w-4" />
-                  NPS
-                </TabsTrigger>
-                )}
-                <TabsTrigger value="stats" className="gap-2">
-                  <TrendingUp className="h-4 w-4" />
-                  Statistics
-                </TabsTrigger>
-                <TabsTrigger value="metrics" className="gap-2">
-                  <Activity className="h-4 w-4" />
-                  Metrics
-                </TabsTrigger>
-                <TabsTrigger value="health" className="gap-2">
-                  <Database className="h-4 w-4" />
-                  Health
-                </TabsTrigger>
-                {auditLogsEnabled && isAdmin && (
-                  <TabsTrigger value="audit-logs" className="gap-2">
-                    <FileText className="h-4 w-4" />
-                    Audit Logs
-                  </TabsTrigger>
-                )}
-                {isAdmin && (
-                  <TabsTrigger value="policy" className="gap-2">
-                    <Shield className="h-4 w-4" />
-                    Policy
-                  </TabsTrigger>
-                )}
-                {isAdmin && (
-                  <TabsTrigger value="ai-review" className="gap-2">
-                    <ShieldCheck className="h-4 w-4" />
-                    AI Review
-                  </TabsTrigger>
-                )}
+              <div className="flex flex-wrap gap-1.5">
+                {visibleCategories.map((category) => {
+                  const Icon = category.icon;
+                  const selected = category.key === activeCategory;
+                  return (
+                    <button
+                      key={category.key}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => handleCategoryChange(category.key)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                        selected
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {category.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <TabsList className="flex w-full justify-start gap-0 overflow-x-auto">
+                {visibleTabsForCategory.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 shrink-0">
+                      <Icon className="h-4 w-4" />
+                      {tab.label}
+                    </TabsTrigger>
+                  );
+                })}
               </TabsList>
 
               {/* User Management Tab */}
@@ -1240,7 +1339,7 @@ function AdminPage() {
               </TabsContent>
 
               {/* Feedback Tab */}
-              {getConfig('feedbackEnabled') && <TabsContent value="feedback" className="space-y-4">
+              {feedbackEnabled && <TabsContent value="feedback" className="space-y-4">
                 {/* Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -1473,7 +1572,7 @@ function AdminPage() {
               </TabsContent>}
 
               {/* NPS Tab */}
-              {getConfig('npsEnabled') && <TabsContent value="nps" className="space-y-4">
+              {npsEnabled && <TabsContent value="nps" className="space-y-4">
                 {/* Campaign Management */}
                 {isAdmin && (
                   <Card>
@@ -2530,6 +2629,13 @@ function AdminPage() {
               {isAdmin && (
                 <TabsContent value="ai-review" className="space-y-4">
                   <ReviewConfigsTab />
+                </TabsContent>
+              )}
+
+              {/* Platform Settings (admin only) */}
+              {isAdmin && (
+                <TabsContent value="settings" className="space-y-4">
+                  <PlatformSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
             </Tabs>
