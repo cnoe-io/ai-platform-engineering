@@ -22,10 +22,6 @@ export interface KeycloakIdpMapper {
 }
 
 export const BUILT_IN_ROLES = [
-  "admin",
-  "chat_user",
-  "team_member",
-  "kb_admin",
   "offline_access",
   "uma_authorization",
   "default-roles-caipe",
@@ -628,7 +624,7 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
 // switch to a script-mapper that reads the requested team from a custom
 // parameter rather than per-team default scopes.
 //
-// All operations are idempotent so the BFF can re-run them on every
+// All operations are idempotent so the Web UI backend can re-run them on every
 // startup as part of the team-scope auto-sync.
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -21,7 +21,7 @@ export function formatUiDenial(
 }
 
 /**
- * Build a NextResponse JSON body for a 403 from the BFF.
+ * Build a NextResponse JSON body for a 403 from the Web UI backend.
  */
 export function deniedApiResponse(resource: RbacResource, scope: string) {
   return {

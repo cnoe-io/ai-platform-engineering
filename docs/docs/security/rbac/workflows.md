@@ -69,7 +69,7 @@ sequenceDiagram
       Duo-->>KC: auth code → /token → id_token + userinfo<br/>(email, firstname, lastname)
 
       note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>and refresh upstream groups into idp_groups
-      KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users],<br/>realm_access.roles=[chat_user, argocd-admin]
+      KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users]
       note over UI: NextAuth stores JWT in<br/>encrypted server-side session cookie
       opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=true
         UI->>MDB: Best-effort reconcile Alice's<br/>memberOf/groups claims into managed<br/>team_membership_sources + OpenFGA tuples
@@ -82,7 +82,7 @@ sequenceDiagram
       User->>SB: "list my ArgoCD apps"
       note over SB: Slack already linked to Keycloak user via<br/>/api/admin/slack-links → uses stored slack_user_id→sub mapping
       SB->>KC: POST /token (RFC 8693 token-exchange for Alice)<br/>subject_token=slack-bot-service-account<br/>requested_subject=alice
-      KC-->>SB: OBO JWT<br/>iss=https://idp.caipe.example.com/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>realm_access.roles=[chat_user], aud=[caipe-platform]
+      KC-->>SB: OBO JWT<br/>iss=https://idp.caipe.example.com/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>aud=[caipe-platform]
 
       SB->>SUP: POST /a2a<br/>Authorization: Bearer OBO_JWT
 
@@ -96,8 +96,9 @@ sequenceDiagram
       AG->>AG: now < exp ✓
 
       note over AG,FGA: Remote PDP: AgentGateway extAuthz calls OpenFGA through the bridge
-      AG->>FGA: Check(user:alice, can_call, document:mcp)
+      AG->>FGA: Check(user:alice, can_call, mcp_gateway:list)
       FGA-->>AG: allowed=true
+      FGA->>MDB: bridge writes openfga_rebac audit row
 
       AG->>RAG: proxied POST /mcp<br/>Authorization: Bearer OBO_JWT (untouched)
       note over RAG: MCP does its own JWKS validation<br/>(defense in depth)
@@ -121,11 +122,79 @@ sequenceDiagram
 
 ---
 
+## Dynamic Agent Invocation
+
+Dynamic Agent start, invoke, and resume requests have two OpenFGA enforcement
+points. The Web UI backend blocks denied callers before any backend proxy call, and the
+Dynamic Agents runtime repeats the same check before agent lookup or runtime
+work. Cancellation is deliberately auth-only because it stops work.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Browser or Slack
+    participant WebUIBackend as Next.js Web UI backend
+    participant FGA as OpenFGA PDP
+    participant DA as Dynamic Agents
+    participant Runtime as Agent Runtime
+    participant AG as AgentGateway
+    participant MDB as MongoDB audit_events
+
+    Client->>WebUIBackend: POST /api/v1/chat/stream/start
+    WebUIBackend->>WebUIBackend: authenticate session or bearer
+    WebUIBackend->>WebUIBackend: create authz traceparent
+    WebUIBackend->>FGA: Check user:<sub> can_use agent:<agent_id><br/>traceparent
+    opt subject tuple absent and email claim present
+        WebUIBackend->>FGA: Check user:<email> can_use agent:<agent_id><br/>traceparent
+    end
+    alt denied or OpenFGA unavailable
+        WebUIBackend->>MDB: write openfga_rebac audit event
+        WebUIBackend-->>Client: 403 pdp_denied or 503 pdp_unavailable
+    else allowed
+        WebUIBackend->>MDB: write openfga_rebac audit event
+        WebUIBackend->>DA: proxy request with Bearer token<br/>and traceparent
+        DA->>DA: JwtAuthMiddleware validates bearer and binds current_user_token + traceparent
+        DA->>FGA: Check user:<sub> can_use agent:<agent_id><br/>child traceparent
+        opt subject tuple absent and email claim present
+            DA->>FGA: Check user:<email> can_use agent:<agent_id><br/>child traceparent
+        end
+        alt denied or OpenFGA unavailable
+            DA->>MDB: write openfga_rebac runtime audit event
+            DA-->>WebUIBackend: structured 403 or 503
+            WebUIBackend-->>Client: structured error
+        else allowed
+            DA->>MDB: write openfga_rebac runtime audit event
+            DA->>Runtime: create, invoke, or resume runtime work
+            Runtime->>AG: MCP tools/call with Bearer token<br/>+ signed X-CAIPE-Agent-Context
+            AG->>FGA: Check user:<sub> can_call mcp_gateway:list
+            AG->>FGA: Check user:<sub> can_use agent:<agent_id>
+            AG->>FGA: Check agent:<agent_id> can_call tool:<server>/<tool>
+            alt missing agent/tool relationship
+                AG-->>Runtime: 403 denied by OpenFGA bridge
+            else allowed
+                AG-->>Runtime: proxy MCP tool response
+            end
+            Runtime-->>Client: stream or JSON response
+        end
+    end
+```
+
+The same sequence applies to `POST /api/v1/chat/invoke` and
+`POST /api/v1/chat/stream/resume`. `POST /api/v1/chat/stream/cancel` still
+requires authentication, but it skips the `can_use` check. The RBAC Audit tab
+surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
+`pdp=openfga` and the checked tuple in `resource_ref`. MongoDB `audit_events`
+is authoritative for compliance and history; Jaeger/OTel can still be enabled
+for request-flow debugging, but the Admin UI does not need it to show authz
+decisions.
+
+---
+
 ## OBO Token Exchange — Slack Identity Propagation
 
 > **Badge analogy:** The Slack bot is a courier service. When Alice asks the courier to pick something up from the server room on her behalf, the courier can't use their own badge — the server room requires Alice's clearance. Instead, the courier goes to HR (Keycloak), presents their credentials and Alice's employee ID, and HR issues a *delegated badge*: it opens the same doors as Alice's badge, but it has a second chip that says "issued on behalf of Alice, presented by courier bot." The delegation chain is physically stamped on the badge — it's auditable and unforgeable.
 
-**The hardest part to get right technically.** Without OBO, every Slack request carries the bot's service account identity — `realm_access.roles` would be the bot's roles, not the user's, and all per-user authorization would be meaningless.
+**The hardest part to get right technically.** Without OBO, every Slack request carries the bot's service account identity. OpenFGA would evaluate the bot instead of the human, and all per-user/team authorization would be meaningless.
 
 ### RFC 8693 Token Exchange
 
@@ -148,7 +217,6 @@ Keycloak responds with an OBO JWT where:
 
 - `sub` = the impersonated user's Keycloak ID
 - `email` = the user's email
-- `realm_access.roles` = the **user's** roles (not the bot's)
 - `act.sub` = the bot's client ID — the delegation chain is cryptographically recorded
 
 ```mermaid
@@ -168,12 +236,12 @@ sequenceDiagram
 
     note over SB,KC: RFC 8693 token exchange
     SB->>KC: POST /token (grant=token-exchange, requested_subject=a3f9...)
-    KC-->>SB: OBO JWT (sub=a3f9, act.sub=slack-bot, roles=[admin,chat_user])
+    KC-->>SB: OBO JWT (sub=a3f9, act.sub=slack-bot)
 
     SB->>SUP: POST /a2a  Authorization: Bearer OBO_JWT
 
     note over SUP: JwtUserContextMiddleware
-    SUP->>SUP: decode JWT → email=alice, roles=[admin,chat_user]
+    SUP->>SUP: decode JWT → email=alice, sub=a3f9
     SUP->>SUP: store in ContextVar (get_jwt_user_context())
 
     note over SUP: LangGraph selects RAG tool
@@ -200,7 +268,7 @@ sequenceDiagram
 |----------|-----------|
 | Bot cannot forge a user identity | Keycloak only issues the OBO token if the bot's `client_id` has the `token-exchange` permission granted in the realm |
 | Delegation is auditable | `act.sub` in the JWT records the bot as delegating party — verifiable in any JWKS-aware system |
-| User roles are enforced, not bot roles | `realm_access.roles` in the OBO token are the user's, not the bot's service account roles |
+| User/team relationships are enforced, not bot identity | OpenFGA checks use the impersonated user's `sub` and team relationships from the OBO token context |
 | Token expiry still applies | OBO tokens have the same `exp` as a normal Keycloak token; expired tokens are rejected at every JWKS validation point |
 | Unlinked users are blocked at the edge | `rbac_global_middleware` in the Slack bot rejects unlinked users before they reach the supervisor — the linking prompt is sent at most once per `SLACK_LINKING_PROMPT_COOLDOWN` seconds (default: 3600) |
 
@@ -255,36 +323,35 @@ All log lines that reference a Slack profile email run it through `mask_email()`
 
 ## Slack Channel → Team + Agent ReBAC
 
-> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns the line to a team and grants one or more resources to that line. When a user calls in, the operator checks both the channel grant and the user's team/resource relationship before patching them through.
+> **Badge analogy:** Each Slack channel is a dedicated help-desk line. An admin assigns the line to a team and grants one or more Dynamic Agents to that line. When a user calls in, the operator checks both the channel grant and the user's team/agent relationship before patching them through.
 
 ### How It Works
 
-Slack channel routing now separates "which team owns this channel?" from "which resources may be used here?" When a message arrives, the Slack bot resolves the selected agent from Slack bot configuration/thread ownership, then verifies the selected agent against OpenFGA:
+Slack channel routing now separates "which team owns this channel?" from "which Dynamic Agents may be used here?" The workspace key is a configured alias (`SLACK_WORKSPACE_ALIAS`, for example `CAIPE`) rather than Slack's opaque `team_id`; the Slack bot maps incoming `team_id` values to that alias before looking up routes or grants. When a message arrives, the Slack bot prefers active `slack_channel_agent_routes` rows by default (`SLACK_AGENT_ROUTES_MODE=db_prefer`) and falls back to static Slack bot config when no route matches. Operators can set `config` for static-only routing or `db_only` to use only UI-managed route rows. The selected agent is then verified against OpenFGA:
 
 1. **Team lookup**: query `channel_team_mappings` in MongoDB by `slack_channel_id`.
 2. **Active team minting**: mint the user's OBO token with the channel team's `active_team` claim.
-3. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace>--<channel> can_use agent:<id>` and the user's active team/resource relationship.
-4. **Route**: dispatch to the selected `agent_id` only after both the channel grant and user/resource grant allow the request.
+3. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's active team/agent relationship.
+4. **Route**: dispatch to the selected `agent_id` only after both the channel grant and user/team agent grant allow the request.
 
-The Slack YAML config still registers which channels the bot listens to and which agents can be selected by message matching. Relationship authorization lives in `slack_channel_grants`, so one channel can be granted many agents, tools, tasks, skills, and knowledge bases.
+The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime relationship authorization lives in `slack_channel_grants`, where the admin UI grants Slack channels to Dynamic Agents because that is the path currently enforced before dispatch.
 
 ## Keycloak Role → ReBAC Transition Check
 
-The transition comparison flow is intentionally read-only:
+The transition comparison API is intentionally read-only and engineer-facing:
 
-1. Admin opens **OpenFGA ReBAC → Enforcement Status**.
-2. UI calls `/api/admin/rebac/enforcement-status` to list each resource type's migration state.
-3. Admin submits a subject/action/resource plus observed Keycloak realm roles.
-4. `/api/rbac/enforcement-comparison` classifies matching realm roles and checks the same relationship in OpenFGA.
-5. If the resource type is `rebac_enforced`, matching per-resource roles are reported as ignored and the effective decision comes only from ReBAC.
+1. Engineers call `/api/rbac/enforcement-comparison` with a subject/action/resource plus observed identity/group context.
+2. The API checks the same relationship in OpenFGA; legacy realm-role classification is historical-only.
+3. If the resource type is `rebac_enforced`, matching per-resource roles are reported as ignored and the effective decision comes only from ReBAC.
 
 ### Admin UI
 
-Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/resource grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
+Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/agent grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
 
 - Channel/team ownership is exclusive: a channel cannot be actively mapped to two teams.
-- Channel/resource grants are many-to-many: a channel can have multiple agent grants plus tool/KB/task/skill grants.
+- Channel/agent grants are many-to-many: a channel can have multiple Dynamic Agent grants.
 - Removing a grant denies that resource in the channel even if the user has access elsewhere.
+- UI-managed route dispatch is the default with static YAML fallback (`SLACK_AGENT_ROUTES_MODE=db_prefer`). Set `config` only for static YAML routing, and use `db_only` only after the channel's UI routes are complete.
 
 ### MongoDB Collection: `channel_team_mappings`
 
@@ -294,7 +361,7 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
   "slack_channel_id": "C0123456789",
   "team_id": "6612...",
   "channel_name": "#k8s-support",
-  "slack_workspace_id": "T0123456789",
+  "slack_workspace_id": "CAIPE",
   "created_by": "admin@example.com",
   "created_at": ISODate,
   "active": true
@@ -305,7 +372,7 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
 
 ```json
 {
-  "workspace_id": "T0123456789",
+  "workspace_id": "CAIPE",
   "channel_id": "C0123456789",
   "resource": { "type": "agent", "id": "my-k8s-agent" },
   "actions": ["use"],
@@ -334,7 +401,7 @@ STEP 1: Identity Resolution  (Slack Bot)
     → Keycloak Admin API lookup by attribute
     → user: { id: "a3f9...", email: "alice@example.com" }
   RFC 8693 exchange → OBO JWT
-    sub=alice, act.sub=slack-bot, roles=[chat_user]
+    sub=alice, act.sub=slack-bot
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 2: Supervisor Ingestion  (A2A + LangGraph)

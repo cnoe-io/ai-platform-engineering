@@ -11,8 +11,7 @@ import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middl
  * PUT    /api/rag/tools/:toolId  — update a tool (name, datasources, description)
  * DELETE /api/rag/tools/:toolId  — soft-delete a tool (set status=deleted)
  *
- * Cross-team edits are blocked: only members of the owning team (or admin/kb_admin)
- * may modify or delete the tool.
+ * Cross-team edits are blocked by the ReBAC gate before mutations are applied.
  */
 
 interface TeamRagToolDoc {
@@ -32,42 +31,7 @@ interface TeamKbOwnershipDoc {
   tenant_id: string;
   kb_ids: string[];
   allowed_datasource_ids: string[];
-  keycloak_role: string;
   updated_at: Date;
-}
-
-function extractTeamIds(realmRoles: string[] | undefined): string[] {
-  if (!realmRoles) return [];
-  const teams: string[] = [];
-  for (const role of realmRoles) {
-    const match = role.match(/^team_member\((.+)\)$/);
-    if (match) {
-      teams.push(match[1]);
-    }
-  }
-  return teams;
-}
-
-function isAdmin(realmRoles: string[] | undefined): boolean {
-  return !!realmRoles?.includes("admin");
-}
-
-function isKbAdmin(realmRoles: string[] | undefined): boolean {
-  return !!realmRoles?.includes("kb_admin");
-}
-
-function assertTeamAccess(
-  realmRoles: string[] | undefined,
-  toolTeamId: string,
-): void {
-  if (isAdmin(realmRoles) || isKbAdmin(realmRoles)) return;
-  const callerTeams = extractTeamIds(realmRoles);
-  if (!callerTeams.includes(toolTeamId)) {
-    throw new ApiError(
-      `Cross-team access denied — you are not a member of team '${toolTeamId}'`,
-      403,
-    );
-  }
 }
 
 export async function GET(
@@ -123,8 +87,6 @@ export async function PUT(
     if (!existing || existing.status === "deleted") {
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
-
-    assertTeamAccess(session.realmRoles, existing.team_id);
 
     const body = await request.json();
     const { name, datasource_ids, description } = body as {
@@ -189,8 +151,6 @@ export async function DELETE(
     if (!existing || existing.status === "deleted") {
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
-
-    assertTeamAccess(session.realmRoles, existing.team_id);
 
     await tools.updateOne(
       { tool_id: toolId },

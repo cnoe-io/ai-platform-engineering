@@ -23,8 +23,24 @@ import type {
   VisibilityType,
   SubAgentRef,
 } from "@/types/dynamic-agent";
+import {
+  allowedToolsFromAgent,
+  deleteAllAgentToolTuples,
+  reconcileAgentToolTuples,
+} from "@/lib/rbac/openfga-agent-tools";
 
 const COLLECTION_NAME = "dynamic_agents";
+
+async function canManageDynamicAgents(
+  session: Parameters<typeof requireRbacPermission>[0]
+): Promise<boolean> {
+  try {
+    await requireRbacPermission(session, "dynamic_agent", "manage");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -181,6 +197,7 @@ async function validateSubagentVisibility(
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "dynamic_agent", "view");
+  const canManageAllAgents = await canManageDynamicAgents(session);
 
     const collection =
       await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -191,7 +208,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Build visibility filter
     let query: any = {};
 
-    if (session.role !== "admin") {
+    if (!canManageAllAgents) {
       // Non-admins see: their own, global, or team-shared agents
       const userTeams = await getUserTeamIds(user.email);
 
@@ -335,6 +352,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
+    await reconcileAgentToolTuples({
+      agentId,
+      previousAllowedTools: {},
+      nextAllowedTools: doc.allowed_tools,
+      ownerSubject: (session.sub as string | undefined) ?? user.email,
+    });
+
     await collection.insertOne(doc as any);
 
     return successResponse(doc, 201);
@@ -404,6 +428,16 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     updateData.updated_at = new Date().toISOString();
 
+    const finalAllowedTools = (updateData.allowed_tools ??
+      agent.allowed_tools ??
+      {}) as Record<string, string[]>;
+    await reconcileAgentToolTuples({
+      agentId: id,
+      previousAllowedTools: allowedToolsFromAgent(agent),
+      nextAllowedTools: finalAllowedTools,
+      ownerSubject: (session.sub as string | undefined) ?? undefined,
+    });
+
     const updated = await collection.findOneAndUpdate(
       { _id: id },
       { $set: updateData },
@@ -458,6 +492,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    await deleteAllAgentToolTuples(id);
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });

@@ -26,6 +26,12 @@ import type { RbacResource, RbacScope } from "@/lib/rbac/types";
 // ═══════════════════════════════════════════════════════════════
 
 export interface AuthResult {
+  /** Stable caller subject for ReBAC/OpenFGA checks. */
+  subject?: string;
+  /** Human-readable email for privacy-aware audit display. */
+  email?: string;
+  /** Tenant/org context for audit scoping. */
+  tenantId?: string;
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
   userContextHeader?: string;
   /**
@@ -36,6 +42,8 @@ export interface AuthResult {
    * MCP / agentgateway calls. See spec 102 Phase 8 / T103, T106.
    */
   bearerToken?: string;
+  /** W3C trace context propagated from the Web UI backend authz span. */
+  traceparent?: string;
 }
 
 export interface ProxyRbacPermission {
@@ -93,7 +101,9 @@ export async function authenticateRequest(
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
     const bearerToken = (s?.accessToken as string | undefined) || undefined;
-    return { userContextHeader: encoded, bearerToken };
+    const subject = (s?.sub as string | undefined) || user.email;
+    const tenantId = (s?.org as string | undefined) || "default";
+    return { subject, email: user.email, tenantId, userContextHeader: encoded, bearerToken };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 
@@ -192,6 +202,9 @@ export function buildBackendHeaders(
   }
   if (authResult.bearerToken) {
     headers["Authorization"] = `Bearer ${authResult.bearerToken}`;
+  }
+  if (authResult.traceparent) {
+    headers.traceparent = authResult.traceparent;
   }
   return headers;
 }

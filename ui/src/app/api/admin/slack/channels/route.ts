@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 
 import { successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { listSlackChannelGrants } from "@/lib/rbac/slack-channel-grant-store";
+import { listSlackChannelGrants, slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 
 import { withSlackChannelRebacViewAuth } from "./_lib";
 
@@ -26,7 +26,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
 
     const channels = await Promise.all(
       rows.map(async (row) => {
-        const workspaceId = row.slack_workspace_id ?? "unknown";
+        const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
         const grants = await listSlackChannelGrants(workspaceId, row.slack_channel_id);
         return {
           workspace_id: workspaceId,

@@ -95,7 +95,7 @@ flowchart LR
   User[User or Slack user] --> Auth[Keycloak login or Slack OBO]
   Auth --> JWT[Signed JWT]
 
-  JWT --> UI[CAIPE UI / BFF]
+  JWT --> UI[CAIPE UI / Web UI backend]
   JWT --> DA[Dynamic Agents]
   DA --> AGW[AgentGateway]
 
@@ -117,7 +117,7 @@ The important separation is:
 | Layer              | Primary job                                                                        |
 | ------------------ | ---------------------------------------------------------------------------------- |
 | Keycloak           | Authenticate users and issue signed tokens                                         |
-| CAIPE UI / BFF     | Enforce management-plane route permissions and write policy intent                 |
+| CAIPE UI / Web UI backend     | Enforce management-plane route permissions and write policy intent                 |
 | MongoDB            | Store UI intent, teams, mappings, provenance, and operational state                |
 | OpenFGA            | Store and answer relationship authorization decisions                              |
 | Dynamic Agents     | Run agents and forward the user's JWT to downstream tool paths                     |
@@ -152,7 +152,7 @@ Keycloak does not own:
 
 ### Management Plane
 
-The management plane is where admins change policy. Most of it lives in the CAIPE UI and BFF API routes.
+The management plane is where admins change policy. Most of it lives in the CAIPE UI and Web UI backend API routes.
 
 Protected API routes use dual authentication:
 
@@ -170,10 +170,10 @@ user:<sub> member team:<slug>
 team:<slug>#member can_use agent:<agent_id>
 team:<slug>#member can_call tool:<server>_*
 team:<slug>#member can_read knowledge_base:<id>
-slack_channel:<workspace>:<channel> can_invoke agent:<agent_id>
+slack_channel:<channel> can_use agent:<agent_id>
 ```
 
-The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call document:mcp`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured diffcaerently. Richer per-team, per-agent, per-tool, and per-KB tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
+The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call mcp_gateway:list`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured differently. Richer per-team, per-agent, per-tool, and per-KB tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
 
 ### Data Plane
 
@@ -185,7 +185,7 @@ For MCP calls:
 2. Dynamic Agents forwards the JWT to AgentGateway.
 3. AgentGateway validates the token using `jwtAuth`.
 4. AgentGateway calls the OpenFGA bridge through `ext_authz`.
-5. The bridge converts the request into an OpenFGA check. In the current deployed bridge, that check defaults to `can_call document:mcp`.
+5. The bridge converts the request into an OpenFGA check. In the current deployed bridge, that check defaults to `can_call mcp_gateway:list`.
 6. If OpenFGA allows, AgentGateway proxies to the MCP server.
 7. If OpenFGA denies or the bridge is unavailable, AgentGateway returns `403`.
 8. If JWT validation fails, AgentGateway returns `401`.
@@ -317,8 +317,8 @@ The user does not see most of this. They only see that their CAIPE menu, availab
 
 When a user chats with an agent:
 
-1. The BFF validates the user's session or bearer token.
-2. The BFF checks the route permission.
+1. The Web UI backend validates the user's session or bearer token.
+2. The Web UI backend checks the route permission.
 3. Dynamic Agents validates the JWT and loads the user context.
 4. If the agent calls an MCP tool, the user JWT is forwarded.
 5. AgentGateway checks OpenFGA before proxying to the tool. The current bridge defaults to the coarse MCP gateway object; richer tool-specific relationships are still authored and visible in ReBAC.
@@ -334,7 +334,7 @@ A denial can happen at different layers:
 | ----------------------------- | ------------------------------------------------------------------------------------- |
 | Redirect to login             | No valid UI session                                                                   |
 | `401` from API                | Missing, expired, malformed, or invalid JWT                                           |
-| `403` from BFF route          | User is authenticated but lacks route permission                                      |
+| `403` from Web UI backend route          | User is authenticated but lacks route permission                                      |
 | `403` from AgentGateway       | JWT is valid but OpenFGA denied the configured gateway relationship                   |
 | Empty or filtered RAG results | Coarse auth passed, but KB or document filter removed inaccessible data               |
 | Slack bot asks user to link   | Slack user is not linked to a Keycloak identity                                       |
@@ -463,7 +463,7 @@ Slack channels can be granted access to resources such as agents. This supports 
 - A channel can have explicit resource grants.
 - The bot can explain why a channel or user was denied.
 
-Agent routes are coupled to authorization. When an admin creates a Slack channel route for `agent:<id>`, the BFF also creates the matching route-owned `slack_channel:<workspace>--<channel> can_use agent:<id>` grant and writes the OpenFGA tuple. Manual grants remain available for non-route resources such as tools, knowledge bases, tasks, and skills.
+Agent routes are coupled to authorization. When an admin creates a Slack channel route for `agent:<id>`, the Web UI backend also creates the matching route-owned `slack_channel:<channel> can_use agent:<id>` grant and writes the OpenFGA tuple.
 
 The Slack path writes and checks the same policy concepts as the UI path: users, teams, resources, relationships, and audit events.
 
@@ -519,6 +519,8 @@ It supports:
 - Staged policy change sets.
 - Validation before apply.
 - Tuple inspection and cleanup.
+
+The default OpenFGA ReBAC sub-tab is **OpenFGA Tuples** because raw tuple inspection is the most direct operational view. Use `openfgaTab=tuples`, `openfgaTab=builder`, `openfgaTab=explorer`, `openfgaTab=slack`, or `openfgaTab=graph` in the admin URL to deep-link to a specific sub-tab.
 
 Use it when:
 
@@ -848,7 +850,7 @@ Leaving bootstrap admin enabled is an operational risk.
 Check:
 
 - Does the user have the expected Keycloak admin role?
-- Does the BFF route permission allow the requested admin capability?
+- Does the Web UI backend route permission allow the requested admin capability?
 - Is bootstrap admin removed or incorrectly configured?
 - Are admin tab gates hiding only the tab, or is the API also denying?
 

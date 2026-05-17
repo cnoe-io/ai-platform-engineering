@@ -5,6 +5,7 @@
 import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 
 const storedRelationships = [
@@ -25,6 +26,7 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
 }));
 
@@ -73,12 +75,13 @@ function request(path: string): NextRequest {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({
     tuples: [
       {
         key: {
           user: "team:platform#member",
-          relation: "can_use",
+          relation: "user",
           object: "agent:incident-agent",
         },
         timestamp: "2026-05-12T00:00:01.000Z",
@@ -105,7 +108,7 @@ describe("GET /api/admin/rebac/resources/[type]/[id]/relationships", () => {
     expect(body.data.relationships[0]).toMatchObject({
       tuple: {
         user: "team:platform#member",
-        relation: "can_use",
+        relation: "user",
         object: "agent:incident-agent",
       },
       provenance: {

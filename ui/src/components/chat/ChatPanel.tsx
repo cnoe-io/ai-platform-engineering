@@ -1822,7 +1822,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
-              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
+              {adminOrigin === 'audit-logs' ? 'Back to Chat Audit' : 'Back to Feedback'}
             </a>
             )}
           </div>

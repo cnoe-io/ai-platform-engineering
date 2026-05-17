@@ -5,6 +5,7 @@
 import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 
 const provenanceRows = [
@@ -24,6 +25,7 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
 }));
 
@@ -70,11 +72,12 @@ function request(path: string): NextRequest {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   const tuples = [
     {
       key: {
         user: "team:platform#member",
-        relation: "can_use",
+        relation: "user",
         object: "agent:incident-agent",
       },
       timestamp: "2026-05-12T00:00:01.000Z",
@@ -82,7 +85,7 @@ beforeEach(() => {
     {
       key: {
         user: "slack_channel:C123",
-        relation: "can_use",
+        relation: "user",
         object: "agent:incident-agent",
       },
       timestamp: "2026-05-12T00:00:02.000Z",
@@ -107,7 +110,7 @@ describe("GET /api/admin/rebac/graph", () => {
     expect(body.data.edges[0]).toMatchObject({
       from: "team:platform#member",
       to: "agent:incident-agent",
-      relation: "can_use",
+      relation: "user",
       source: { source_type: "manual", source_id: "change-set-1" },
     });
   });

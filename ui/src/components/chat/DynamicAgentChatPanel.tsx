@@ -55,7 +55,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
 
   /**
-   * Surface a structured auth-failure (from the BFF or stream adapters) to
+   * Surface a structured auth-failure (from the Web UI backend or stream adapters) to
    * the user as a toast with a short title + the server-supplied message,
    * and trigger NextAuth re-sign-in when the server's `action` hint is
    * `sign_in`. Returns true so callers can short-circuit the inline error
@@ -864,7 +864,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
     // Create conversation if needed. This hits POST /api/chat/conversations
-    // which is gated by the BFF auth middleware, so we have to handle the
+    // which is gated by the Web UI backend auth middleware, so we have to handle the
     // structured auth-error here too (not just on the stream call) — without
     // this, an expired session looks like a generic "Failed to create
     // conversation" with no recovery hint.
@@ -952,7 +952,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       console.error("[DynamicAgent] Stream error:", error);
 
       // Auth failures (401/403/503-pdp_unavailable) come through as
-      // StreamError with structured fields populated by the BFF. Surface
+      // StreamError with structured fields populated by the Web UI backend. Surface
       // them as a toast (with sign-in CTA when applicable) instead of
       // burying them inside the assistant turn — see showAuthErrorToast
       // for the rationale.

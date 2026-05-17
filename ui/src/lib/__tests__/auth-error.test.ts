@@ -84,7 +84,7 @@ describe("parseAuthError", () => {
     });
   });
 
-  it("falls back to defaults when the BFF omits reason/action", async () => {
+  it("falls back to defaults when the Web UI backend omits reason/action", async () => {
     const res = jsonResponse(401, { error: "Unauthorized" });
 
     const err = await parseAuthError(res);

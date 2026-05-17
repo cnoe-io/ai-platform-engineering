@@ -7,6 +7,7 @@ import {
   writeOpenFgaTupleDiff,
   writeUniversalRebacTupleDiff,
 } from "../openfga";
+import { buildAgentToolTupleDiff } from "../openfga-agent-tools";
 
 describe("OpenFGA team resource tuple reconciliation", () => {
   const originalFetch = global.fetch;
@@ -31,24 +32,24 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     expect(diff.writes).toEqual([
       { user: "user:sub-alice", relation: "member", object: "team:platform-engineering" },
       { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
-      { user: "team:platform-engineering#member", relation: "can_use", object: "agent:agent-1" },
+      { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
       {
         user: "team:platform-engineering#member",
-        relation: "can_manage",
+        relation: "manager",
         object: "agent:agent-admin",
       },
-      { user: "team:platform-engineering#member", relation: "can_call", object: "tool:jira_*" },
-      { user: "team:platform-engineering#member", relation: "can_call", object: "tool:*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira_*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
     ]);
     expect(diff.deletes).toEqual([
       {
         user: "team:platform-engineering#member",
-        relation: "can_use",
+        relation: "user",
         object: "agent:agent-old",
       },
       {
         user: "team:platform-engineering#member",
-        relation: "can_call",
+        relation: "caller",
         object: "tool:github_*",
       },
     ]);
@@ -94,8 +95,8 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await writeOpenFgaTupleDiff({
-      writes: [{ user: "team:demo#member", relation: "can_use", object: "agent:a1" }],
-      deletes: [{ user: "team:demo#member", relation: "can_call", object: "tool:jira_*" }],
+      writes: [{ user: "team:demo#member", relation: "user", object: "agent:a1" }],
+      deletes: [{ user: "team:demo#member", relation: "caller", object: "tool:jira_*" }],
     });
 
     expect(result).toEqual({ enabled: true, writes: 0, deletes: 0 });
@@ -129,7 +130,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     });
   });
 
-  it("builds universal relationship tuple diffs without changing the wire format", () => {
+  it("builds universal relationship tuple diffs using base writable relations", () => {
     expect(
       buildUniversalRebacTupleDiff({
         writes: [
@@ -148,8 +149,8 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         ],
       })
     ).toEqual({
-      writes: [{ user: "team:platform#member", relation: "can_call", object: "tool:argocd" }],
-      deletes: [{ user: "team:platform#member", relation: "can_use", object: "agent:legacy-agent" }],
+      writes: [{ user: "team:platform#member", relation: "caller", object: "tool:argocd" }],
+      deletes: [{ user: "team:platform#member", relation: "user", object: "agent:legacy-agent" }],
     });
   });
 
@@ -214,11 +215,55 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         tuple_keys: [
           {
             user: "team:platform#member",
-            relation: "can_use",
+            relation: "user",
             object: "agent:platform-engineer",
           },
         ],
       },
     });
+  });
+
+  it("maps dynamic agent allowed_tools changes to agent-scoped MCP tool tuples", () => {
+    const diff = buildAgentToolTupleDiff({
+      agentId: "agent-test-april-2025",
+      previousAllowedTools: {
+        jira: ["get_issue"],
+        github: [],
+      },
+      nextAllowedTools: {
+        jira: ["search", "get_current_user_account_id"],
+      },
+      ownerSubject: "admin-sub",
+    });
+
+    expect(diff.writes).toEqual([
+      {
+        user: "user:admin-sub",
+        relation: "owner",
+        object: "agent:agent-test-april-2025",
+      },
+      {
+        user: "agent:agent-test-april-2025",
+        relation: "caller",
+        object: "tool:jira/search",
+      },
+      {
+        user: "agent:agent-test-april-2025",
+        relation: "caller",
+        object: "tool:jira/get_current_user_account_id",
+      },
+    ]);
+    expect(diff.deletes).toEqual([
+      {
+        user: "agent:agent-test-april-2025",
+        relation: "caller",
+        object: "tool:jira/get_issue",
+      },
+      {
+        user: "agent:agent-test-april-2025",
+        relation: "caller",
+        object: "tool:github/*",
+      },
+    ]);
   });
 });

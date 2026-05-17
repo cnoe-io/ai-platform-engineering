@@ -56,9 +56,11 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
 
 const mockBuildTeamResourceTupleDiff = jest.fn();
 const mockWriteOpenFgaTupleDiff = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
   writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
+  checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
 }));
 
 function setDefaultPermissionMock(allow: boolean) {
@@ -103,6 +105,7 @@ function adminSession() {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
     accessToken: accessTokenWithRoles(["admin"]),
+    sub: "admin-sub",
   };
 }
 
@@ -111,6 +114,7 @@ function userSession() {
     user: { email: "user@example.com", name: "User" },
     role: "user",
     accessToken: accessTokenWithRoles(["chat_user"]),
+    sub: "user-sub",
   };
 }
 
@@ -134,6 +138,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
   setDefaultPermissionMock(false);
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   // Default: every email resolves to a fake KC id; tests override per-case.
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
@@ -150,6 +155,7 @@ async function loadRoute() {
   jest.doMock("@/lib/rbac/openfga", () => ({
     buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
     writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
+    checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
   }));
   jest.doMock("@/lib/mongodb", () => ({
     getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -184,6 +190,7 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
 
   it("returns 403 when user lacks admin_ui#admin", async () => {
     setDefaultPermissionMock(false);
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     mockGetServerSession.mockResolvedValue(userSession());
     const { PUT } = await loadRoute();
     setDefaultPermissionMock(false);
@@ -310,7 +317,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     mockCollections["teams"] = teamsCol;
     const tupleDiff = {
       writes: [
-        { user: "team:platform-engineering#member", relation: "can_use", object: "agent:agent-new" },
+        { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-new" },
       ],
       deletes: [],
     };

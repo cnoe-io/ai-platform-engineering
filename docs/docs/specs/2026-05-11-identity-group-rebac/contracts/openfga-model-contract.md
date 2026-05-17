@@ -80,11 +80,11 @@ task:<id>#can_invoke <- team:<slug>#member
 ### Slack Channel Access
 
 ```text
-slack_channel:<workspace>--<channel>#member <- user:<subject>
-slack_channel:<workspace>--<channel>#admin <- team:<slug>#admin
-slack_channel:<workspace>--<channel>#allowed_agent <- agent:<id>
-slack_channel:<workspace>--<channel>#allowed_tool <- tool:<id>
-slack_channel:<workspace>--<channel>#allowed_knowledge_base <- knowledge_base:<id>
+slack_channel:<channel>#member <- user:<subject>
+slack_channel:<channel>#admin <- team:<slug>#admin
+slack_channel:<channel>#allowed_agent <- agent:<id>
+slack_channel:<channel>#allowed_tool <- tool:<id>
+slack_channel:<channel>#allowed_knowledge_base <- knowledge_base:<id>
 ```
 
 Runtime checks must combine:

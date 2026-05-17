@@ -67,7 +67,7 @@ ai_platform_engineering/
 
 deploy/
 ├── agentgateway/                             # PEP config templates and policy bridge metadata
-└── openfga-experiment/                       # OpenFGA model, seed, bridge behavior during migration
+└── openfga/                                  # OpenFGA model, seed, bridge behavior
 
 tests/
 ├── rbac/                                     # RBAC matrix, fixtures, and cross-surface authorization checks

@@ -22,8 +22,15 @@ openfga:
   storeName: caipe-openfga
   storeId: ""
   relation: can_call
-  object: document:mcp
+  object: mcp_gateway:list
   bypassSubs: ""
+
+agentContext:
+  # Secret shared with Dynamic Agents for signed agent_id context headers.
+  # Leave empty to enforce only the coarse user mcp_gateway:list gate.
+  existingSecret:
+    name: ""
+    key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
 
 tokenValidation:
   # The bridge validates bearer JWTs itself before calling OpenFGA. Keep this
@@ -33,6 +40,16 @@ tokenValidation:
   audiences: []
   algorithms:
     - RS256
+
+audit:
+  enabled: true
+  mongodbUri: ""
+  mongodbDatabase: caipe
+  tenantId: default
+  subjectSalt: caipe-098-audit
+  existingSecret:
+    name: ""
+    key: MONGODB_URI
 
 resources:
   requests:

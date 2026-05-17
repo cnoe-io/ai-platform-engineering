@@ -4,7 +4,7 @@
  * On server boot we walk every team in Mongo and call
  * `ensureTeamClientScope(slug)` for each one. This handles three cases:
  *
- *   1. Brand-new team that was created while this BFF was down (the
+ *   1. Brand-new team that was created while this Web UI backend was down (the
  *      sibling instance created the Mongo doc but failed to reach KC).
  *   2. Existing teams that pre-date the slug field — we backfill
  *      `slug` from `name` and create the matching scope.
@@ -13,7 +13,7 @@
  * Helper is idempotent: it only mutates KC when something is missing.
  *
  * Failures are logged but never thrown — we don't want a transient KC
- * outage to take the whole BFF down. Subsequent team CRUD calls use the
+ * outage to take the whole Web UI backend down. Subsequent team CRUD calls use the
  * synchronous `ensureTeamClientScope` path and DO surface errors to the
  * admin, so any team that ends up unprovisioned here will be repaired
  * on its next admin interaction.

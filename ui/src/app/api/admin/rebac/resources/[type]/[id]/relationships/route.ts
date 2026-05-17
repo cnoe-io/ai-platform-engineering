@@ -12,11 +12,21 @@ function provenanceKey(row: RebacRelationshipDocument): string {
   return `${row.subject.type}:${row.subject.id}#${row.subject.relation ?? ""}:${row.action}:${row.resource.type}:${row.resource.id}`;
 }
 
+const RELATION_ACTIONS: Record<string, string> = {
+  caller: "call",
+  ingestor: "ingest",
+  manager: "manage",
+  reader: "read",
+  user: "use",
+  writer: "write",
+};
+
 function tupleProvenanceKey(tuple: OpenFgaTuple): string {
   const [subjectType, subjectRest = ""] = tuple.key.user.split(":", 2);
   const [subjectId, subjectRelation = ""] = subjectRest.split("#", 2);
   const [resourceType, resourceId = ""] = tuple.key.object.split(":", 2);
-  return `${subjectType}:${subjectId}#${subjectRelation}:${tuple.key.relation.replace(/^can_/, "")}:${resourceType}:${resourceId}`;
+  const action = RELATION_ACTIONS[tuple.key.relation] ?? tuple.key.relation.replace(/^can_/, "");
+  return `${subjectType}:${subjectId}#${subjectRelation}:${action}:${resourceType}:${resourceId}`;
 }
 
 export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {

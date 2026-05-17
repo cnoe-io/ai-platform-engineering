@@ -32,10 +32,10 @@ interface AdminTabGatesState {
 }
 
 /**
- * React hook — fetches admin tab visibility gates from the BFF
+ * React hook — fetches admin tab visibility gates from the Web UI backend
  * and exposes a `gates` map for conditional rendering (US2, FR-004).
  *
- * Gates default to `false` (fail-closed) until the BFF responds.
+ * Gates default to `false` (fail-closed) until the Web UI backend responds.
  * Results are cached per session and invalidated on token refresh.
  */
 export function useAdminTabGates(): AdminTabGatesState {

@@ -13,6 +13,11 @@ export const ALLOWED_RELATIONS = new Set(["member", "admin", ...OPENFGA_ACTION_R
 const SAFE_ID = /^[A-Za-z0-9._:@#*+-]+$/;
 const SUBJECT_PREFIXES = ["user:", "service_account:", "anonymous:", "slack_channel:"];
 
+export interface OpenFgaAuthContext {
+  user: { email: string };
+  session?: { sub?: string; org?: string } | null;
+}
+
 function objectType(value: string): string | null {
   const separator = value.indexOf(":");
   return separator > 0 ? value.slice(0, separator) : null;
@@ -53,19 +58,19 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
   const isTeamAgent =
     user.startsWith("team:") &&
     user.endsWith("#member") &&
-    ["can_use", "can_manage"].includes(relation) &&
+    ["user", "manager"].includes(relation) &&
     object.startsWith("agent:");
   const isTeamTool =
     user.startsWith("team:") &&
     user.endsWith("#member") &&
-    relation === "can_call" &&
+    relation === "caller" &&
     object.startsWith("tool:");
   const isTeamKb =
     user.startsWith("team:") &&
     user.endsWith("#member") &&
-    ["can_read", "can_ingest", "can_admin"].includes(relation) &&
+    ["reader", "ingestor", "manager"].includes(relation) &&
     object.startsWith("knowledge_base:");
-  const isCoarseMcp = user.startsWith("user:") && relation === "can_call" && object === "document:mcp";
+  const isCoarseMcp = user.startsWith("user:") && relation === "caller" && object === "mcp_gateway:list";
   const isUniversalRelationship =
     OPENFGA_ACTION_RELATIONS.includes(relation) &&
     isSupportedUniversalSubject(user) &&
@@ -86,18 +91,18 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
 
 export async function withOpenFgaViewAuth<T>(
   request: NextRequest,
-  handler: () => Promise<T>
+  handler: (auth: OpenFgaAuthContext) => Promise<T>
 ): Promise<T> {
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "view");
-  return handler();
+  return handler({ user, session: session as OpenFgaAuthContext["session"] });
 }
 
 export async function withOpenFgaAdminAuth<T>(
   request: NextRequest,
-  handler: () => Promise<T>
+  handler: (auth: OpenFgaAuthContext) => Promise<T>
 ): Promise<T> {
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "admin_ui", "admin");
-  return handler();
+  return handler({ user, session: session as OpenFgaAuthContext["session"] });
 }

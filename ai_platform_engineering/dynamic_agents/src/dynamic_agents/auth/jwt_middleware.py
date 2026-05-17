@@ -37,7 +37,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from dynamic_agents.auth.token_context import current_user_token
+from dynamic_agents.auth.token_context import current_traceparent, current_user_token
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +133,11 @@ class JwtAuthMiddleware(BaseHTTPMiddleware):
                 content=body, status_code=401, media_type="application/json"
             )
 
+        traceparent = request.headers.get("traceparent")
+        trace_ctx_token = current_traceparent.set(traceparent if traceparent else None)
         ctx_token = current_user_token.set(token)
         try:
             return await call_next(request)
         finally:
             current_user_token.reset(ctx_token)
+            current_traceparent.reset(trace_ctx_token)

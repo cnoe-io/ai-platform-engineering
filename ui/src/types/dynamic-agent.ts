@@ -25,6 +25,10 @@ export interface MCPServerConfig {
   env?: Record<string, string>;  // For stdio transport
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  source?: 'manual' | 'config' | 'agentgateway';
+  agentgateway_discovered?: boolean;
+  agentgateway_endpoint?: string;
+  agentgateway_target_endpoint?: string;
   created_at: string;
   updated_at: string;
 }

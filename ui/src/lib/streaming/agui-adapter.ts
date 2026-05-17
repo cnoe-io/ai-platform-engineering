@@ -164,7 +164,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       });
 
       if (!response.ok) {
-        // Forward BFF auth-error fields so the chat panel can render a
+        // Forward Web UI backend auth-error fields so the chat panel can render a
         // toast with sign-in / contact-admin guidance instead of inlining
         // the raw HTTP status. See lib/streaming/stream-error.ts.
         throw await buildStreamErrorFromResponse(response);

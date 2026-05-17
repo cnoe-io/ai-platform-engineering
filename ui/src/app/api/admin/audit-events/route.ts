@@ -10,11 +10,13 @@ import type {
 } from "@/lib/rbac/types";
 
 const COLLECTION = "audit_events";
+const DEFAULT_HIDDEN_ACTIONS = ["admin_ui#view", "admin_ui#audit.view"];
 
-const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation"];
+const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac"];
 const VALID_OUTCOMES: UnifiedAuditOutcome[] = ["allow", "deny", "success", "error"];
 
 interface AuditEventDocument {
+  audit_event_id?: string;
   ts: Date;
   type: AuditEventType;
   tenant_id: string;
@@ -32,6 +34,13 @@ interface AuditEventDocument {
   resource_ref?: string;
   pdp?: string;
   source: string;
+  trace_id?: string;
+  span_id?: string;
+  trace_url?: string;
+}
+
+function normalizeAuditSource(source: string): UnifiedAuditEvent["source"] {
+  return (source === "bff" ? "webui_backend" : source) as UnifiedAuditEvent["source"];
 }
 
 function parseIsoDate(value: string | null, label: string): Date {
@@ -52,6 +61,7 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
       : new Date(doc.ts as unknown as string).toISOString();
 
   return {
+    audit_event_id: doc.audit_event_id,
     ts,
     type: doc.type,
     tenant_id: doc.tenant_id,
@@ -68,7 +78,9 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
     component: doc.component,
     resource_ref: doc.resource_ref,
     pdp: doc.pdp,
-    source: doc.source as UnifiedAuditEvent["source"],
+    source: normalizeAuditSource(doc.source),
+    trace_id: doc.trace_id,
+    span_id: doc.span_id,
   };
 }
 
@@ -160,6 +172,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   }
   if (typeParam) {
     filter.type = typeParam;
+  } else {
+    filter.action = { $nin: DEFAULT_HIDDEN_ACTIONS };
   }
   if (agentName) {
     filter.agent_name = agentName;

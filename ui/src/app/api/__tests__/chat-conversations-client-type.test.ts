@@ -155,4 +155,66 @@ describe('GET /api/chat/conversations — client_type filtering', () => {
       error: expect.stringContaining('Invalid client_type'),
     });
   });
+
+  it('enriches conversation agent participants with display names', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const conversationsCol = createMockCollection();
+    conversationsCol.countDocuments.mockResolvedValue(1);
+    conversationsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        skip: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                _id: 'agent-conv',
+                title: 'Agent conversation',
+                client_type: 'webui',
+                owner_id: 'user@example.com',
+                participants: [
+                  { type: 'user', id: 'user@example.com' },
+                  { type: 'agent', id: 'agent-123' },
+                ],
+                created_at: new Date(),
+                updated_at: new Date(),
+                metadata: { total_messages: 0 },
+                sharing: { is_public: false, shared_with: [], shared_with_teams: [], share_link_enabled: false },
+                tags: [],
+                is_archived: false,
+                is_pinned: false,
+              },
+            ]),
+          }),
+        }),
+      }),
+    });
+    mockCollections['conversations'] = conversationsCol;
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const agentsCol = createMockCollection();
+    agentsCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([{ _id: 'agent-123', name: 'Incident Commander' }]),
+      }),
+    });
+    mockCollections['dynamic_agents'] = agentsCol;
+
+    const req = makeRequest('/api/chat/conversations?client_type=webui&page_size=100');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(agentsCol.find).toHaveBeenCalledWith({ _id: { $in: ['agent-123'] } });
+    expect(body.data.items[0]).toMatchObject({
+      agent_id: 'agent-123',
+      agent_name: 'Incident Commander',
+    });
+  });
 });

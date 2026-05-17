@@ -22,7 +22,7 @@ describe("ReBAC graph performance", () => {
       tuples: Array.from({ length: 500 }, (_, index) => ({
         key: {
           user: `team:team-${index % 20}#member`,
-          relation: "can_use",
+          relation: "user",
           object: `agent:agent-${index}`,
         },
       })),
@@ -63,7 +63,7 @@ describe("ReBAC graph performance", () => {
             {
               key: {
                 user: "team:platform#member",
-                relation: "can_use",
+                relation: "user",
                 object: "agent:incident-agent",
               },
             },
@@ -78,7 +78,7 @@ describe("ReBAC graph performance", () => {
 
     expect(result.edges.map((edge) => [edge.from, edge.relation, edge.to])).toEqual([
       ["user:alice-sub", "member", "team:platform"],
-      ["team:platform#member", "can_use", "agent:incident-agent"],
+      ["team:platform#member", "user", "agent:incident-agent"],
     ]);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
       expect.objectContaining({ tuple: { user: "user:alice-sub" } })

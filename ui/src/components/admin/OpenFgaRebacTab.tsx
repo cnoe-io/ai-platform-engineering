@@ -1,14 +1,23 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
+  Bot,
+  Database,
+  Hash,
+  Shield,
   CheckCircle2,
   Loader2,
   Maximize2,
   Minimize2,
   RefreshCw,
   Trash2,
+  User,
+  Users,
+  Wrench,
+  type LucideIcon,
 } from "lucide-react";
 import {
   Background,
@@ -39,7 +48,6 @@ import { cn } from "@/lib/utils";
 import { RebacPolicyBuilder } from "./rebac/RebacPolicyBuilder";
 import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
 import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
-import { RebacEnforcementStatusPanel } from "./rebac/RebacEnforcementStatusPanel";
 import { RebacGraphFilters, type RebacGraphUserOption } from "./rebac/RebacGraphFilters";
 import { SlackChannelRebacPanel } from "./rebac/SlackChannelRebacPanel";
 import type { UniversalRebacRelationship, UniversalRebacResourceAction } from "@/types/rbac-universal";
@@ -100,9 +108,9 @@ interface GraphEdge {
 }
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
-  agent: ["can_use", "can_manage"],
-  tool: ["can_call"],
-  knowledge_base: ["can_read", "can_ingest", "can_admin"],
+  agent: ["user", "manager"],
+  tool: ["caller"],
+  knowledge_base: ["reader", "ingestor", "manager"],
 };
 
 const RESOURCE_LABELS: Record<ResourceType, string> = {
@@ -113,13 +121,14 @@ const RESOURCE_LABELS: Record<ResourceType, string> = {
 
 const RESOURCE_TYPES = new Set<ResourceType>(["agent", "tool", "knowledge_base"]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
+const DEFAULT_OPENFGA_TAB = "tuples";
+const OPENFGA_TABS = new Set(["builder", "explorer", "slack", "graph", "tuples"]);
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
-  can_use: "use",
-  can_manage: "manage",
-  can_call: "call",
-  can_read: "read",
-  can_ingest: "ingest",
-  can_admin: "administer",
+  user: "use",
+  manager: "manage",
+  caller: "call",
+  reader: "read",
+  ingestor: "ingest",
 };
 
 interface RebacNodeData {
@@ -165,6 +174,24 @@ function nodeKind(object: string): string {
   if (object.includes("#")) return "userset";
   const [type] = object.split(":");
   return type || "unknown";
+}
+
+const GRAPH_KIND_META: Record<string, { label: string; icon: LucideIcon; className: string }> = {
+  user: { label: "User", icon: User, className: "border-sky-400 bg-sky-500/10" },
+  team: { label: "Team", icon: Shield, className: "border-violet-400 bg-violet-500/10" },
+  userset: { label: "Userset", icon: Users, className: "border-indigo-400 bg-indigo-500/10" },
+  agent: { label: "Agent", icon: Bot, className: "border-emerald-400 bg-emerald-500/10" },
+  tool: { label: "Tool", icon: Wrench, className: "border-amber-400 bg-amber-500/10" },
+  knowledge_base: { label: "Knowledge Base", icon: Database, className: "border-rose-400 bg-rose-500/10" },
+  slack_channel: { label: "Slack Channel", icon: Hash, className: "border-cyan-400 bg-cyan-500/10" },
+};
+
+function graphKindMeta(kind: string) {
+  return GRAPH_KIND_META[kind] ?? {
+    label: kind.replace(/_/g, " ") || "Resource",
+    icon: Database,
+    className: "border-border bg-card",
+  };
 }
 
 function resourceTypeFromObject(object: string): ResourceType | null {
@@ -231,6 +258,9 @@ function relationshipFromTuple(tuple: TupleKey): UniversalRebacRelationship | nu
 }
 
 export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [tuples, setTuples] = useState<TupleRecord[]>([]);
   const [graph, setGraph] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] });
@@ -244,11 +274,15 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [graphFullscreenOpen, setGraphFullscreenOpen] = useState(false);
   const [resourceType, setResourceType] = useState<ResourceType>("agent");
   const [resourceId, setResourceId] = useState("");
-  const [relation, setRelation] = useState("can_use");
+  const [relation, setRelation] = useState("user");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
   const [tupleFilter, setTupleFilter] = useState<Partial<TupleKey>>({});
   const [pendingGraphWrites, setPendingGraphWrites] = useState<TupleKey[]>([]);
   const [pendingGraphDeletes, setPendingGraphDeletes] = useState<TupleKey[]>([]);
+  const activeTab = useMemo(() => {
+    const tab = searchParams.get("subtab") ?? searchParams.get("openfgaTab") ?? DEFAULT_OPENFGA_TAB;
+    return OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
+  }, [searchParams]);
 
   const resources = useMemo(() => typeResources(catalog, resourceType), [catalog, resourceType]);
   const selectedTuple: TupleKey | null = useMemo(() => {
@@ -287,7 +321,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     if (graphScope !== ALL_RELATIONSHIPS_SCOPE) params.set("team", graphScope);
     if (graphUser) params.set("subject", `user:${graphUser.id}`);
     params.set("limit", "1000");
-    const res = await fetch(`/api/admin/openfga/graph?${params.toString()}`);
+    const res = await fetch(`/api/admin/rebac/graph?${params.toString()}`);
     if (!res.ok) throw new Error(`Failed to load graph: ${res.status}`);
     const payload = await res.json();
     setGraph(apiData<{ nodes: GraphNode[]; edges: GraphEdge[] }>(payload));
@@ -316,6 +350,17 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     setRelation(nextRelation);
     setResourceId(typeResources(catalog, resourceType)[0]?.id || "");
   }, [catalog, resourceType]);
+
+  const setActiveTab = useCallback(
+    (tab: string) => {
+      const nextTab = OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("subtab", nextTab);
+      params.set("openfgaTab", nextTab);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
   async function applyChangeSet(
     name: string,
@@ -509,14 +554,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
       )}
 
-      <Tabs defaultValue="builder" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="builder">Relationship Builder</TabsTrigger>
-          <TabsTrigger value="explorer">Effective Access</TabsTrigger>
-          <TabsTrigger value="enforcement">Enforcement Status</TabsTrigger>
-          <TabsTrigger value="slack">Slack Channels</TabsTrigger>
-          <TabsTrigger value="graph">Policy Graph</TabsTrigger>
-          <TabsTrigger value="tuples">Tuple Inspector</TabsTrigger>
+          <TabsTrigger value="builder" onClick={() => setActiveTab("builder")}>Relationship Builder</TabsTrigger>
+          <TabsTrigger value="explorer" onClick={() => setActiveTab("explorer")}>Effective Access</TabsTrigger>
+          <TabsTrigger value="slack" onClick={() => setActiveTab("slack")}>Slack Channels</TabsTrigger>
+          <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
+          <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
         </TabsList>
 
         <TabsContent value="builder">
@@ -575,10 +619,6 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
               />
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="enforcement">
-          <RebacEnforcementStatusPanel />
         </TabsContent>
 
         <TabsContent value="slack">
@@ -684,9 +724,9 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         <TabsContent value="tuples">
           <Card>
             <CardHeader>
-              <CardTitle>Tuple Inspector</CardTitle>
+              <CardTitle>OpenFGA Tuple Store</CardTitle>
               <CardDescription>
-                Advanced view of materialized OpenFGA tuples. Filters are passed through the BFF and capped to 100 rows.
+                Advanced view of materialized OpenFGA tuples. Filters are passed through the Web UI backend and capped to 100 rows.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -847,11 +887,17 @@ function GraphSummary({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge
             {graph.nodes.length === 0 ? (
               <span className="text-sm text-muted-foreground">No graph nodes loaded.</span>
             ) : (
-              graph.nodes.map((node) => (
-                <Badge key={node.id} variant="secondary">
-                  {node.label}
-                </Badge>
-              ))
+              graph.nodes.map((node) => {
+                const meta = graphKindMeta(node.type);
+                const Icon = meta.icon;
+                return (
+                  <Badge key={node.id} variant="secondary" className="gap-1.5">
+                    <Icon className="h-3 w-3" aria-hidden="true" />
+                    <span className="text-muted-foreground">{meta.label}</span>
+                    {node.label}
+                  </Badge>
+                );
+              })
             )}
           </div>
         </div>
@@ -1087,6 +1133,7 @@ function buildFlowNodes(
 
   const columnByKind: Record<string, number> = {
     user: 0,
+    slack_channel: 0,
     team: 1,
     userset: 1,
     agent: 2,
@@ -1288,28 +1335,23 @@ function OpenFgaGraphControls() {
 
 function RebacGraphNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as RebacNodeData;
-  const styles: Record<string, string> = {
-    user: "border-sky-400 bg-sky-500/10",
-    team: "border-violet-400 bg-violet-500/10",
-    userset: "border-indigo-400 bg-indigo-500/10",
-    agent: "border-emerald-400 bg-emerald-500/10",
-    tool: "border-amber-400 bg-amber-500/10",
-    knowledge_base: "border-rose-400 bg-rose-500/10",
-  };
+  const meta = graphKindMeta(nodeData.kind);
+  const Icon = meta.icon;
 
   return (
     <div
       className={cn(
         "w-[210px] rounded-lg border-2 bg-card px-3 py-2 shadow-sm transition-all",
-        styles[nodeData.kind] ?? "border-border",
+        meta.className,
         selected && "ring-2 ring-primary/40"
       )}
     >
       <Handle type="target" position={Position.Left} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary" />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <Badge variant="secondary" className="mb-1 text-[10px]">
-            {nodeData.kind}
+          <Badge variant="secondary" className="mb-1 gap-1 text-[10px]">
+            <Icon className="h-3 w-3" aria-hidden="true" />
+            {meta.label}
           </Badge>
           <div className="truncate text-sm font-medium">{nodeData.label}</div>
           <code className="block truncate text-[10px] text-muted-foreground">{nodeData.object}</code>

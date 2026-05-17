@@ -29,7 +29,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+    await requireAdmin(session);
 
     const body = await request.json().catch(() => ({}));
     const agentId: string | null = body.default_agent_id ?? null;

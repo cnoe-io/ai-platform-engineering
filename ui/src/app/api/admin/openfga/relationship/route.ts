@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { validateTupleKey, withOpenFgaAdminAuth } from "../_lib";
 
@@ -7,9 +8,9 @@ type ResourceType = "agent" | "tool" | "knowledge_base";
 type Operation = "grant" | "revoke";
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
-  agent: ["can_use", "can_manage"],
-  tool: ["can_call"],
-  knowledge_base: ["can_read", "can_ingest", "can_admin"],
+  agent: ["user", "manager"],
+  tool: ["caller"],
+  knowledge_base: ["reader", "ingestor", "manager"],
 };
 
 function parseBody(body: unknown): {
@@ -47,7 +48,7 @@ function parseBody(body: unknown): {
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) =>
-  withOpenFgaAdminAuth(request, async () => {
+  withOpenFgaAdminAuth(request, async ({ user, session }) => {
     let body: unknown;
     try {
       body = await request.json();
@@ -65,6 +66,15 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     const result = await writeOpenFgaTuples({
       writes: parsed.operation === "grant" ? [tuple] : [],
       deletes: parsed.operation === "revoke" ? [tuple] : [],
+    });
+
+    logOpenFgaRebacAuditEvent({
+      tenantId: session?.org ?? "default",
+      sub: session?.sub ?? user.email,
+      operation: `${parsed.operation}_relationship`,
+      scope: "admin",
+      resourceRef: `${tuple.user} ${tuple.relation} ${tuple.object}`,
+      email: user.email,
     });
 
     return successResponse({ tuple, operation: parsed.operation, result });

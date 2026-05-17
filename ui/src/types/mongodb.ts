@@ -10,6 +10,7 @@ export interface User {
   _id?: ObjectId;
   email: string;
   name: string;
+  keycloak_sub?: string;
   avatar_url?: string;
   created_at: Date;
   updated_at: Date;
@@ -18,6 +19,7 @@ export interface User {
   metadata: {
     sso_provider: string;
     sso_id: string;
+    keycloak_sub?: string;
     role: 'user' | 'admin';
   };
 }

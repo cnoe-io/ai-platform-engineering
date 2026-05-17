@@ -816,11 +816,11 @@ services:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      # Shared custom MCP auth middleware. Default to strict JWT validation in
-      # the local stack so AgentGateway-forwarded user tokens are verified at
-      # the backend too. Localhost bypass stays opt-in for direct `mcp dev`
-      # workflows.
-      - MCP_AUTH_MODE=${JIRA_MCP_AUTH_MODE:-oauth2}
+      # AgentGateway is the PEP for the normal gateway path. The Jira MCP
+      # upstream must not require its own OAuth middleware here, because AGW's
+      # MCP router does not forward upstream auth per target today. Set
+      # JIRA_MCP_AUTH_MODE=oauth2 only when testing the direct MCP endpoint.
+      - MCP_AUTH_MODE=${JIRA_MCP_AUTH_MODE:-none}
       - MCP_TRUSTED_LOCALHOST=${JIRA_MCP_TRUSTED_LOCALHOST:-false}
       - JWKS_URI=${JIRA_MCP_JWKS_URI:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       - AUDIENCE=${JIRA_MCP_AUDIENCE:-caipe-platform}
@@ -1272,10 +1272,10 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
-      # DEV_HOT_RELOAD=true → build the `dev` stage which runs `next dev`
-      # against bind-mounted ./ui/src and ./ui/public for sub-second hot
-      # reload. Default `runner` keeps prod parity untouched.
-      target: ${CAIPE_UI_BUILD_TARGET:-runner}
+      # docker-compose.dev.yaml defaults to the `dev` stage so UI source edits
+      # hot-reload through `next dev`. Set CAIPE_UI_BUILD_TARGET=runner and
+      # CAIPE_UI_COMMAND=/app/entrypoint.sh when you need prod-parity runtime.
+      target: ${CAIPE_UI_BUILD_TARGET:-dev}
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
@@ -1289,9 +1289,8 @@ services:
     env_file:
       - .env
     environment:
-      # NODE_ENV defaults to production; `make dev-ui-hot` (or
-      # CAIPE_UI_NODE_ENV=development) flips it for `next dev` hot reload.
-      - NODE_ENV=${CAIPE_UI_NODE_ENV:-production}
+      # Dev compose defaults to development for Next.js hot reload.
+      - NODE_ENV=${CAIPE_UI_NODE_ENV:-development}
       # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
       # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
       - E2E_RUN=${E2E_RUN:-false}
@@ -1329,6 +1328,8 @@ services:
       - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       # OIDC_DISCOVERY_URL: Docker-internal URL used for server-side discovery +
       # token refresh. Defaults to the in-network Keycloak URL so caipe-ui can
       # fetch the well-known doc without going via the host. Browser still uses
@@ -1338,6 +1339,8 @@ services:
       - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
+      - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
+      - CAIPE_ORG_DISPLAY_NAME=${CAIPE_ORG_DISPLAY_NAME:-CAIPE}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
       # UI Branding (optional — set in .env or leave blank for CAIPE defaults)
       # No NEXT_PUBLIC_ prefix needed; the server reads process.env at request time
@@ -1376,6 +1379,8 @@ services:
       # 098 Slack identity linking HMAC secret (shared with slack-bot)
       - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
+      - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
       # App config: loaded at Next.js startup via instrumentation.ts.
       # APP_CONFIG_FILE on the host (set in .env) selects which file is
       # mounted — defaults to the committed example template (./config/app-config.yaml,
@@ -1402,13 +1407,11 @@ services:
       - ./ui/tsconfig.json:/app/tsconfig.json
       - ./ui/postcss.config.mjs:/app/postcss.config.mjs
       - ./ui/eslint.config.mjs:/app/eslint.config.mjs
-      # Anonymous volume: keep container-installed deps isolated from the host
-      # in hot-reload mode. Do not mount /app/.next in the runner stage: it
-      # shadows the image's compiled Next server output and can keep stale API
-      # route chunks alive after an image rebuild.
-      - /app/node_modules
-    # `next dev` when in hot mode, default entrypoint otherwise.
-    command: ${CAIPE_UI_COMMAND:-/app/entrypoint.sh}
+      # Do not mount /app/node_modules or /app/.next here: this compose file
+      # bind-mounts only selected source/config files, so the dev image's
+      # installed dependencies and generated Next cache stay intact.
+    # Dev default runs Next.js hot reload. Override with /app/entrypoint.sh for runner.
+    command: ${CAIPE_UI_COMMAND:-npm run dev}
     depends_on:
       caipe-supervisor:
         condition: service_started
@@ -1484,12 +1487,22 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
+      # Optional shared secret for signed Dynamic Agent -> AgentGateway agent_id context.
+      # Leave unset to keep only the coarse user-level AgentGateway/OpenFGA gate.
+      - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
       # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
       # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
       # now always sends Authorization: Bearer alongside the legacy
       # X-User-Context header. Set DA_REQUIRE_BEARER=false to roll back if
       # an unmigrated caller is discovered in production.
       - DA_REQUIRE_BEARER=${DA_REQUIRE_BEARER:-true}
+      # OpenFGA runtime PDP — Dynamic Agents repeats the BFF can_use check
+      # before start/invoke/resume so direct bearer callers cannot bypass ReBAC.
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
 
       # Checkpoint configuration
       - LANGGRAPH_CHECKPOINT_TYPE=mongodb
@@ -2009,7 +2022,7 @@ services:
       - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
     command: minio server /minio_data --console-address ":9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -2274,8 +2287,12 @@ services:
       - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
       - MONGODB_DATABASE=caipe
       - SLACK_WORKSPACE_URL=${SLACK_WORKSPACE_URL:-}
+      # Canonical Slack workspace namespace; incoming Slack team_id values map to this alias.
+      - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
       # 098 Enterprise RBAC (requires --profile rbac)
       - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
+      # Prefer UI-managed Slack channel routes, falling back to static bot config.
+      - SLACK_AGENT_ROUTES_MODE=${SLACK_AGENT_ROUTES_MODE:-db_prefer}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
       # Slack bot's Admin REST API credentials (user lookup by slack_user_id).
@@ -2457,6 +2474,8 @@ services:
       IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET:-}
       IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
+      KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
+      KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
       KC_REALM: caipe
       # Spec 104: comma-separated emails that get the admin_user role and the
       # demo team/agent/tool bundle on first run of init-idp.sh. Sourced from
@@ -2557,6 +2576,7 @@ services:
       OPENFGA_DATASTORE_URI: postgres://${OPENFGA_POSTGRES_USER:-openfga}:${OPENFGA_POSTGRES_PASSWORD:-openfga}@openfga-postgres:5432/${OPENFGA_POSTGRES_DB:-openfga}?sslmode=disable
       OPENFGA_DATASTORE_MAX_OPEN_CONNS: "50"
       OPENFGA_PLAYGROUND_ENABLED: "true"
+      OPENFGA_TRACE_ENABLED: "false"
     command: run
     ports:
       - "127.0.0.1:${OPENFGA_HTTP_PORT:-18080}:8080"
@@ -2573,7 +2593,7 @@ services:
 
   openfga-init:
     build:
-      context: ./deploy/openfga-experiment/init
+      context: ./deploy/openfga/init
     container_name: openfga-init
     profiles:
       - rbac
@@ -2591,7 +2611,7 @@ services:
 
   openfga-authz-bridge:
     build:
-      context: ./deploy/openfga-experiment/bridge
+      context: ./deploy/openfga/bridge
     container_name: openfga-authz-bridge
     restart: unless-stopped
     profiles:
@@ -2600,8 +2620,13 @@ services:
       OPENFGA_HTTP: http://openfga:8080
       OPENFGA_STORE_NAME: caipe-openfga
       OPENFGA_RELATION: can_call
-      OPENFGA_OBJECT: document:mcp
+      OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      TENANT_ID: ${TENANT_ID:-default}
+      AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
     ports:
       - "127.0.0.1:${OPENFGA_BRIDGE_PORT:-9100}:9100"
     healthcheck:

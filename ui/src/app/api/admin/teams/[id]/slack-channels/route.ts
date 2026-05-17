@@ -29,6 +29,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
+import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import type { Team } from "@/types/teams";
 
 interface ChannelTeamMappingDoc {
@@ -100,12 +101,12 @@ function parseChannelInput(value: unknown, idx: number): SlackChannelInput {
   const workspaceId =
     typeof v.slack_workspace_id === "string" && v.slack_workspace_id.trim()
       ? v.slack_workspace_id.trim()
-      : "unknown";
+      : undefined;
 
   return {
     slack_channel_id: slackChannelId,
     channel_name: channelName,
-    slack_workspace_id: workspaceId,
+    slack_workspace_id: slackWorkspaceRef(workspaceId),
   };
 }
 
@@ -139,7 +140,7 @@ export const GET = withErrorHandler(
       const channels = teamMappings.map((m) => ({
         slack_channel_id: m.slack_channel_id,
         channel_name: m.channel_name ?? m.slack_channel_id,
-        slack_workspace_id: m.slack_workspace_id ?? "unknown",
+        slack_workspace_id: slackWorkspaceRef(m.slack_workspace_id),
       }));
 
       console.log(
@@ -250,7 +251,7 @@ export const PUT = withErrorHandler(
               slack_channel_id: c.slack_channel_id,
               team_id: teamIdStr,
               channel_name: c.channel_name,
-              slack_workspace_id: c.slack_workspace_id ?? "unknown",
+              slack_workspace_id: slackWorkspaceRef(c.slack_workspace_id),
               active: true,
               updated_at: now,
             },
@@ -272,7 +273,7 @@ export const PUT = withErrorHandler(
             slack_channels: next.map((c) => ({
               slack_channel_id: c.slack_channel_id,
               channel_name: c.channel_name,
-              slack_workspace_id: c.slack_workspace_id ?? "unknown",
+              slack_workspace_id: slackWorkspaceRef(c.slack_workspace_id),
             })),
             updated_at: now,
           },

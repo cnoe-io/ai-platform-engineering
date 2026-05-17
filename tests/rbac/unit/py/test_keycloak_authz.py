@@ -2,14 +2,12 @@
 
 Covers each `AuthzReason` path:
   - cache hit (after a previous allow)            → source='cache'
-  - PDP allow (200 + result:true)                  → OK / source='keycloak'
-  - PDP deny (403)                                 → DENY_NO_CAPABILITY / 'keycloak'
+  - OpenFGA allow                                  → OK / source='openfga'
+  - OpenFGA deny                                   → DENY_NO_CAPABILITY / 'openfga'
   - PDP unreachable + no fallback rule              → DENY_PDP_UNAVAILABLE / 'local'
-  - PDP unreachable + realm_role rule + role grant → OK_ROLE_FALLBACK / 'local'
-  - PDP unreachable + realm_role rule + role miss  → DENY_PDP_UNAVAILABLE / 'local'
   - bootstrap admin                                 → OK_BOOTSTRAP_ADMIN / 'local'
   - invalid resource regex                          → DENY_RESOURCE_UNKNOWN / 'local'
-  - PDP 401                                         → DENY_INVALID_TOKEN / 'keycloak'
+  - missing subject                                 → DENY_INVALID_TOKEN / 'local'
 
 Mongo writes are stubbed out so we don't need a live Mongo.
 """
@@ -45,27 +43,26 @@ def _fake_jwt(claims: dict[str, Any]) -> str:
 def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
     keycloak_authz.reset_decision_cache_for_tests()
     realm_extras.reset_cache_for_tests()
-    monkeypatch.setenv("KEYCLOAK_URL", "http://kc.example:7080")
-    monkeypatch.setenv("KEYCLOAK_REALM", "caipe")
-    monkeypatch.setenv("KEYCLOAK_RESOURCE_SERVER_ID", "caipe-platform")
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga.example:8080")
+    monkeypatch.setenv("OPENFGA_STORE_NAME", "caipe-openfga")
     monkeypatch.delenv("BOOTSTRAP_ADMIN_EMAILS", raising=False)
     monkeypatch.delenv("RBAC_FALLBACK_CONFIG_PATH", raising=False)
     # Silence audit writes — every test patches Mongo separately if it needs to.
     monkeypatch.setattr(audit, "log_authz_decision", lambda **kw: None)
 
 
-def _mock_async_post(status: int, body: dict | None = None) -> Any:
+def _mock_openfga_client(allowed: bool) -> Any:
     """Build a context-manager-friendly stand-in for `httpx.AsyncClient`.
 
     Returns a class compatible with `httpx.AsyncClient(timeout=...)` and
-    `async with` semantics. Every `.post(...)` returns a fake response with the
-    configured status / body.
+    `async with` semantics. Store discovery returns a single test store and
+    `.post(...)` returns the configured OpenFGA decision.
     """
 
     class _Resp:
-        def __init__(self) -> None:
-            self.status_code = status
-            self._body = body or {}
+        def __init__(self, body: dict[str, Any]) -> None:
+            self.status_code = 200
+            self._body = body
 
         @property
         def text(self) -> str:
@@ -73,6 +70,9 @@ def _mock_async_post(status: int, body: dict | None = None) -> Any:
 
         def json(self) -> dict[str, Any]:
             return self._body
+
+        def raise_for_status(self) -> None:
+            return None
 
     class _Client:
         def __init__(self, *args, **kwargs):  # noqa: ANN002, D401
@@ -84,8 +84,11 @@ def _mock_async_post(status: int, body: dict | None = None) -> Any:
         async def __aexit__(self, *exc):  # noqa: D401, ANN002
             return None
 
+        async def get(self, *args, **kwargs):  # noqa: ANN002, D401
+            return _Resp({"stores": [{"id": "store-1", "name": "caipe-openfga"}]})
+
         async def post(self, *args, **kwargs):  # noqa: ANN002, D401
-            return _Resp()
+            return _Resp({"allowed": allowed})
 
     return _Client
 
@@ -112,21 +115,21 @@ def _mock_async_post_raises() -> Any:
 @pytest.mark.asyncio
 async def test_pdp_allow_returns_ok() -> None:
     token = _fake_jwt({"sub": "alice"})
-    with patch("httpx.AsyncClient", _mock_async_post(200, {"result": True})):
+    with patch("httpx.AsyncClient", _mock_openfga_client(True)):
         decision = await keycloak_authz.require_rbac_permission(
             token, "admin_ui", "view", service="ui"
         )
     assert decision.allowed is True
     assert decision.reason is keycloak_authz.AuthzReason.OK
-    assert decision.source == "keycloak"
+    assert decision.source == "openfga"
 
 
 @pytest.mark.asyncio
 async def test_cache_hit_after_allow() -> None:
     token = _fake_jwt({"sub": "alice"})
-    with patch("httpx.AsyncClient", _mock_async_post(200, {"result": True})):
+    with patch("httpx.AsyncClient", _mock_openfga_client(True)):
         first = await keycloak_authz.require_rbac_permission(token, "admin_ui", "view", service="ui")
-    assert first.source == "keycloak"
+    assert first.source == "openfga"
 
     # Second call: we replace AsyncClient with one that would fail — proving cache hit.
     with patch("httpx.AsyncClient", _mock_async_post_raises()):
@@ -138,13 +141,13 @@ async def test_cache_hit_after_allow() -> None:
 @pytest.mark.asyncio
 async def test_pdp_deny_no_capability() -> None:
     token = _fake_jwt({"sub": "bob"})
-    with patch("httpx.AsyncClient", _mock_async_post(403)):
+    with patch("httpx.AsyncClient", _mock_openfga_client(False)):
         decision = await keycloak_authz.require_rbac_permission(
             token, "admin_ui", "view", service="ui"
         )
     assert decision.allowed is False
     assert decision.reason is keycloak_authz.AuthzReason.DENY_NO_CAPABILITY
-    assert decision.source == "keycloak"
+    assert decision.source == "openfga"
 
 
 @pytest.mark.asyncio
@@ -153,62 +156,6 @@ async def test_pdp_unreachable_no_fallback_denies() -> None:
     with patch("httpx.AsyncClient", _mock_async_post_raises()):
         decision = await keycloak_authz.require_rbac_permission(
             token, "rag", "retrieve", service="rag_server"
-        )
-    assert decision.allowed is False
-    assert decision.reason is keycloak_authz.AuthzReason.DENY_PDP_UNAVAILABLE
-    assert decision.source == "local"
-
-
-@pytest.mark.asyncio
-async def test_pdp_unreachable_realm_role_fallback_grants(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    extras = tmp_path / "realm-config-extras.json"
-    extras.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "pdp_unavailable_fallback": {
-                    "admin_ui": {"mode": "realm_role", "role": "admin"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("RBAC_FALLBACK_CONFIG_PATH", str(extras))
-
-    token = _fake_jwt({"sub": "alice", "realm_access": {"roles": ["admin"]}})
-    with patch("httpx.AsyncClient", _mock_async_post_raises()):
-        decision = await keycloak_authz.require_rbac_permission(
-            token, "admin_ui", "view", service="ui"
-        )
-    assert decision.allowed is True
-    assert decision.reason is keycloak_authz.AuthzReason.OK_ROLE_FALLBACK
-    assert decision.source == "local"
-
-
-@pytest.mark.asyncio
-async def test_pdp_unreachable_realm_role_fallback_denies_when_role_missing(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    extras = tmp_path / "realm-config-extras.json"
-    extras.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "pdp_unavailable_fallback": {
-                    "admin_ui": {"mode": "realm_role", "role": "admin"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("RBAC_FALLBACK_CONFIG_PATH", str(extras))
-
-    token = _fake_jwt({"sub": "bob", "realm_access": {"roles": ["chat-user"]}})
-    with patch("httpx.AsyncClient", _mock_async_post_raises()):
-        decision = await keycloak_authz.require_rbac_permission(
-            token, "admin_ui", "view", service="ui"
         )
     assert decision.allowed is False
     assert decision.reason is keycloak_authz.AuthzReason.DENY_PDP_UNAVAILABLE
@@ -240,12 +187,9 @@ async def test_invalid_resource_returns_resource_unknown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pdp_401_returns_invalid_token() -> None:
-    token = _fake_jwt({"sub": "alice"})
-    with patch("httpx.AsyncClient", _mock_async_post(401)):
-        decision = await keycloak_authz.require_rbac_permission(
-            token, "admin_ui", "view", service="ui"
-        )
+async def test_missing_subject_returns_invalid_token() -> None:
+    token = _fake_jwt({"email": "alice@example.com"})
+    decision = await keycloak_authz.require_rbac_permission(token, "admin_ui", "view", service="ui")
     assert decision.allowed is False
     assert decision.reason is keycloak_authz.AuthzReason.DENY_INVALID_TOKEN
-    assert decision.source == "keycloak"
+    assert decision.source == "local"

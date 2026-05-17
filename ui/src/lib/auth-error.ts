@@ -1,7 +1,7 @@
 /**
- * Client-side helpers for the structured BFF auth-error contract.
+ * Client-side helpers for the structured Web UI backend auth-error contract.
  *
- * The BFF (api-middleware.ts, da-proxy.ts) emits a stable JSON shape on
+ * The Web UI backend (api-middleware.ts, da-proxy.ts) emits a stable JSON shape on
  * authentication / authorization failures:
  *
  *   {
@@ -101,7 +101,7 @@ export async function parseAuthError(res: Response): Promise<AuthError | null> {
       ? (body.reason as AuthFailureReason)
       : undefined;
 
-  // 503 only counts as an auth error when the BFF tells us it's the PDP
+  // 503 only counts as an auth error when the Web UI backend tells us it's the PDP
   // (Keycloak Authorization Services) being unreachable; other 503s are
   // backend errors and should fall through to the inline error path.
   if (res.status === 503 && explicitReason !== "pdp_unavailable") {

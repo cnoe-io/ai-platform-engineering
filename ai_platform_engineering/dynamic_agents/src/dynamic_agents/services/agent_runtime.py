@@ -304,6 +304,7 @@ class AgentRuntime:
                 server_ids,
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
+                agent_id=self.config.id,
             )
 
             if not connections:
@@ -735,6 +736,7 @@ class AgentRuntime:
                 server_ids,
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
+                agent_id=subagent_config.id,
             )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent

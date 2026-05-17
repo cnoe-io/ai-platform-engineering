@@ -5,7 +5,9 @@
 import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
+const mockLogOpenFgaRebacAuditEvent = jest.fn();
 
 const provenanceRows = [
   {
@@ -25,6 +27,7 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
 }));
@@ -41,6 +44,7 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
   logAccessCheckAuditEvent: jest.fn(),
+  logOpenFgaRebacAuditEvent: (...args: unknown[]) => mockLogOpenFgaRebacAuditEvent(...args),
 }));
 
 jest.mock("@/lib/mongodb", () => ({
@@ -77,6 +81,7 @@ function request(body: unknown): NextRequest {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
 });
 
 describe("POST /api/admin/rebac/check", () => {
@@ -94,6 +99,14 @@ describe("POST /api/admin/rebac/check", () => {
       source_type: "manual",
       source_id: "change-set-1",
     });
+    expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: "alice-sub",
+        operation: "explain_access",
+        outcome: "allow",
+        resourceRef: "team:platform#member user agent:incident-agent",
+      }),
+    );
   });
 
   it("explains deny outcomes with missing prerequisites", async () => {
@@ -107,7 +120,7 @@ describe("POST /api/admin/rebac/check", () => {
     expect(body.data.allowed).toBe(false);
     expect(body.data.explanation.reason).toBe("missing_allow_relationship");
     expect(body.data.explanation.missing).toContain(
-      "team:platform#member can_use agent:incident-agent"
+      "team:platform#member user agent:incident-agent"
     );
   });
 });

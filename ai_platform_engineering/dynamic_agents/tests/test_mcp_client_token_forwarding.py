@@ -18,7 +18,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 
 from dynamic_agents.auth.token_context import current_user_token
-from dynamic_agents.services.mcp_client import build_httpx_client_factory
+from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.services.mcp_client import (
+    build_agent_context_headers,
+    build_httpx_client_factory,
+    build_mcp_connection_config,
+)
 
 
 class _CapturingHandler(BaseHTTPRequestHandler):
@@ -117,3 +122,43 @@ async def test_factory_preserves_caller_provided_headers():
         current_user_token.reset(token)
     assert _CapturingHandler.captured.get("x-trace-id") == "abc-123"
     assert _CapturingHandler.captured.get("authorization") == "Bearer xyz"
+
+
+def test_streamable_http_connection_config_includes_context_bearer_header():
+    server = MCPServerConfig(
+        id="jira",
+        name="Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp",
+        enabled=True,
+    )
+    token = current_user_token.set("probe-token")
+    try:
+        config = build_mcp_connection_config(server)
+    finally:
+        current_user_token.reset(token)
+
+    assert config["transport"] == "streamable_http"
+    assert config["headers"]["Authorization"] == "Bearer probe-token"
+
+
+def test_streamable_http_connection_config_includes_signed_agent_context(monkeypatch):
+    monkeypatch.setenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    server = MCPServerConfig(
+        id="jira",
+        name="Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://agentgateway:4000/mcp",
+        enabled=True,
+    )
+
+    config = build_mcp_connection_config(server, agent_id="agent-test-april-2025")
+
+    assert config["headers"]["X-CAIPE-Agent-Context"]
+    assert config["headers"]["X-CAIPE-Agent-Context-Signature"]
+
+
+def test_agent_context_headers_are_omitted_without_shared_secret(monkeypatch):
+    monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
+
+    assert build_agent_context_headers("agent-test-april-2025") == {}

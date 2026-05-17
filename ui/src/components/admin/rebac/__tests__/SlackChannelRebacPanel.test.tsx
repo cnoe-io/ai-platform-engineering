@@ -1,0 +1,164 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import { SlackChannelRebacPanel } from "../SlackChannelRebacPanel";
+
+const fetchMock = jest.fn();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  global.fetch = fetchMock as unknown as typeof fetch;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/slack/channels") {
+      return response({
+        data: {
+          channels: [
+            {
+              workspace_id: "T123456789",
+              channel_id: "C123456789",
+              channel_name: "incidents",
+              active_grants: 0,
+            },
+          ],
+        },
+      });
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({
+        data: {
+          items: [
+            { _id: "test-april-2025", name: "Test April 2025" },
+            { _id: "incident-agent", name: "Incident Agent" },
+          ],
+        },
+      });
+    }
+    if (url === "/api/admin/teams") {
+      return response({
+        data: {
+          teams: [
+            { _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" },
+          ],
+        },
+      });
+    }
+    if (url === "/api/admin/slack/channels/defaults" && init?.method === "POST") {
+      return response({
+        data: {
+          summary: {
+            channels_seen: 1,
+            channels_assigned_team: 1,
+            channel_grants_ensured: 1,
+            routes_ensured: 1,
+          },
+        },
+      });
+    }
+    if (url.endsWith("/resources") && init?.method === "PUT") {
+      return response({ data: { grants: [{ resource: { type: "agent", id: "test-april-2025" }, actions: ["use"], status: "active" }] } });
+    }
+    if (url.endsWith("/resources")) {
+      return response({ data: { grants: [] } });
+    }
+    if (url.endsWith("/routes") && init?.method === "PUT") {
+      return response({ data: { routes: [{ agent_id: "incident-agent", enabled: true, priority: 100, users: { listen: "mention" } }] } });
+    }
+    if (url.endsWith("/routes")) {
+      return response({ data: { routes: [] } });
+    }
+    return response({});
+  });
+});
+
+function response(payload: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  } as Response;
+}
+
+it("uses enabled Dynamic Agents dropdowns for Slack grants and routes", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  expect(
+    await screen.findByText(/Slack runtime only enforces Dynamic Agent access/i)
+  ).toBeInTheDocument();
+  expect(screen.queryByLabelText("Resource Type")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Action")).not.toBeInTheDocument();
+
+  const agentSelects = await screen.findAllByRole("combobox", { name: "Dynamic Agent" });
+  expect(agentSelects).toHaveLength(2);
+  await waitFor(() =>
+    expect(screen.getAllByRole("option", { name: "Test April 2025 (test-april-2025)" })).toHaveLength(3)
+  );
+
+  fireEvent.change(agentSelects[0], { target: { value: "test-april-2025" } });
+  fireEvent.click(screen.getByRole("button", { name: "Grant Agent To Channel" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/resources",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          grants: [
+            {
+              resource: { type: "agent", id: "test-april-2025" },
+              actions: ["use"],
+              status: "active",
+            },
+          ],
+        }),
+      })
+    )
+  );
+
+  fireEvent.change(agentSelects[1], { target: { value: "incident-agent" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create Route + Grant" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/routes",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"agent_id":"incident-agent"'),
+      })
+    )
+  );
+});
+
+it("applies migration defaults for Slack channels", async () => {
+  const confirmSpy = jest.spyOn(window, "confirm");
+  render(<SlackChannelRebacPanel />);
+
+  fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
+    target: { value: "platform-engineering" },
+  });
+  fireEvent.change(await screen.findByRole("combobox", { name: "Default Dynamic Agent" }), {
+    target: { value: "incident-agent" },
+  });
+  const applyButton = screen.getByRole("button", { name: "Apply Defaults To Slack Channels" });
+  await waitFor(() => expect(applyButton).not.toBeDisabled());
+  fireEvent.click(applyButton);
+
+  expect(confirmSpy).not.toHaveBeenCalled();
+  expect(await screen.findByRole("dialog", { name: "Apply migration defaults?" })).toBeInTheDocument();
+  expect(screen.getByText(/This will update 1 onboarded Slack channel/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Apply defaults" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/defaults",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "incident-agent",
+          create_routes: true,
+        }),
+      })
+    )
+  );
+  expect(await screen.findByText(/Migration defaults applied/i)).toBeInTheDocument();
+});

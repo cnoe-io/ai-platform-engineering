@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
 import { getConfig } from "@/lib/config";
+import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
 
 const ALL_TABS: AdminTabKey[] = [
@@ -33,38 +35,36 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   }
 }
 
-function getSessionRoles(session: {
+function getSessionSubject(session: {
   accessToken?: string;
-  realmRoles?: string[];
-  role?: string;
+  sub?: string;
+}): string | undefined {
+  if (session.sub) return session.sub;
+  const payload = session.accessToken ? decodeJwtPayload(session.accessToken) : {};
+  return typeof payload.sub === "string" ? payload.sub : undefined;
+}
+
+async function hasOrganizationAdmin(session: {
+  accessToken?: string;
+  sub?: string;
   user?: { email?: string | null };
-}): string[] {
-  const payload = session.accessToken
-    ? decodeJwtPayload(session.accessToken)
-    : {};
-  const ra = (payload.realm_access as { roles?: string[] } | undefined)?.roles;
-  const roles: string[] = Array.isArray(ra) ? [...ra] : [];
-  if (Array.isArray(session.realmRoles)) {
-    for (const r of session.realmRoles) {
-      if (!roles.includes(r)) roles.push(r);
-    }
-  }
+}): Promise<boolean> {
+  const email = session.user?.email ?? "";
+  if (isBootstrapAdmin(email)) return true;
 
-  const email = String(
-    session.user?.email ??
-      payload.email ??
-      payload.preferred_username ??
-      ""
-  );
+  const subject = getSessionSubject(session);
+  if (!subject) return false;
 
-  // Bootstrap admins and users with session.role === 'admin' must satisfy
-  // admin-gated tabs even when the session lacks a fresh realm role claim.
-  if (!roles.includes("admin")) {
-    if (session.role === "admin" || isBootstrapAdmin(email)) {
-      roles.push("admin");
-    }
+  try {
+    const decision = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: "can_manage",
+      object: organizationObjectId(),
+    });
+    return decision.allowed;
+  } catch {
+    return false;
   }
-  return roles;
 }
 
 /**
@@ -83,13 +83,13 @@ const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
  *
  * Returns a map of { tab_key: boolean } indicating which admin tabs the
  * current user may see. This endpoint intentionally does not read CEL policy
- * storage; tab visibility is deterministic RBAC-era plumbing while resource
- * authorization lives in OpenFGA/Keycloak PDP checks.
+ * storage; tab visibility follows the organization-level OpenFGA admin
+ * relationship plus the bootstrap-admin break-glass fallback.
  */
 export async function GET() {
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
-    realmRoles?: string[];
+    sub?: string;
     role?: string;
     user?: { email?: string | null };
   } | null;
@@ -98,8 +98,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const roles = getSessionRoles(session);
-  const isAdmin = roles.includes("admin") || roles.includes("admin_user");
+  const isAdmin = await hasOrganizationAdmin(session);
 
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   for (const tab of ALL_TABS) {

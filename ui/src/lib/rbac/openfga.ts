@@ -3,8 +3,12 @@ import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import {
   buildOpenFgaTuple,
   buildOpenFgaTupleDiff,
+  openFgaCheckRelation,
+  openFgaObject,
+  openFgaSubject,
   type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
+import { getCurrentTraceparent, withAuthzSpan } from "./authz-tracing";
 
 export interface OpenFgaTupleKey {
   user: string;
@@ -77,6 +81,15 @@ function openFgaStoreName(): string {
   return process.env.OPENFGA_STORE_NAME?.trim() || DEFAULT_STORE_NAME;
 }
 
+function openFgaHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const traceparent = getCurrentTraceparent();
+  if (traceparent) {
+    headers.traceparent = traceparent;
+  }
+  return headers;
+}
+
 export function isOpenFgaConfigured(): boolean {
   return Boolean(openFgaHttpUrl());
 }
@@ -120,26 +133,26 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
 
   const writes = uniqueTuples([
     ...memberTuples,
-    ...resourceTuples(input.teamSlug, "can_use", "agent", input.agents.added),
-    ...resourceTuples(input.teamSlug, "can_manage", "agent", input.agentAdmins.added),
-    ...resourceTuples(input.teamSlug, "can_call", "tool", input.tools.added),
-    ...resourceTuples(input.teamSlug, "can_read", "knowledge_base", input.knowledgeBases?.added ?? []),
-    ...resourceTuples(input.teamSlug, "can_use", "skill", input.skills?.added ?? []),
-    ...resourceTuples(input.teamSlug, "can_use", "task", input.tasks?.added ?? []),
+    ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
+    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added),
+    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.added),
+    ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
+    ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
+    ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
     ...(input.toolWildcard.added
-      ? resourceTuples(input.teamSlug, "can_call", "tool", ["*"])
+      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
       : []),
   ]);
 
   const deletes = uniqueTuples([
-    ...resourceTuples(input.teamSlug, "can_use", "agent", input.agents.removed),
-    ...resourceTuples(input.teamSlug, "can_manage", "agent", input.agentAdmins.removed),
-    ...resourceTuples(input.teamSlug, "can_call", "tool", input.tools.removed),
-    ...resourceTuples(input.teamSlug, "can_read", "knowledge_base", input.knowledgeBases?.removed ?? []),
-    ...resourceTuples(input.teamSlug, "can_use", "skill", input.skills?.removed ?? []),
-    ...resourceTuples(input.teamSlug, "can_use", "task", input.tasks?.removed ?? []),
+    ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
+    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed),
+    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.removed),
+    ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
+    ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
+    ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),
     ...(input.toolWildcard.removed
-      ? resourceTuples(input.teamSlug, "can_call", "tool", ["*"])
+      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
       : []),
   ]);
 
@@ -161,7 +174,7 @@ export async function getOpenFgaStoreId(): Promise<string> {
     throw new Error("OPENFGA_HTTP is not set");
   }
 
-  const response = await fetch(`${baseUrl}/stores`, { method: "GET" });
+  const response = await fetch(`${baseUrl}/stores`, { method: "GET", headers: openFgaHeaders() });
   if (!response.ok) {
     throw new Error(`OpenFGA store discovery failed: ${response.status}`);
   }
@@ -176,7 +189,7 @@ export async function getOpenFgaStoreId(): Promise<string> {
 async function tupleAllowed(baseUrl: string, storeId: string, tuple: OpenFgaTupleKey): Promise<boolean> {
   const response = await fetch(`${baseUrl}/stores/${storeId}/check`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: openFgaHeaders(),
     body: JSON.stringify({ tuple_key: tuple }),
   });
   if (!response.ok) {
@@ -196,18 +209,33 @@ function tupleKeyFilter(tuple?: Partial<OpenFgaTupleKey>): Partial<OpenFgaTupleK
 }
 
 export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFgaCheckResult> {
-  const baseUrl = openFgaHttpUrl();
-  if (!baseUrl) {
-    throw new Error("OPENFGA_HTTP is not set");
-  }
-  const storeId = await getOpenFgaStoreId();
-  return { allowed: await tupleAllowed(baseUrl, storeId, tuple) };
+  return withAuthzSpan(
+    "openfga.check",
+    {
+      "authz.action": tuple.relation,
+      "authz.object": tuple.object,
+      "authz.user_ref": tuple.user.replace(/user:[^#]+/, "user:<redacted>"),
+    },
+    async () => {
+      const baseUrl = openFgaHttpUrl();
+      if (!baseUrl) {
+        throw new Error("OPENFGA_HTTP is not set");
+      }
+      const storeId = await getOpenFgaStoreId();
+      return { allowed: await tupleAllowed(baseUrl, storeId, tuple) };
+    },
+    getCurrentTraceparent(),
+  );
 }
 
 export async function checkUniversalRebacRelationship(
   relationship: UniversalRebacRelationship
 ): Promise<OpenFgaCheckResult> {
-  return checkOpenFgaTuple(buildOpenFgaTuple(relationship));
+  return checkOpenFgaTuple({
+    user: openFgaSubject(relationship.subject),
+    relation: openFgaCheckRelation(relationship.action),
+    object: openFgaObject(relationship.resource),
+  });
 }
 
 export async function readOpenFgaTuples(options: OpenFgaReadOptions = {}): Promise<OpenFgaReadResult> {
@@ -225,7 +253,7 @@ export async function readOpenFgaTuples(options: OpenFgaReadOptions = {}): Promi
 
   const response = await fetch(`${baseUrl}/stores/${storeId}/read`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: openFgaHeaders(),
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -268,7 +296,7 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
 
   const response = await fetch(`${baseUrl}/stores/${storeId}/write`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: openFgaHeaders(),
     body: JSON.stringify(body),
   });
   if (!response.ok) {

@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 /**
- * Tests for Admin Audit Logs API Routes
+ * Tests for Admin Chat Audit API Routes
  *
  * Covers:
  * - GET /api/admin/audit-logs — list all conversations with filters and pagination

@@ -27,6 +27,11 @@ jest.mock("@/lib/config", () => ({
     })[key] ?? false,
 }));
 
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 import { GET } from "../route";
 
 describe("GET /api/rbac/admin-tab-gates", () => {
@@ -35,13 +40,16 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     mockGetCollection.mockImplementation(() => {
       throw new Error("admin_tab_policies should not be read");
     });
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
   });
 
   it("returns deterministic admin gates without CEL policy storage", async () => {
     mockGetServerSession.mockResolvedValue({
       role: "admin",
+      sub: "admin-sub",
       user: { email: "admin@example.com" },
     });
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
 
     const res = await GET();
     expect(res.status).toBe(200);
@@ -66,6 +74,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
   it("allows baseline tabs for non-admin users and hides admin surfaces", async () => {
     mockGetServerSession.mockResolvedValue({
       role: "user",
+      sub: "user-sub",
       user: { email: "user@example.com" },
     });
 

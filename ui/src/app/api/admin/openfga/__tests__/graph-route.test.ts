@@ -5,8 +5,12 @@
 import { NextRequest } from "next/server";
 
 const mockQueryRebacGraph = jest.fn();
+const mockLogOpenFgaRebacAuditEvent = jest.fn();
 const mockWithOpenFgaViewAuth = jest.fn(async (_request: NextRequest, handler: () => Promise<unknown>) =>
-  handler()
+  handler({
+    user: { email: "alice@example.com" },
+    session: { sub: "alice-sub", org: "default" },
+  })
 );
 
 jest.mock("../_lib", () => ({
@@ -15,6 +19,10 @@ jest.mock("../_lib", () => ({
 
 jest.mock("@/lib/rbac/rebac-graph", () => ({
   queryRebacGraph: (...args: unknown[]) => mockQueryRebacGraph(...args),
+}));
+
+jest.mock("@/lib/rbac/audit", () => ({
+  logOpenFgaRebacAuditEvent: (...args: unknown[]) => mockLogOpenFgaRebacAuditEvent(...args),
 }));
 
 function request(path: string): NextRequest {
@@ -40,5 +48,13 @@ describe("GET /api/admin/openfga/graph", () => {
       subject: "user:alice-sub",
       limit: 250,
     });
+    expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: "alice-sub",
+        email: "alice@example.com",
+        operation: "query_graph",
+        resourceRef: expect.stringContaining("user:alice-sub"),
+      }),
+    );
   });
 });

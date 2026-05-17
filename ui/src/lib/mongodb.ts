@@ -179,6 +179,8 @@ async function createIndexes(db: Db) {
   await Promise.all([
     // Users collection
     safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
+    safeCreateIndex(db, 'users', { keycloak_sub: 1 }),
+    safeCreateIndex(db, 'users', { 'metadata.keycloak_sub': 1 }),
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 

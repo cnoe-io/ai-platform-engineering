@@ -87,6 +87,16 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
       });
       const data = await response.json();
       if (data.success) {
+        if (data.data?.success === false) {
+          setProbeStates((prev) => ({
+            ...prev,
+            [serverId]: {
+              loading: false,
+              error: data.data.error || "Probe failed",
+            },
+          }));
+          return;
+        }
         const tools = data.data.tools as MCPToolInfo[];
         setProbeStates((prev) => ({
           ...prev,

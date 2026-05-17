@@ -5,8 +5,9 @@
 import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
-const mockLogPolicyChangeAuditEvent = jest.fn();
+const mockLogOpenFgaRebacAuditEvent = jest.fn();
 
 const mockCollections: Record<string, any> = {};
 
@@ -15,12 +16,13 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
-  logPolicyChangeAuditEvent: (...args: unknown[]) => mockLogPolicyChangeAuditEvent(...args),
+  logOpenFgaRebacAuditEvent: (...args: unknown[]) => mockLogOpenFgaRebacAuditEvent(...args),
 }));
 
 jest.mock("@/lib/jwt-validation", () => ({
@@ -96,6 +98,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockCollections.policy_change_sets = createMockCollection([]);
   mockCollections.rebac_relationships = createMockCollection([]);
@@ -168,7 +171,7 @@ describe("ReBAC change-set routes", () => {
     expect(response.status).toBe(200);
     expect(body.data.change_set.status).toBe("applied");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: "team:platform#member", relation: "can_use", object: "agent:incident-agent" }],
+      writes: [{ user: "team:platform#member", relation: "user", object: "agent:incident-agent" }],
       deletes: [],
     });
     expect(mockCollections.rebac_relationships.updateOne).toHaveBeenCalledWith(
@@ -183,7 +186,12 @@ describe("ReBAC change-set routes", () => {
       expect.objectContaining({ $set: expect.objectContaining({ status: "active" }) }),
       { upsert: true }
     );
-    expect(mockLogPolicyChangeAuditEvent).toHaveBeenCalled();
+    expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "apply_change_set",
+        resourceRef: "policy_change_set:change-set-2",
+      }),
+    );
   });
 
   it("rejects re-applying an already applied change set", async () => {

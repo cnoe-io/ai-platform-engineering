@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ApiError, getAuthFromBearerOrSession, requireRbacPermission, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { logAccessCheckAuditEvent } from "@/lib/rbac/audit";
+import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { explainAccess } from "@/lib/rbac/access-explainer";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
@@ -18,8 +18,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const result = await explainAccess(body.relationship);
-  logAccessCheckAuditEvent({
-    tenantId: "default",
+  logOpenFgaRebacAuditEvent({
+    tenantId: session?.org ?? "default",
     sub: session?.sub ?? user.email,
     operation: "explain_access",
     outcome: result.allowed ? "allow" : "deny",

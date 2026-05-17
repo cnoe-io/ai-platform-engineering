@@ -31,7 +31,7 @@ import type { RbacScope } from '@/lib/rbac/types';
  *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
- * RBAC (098): BFF enforces Keycloak AuthZ on `rag` before proxying —
+ * RBAC (098): Web UI backend enforces Keycloak AuthZ on `rag` before proxying —
  * GET/POST use `query` (read/search); PUT/DELETE use `admin` (098 matrix).
  */
 

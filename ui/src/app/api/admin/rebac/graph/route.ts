@@ -23,7 +23,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   });
 
   logGraphQueryAuditEvent({
-    tenantId: "default",
+    tenantId: session?.org ?? "default",
     sub: session?.sub ?? user.email,
     operation: "query_graph",
     resourceRef: `rebac_graph:${JSON.stringify(graph.scope)}`,

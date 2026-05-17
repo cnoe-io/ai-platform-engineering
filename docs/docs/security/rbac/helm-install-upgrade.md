@@ -249,7 +249,7 @@ Recommended production shape:
 
 - OpenFGA server with PostgreSQL datastore.
 - OpenFGA migration/init job.
-- OpenFGA model loader using the model under `deploy/openfga-experiment`.
+- OpenFGA model loader using the model under `deploy/openfga`.
 - OpenFGA bridge deployed as an internal service.
 - Network policy allowing AgentGateway to call the bridge and the bridge to call OpenFGA.
 

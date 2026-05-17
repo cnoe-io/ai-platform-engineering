@@ -7,6 +7,7 @@ import type {
 } from "@/types/slack-rebac";
 
 import { getRbacCollection } from "./mongo-collections";
+import { slackWorkspaceRef } from "./slack-channel-grant-store";
 
 export interface SlackChannelAgentRouteDocument extends Document, SlackChannelAgentRoute {}
 
@@ -27,9 +28,10 @@ export async function listSlackChannelAgentRoutes(
   channelId: string
 ): Promise<SlackChannelAgentRouteDocument[]> {
   const collection = await getRbacCollection<SlackChannelAgentRouteDocument>("slackChannelAgentRoutes");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
   const rows = await collection
     .find({
-      workspace_id: workspaceId,
+      workspace_id: workspaceRef,
       channel_id: channelId,
       status: "active",
     } as never)
@@ -46,13 +48,14 @@ export async function replaceSlackChannelAgentRoutes(
 ): Promise<SlackChannelAgentRouteDocument[]> {
   const collection = await getRbacCollection<SlackChannelAgentRouteDocument>("slackChannelAgentRoutes");
   const now = new Date().toISOString();
+  const workspaceRef = slackWorkspaceRef(workspaceId);
   const activeAgentIds = Array.from(
     new Set(routes.map((route) => route.agent_id.trim()).filter(Boolean))
   );
 
   await collection.updateMany(
     {
-      workspace_id: workspaceId,
+      workspace_id: workspaceRef,
       channel_id: channelId,
       status: "active",
       agent_id: { $nin: activeAgentIds },
@@ -63,13 +66,13 @@ export async function replaceSlackChannelAgentRoutes(
   for (const route of routes) {
     await collection.updateOne(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceRef,
         channel_id: channelId,
         agent_id: route.agent_id,
       } as never,
       {
         $set: {
-          workspace_id: workspaceId,
+          workspace_id: workspaceRef,
           channel_id: channelId,
           agent_id: route.agent_id,
           enabled: route.enabled ?? true,
@@ -89,5 +92,5 @@ export async function replaceSlackChannelAgentRoutes(
     );
   }
 
-  return listSlackChannelAgentRoutes(workspaceId, channelId);
+  return listSlackChannelAgentRoutes(workspaceRef, channelId);
 }

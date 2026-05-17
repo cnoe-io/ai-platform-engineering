@@ -66,7 +66,7 @@ export interface TeamMember {
 export interface CreateTeamRequest {
   name: string;
   /**
-   * Optional explicit slug. If omitted, the BFF derives it from `name`
+   * Optional explicit slug. If omitted, the Web UI backend derives it from `name`
    * (lowercase, non-alphanumerics → `-`, deduped, trimmed).
    */
   slug?: string;

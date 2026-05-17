@@ -2,7 +2,7 @@
  * 098 Enterprise RBAC — Permission matrix types
  *
  * Shared type definitions for RBAC authorization checks across
- * the CAIPE Admin UI and BFF API routes.
+ * the CAIPE Admin UI and Web UI backend API routes.
  */
 
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
@@ -42,13 +42,8 @@ export type RbacScope =
   | "read"
   | "manage";
 
-/** Keycloak realm roles aligned with IdP group mapping (FR-010) */
-export type RbacRole =
-  | "admin"
-  | "chat_user"
-  | "team_member"
-  | "kb_admin"
-  | "denied";
+/** Legacy transition label; CAIPE authorization now comes from OpenFGA relationships. */
+export type RbacRole = "denied";
 
 /** Authorization check request — sent to Keycloak AuthZ Services (PDP-1) */
 export interface RbacCheckRequest {
@@ -67,7 +62,7 @@ export interface RbacCheckResult {
 export type AuditOutcome = "allow" | "deny";
 
 /** PDP that evaluated the decision */
-export type AuditPdp = "keycloak" | "agent_gateway" | "local";
+export type AuditPdp = "keycloak" | "agent_gateway" | "local" | "openfga";
 
 /** Reason codes for authorization decisions */
 export type AuditReasonCode =
@@ -82,6 +77,7 @@ export type AuditReasonCode =
 
 /** Structured audit event for authorization decisions (FR-005, data-model.md) */
 export interface AuditEvent {
+  audit_event_id?: string;
   ts: string;
   tenant_id: string;
   subject_hash: string;
@@ -93,9 +89,12 @@ export interface AuditEvent {
   reason_code: AuditReasonCode;
   pdp: AuditPdp;
   correlation_id: string;
+  trace_id?: string;
+  span_id?: string;
+  trace_url?: string;
 }
 
-/** User's effective permissions map — returned by BFF capabilities endpoint */
+/** User's effective permissions map — returned by the Web UI backend capabilities endpoint */
 export type PermissionsMap = Partial<Record<RbacResource, string[]>>;
 
 /** Keycloak Authorization Services configuration */
@@ -107,16 +106,23 @@ export interface KeycloakAuthzConfig {
 }
 
 /** Unified audit event types (FR-037) */
-export type AuditEventType = "auth" | "tool_action" | "agent_delegation";
+export type AuditEventType = "auth" | "tool_action" | "agent_delegation" | "openfga_rebac";
 
 /** Unified audit event outcome — superset of AuditOutcome for tool/delegation */
 export type UnifiedAuditOutcome = "allow" | "deny" | "success" | "error";
 
 /** Source system that produced the audit event */
-export type AuditEventSource = "bff" | "supervisor" | "slack";
+export type AuditEventSource =
+  | "webui_backend"
+  | "bff"
+  | "supervisor"
+  | "slack"
+  | "dynamic_agents"
+  | "openfga_authz_bridge";
 
 /** Unified audit event stored in the audit_events MongoDB collection (FR-037) */
 export interface UnifiedAuditEvent {
+  audit_event_id?: string;
   ts: string;
   type: AuditEventType;
   tenant_id: string;
@@ -134,6 +140,9 @@ export interface UnifiedAuditEvent {
   resource_ref?: string;
   pdp?: string;
   source: AuditEventSource;
+  trace_id?: string;
+  span_id?: string;
+  trace_url?: string;
 }
 
 /** Admin dashboard tab keys for RBAC-based visibility */

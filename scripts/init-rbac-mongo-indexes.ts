@@ -14,6 +14,10 @@ const indexSpecs: Record<
   string,
   Array<{ keys: Record<string, 1 | -1>; options?: { unique?: boolean; sparse?: boolean } }>
 > = {
+  users: [
+    { keys: { keycloak_sub: 1 }, options: { sparse: true } },
+    { keys: { "metadata.keycloak_sub": 1 }, options: { sparse: true } },
+  ],
   identity_providers: [{ keys: { id: 1 }, options: { unique: true } }],
   identity_group_sync_rules: [
     { keys: { id: 1 }, options: { unique: true } },
@@ -72,6 +76,10 @@ const indexSpecs: Record<
   rebac_drift_findings: [
     { keys: { resource_type: 1, resource_id: 1, status: 1 } },
     { keys: { detected_at: -1 } },
+  ],
+  rbac_migrations: [
+    { keys: { _id: 1 }, options: { unique: true } },
+    { keys: { status: 1, updated_at: -1 } },
   ],
 };
 

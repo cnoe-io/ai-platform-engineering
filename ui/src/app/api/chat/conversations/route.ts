@@ -19,6 +19,47 @@ import { VALID_CLIENT_TYPES } from '@/types/mongodb';
 import { buildParticipants } from '@/types/a2a';
 import packageJson from '../../../../../package.json';
 
+type ConversationWithAgentDisplay = Conversation & {
+  agent_id?: string;
+  agent_name?: string;
+};
+
+function getConversationAgentId(conversation: Conversation): string | undefined {
+  return conversation.participants?.find((participant) => participant.type === 'agent')?.id;
+}
+
+async function enrichConversationAgentNames(
+  items: Conversation[],
+): Promise<ConversationWithAgentDisplay[]> {
+  const agentIds = Array.from(
+    new Set(items.map(getConversationAgentId).filter((id): id is string => Boolean(id))),
+  );
+
+  if (agentIds.length === 0) {
+    return items;
+  }
+
+  const agents = await getCollection<{ _id: string; name?: string }>('dynamic_agents');
+  const agentDocs = await agents
+    .find({ _id: { $in: agentIds } })
+    .project({ _id: 1, name: 1 })
+    .toArray();
+  const agentNames = new Map(agentDocs.map((agent) => [agent._id, agent.name]));
+
+  return items.map((conversation) => {
+    const agentId = getConversationAgentId(conversation);
+    if (!agentId) {
+      return conversation;
+    }
+
+    return {
+      ...conversation,
+      agent_id: agentId,
+      agent_name: agentNames.get(agentId) ?? agentId,
+    };
+  });
+}
+
 // GET /api/chat/conversations
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -111,7 +152,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .limit(pageSize)
     .toArray();
 
-  return paginatedResponse(items, total, page, pageSize);
+  return paginatedResponse(await enrichConversationAgentNames(items), total, page, pageSize);
 });
 
 // POST /api/chat/conversations

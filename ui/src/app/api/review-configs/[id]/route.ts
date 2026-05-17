@@ -199,7 +199,7 @@ export const PUT = withErrorHandler(
     context: { params: Promise<{ id: string }> },
   ) => {
     return await withAuth(request, async (_req, user, session) => {
-      requireAdmin(session);
+      await requireAdmin(session);
       const { id } = await context.params;
 
       if (!getTargetMeta(id)) {

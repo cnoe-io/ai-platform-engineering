@@ -17,8 +17,8 @@
 # Optional:
 #   IDP_ALIAS          – short alias (default: upstream-oidc)
 #   IDP_DISPLAY_NAME   – human label (default: Upstream OIDC)
-#   IDP_ACCESS_GROUP   – upstream group claim value → chat_user role (basic access)
-#   IDP_ADMIN_GROUP    – upstream group claim value → admin role
+#   IDP_ACCESS_GROUP   – upstream group claim value mirrored into idp_groups
+#   IDP_ADMIN_GROUP    – upstream group claim value mirrored into idp_groups
 #   KEYCLOAK_FORCE_IDP_REDIRECT – true disables local app-realm login fallback
 #   KC_REALM           – realm name (default: caipe)
 # -------------------------------------------------------------------
@@ -43,11 +43,11 @@ KC_URL="${KC_URL:-http://localhost:7080}"
 # dev/CI personas, not production users. Idempotent — re-runnable.
 #
 # Personas (see spec.md §Personas):
-#   alice_admin            → realm role "admin"
-#   bob_chat_user          → realm role "chat_user"
-#   carol_kb_ingestor      → realm role "chat_user" + client role "kb_ingestor" (caipe-platform)
-#   dave_no_role           → no roles (assigned default "offline_access" only)
-#   eve_dynamic_agent_user → realm role "chat_user"
+#   alice_admin            → local identity only; organization admin is OpenFGA
+#   bob_chat_user          → local identity only
+#   carol_kb_ingestor      → local identity only; KB grants are OpenFGA/team based
+#   dave_no_role           → local identity only
+#   eve_dynamic_agent_user → local identity only
 #   frank_service_account  → ALREADY EXISTS as caipe-platform's service account user
 #                            (we don't create a regular user for frank)
 #
@@ -118,47 +118,18 @@ seed_personas_main() {
     echo "${USER_ID}"
   }
 
-  assign_realm_role() {
-    local USER_ID="$1"
-    local ROLE_NAME="$2"
-    [ -z "${USER_ID}" ] && return 0
-    local ROLE_JSON
-    ROLE_JSON=$(curl -sf -H "${PERSONA_AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/roles/${ROLE_NAME}" 2>/dev/null)
-    [ -z "${ROLE_JSON}" ] && {
-      echo "[init-idp] [spec-102]   WARN: realm role ${ROLE_NAME} not found"
-      return 0
-    }
-    curl -sf -X POST -H "${PERSONA_AUTH}" -H "Content-Type: application/json" \
-      "${KC_URL}/admin/realms/${REALM}/users/${USER_ID}/role-mappings/realm" \
-      -d "[${ROLE_JSON}]" 2>/dev/null && \
-      echo "[init-idp] [spec-102]     assigned realm role ${ROLE_NAME}." || \
-      echo "[init-idp] [spec-102]     (already had ${ROLE_NAME} or assign failed)."
-  }
-
   PASS_ALICE="${ALICE_ADMIN_PASSWORD:-test-password-123}"
   PASS_BOB="${BOB_CHAT_USER_PASSWORD:-test-password-123}"
   PASS_CAROL="${CAROL_KB_INGESTOR_PASSWORD:-test-password-123}"
   PASS_DAVE="${DAVE_NO_ROLE_PASSWORD:-test-password-123}"
   PASS_EVE="${EVE_DYNAMIC_AGENT_USER_PASSWORD:-test-password-123}"
 
-  ALICE_ID=$(upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin" | tail -n 1)
-  assign_realm_role "${ALICE_ID}" "admin"
-
-  BOB_ID=$(upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser" | tail -n 1)
-  assign_realm_role "${BOB_ID}" "chat_user"
-
-  CAROL_ID=$(upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor" | tail -n 1)
-  assign_realm_role "${CAROL_ID}" "chat_user"
-  # KB ingestor role is granted via the team_kb_ownership document in MongoDB
-  # (Phase 7 RAG hybrid model — see plan.md §Phase 4). Realm role chat_user is
-  # the baseline; KB-scoped permissions are layered on top by spec-098 ACL.
-
-  DAVE_ID=$(upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole" | tail -n 1)
-  # No additional roles — intentionally; default-roles-caipe (offline_access) is auto-applied.
-
-  EVE_ID=$(upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent" | tail -n 1)
-  assign_realm_role "${EVE_ID}" "chat_user"
+  upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin" >/dev/null
+  upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser" >/dev/null
+  upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor" >/dev/null
+  upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole" >/dev/null
+  upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent" >/dev/null
+  echo "[init-idp] [spec-102]   demo users are identity-only; grants are OpenFGA/team relationships."
 
   echo "[init-idp] [spec-102] persona seeding done. Verify with:"
   echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
@@ -171,112 +142,14 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Spec 104: Team-scoped RBAC seed
+# Spec 104: Team-scoped ReBAC seed
 #
-# Creates only coarse bootstrap realm roles. Resource-scoped grants
-# (`tool_user:<name>`, `agent_user:<id>`, `agent_admin:<id>`) are modeled in
-# OpenFGA and should not be materialized into Keycloak tokens for new installs.
-#
-# All operations are idempotent. Re-running the job adds nothing if roles
-# and assignments already exist.
+# Keycloak is identity-only for CAIPE authorization. Bootstrap admins are
+# handled by BOOTSTRAP_ADMIN_EMAILS in the application until durable
+# `admin organization:<org>` OpenFGA tuples are present.
 # ─────────────────────────────────────────────────────────────────────────────
 seed_spec104_main() {
-  echo "[init-idp] [spec-104] Seeding team-scoped RBAC roles ..."
-
-  # Re-acquire admin token; PERSONA_AUTH from spec-102 may not be reusable
-  # if seed_personas_main was skipped.
-  local SP104_TOKEN
-  SP104_TOKEN=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
-    -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
-    | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
-  if [ -z "${SP104_TOKEN}" ]; then
-    echo "[init-idp] [spec-104]   WARN: could not acquire admin token; skipping spec-104 seed."
-    return 0
-  fi
-  local SP104_AUTH="Authorization: Bearer ${SP104_TOKEN}"
-
-  # Idempotent realm role creation. Keycloak returns 409 if it exists; both
-  # outcomes are success for our purposes.
-  _sp104_ensure_role() {
-    local ROLE_NAME="$1"
-    # URL-encode `:` and `*` for the lookup path.
-    local ENC
-    ENC=$(printf '%s' "${ROLE_NAME}" | sed 's/:/%3A/g; s/\*/%2A/g')
-    local EXISTS
-    EXISTS=$(curl -s -o /dev/null -w '%{http_code}' -H "${SP104_AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/roles/${ENC}")
-    if [ "${EXISTS}" = "200" ]; then
-      return 0
-    fi
-    local CODE
-    CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "${SP104_AUTH}" -H "Content-Type: application/json" \
-      "${KC_URL}/admin/realms/${REALM}/roles" \
-      -d "{\"name\":\"${ROLE_NAME}\",\"description\":\"spec-104 team-scoped RBAC\"}")
-    case "${CODE}" in
-      201|409) echo "[init-idp] [spec-104]   ✓ role ${ROLE_NAME}" ;;
-      *)      echo "[init-idp] [spec-104]   WARN: failed to create ${ROLE_NAME} (HTTP ${CODE})" ;;
-    esac
-  }
-
-  _sp104_assign_role_by_email() {
-    local EMAIL="$1"
-    local ROLE_NAME="$2"
-    local UID
-    UID=$(curl -sf -H "${SP104_AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/users?email=${EMAIL}&exact=true" 2>/dev/null \
-      | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-    if [ -z "${UID}" ]; then
-      echo "[init-idp] [spec-104]   skipping ${EMAIL} → ${ROLE_NAME} (user not in realm yet; will be created on first IdP login)"
-      return 0
-    fi
-    local ENC
-    ENC=$(printf '%s' "${ROLE_NAME}" | sed 's/:/%3A/g; s/\*/%2A/g')
-    local ROLE_JSON
-    ROLE_JSON=$(curl -sf -H "${SP104_AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/roles/${ENC}" 2>/dev/null)
-    if [ -z "${ROLE_JSON}" ]; then
-      echo "[init-idp] [spec-104]   WARN: role ${ROLE_NAME} missing; cannot assign to ${EMAIL}"
-      return 0
-    fi
-    curl -sf -X POST -H "${SP104_AUTH}" -H "Content-Type: application/json" \
-      "${KC_URL}/admin/realms/${REALM}/users/${UID}/role-mappings/realm" \
-      -d "[${ROLE_JSON}]" >/dev/null 2>&1 \
-      && echo "[init-idp] [spec-104]   + ${EMAIL} → ${ROLE_NAME}" \
-      || echo "[init-idp] [spec-104]   = ${EMAIL} → ${ROLE_NAME} (already assigned)"
-  }
-
-  # Coarse identity/bootstrap roles only. `admin` is the legacy coarse Admin UI
-  # role; `admin_user` is the spec-104 resource superuser. Resource grants are
-  # OpenFGA tuples.
-  local SP104_ROLES="admin admin_user team_member:demo-team"
-
-  # Realm role creation (idempotent).
-  for r in ${SP104_ROLES}; do
-    _sp104_ensure_role "${r}"
-  done
-
-  # Bootstrap admins → coarse admin + demo-team membership.
-  if [ -n "${BOOTSTRAP_ADMIN_EMAILS:-}" ]; then
-    local ADMIN_ROLES_FOR_BOOTSTRAP="admin admin_user team_member:demo-team"
-    # Split BOOTSTRAP_ADMIN_EMAILS on comma. We must restore IFS before the
-    # inner space-separated loop over ADMIN_ROLES_FOR_BOOTSTRAP, otherwise the
-    # whole role string is treated as one token.
-    local OLD_IFS="${IFS}"
-    IFS=','
-    set -- ${BOOTSTRAP_ADMIN_EMAILS}
-    IFS="${OLD_IFS}"
-    for email in "$@"; do
-      email=$(echo "${email}" | tr -d '[:space:]')
-      [ -z "${email}" ] && continue
-      for role in ${ADMIN_ROLES_FOR_BOOTSTRAP}; do
-        _sp104_assign_role_by_email "${email}" "${role}"
-      done
-    done
-  else
-    echo "[init-idp] [spec-104]   BOOTSTRAP_ADMIN_EMAILS empty; only roles created, no assignments made."
-  fi
-
-  echo "[init-idp] [spec-104] team-scoped RBAC seed done."
+  echo "[init-idp] [spec-104] No Keycloak CAIPE roles to seed; OpenFGA owns authorization."
 }
 
 seed_spec104_main || echo "[init-idp] [spec-104] seed had errors (see above)"
@@ -484,28 +357,8 @@ else
   echo "[init-idp]   WARNING: default-roles-caipe role not found."
 fi
 
-# --- ensure chat_user is also in default-roles-caipe ---
-echo "[init-idp] Ensuring chat_user is in default-roles-caipe ..."
-if [ -n "${DEFAULT_ROLE_ID}" ]; then
-  COMPOSITES=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" 2>/dev/null || echo "[]")
-  if echo "${COMPOSITES}" | grep -q '"chat_user"'; then
-    echo "[init-idp]   chat_user already in default-roles-caipe."
-  else
-    CHAT_ROLE_ID=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-      | grep -B1 '"chat_user"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
-    if [ -n "${CHAT_ROLE_ID}" ]; then
-      curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
-        "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
-        -d "[{\"id\":\"${CHAT_ROLE_ID}\",\"name\":\"chat_user\"}]" && \
-        echo "[init-idp]   Added chat_user to default-roles-caipe." || \
-        echo "[init-idp]   WARNING: failed to add chat_user to default-roles-caipe."
-    else
-      echo "[init-idp]   WARNING: chat_user role not found in realm."
-    fi
-  fi
-fi
+# CAIPE business authorization is OpenFGA-backed. Do not add application roles
+# such as chat_user/admin/team_member to default-roles-caipe.
 
 # --- configure user profile: allow slack_user_id attribute and avoid profile prompts ---
 # Keycloak 26+ silently drops custom attributes not in the user profile schema.
@@ -854,57 +707,9 @@ create_mapper_if_missing "${ALIAS}-last-name-duo" "$(cat <<ENDJSON
 ENDJSON
 )"
 
-# --- chat_user role: claim-based if IDP_ACCESS_GROUP is set, hardcoded fallback for local dev ---
-if [ -n "${IDP_ACCESS_GROUP:-}" ]; then
-  echo "[init-idp]   Using claim-based chat_user mapper (IDP_ACCESS_GROUP=${IDP_ACCESS_GROUP})"
-  create_mapper_if_missing "${ALIAS}-access-role" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-access-role",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-advanced-role-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "are.claim.values.regex": "false",
-    "claims": "[{\"key\":\"groups\",\"value\":\"${IDP_ACCESS_GROUP}\"}]",
-    "role": "chat_user"
-  }
-}
-ENDJSON
-)"
-else
-  echo "[init-idp]   No IDP_ACCESS_GROUP set — all brokered users get chat_user role"
-  create_mapper_if_missing "${ALIAS}-default-chat-user-role" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-default-chat-user-role",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-hardcoded-role-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "role": "chat_user"
-  }
-}
-ENDJSON
-)"
-fi
-
-# --- admin role: claim-based, only if IDP_ADMIN_GROUP is set ---
-if [ -n "${IDP_ADMIN_GROUP:-}" ]; then
-  echo "[init-idp]   Using claim-based admin mapper (IDP_ADMIN_GROUP=${IDP_ADMIN_GROUP})"
-  create_mapper_if_missing "${ALIAS}-admin-role" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-admin-role",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-advanced-role-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "are.claim.values.regex": "false",
-    "claims": "[{\"key\":\"groups\",\"value\":\"${IDP_ADMIN_GROUP}\"}]",
-    "role": "admin"
-  }
-}
-ENDJSON
-)"
-fi
+# --- group claims stay identity-only ---
+echo "[init-idp]   Upstream groups are mirrored into idp_groups and synced to CAIPE teams."
+echo "[init-idp]   No Keycloak role mappers are created for IDP_ACCESS_GROUP or IDP_ADMIN_GROUP."
 
 # --- ensure standard OIDC profile mappers exist (given_name, family_name, name, preferred_username) ---
 # The realm import may not include these, so ensure they are present so
@@ -1465,60 +1270,37 @@ fi
 # -------------------------------------------------------------------
 # Spec 103 / dev unblock — first-party service callers (Slack bot today,
 # Webex/Teams bots later) authenticate to caipe-ui via Bearer JWT minted
-# from their own Keycloak client. To pass caipe-ui's RBAC PDP we need:
+# from their own Keycloak client. Keycloak remains identity-only for CAIPE
+# product authorization; OpenFGA handles the allow/deny decision. We still need:
 #
-#   (a) the bot's client-credentials token to satisfy the role-fallback
-#       path → grant `chat_user` realm role to its service account user.
-#   (b) the bot to be able to mint impersonated (OBO) tokens that carry
+#   (a) the bot to be able to mint impersonated (OBO) tokens that carry
 #       the *real Slack user's* identity → grant token-exchange + users
 #       impersonate permissions, scoped to ONLY this client (least
 #       privilege — the bot can impersonate any realm user, but no other
 #       client can use the bot's identity to do so).
 #
-# Both (a) and (b) are idempotent — re-running this block is safe.
+# This is idempotent — re-running this block is safe.
 # Implemented imperatively (not via realm import) because Keycloak's
 # realm export does not round-trip the realm-management authz policies
 # in a stable way across versions.
 # assisted-by claude code claude-sonnet-4-7
 # -------------------------------------------------------------------
-echo "[init-idp] Configuring caipe-slack-bot RBAC + OBO permissions ..."
+echo "[init-idp] Configuring caipe-slack-bot OBO permissions ..."
 
 if [ -n "${SB_CLIENT_ID}" ]; then
-  # ---- (a) grant chat_user realm role to bot service account ----
-  SB_SVC_USER_ID=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/service-account-user" 2>/dev/null \
-    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-
-  if [ -n "${SB_SVC_USER_ID}" ]; then
-    CHAT_USER_ROLE=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/roles/chat_user" 2>/dev/null)
-    if [ -n "${CHAT_USER_ROLE}" ]; then
-      EXISTING_REALM_ROLES=$(curl -sf -H "${AUTH}" \
-        "${KC_URL}/admin/realms/${REALM}/users/${SB_SVC_USER_ID}/role-mappings/realm" 2>/dev/null || echo "[]")
-      if echo "${EXISTING_REALM_ROLES}" | grep -q '"name" *: *"chat_user"'; then
-        echo "[init-idp]   chat_user already granted to caipe-slack-bot service account."
-      else
-        curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
-          "${KC_URL}/admin/realms/${REALM}/users/${SB_SVC_USER_ID}/role-mappings/realm" \
-          -d "[${CHAT_USER_ROLE}]" \
-          && echo "[init-idp]   Granted chat_user to caipe-slack-bot service account."
-      fi
-    fi
-  fi
-
-  # ---- (b) enable client management permissions (creates token-exchange perm) ----
+  # ---- enable client management permissions (creates token-exchange perm) ----
   curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
     "${KC_URL}/admin/realms/${REALM}/clients/${SB_CLIENT_ID}/management/permissions" \
     -d '{"enabled": true}' >/dev/null \
     && echo "[init-idp]   Enabled management permissions on caipe-slack-bot."
 
-  # ---- (b) enable realm-level users-management (creates impersonate perm) ----
+  # ---- enable realm-level users-management (creates impersonate perm) ----
   curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
     "${KC_URL}/admin/realms/${REALM}/users-management-permissions" \
     -d '{"enabled": true}' >/dev/null \
     && echo "[init-idp]   Enabled users-management permissions (realm)."
 
-  # ---- (b) look up realm-management client + the two scope-perm IDs we need ----
+  # ---- look up realm-management client + the two scope-perm IDs we need ----
   RM_CLIENT_ID=$(curl -sf -H "${AUTH}" \
     "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
     | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')

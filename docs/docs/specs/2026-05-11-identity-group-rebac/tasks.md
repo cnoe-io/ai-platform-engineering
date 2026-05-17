@@ -43,8 +43,8 @@
 - [X] T015 Implement shared ReBAC relationship validation and unsupported-action errors in `ui/src/lib/rbac/relationship-validator.ts`
 - [X] T016 Implement relationship-to-OpenFGA tuple conversion helpers in `ui/src/lib/rbac/tuple-builders.ts`
 - [X] T017 Extend OpenFGA read/write/check helpers for universal resource relations in `ui/src/lib/rbac/openfga.ts`
-- [X] T018 Add OpenFGA model support for universal resource types and Slack channel relations in `deploy/openfga-experiment/model.fga`
-- [X] T019 Mirror the OpenFGA authorization model changes in `deploy/openfga-experiment/init/authorization-model.json`
+- [X] T018 Add OpenFGA model support for universal resource types and Slack channel relations in `deploy/openfga/model.fga`
+- [X] T019 Mirror the OpenFGA authorization model changes in `deploy/openfga/init/authorization-model.json`
 - [X] T020 Implement ReBAC admin API authorization helpers in `ui/src/app/api/admin/rebac/_lib.ts`
 - [X] T021 Implement Identity Group Sync API authorization helpers in `ui/src/app/api/admin/identity-group-sync/_lib.ts`
 - [X] T022 Implement Slack ReBAC API authorization helpers in `ui/src/app/api/admin/slack/channels/_lib.ts`
@@ -270,7 +270,7 @@
 - [X] T121 [P] Update RBAC workflow diagrams for dry-run/apply sync, policy authoring, graph access check, Slack invocation, and migration modes in `docs/docs/security/rbac/workflows.md`
 - [X] T122 [P] Update RBAC usage guide with quickstart/demo steps for identity sync and policy graph administration in `docs/docs/security/rbac/usage.md`
 - [X] T123 [P] Update RBAC file map with every new auth-relevant file in `docs/docs/security/rbac/file-map.md`
-- [X] T124 Update OpenFGA experiment README with model migration and tuple backfill instructions in `deploy/openfga-experiment/README.md`
+- [X] T124 Update OpenFGA README with model migration and tuple backfill instructions in `deploy/openfga/README.md`
 - [X] T125 Add migration/backfill operational script for membership sources and Slack grants in `scripts/backfill-universal-rebac.ts`
 - [X] T126 Add rollback helper for source-scoped tuple deletion in `scripts/rollback-universal-rebac-tuples.ts`
 - [X] T127 Add performance test for 500-group dry-run preview in `tests/rbac/unit/ts/identity-group-sync-performance.test.ts`

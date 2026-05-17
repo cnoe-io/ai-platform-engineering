@@ -29,7 +29,7 @@ function textResponse(status: number, statusText: string, body: string): Respons
 }
 
 describe("buildStreamErrorFromResponse", () => {
-  it("preserves all structured fields from a 401 BFF response", async () => {
+  it("preserves all structured fields from a 401 Web UI backend response", async () => {
     const res = jsonResponse(401, {
       success: false,
       error: "Your session has expired. Please sign in again.",
@@ -45,6 +45,24 @@ describe("buildStreamErrorFromResponse", () => {
     expect(err.code).toBe("BEARER_EXPIRED");
     expect(err.reason).toBe("session_expired");
     expect(err.action).toBe("sign_in");
+  });
+
+  it("preserves retryable PDP unavailable fields from a 503 Web UI backend response", async () => {
+    const res = jsonResponse(503, {
+      success: false,
+      error: "Authorization service is temporarily unavailable. Please try again in a moment.",
+      code: "PDP_UNAVAILABLE",
+      reason: "pdp_unavailable",
+      action: "retry",
+    });
+
+    const err = await buildStreamErrorFromResponse(res);
+    expect(err).toBeInstanceOf(StreamError);
+    expect(err.status).toBe(503);
+    expect(err.code).toBe("PDP_UNAVAILABLE");
+    expect(err.reason).toBe("pdp_unavailable");
+    expect(err.action).toBe("retry");
+    expect(err.isAuthError()).toBe(true);
   });
 
   it("falls back to raw text when body is non-JSON", async () => {

@@ -121,7 +121,7 @@ Key fields for security architects:
 | `iss` | Token issuer — services reject tokens from unknown issuers | Dynamic agents JWKS validation, RAG server |
 | `sub` | Opaque user ID (Keycloak UUID) — stable, not guessable | Conversation ownership, audit logs |
 | `email` | Human-readable identity — used for display and Slack linking | UI, supervisor user context |
-| `realm_access.roles` | Realm-level role assignments | Dynamic agents `is_admin`, BFF fallback checks, service-side defense in depth |
+| `realm_access.roles` | Realm-level role assignments | Dynamic agents `is_admin`, Web UI backend fallback checks, service-side defense in depth |
 | `exp` | Token expiry — enforced cryptographically | All JWKS validators, NextAuth refresh |
 | `act.sub` | Delegation chain — set on OBO tokens only | Audit: proves bot acted on behalf of user |
 | `tenant` | Multi-tenant data scoping | RAG server query isolation |

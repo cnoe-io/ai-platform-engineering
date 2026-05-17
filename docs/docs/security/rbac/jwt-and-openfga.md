@@ -82,7 +82,7 @@ The temporary `team_member:<slug>` realm role should disappear after all older t
 2. Keycloak issues a signed JWT.
 3. CAIPE services validate the JWT locally with JWKS.
 4. The service derives an OpenFGA subject from `sub` or from `active_team`.
-5. AgentGateway, the BFF, Slack bot, or RAG server asks OpenFGA for the resource decision.
+5. AgentGateway, the Web UI backend, Slack bot, or RAG server asks OpenFGA for the resource decision.
 6. OpenFGA allows only if a matching tuple path exists.
 
 In short: **JWT proves identity; OpenFGA proves access.**

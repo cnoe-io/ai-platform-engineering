@@ -18,6 +18,8 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 // ============================================================================
 
 let mockIsAdmin = false;
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
 jest.mock('@/hooks/use-admin-role', () => ({
   useAdminRole: () => ({ isAdmin: mockIsAdmin, loading: false }),
 }));
@@ -28,8 +30,8 @@ jest.mock('next-auth/react', () => ({
 }));
 
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), refresh: jest.fn() }),
+  useSearchParams: () => currentSearchParams,
+  useRouter: () => ({ push: jest.fn(), replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/admin',
 }));
 
@@ -312,6 +314,7 @@ describe('Admin Dashboard Page', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsAdmin = false;
+    currentSearchParams = new URLSearchParams();
   });
 
   describe('Loading state', () => {
@@ -433,6 +436,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('shows UserManagementTab column headers', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=users');
+
       render(<AdminPage />);
 
       await waitFor(() => {
@@ -453,11 +458,14 @@ describe('Admin Dashboard Page', () => {
       });
 
       fireEvent.click(screen.getByText('Security & Policy'));
+      expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /^Policy$/i })).not.toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toBeInTheDocument();
     });
 
     it('shows Keycloak role badges for listed users', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=users');
+
       render(<AdminPage />);
 
       await waitFor(() => {
@@ -497,6 +505,37 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /skills/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /ai review/i })).not.toBeInTheDocument();
+    });
+
+    it('defaults bare /admin to the System Default Agent tab', async () => {
+      render(<AdminPage />);
+
+      expect(await screen.findByText('System')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'System' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /default agent/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=system&tab=settings', {
+        scroll: false,
+      });
+    });
+
+    it('opens the requested category sub-tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=security&tab=openfga');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /openfga rebac/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
     });
   });
 

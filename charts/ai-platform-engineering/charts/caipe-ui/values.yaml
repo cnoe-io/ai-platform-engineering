@@ -197,6 +197,8 @@ config:
   TAGLINE: "Multi-Agent Workflow Automation"
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
+  # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
+  SLACK_WORKSPACE_ALIAS: "CAIPE"
   LOGO_URL: "/logo.svg"
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""
@@ -228,6 +230,8 @@ config:
   # Bootstrap admin emails — comma-separated list for initial admin setup.
   # Remove after configuring proper role mappings via the Admin > Roles tab.
   BOOTSTRAP_ADMIN_EMAILS: ""
+  CAIPE_ORG_KEY: "caipe"
+  CAIPE_ORG_DISPLAY_NAME: "CAIPE"
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Additional JWKS URIs for token validation (JSON array, non-sensitive)

@@ -159,7 +159,7 @@ There is **no cached realm-role list** in the clients. Keycloak reads `realm_acc
 | 3. Keycloak user is resolved by email | gives the stable `sub` used in OpenFGA subjects | `ui/src/lib/rbac/keycloak-admin.ts` |
 | 4. OpenFGA membership tuple is written | `user:<sub> member team:<slug>` | `ui/src/app/api/admin/teams/[id]/members/route.ts` |
 | 5. Next team-scoped token mint | Keycloak signs `active_team=<slug>` when requested | Keycloak client scope mapper |
-| 6. AgentGateway ext_authz evaluates | OpenFGA checks the subject/resource tuple graph | `deploy/openfga-experiment/bridge/main.py` |
+| 6. AgentGateway ext_authz evaluates | OpenFGA checks the subject/resource tuple graph | `deploy/openfga/bridge/main.py` |
 
 ---
 
@@ -355,7 +355,7 @@ This is the security crux and the only "redundancy" in the model worth keeping. 
 |---|---|---|
 | Keycloak (the IdP itself) | It owns every other entity above; drawing it as a node adds clutter without information. | Implicit. Mentioned in [Component 1](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | JWKS / signing keys | Cryptographic plumbing — concerns key rotation, not data shape. | [Workflows — JWT validation](./workflows.md). |
-| AgentGateway ext_authz / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, `deploy/agentgateway/config.yaml`, and `deploy/openfga-experiment/bridge/main.py`. |
+| AgentGateway ext_authz / per-agent auth code | Those are *enforcement code*, not data. | The [enforcement diagram](#enforcement--how-decisions-actually-get-made-pep--pdp) below, `deploy/agentgateway/config.yaml`, and `deploy/openfga/bridge/main.py`. |
 | OIDC clients (`caipe-platform`, `caipe-slack-bot`, `agentgateway`) | The client mostly affects audience and which scopes are bound by default, not the per-request decision shape. | [Component 1 — OIDC clients table](./architecture.md#component-1-keycloak--hr--the-front-desk). |
 | `ROLE_ASSIGNMENT` / `TEAM_MEMBERSHIP` join tables | These are mechanical M:N joins that the ER notation already represents with the relationship line. | n/a. |
 
@@ -412,8 +412,8 @@ sequenceDiagram
     Note right of KC: caipe-platform has no team scope
 
     User->>UI: Click "Use Jira search issues"
-    UI->>UI: BFF checks route permission / ReBAC access
-    alt BFF allows
+    UI->>UI: Web UI backend checks route permission / ReBAC access
+    alt Web UI backend allows
         UI->>SUP: HTTPS + Bearer JWT
         SUP->>AGW: Forward Bearer JWT
         AGW->>AGW: jwtAuth verifies signature against JWKS
@@ -426,12 +426,12 @@ sequenceDiagram
         else OpenFGA denies
             AGW-->>User: 403 Forbidden
         end
-    else BFF denies
+    else Web UI backend denies
         UI-->>User: UI hides action or 403
     end
 ```
 
-**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs usually ship **without** an `active_team` claim. Web UI authorization is therefore mediated by BFF route gates and OpenFGA relationship checks rather than by editing AgentGateway rules.
+**Key point about the Web UI:** today the UI client (`caipe-platform`) doesn't bind any `team-<slug>` scope, so its JWTs usually ship **without** an `active_team` claim. Web UI authorization is therefore mediated by Web UI backend route gates and OpenFGA relationship checks rather than by editing AgentGateway rules.
 
 ### 2. Slack user posting in a channel
 
@@ -525,7 +525,7 @@ sequenceDiagram
 
 | Caller | `active_team` claim | Required roles to invoke `tool_user:<X>` | Source of team context |
 |---|---|---|---|
-| **Web UI user (non-admin)** | ❌ absent | Matching OpenFGA relationship, usually via BFF-mediated resource access | (no team context today; Spec 104 follow-up) |
+| **Web UI user (non-admin)** | ❌ absent | Matching OpenFGA relationship, usually via Web UI backend-mediated resource access | (no team context today; Spec 104 follow-up) |
 | **Web UI user (admin)** | ❌ absent | `admin_user` (bypasses everything) | n/a — global admin |
 | **Slack channel user** | ✅ `<team-slug>` | `tool_user:<X>` **AND** `team_member:<team-slug>` | MongoDB `channel_team_resolver` (channel ID → team slug) |
 | **Slack DM user** | ✅ `__personal__` | `tool_user:<X>` only | sentinel `__personal__` (no team) |

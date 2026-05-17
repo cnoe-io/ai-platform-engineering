@@ -15,11 +15,11 @@ describe("universal ReBAC OpenFGA tuple builders", () => {
     expect(openFgaObject({ type: "slack_channel", id: "T1--C1" })).toBe("slack_channel:T1--C1");
   });
 
-  it("maps universal actions to stable OpenFGA relation names", () => {
-    expect(openFgaRelation("use")).toBe("can_use");
-    expect(openFgaRelation("read-metadata")).toBe("can_read_metadata");
-    expect(openFgaRelation("call")).toBe("can_call");
-    expect(openFgaRelation("invoke")).toBe("can_invoke");
+  it("maps universal actions to base writable OpenFGA relation names", () => {
+    expect(openFgaRelation("use")).toBe("user");
+    expect(openFgaRelation("read-metadata")).toBe("metadata_reader");
+    expect(openFgaRelation("call")).toBe("caller");
+    expect(openFgaRelation("invoke")).toBe("invoker");
   });
 
   it("builds a tuple from a validated universal relationship", () => {
@@ -31,7 +31,7 @@ describe("universal ReBAC OpenFGA tuple builders", () => {
       })
     ).toEqual({
       user: "team:platform#member",
-      relation: "can_call",
+      relation: "caller",
       object: "tool:argocd",
     });
   });
@@ -62,14 +62,14 @@ describe("universal ReBAC OpenFGA tuple builders", () => {
       writes: [
         {
           user: "user:alice-sub",
-          relation: "can_read",
+          relation: "reader",
           object: "knowledge_base:platform-runbooks",
         },
       ],
       deletes: [
         {
           user: "user:alice-sub",
-          relation: "can_read",
+          relation: "reader",
           object: "knowledge_base:platform-runbooks",
         },
       ],

@@ -24,6 +24,7 @@ serviceAccount:
 #   CAIPE_API_URL:                     Next.js gateway URL the bot routes requests through
 #   SLACK_INTEGRATION_SILENCE_ENV:     "true" to suppress environment info in responses
 #   SLACK_WORKSPACE_URL:               e.g. "https://mycompany.slack.com" for permalink deep links
+#   SLACK_WORKSPACE_ALIAS:             Canonical workspace alias used for Slack ReBAC/routes
 #   MONGODB_URI:                       MongoDB connection string
 #   MONGODB_DATABASE:                  MongoDB database name (default: caipe)
 #   SLACK_INTEGRATION_ENABLE_AUTH:     "true" to enable OAuth2 Client Credentials
@@ -37,6 +38,8 @@ serviceAccount:
 #   SLACK_INTEGRATION_PROMPT_MENTION:         Override mention prompt
 #   SLACK_INTEGRATION_PROMPT_HUMBLE_FOLLOWUP: Override humble followup prompt
 #   SLACK_INTEGRATION_PROMPT_AI_ALERTS:       Override AI alerts prompt
+#   SLACK_AGENT_ROUTES_MODE:                  Route source: "db_prefer" (default),
+#                                             "config", or "db_only"
 #
 # Spec 103 (Just-In-Time Keycloak user creation):
 #   SLACK_JIT_CREATE_USER:               "true" (default) auto-creates a
@@ -62,6 +65,8 @@ config:
   CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
   SLACK_INTEGRATION_SILENCE_ENV: "false"
   MONGODB_DATABASE: "caipe"
+  SLACK_WORKSPACE_ALIAS: "CAIPE"
+  SLACK_AGENT_ROUTES_MODE: "db_prefer"
   SLACK_JIT_CREATE_USER: "true"
   SLACK_JIT_ALLOWED_EMAIL_DOMAINS: ""
 

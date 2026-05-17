@@ -19,6 +19,17 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
 
+async function canManageDynamicAgents(
+  session: Parameters<typeof requireRbacPermission>[0]
+): Promise<boolean> {
+  try {
+    await requireRbacPermission(session, "dynamic_agent", "manage");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * GET /api/dynamic-agents/agents/[id]
  * Fetch a single dynamic agent by ID.
@@ -37,6 +48,7 @@ export const GET = withErrorHandler(
 
     const { user, session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "dynamic_agent", "view");
+    const canManageAllAgents = await canManageDynamicAgents(session);
 
       const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -48,7 +60,7 @@ export const GET = withErrorHandler(
       }
 
       // Check access permissions (unless admin)
-      if (session.role !== "admin") {
+      if (!canManageAllAgents) {
         const userTeams = await getUserTeamIds(user.email);
 
         const hasAccess =

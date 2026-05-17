@@ -120,7 +120,7 @@ export interface Config {
   npsEnabled: boolean;
   /**
    * Whether the admin audit logs feature is enabled.
-   * When false (default), the Audit Logs tab is hidden and API routes return 403.
+   * When false (default), the Chat Audit tab is hidden and API routes return 403.
    * Set AUDIT_LOGS_ENABLED=true to enable.
    */
   auditLogsEnabled: boolean;

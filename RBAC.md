@@ -312,7 +312,7 @@ curl -X POST http://localhost:3000/api/dynamic-agents \
 ### 2. Grant the Slack Channel Access in OpenFGA
 
 Use **Admin → Security & Policy → OpenFGA ReBAC → Slack Channels** to grant
-`slack_channel:<workspace>--<channel> can_use agent:devops-helper`. Team/channel
+`slack_channel:<channel> can_use agent:devops-helper`. Team/channel
 ownership is managed separately from the team's Slack Channels tab.
 
 ### 3. User Sends Message in Slack

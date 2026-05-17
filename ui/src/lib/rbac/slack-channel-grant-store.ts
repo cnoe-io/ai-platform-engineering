@@ -26,8 +26,16 @@ export const SLACK_CHANNEL_GRANT_RESOURCE_TYPES = new Set<SlackChannelGrantResou
   "task",
 ]);
 
+export function slackWorkspaceRef(workspaceId?: string | null): string {
+  const alias = process.env.SLACK_WORKSPACE_ALIAS?.trim();
+  if (alias) return alias;
+  const candidate = workspaceId?.trim();
+  if (candidate) return candidate;
+  return process.env.SLACK_WORKSPACE_ID?.trim() || "unknown";
+}
+
 export function slackChannelSubjectId(workspaceId: string, channelId: string): string {
-  return `${workspaceId}--${channelId}`;
+  return `${slackWorkspaceRef(workspaceId)}--${channelId}`;
 }
 
 export async function listSlackChannelGrants(
@@ -35,9 +43,10 @@ export async function listSlackChannelGrants(
   channelId: string
 ): Promise<SlackChannelGrantDocument[]> {
   const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
   const rows = await collection
     .find({
-      workspace_id: workspaceId,
+      workspace_id: workspaceRef,
       channel_id: channelId,
       status: "active",
     } as never)
@@ -54,23 +63,24 @@ export async function replaceSlackChannelGrants(
 ): Promise<SlackChannelGrantDocument[]> {
   const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
   const now = new Date().toISOString();
+  const workspaceRef = slackWorkspaceRef(workspaceId);
 
   await collection.updateMany(
-    { workspace_id: workspaceId, channel_id: channelId, status: "active" } as never,
+    { workspace_id: workspaceRef, channel_id: channelId, status: "active" } as never,
     { $set: { status: "revoked", updated_by: actor, updated_at: now } }
   );
 
   for (const grant of grants) {
     await collection.updateOne(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceRef,
         channel_id: channelId,
         "resource.type": grant.resource.type,
         "resource.id": grant.resource.id,
       } as never,
       {
         $set: {
-          workspace_id: workspaceId,
+          workspace_id: workspaceRef,
           channel_id: channelId,
           resource: grant.resource,
           actions: grant.actions,
@@ -86,7 +96,7 @@ export async function replaceSlackChannelGrants(
     );
   }
 
-  return listSlackChannelGrants(workspaceId, channelId);
+  return listSlackChannelGrants(workspaceRef, channelId);
 }
 
 export async function ensureRouteOwnedAgentGrants(
@@ -97,11 +107,12 @@ export async function ensureRouteOwnedAgentGrants(
 ): Promise<void> {
   const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
   const now = new Date().toISOString();
+  const workspaceRef = slackWorkspaceRef(workspaceId);
   const uniqueAgentIds = Array.from(new Set(agentIds.map((id) => id.trim()).filter(Boolean)));
 
   await collection.updateMany(
     {
-      workspace_id: workspaceId,
+      workspace_id: workspaceRef,
       channel_id: channelId,
       source_type: "route",
       status: "active",
@@ -114,14 +125,14 @@ export async function ensureRouteOwnedAgentGrants(
   for (const agentId of uniqueAgentIds) {
     await collection.updateOne(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceRef,
         channel_id: channelId,
         "resource.type": "agent",
         "resource.id": agentId,
       } as never,
       {
         $set: {
-          workspace_id: workspaceId,
+          workspace_id: workspaceRef,
           channel_id: channelId,
           resource: { type: "agent", id: agentId },
           actions: ["use"],

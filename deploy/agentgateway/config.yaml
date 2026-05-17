@@ -57,13 +57,16 @@ binds:
           # - name: github
           #   mcp:
           #     host: http://github-mcp-server:8082/sse
-          # rag-server hostname is the canonical compose service (renamed
-          # from `rag_server` because AGW's hickory-dns resolver rejects
-          # underscores in DNS labels per RFC 1035). The old `rag_server`
-          # name is kept as a network alias for backwards compatibility.
-          - name: rag
-            mcp:
-              host: http://rag-server:9446/mcp
+          # NOTE: rag is intentionally not active in this shared AgentGateway
+          # target set yet. AgentGateway initializes every target in a multi-MCP
+          # backend during session setup; rag-server currently requires its own
+          # bearer validation and returns 401 when AGW does not forward upstream
+          # auth, which aborts Jira initialization too. Re-enable rag after AGW
+          # can inject/pass through upstream auth per target or after rag accepts
+          # AGW as the sole PEP.
+          # - name: rag
+          #   mcp:
+          #     host: http://rag-server:9446/mcp
           # Jira MCP — fronted by AgentGateway so ext_authz/OpenFGA remains the
           # source of truth for RBAC (FR-016). The upstream `mcp-jira` service must run
           # with `MCP_AUTH_MODE=none` (no per-MCP middleware) on the AG path so

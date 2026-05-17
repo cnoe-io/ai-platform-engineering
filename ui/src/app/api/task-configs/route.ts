@@ -6,6 +6,7 @@ import {
   successResponse,
   ApiError,
   getUserTeamIds,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type {
   TaskConfig,
@@ -15,10 +16,6 @@ import type {
 } from "@/types/task-config";
 import { extractEnvVars, toTaskConfigYamlFormat } from "@/types/task-config";
 import { syncTaskResource } from "@/lib/rbac/keycloak-resource-sync";
-import {
-  extractRealmRolesFromSession,
-  extractTaskAccessFromJwtRoles,
-} from "@/lib/rbac/task-skill-realm-access";
 
 /**
  * Task Config API Routes
@@ -32,8 +29,13 @@ import {
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 const VALID_VISIBILITIES: TaskConfigVisibility[] = ["private", "team", "global"];
 
-function isUserAdmin(user: { email: string; role?: string }): boolean {
-  return user.role === "admin";
+async function canManageTaskConfigs(session: Parameters<typeof requireRbacPermission>[0]): Promise<boolean> {
+  try {
+    await requireRbacPermission(session, "skill", "configure");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function saveTaskConfig(config: TaskConfig): Promise<void> {
@@ -44,7 +46,8 @@ async function saveTaskConfig(config: TaskConfig): Promise<void> {
 async function updateTaskConfig(
   id: string,
   updates: Partial<TaskConfig>,
-  user: { email: string; role?: string }
+  user: { email: string; role?: string },
+  opts: { isAdmin: boolean }
 ): Promise<void> {
   const collection = await getCollection<TaskConfig>("task_configs");
   const existing = await collection.findOne({ id });
@@ -53,7 +56,7 @@ async function updateTaskConfig(
     throw new ApiError("Task config not found", 404);
   }
 
-  if (existing.is_system && !isUserAdmin(user)) {
+  if (existing.is_system && !opts.isAdmin) {
     throw new ApiError("Only admins can modify system task configurations", 403);
   }
 
@@ -69,7 +72,8 @@ async function updateTaskConfig(
 
 async function deleteTaskConfig(
   id: string,
-  user: { email: string; role?: string }
+  user: { email: string; role?: string },
+  opts: { isAdmin: boolean }
 ): Promise<void> {
   const collection = await getCollection<TaskConfig>("task_configs");
   const existing = await collection.findOne({ id });
@@ -78,7 +82,7 @@ async function deleteTaskConfig(
     throw new ApiError("Task config not found", 404);
   }
 
-  if (existing.is_system && !isUserAdmin(user)) {
+  if (existing.is_system && !opts.isAdmin) {
     throw new ApiError("Only admins can delete system task configurations", 403);
   }
 
@@ -95,7 +99,7 @@ async function deleteTaskConfig(
 
 async function getTaskConfigs(
   ownerEmail: string,
-  opts: { isAdmin: boolean; realmRoles: string[] }
+  opts: { isAdmin: boolean }
 ): Promise<TaskConfig[]> {
   const collection = await getCollection<TaskConfig>("task_configs");
 
@@ -107,9 +111,6 @@ async function getTaskConfigs(
   }
 
   const userTeamIds = await getUserTeamIds(ownerEmail);
-  const { allGrantedTaskIds } = extractTaskAccessFromJwtRoles(opts.realmRoles);
-  const roleClause =
-    allGrantedTaskIds.length > 0 ? [{ id: { $in: allGrantedTaskIds } }] : [];
 
   return collection
     .find({
@@ -120,7 +121,6 @@ async function getTaskConfigs(
         ...(userTeamIds.length > 0
           ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
           : []),
-        ...roleClause,
       ],
     })
     .sort({ is_system: -1, category: 1, name: 1 })
@@ -130,7 +130,7 @@ async function getTaskConfigs(
 async function getTaskConfigById(
   id: string,
   ownerEmail: string,
-  opts: { isAdmin: boolean; realmRoles: string[] }
+  opts: { isAdmin: boolean }
 ): Promise<TaskConfig | null> {
   const collection = await getCollection<TaskConfig>("task_configs");
 
@@ -139,8 +139,6 @@ async function getTaskConfigById(
   }
 
   const userTeamIds = await getUserTeamIds(ownerEmail);
-  const { allGrantedTaskIds } = extractTaskAccessFromJwtRoles(opts.realmRoles);
-  const grantedByRole = new Set(allGrantedTaskIds);
 
   return collection.findOne({
     id,
@@ -151,7 +149,6 @@ async function getTaskConfigById(
       ...(userTeamIds.length > 0
         ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
         : []),
-      ...(grantedByRole.has(id) ? [{ id }] : []),
     ],
   });
 }
@@ -237,9 +234,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const format = searchParams.get("format");
 
   return await withAuth(request, async (_req, user, session) => {
-    const realmRoles = extractRealmRolesFromSession(session);
-    const isAdmin = user.role === "admin";
-    const listOpts = { isAdmin, realmRoles };
+    const listOpts = { isAdmin: await canManageTaskConfigs(session) };
 
     if (id) {
       const config = await getTaskConfigById(id, user.email, listOpts);
@@ -272,7 +267,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Task config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const body: UpdateTaskConfigInput = await request.json();
 
     if (Object.keys(body).length === 0) {
@@ -317,7 +312,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
-    await updateTaskConfig(id, body, user);
+    await updateTaskConfig(id, body, user, { isAdmin: await canManageTaskConfigs(session) });
 
     return successResponse({ id, message: "Task config updated successfully" });
   });
@@ -335,8 +330,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Task config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
-    await deleteTaskConfig(id, user);
+  return await withAuth(request, async (_req, user, session) => {
+    await deleteTaskConfig(id, user, { isAdmin: await canManageTaskConfigs(session) });
     return successResponse({ id, message: "Task config deleted successfully" });
   });
 });

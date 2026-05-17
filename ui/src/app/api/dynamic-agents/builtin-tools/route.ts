@@ -7,7 +7,7 @@
  * service runs with `DA_REQUIRE_BEARER=true` (the Spec 102 Phase 8 kill-
  * switch) so every request must carry the user's session JWT. We forward
  * it via the shared `da-proxy` helper, matching every other DA proxy
- * route in the BFF.
+ * route in the Web UI backend.
  */
 
 import { NextRequest, NextResponse } from "next/server";

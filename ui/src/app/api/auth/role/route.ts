@@ -1,9 +1,9 @@
-// GET /api/auth/role - Get user role with MongoDB + bootstrap fallback
+// GET /api/auth/role - Get coarse UI role from OpenFGA + bootstrap fallback
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
-import { getCollection } from '@/lib/mongodb';
-import type { User } from '@/types/mongodb';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
+import { organizationObjectId } from '@/lib/rbac/organization';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let role = session.role || 'user';
+  let role = 'user';
 
   if (role !== 'admin') {
     // Check bootstrap admin emails (solves chicken-and-egg problem)
@@ -22,19 +22,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Fallback: Check MongoDB user profile if not admin via OIDC or bootstrap
-  if (role !== 'admin') {
+  if (role !== 'admin' && session.sub) {
     try {
-      const users = await getCollection<User>('users');
-      const dbUser = await users.findOne({ email: session.user.email });
-
-      if (dbUser?.metadata?.role === 'admin') {
+      const decision = await checkOpenFgaTuple({
+        user: `user:${session.sub}`,
+        relation: 'can_manage',
+        object: organizationObjectId(),
+      });
+      if (decision.allowed) {
         role = 'admin';
-        console.log(`[Auth Role API] User ${session.user.email} is admin via MongoDB profile`);
       }
     } catch (error) {
-      // MongoDB not available - continue with OIDC role
-      console.warn('[Auth Role API] Could not check MongoDB for admin role:', error);
+      console.warn('[Auth Role API] Could not check OpenFGA organization admin relationship:', error);
     }
   }
 

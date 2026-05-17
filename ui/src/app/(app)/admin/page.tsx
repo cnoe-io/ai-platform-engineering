@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
@@ -208,6 +208,9 @@ interface Team {
 const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga', 'ai-review', 'settings'] as const;
 
 type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'system';
+const DEFAULT_ADMIN_TAB = 'settings';
+const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
   key: CategoryKey;
@@ -268,8 +271,8 @@ const CATEGORIES: Category[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
-      { value: 'audit-logs', label: 'Audits', icon: FileText, gateKey: 'audit_logs' },
-      { value: 'action-audit', label: 'Action Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
     ],
   },
@@ -279,7 +282,15 @@ function categoryForTab(tab: string): CategoryKey {
   for (const cat of CATEGORIES) {
     if (cat.tabs.some((t) => t.value === tab)) return cat.key;
   }
-  return 'people';
+  return DEFAULT_ADMIN_CATEGORY;
+}
+
+function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
+  return Boolean(tab && (VALID_TABS as readonly string[]).includes(tab));
+}
+
+function isValidCategory(category: string | null): category is CategoryKey {
+  return Boolean(category && CATEGORIES.some((c) => c.key === category));
 }
 
 function AdminPage() {
@@ -287,7 +298,7 @@ function AdminPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const { isAdmin } = useAdminRole();
+  const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const { gates } = useAdminTabGates();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
@@ -300,13 +311,15 @@ function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
+  const userSelectedAdminTabRef = useRef(false);
   const initialTab = searchParams.get('tab');
+  const defaultTab = isAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
   const [activeTab, setActiveTab] = useState<string>(
-    initialTab && (VALID_TABS as readonly string[]).includes(initialTab) ? initialTab : 'users'
+    isValidTab(initialTab) ? initialTab : defaultTab
   );
   const initialCat = searchParams.get('cat') as CategoryKey | null;
   const [activeCategory, setActiveCategory] = useState<CategoryKey>(
-    initialCat && CATEGORIES.some((c) => c.key === initialCat)
+    isValidCategory(initialCat)
       ? initialCat
       : categoryForTab(activeTab)
   );
@@ -339,8 +352,74 @@ function AdminPage() {
     [activeCategory, tabGateValues]
   );
 
+  useEffect(() => {
+    if (adminRoleLoading) return;
+    if (visibleCategories.length === 0) return;
+
+    const requestedTab = searchParams.get('tab');
+    const requestedCategory = searchParams.get('cat');
+    const tabFromUrl = isValidTab(requestedTab) ? requestedTab : null;
+    const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
+    const defaultCategory = categoryForTab(defaultTab);
+
+    if (
+      !requestedTab &&
+      !requestedCategory &&
+      userSelectedAdminTabRef.current &&
+      (activeTab !== defaultTab || activeCategory !== defaultCategory)
+    ) {
+      return;
+    }
+
+    let nextCategory: CategoryKey | undefined;
+    let nextTab: string | undefined;
+    const tabConfig = tabFromUrl
+      ? CATEGORIES.flatMap((category) => category.tabs).find((tab) => tab.value === tabFromUrl)
+      : undefined;
+
+    if (tabFromUrl && tabConfig && tabGateValues[tabConfig.gateKey]) {
+      nextTab = tabFromUrl;
+      nextCategory = categoryForTab(tabFromUrl);
+    } else {
+      const preferredCategory =
+        categoryFromUrl && visibleCategories.some((category) => category.key === categoryFromUrl)
+          ? categoryFromUrl
+          : defaultCategory;
+      const fallbackCategory = visibleCategories.some((category) => category.key === preferredCategory)
+        ? preferredCategory
+        : visibleCategories[0].key;
+      nextCategory = fallbackCategory;
+      nextTab = CATEGORIES.find((category) => category.key === fallbackCategory)?.tabs.find(
+        (tab) => tabGateValues[tab.gateKey]
+      )?.value;
+    }
+
+    if (!nextCategory || !nextTab) return;
+
+    if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
+    if (activeTab !== nextTab) setActiveTab(nextTab);
+
+    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('cat', nextCategory);
+      params.set('tab', nextTab);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  }, [
+    activeCategory,
+    activeTab,
+    adminRoleLoading,
+    defaultTab,
+    pathname,
+    router,
+    searchParams,
+    tabGateValues,
+    visibleCategories,
+  ]);
+
   const handleCategoryChange = useCallback(
     (catKey: CategoryKey) => {
+      userSelectedAdminTabRef.current = true;
       setActiveCategory(catKey);
       const cat = CATEGORIES.find((c) => c.key === catKey);
       if (!cat) return;
@@ -880,6 +959,7 @@ function AdminPage() {
 
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
+              userSelectedAdminTabRef.current = true;
               setActiveTab(tab);
               setActiveCategory(categoryForTab(tab));
               const params = new URLSearchParams(searchParams.toString());

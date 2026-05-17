@@ -1,5 +1,6 @@
 import { getCollection } from "@/lib/mongodb";
 import { listResourceTypeDefinitions } from "@/lib/rbac/resource-model";
+import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import type {
   UniversalRebacResourceType,
   UniversalRebacResourceTypeDefinition,
@@ -157,7 +158,7 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
     ]),
     ...Array.from(kbIds).map((id) => resource("knowledge_base", id, id, "rebac_shadowed")),
     ...slackMappings.flatMap((mapping) => {
-      const workspaceId = mapping.slack_workspace_id || "default";
+      const workspaceId = slackWorkspaceRef(mapping.slack_workspace_id);
       const channelId = mapping.slack_channel_id || mapping.channel_name || "unknown";
       return [
         resource("slack_workspace", workspaceId, workspaceId, "role_gated"),

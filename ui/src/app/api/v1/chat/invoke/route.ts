@@ -11,6 +11,8 @@ import {
   getDynamicAgentsConfig,
   proxyJSONRequest,
 } from "../_helpers";
+import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes — invoke runs the full agent loop
@@ -41,6 +43,18 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 400 },
     );
   }
+
+  const traceContext = createAuthzTraceContext(request.headers.get("traceparent"));
+  authResult.traceparent = traceContext.traceparent;
+
+  const authzResponse = await requireAgentUsePermission({
+    subject: authResult.subject,
+    agentId: body.agent_id,
+    email: authResult.email,
+    tenantId: authResult.tenantId,
+    traceparent: traceContext.traceparent,
+  });
+  if (authzResponse) return authzResponse;
 
   // Forward body as-is to DA backend (same path, same body format)
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/invoke`;

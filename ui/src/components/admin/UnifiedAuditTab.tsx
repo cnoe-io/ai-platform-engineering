@@ -11,6 +11,7 @@ import {
   Shield,
   Wrench,
   GitBranch,
+  Network,
   Clock,
   X,
   ChevronDown,
@@ -34,8 +35,9 @@ interface PaginatedResult {
 }
 
 const TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "All types" },
+  { value: "", label: "Default view" },
   { value: "auth", label: "Authorization" },
+  { value: "openfga_rebac", label: "OpenFGA ReBAC" },
   { value: "tool_action", label: "Tool Action" },
   { value: "agent_delegation", label: "Agent Delegation" },
 ];
@@ -62,6 +64,13 @@ function TypeBadge({ type }: { type: AuditEventType }) {
         <Badge variant="outline" className="text-emerald-600 border-emerald-300 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800 gap-1">
           <Wrench className="h-3 w-3" />
           Tool
+        </Badge>
+      );
+    case "openfga_rebac":
+      return (
+        <Badge variant="outline" className="text-cyan-600 border-cyan-300 bg-cyan-50 dark:bg-cyan-950 dark:text-cyan-400 dark:border-cyan-800 gap-1">
+          <Network className="h-3 w-3" />
+          OpenFGA ReBAC
         </Badge>
       );
     case "agent_delegation":
@@ -118,6 +127,11 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+function displaySource(source?: string): string {
+  if (source === "bff") return "webui_backend";
+  return source || "—";
+}
+
 export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   const [result, setResult] = useState<PaginatedResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,7 +184,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 
   useEffect(() => {
     if (autoRefresh) {
-      autoRefreshRef.current = setInterval(() => fetchEvents(page), 30_000);
+      autoRefreshRef.current = setInterval(() => {
+        fetchEvents(page);
+      }, 30_000);
     }
     return () => {
       if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
@@ -206,9 +222,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg">Action Audit Log</CardTitle>
+            <CardTitle className="text-lg">RBAC Audit Log</CardTitle>
             <CardDescription>
-              Unified view of authorization decisions, tool invocations, and agent delegations
+              Unified view of authorization decisions, OpenFGA ReBAC checks, tool invocations, and agent delegations
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -284,6 +300,11 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
             Search
           </Button>
         </div>
+        {!typeFilter && (
+          <p className="text-xs text-muted-foreground mb-3">
+            Default view hides routine admin page-view checks. Select Authorization to include them.
+          </p>
+        )}
 
         {/* Error */}
         {error && (
@@ -313,6 +334,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
                     <th className="px-3 py-2 font-medium w-8" />
                     <th className="px-3 py-2 font-medium">Time</th>
                     <th className="px-3 py-2 font-medium">Type</th>
+                    <th className="px-3 py-2 font-medium">Source</th>
                     <th className="px-3 py-2 font-medium">Action</th>
                     <th className="px-3 py-2 font-medium">Agent</th>
                     <th className="px-3 py-2 font-medium">User</th>
@@ -323,7 +345,7 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
                 <tbody>
                   {result.records.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                      <td colSpan={9} className="px-3 py-8 text-center text-muted-foreground">
                         No audit events found for the selected filters.
                       </td>
                     </tr>
@@ -350,6 +372,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
                           <td className="px-3 py-2">
                             <TypeBadge type={evt.type} />
                           </td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground max-w-[160px] truncate" title={displaySource(evt.source)}>
+                            {displaySource(evt.source)}
+                          </td>
                           <td className="px-3 py-2 font-mono text-xs max-w-[200px] truncate" title={evt.action}>
                             {evt.action}
                           </td>
@@ -374,14 +399,15 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
                         </tr>
                         {isExpanded && (
                           <tr className="border-t bg-muted/20">
-                            <td colSpan={8} className="px-6 py-4">
+                            <td colSpan={9} className="px-6 py-4">
                               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
                                 <DetailField label="Correlation ID" value={evt.correlation_id} />
                                 <DetailField label="Context ID" value={evt.context_id} />
                                 <DetailField label="Component" value={evt.component} />
-                                <DetailField label="Source" value={evt.source} />
+                                <DetailField label="Source" value={displaySource(evt.source)} />
                                 <DetailField label="Tool" value={evt.tool_name} />
                                 <DetailField label="PDP" value={evt.pdp} />
+                                <DetailField label="Trace ID" value={evt.trace_id} mono />
                                 <DetailField label="Reason Code" value={evt.reason_code} />
                                 <DetailField label="Resource Ref" value={evt.resource_ref} />
                                 <DetailField label="Subject Hash" value={evt.subject_hash} mono />

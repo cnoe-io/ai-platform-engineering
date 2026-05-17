@@ -1,9 +1,14 @@
 """MCP Client wrapper for Dynamic Agents."""
 
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import logging
 import os
 import ssl
+import time
 from typing import Any, Callable
 
 import httpx
@@ -14,6 +19,34 @@ from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
 
 logger = logging.getLogger(__name__)
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def build_agent_context_headers(agent_id: str, *, now: int | None = None) -> dict[str, str]:
+    """Build signed AgentGateway context headers for per-agent tool policy.
+
+    The bridge only trusts this context when both Dynamic Agents and the bridge
+    share ``CAIPE_AGENT_CONTEXT_HMAC_SECRET``. Without that secret we omit the
+    headers and the gateway falls back to coarse user-level authorization.
+    """
+    secret = os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
+    if not secret:
+        return {}
+    issued_at = int(now if now is not None else time.time())
+    payload = {
+        "agent_id": agent_id,
+        "iat": issued_at,
+        "exp": issued_at + 300,
+    }
+    encoded = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-CAIPE-Agent-Context": encoded,
+        "X-CAIPE-Agent-Context-Signature": signature,
+    }
 
 
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
@@ -73,6 +106,7 @@ def build_mcp_connection_config(
     *,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
+    agent_id: str | None = None,
 ) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
@@ -87,11 +121,16 @@ def build_mcp_connection_config(
     headers: dict[str, str] = {}
     if auth_bearer:
         headers["Authorization"] = f"Bearer {auth_bearer}"
+    if agent_id:
+        headers.update(build_agent_context_headers(agent_id))
 
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
     # per-request user JWT (from current_user_token ContextVar) is injected
     # on every outbound connection, even after this config is built.
     factory = build_httpx_client_factory()
+    token = current_user_token.get()
+    if token and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {token}"
 
     def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
         cfg = {**cfg, "httpx_client_factory": factory}
@@ -140,6 +179,7 @@ def build_mcp_connections(
     *,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
+    agent_id: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
@@ -169,6 +209,7 @@ def build_mcp_connections(
             server,
             agent_gateway_url=agent_gateway_url,
             auth_bearer=auth_bearer,
+            agent_id=agent_id,
         )
 
     return connections

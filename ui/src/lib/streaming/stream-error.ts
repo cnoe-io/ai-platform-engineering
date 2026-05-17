@@ -2,8 +2,8 @@
  * Shared error type for stream adapters (custom + agui).
  *
  * Both adapters call POST /api/v1/chat/stream/start, which is gated by the
- * BFF's structured auth-error contract (see ui/src/lib/auth-error.ts and
- * ui/src/lib/api-middleware.ts). When the BFF rejects the stream with 401
+ * Web UI backend's structured auth-error contract (see ui/src/lib/auth-error.ts and
+ * ui/src/lib/api-middleware.ts). When the Web UI backend rejects the stream with 401
  * or 403, we want the chat panel to know it was an auth failure (so it can
  * show a toast with a "Sign in" / "Contact admin" affordance) instead of
  * inlining `**Error:** HTTP error: 401 ...` into the assistant turn.
@@ -38,7 +38,7 @@ export class StreamError extends Error {
 
 /**
  * Build a {@link StreamError} from a non-OK fetch `Response`. Tries to
- * extract the BFF's structured `{error, code, reason, action}` body; falls
+ * extract the Web UI backend's structured `{error, code, reason, action}` body; falls
  * back to the response status text when the body is missing or non-JSON.
  *
  * Always consumes the response body.

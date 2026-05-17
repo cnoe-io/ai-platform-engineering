@@ -1,8 +1,8 @@
 """Canonical Python `requireRbacPermission` helper (spec 102 T021, FR-002).
 
-Mirrors `ui/src/lib/rbac/keycloak-authz.ts` (TS). Both runtimes MUST behave
-identically for the same `(token, resource, scope)` triple — this is asserted
-by `tests/rbac/unit/py/test_helper_parity.py`.
+Mirrors the UI BFF organization ReBAC gate. Keycloak is identity-only for
+CAIPE authorization; this helper checks OpenFGA organization relationships
+and only falls back to BOOTSTRAP_ADMIN_EMAILS for break-glass setup.
 
 Public API:
     - `require_rbac_permission(token, resource, scope, *, service, ...) -> AuthzDecision`
@@ -35,8 +35,6 @@ from ai_platform_engineering.utils.auth.metrics import (
     record_decision,
     time_pdp,
 )
-from ai_platform_engineering.utils.auth.realm_extras import get_fallback_rule
-
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +59,7 @@ class AuthzDecision:
 
     allowed: bool
     reason: AuthzReason
-    source: Literal["keycloak", "cache", "local"]
+    source: Literal["openfga", "cache", "local"]
 
 
 # ── Context propagation ──────────────────────────────────────────────────────
@@ -85,16 +83,35 @@ _CACHE: TTLCache[str, AuthzDecision] = TTLCache(
 )
 
 
-def _kc_url() -> str:
-    return os.environ.get("KEYCLOAK_URL", "http://localhost:7080").rstrip("/")
+def _openfga_http() -> str:
+    return os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
 
 
-def _kc_realm() -> str:
-    return os.environ.get("KEYCLOAK_REALM", "caipe")
+def _openfga_store_name() -> str:
+    return os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
 
 
-def _kc_audience() -> str:
-    return os.environ.get("KEYCLOAK_RESOURCE_SERVER_ID", "caipe-platform")
+def _openfga_headers() -> dict[str, str]:
+    return {"Content-Type": "application/json"}
+
+
+_ORG_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _organization_object_id() -> str:
+    raw = os.environ.get("CAIPE_ORG_KEY", "caipe").strip()
+    key = raw if _ORG_KEY_PATTERN.fullmatch(raw) else "caipe"
+    return f"organization:{key}"
+
+
+def _organization_relation_for(resource: str, scope: str) -> str:
+    if resource == "admin_ui":
+        return "can_audit" if scope in {"view", "audit.view"} else "can_manage"
+    if scope in {"view", "read", "query", "invoke"}:
+        return "can_use"
+    if scope == "audit.view":
+        return "can_audit"
+    return "can_manage"
 
 
 def _bootstrap_admin_emails() -> set[str]:
@@ -142,32 +159,49 @@ def _is_bootstrap_admin(claims: dict[str, Any]) -> bool:
 
 
 def _evaluate_pdp_unavailable_fallback(token: str, resource: str) -> AuthzDecision:
-    """When Keycloak is unreachable, consult realm-config-extras.
+    """Deny when OpenFGA is unavailable.
 
-    Modes (mirror TS):
-      - `deny_all` (default — also when no rule configured)
-      - `realm_role`: check JWT's `realm_access.roles` for the named role.
+    CAIPE no longer uses realm-role fallback for authorization. Bootstrap
+    admins are handled before the PDP call; every other unavailable decision
+    stays deny-by-default.
     """
-    rule = get_fallback_rule(resource)
-    if rule is None:
-        return AuthzDecision(False, AuthzReason.DENY_PDP_UNAVAILABLE, "local")
-
-    mode = rule.get("mode", "deny_all")
-    if mode == "deny_all":
-        return AuthzDecision(False, AuthzReason.DENY_PDP_UNAVAILABLE, "local")
-
-    if mode == "realm_role":
-        role = rule.get("role")
-        if not role:
-            return AuthzDecision(False, AuthzReason.DENY_PDP_UNAVAILABLE, "local")
-        claims = _decode_jwt_payload_unsafe(token)
-        roles = (claims.get("realm_access") or {}).get("roles") or []
-        if role in roles:
-            return AuthzDecision(True, AuthzReason.OK_ROLE_FALLBACK, "local")
-        return AuthzDecision(False, AuthzReason.DENY_PDP_UNAVAILABLE, "local")
-
-    logger.warning("keycloak_authz: unknown fallback mode=%s for resource=%s", mode, resource)
+    _ = token, resource
     return AuthzDecision(False, AuthzReason.DENY_PDP_UNAVAILABLE, "local")
+
+
+async def _get_openfga_store_id(client: httpx.AsyncClient) -> str:
+    explicit = os.environ.get("OPENFGA_STORE_ID", "").strip()
+    if explicit:
+        return explicit
+
+    base_url = _openfga_http()
+    if not base_url:
+        raise RuntimeError("OPENFGA_HTTP is not set")
+
+    response = await client.get(f"{base_url}/stores", headers=_openfga_headers())
+    response.raise_for_status()
+    payload = response.json()
+    store_name = _openfga_store_name()
+    for store in payload.get("stores", []):
+        if store.get("name") == store_name and store.get("id"):
+            return str(store["id"])
+    raise RuntimeError(f"OpenFGA store {store_name!r} was not found")
+
+
+async def _check_openfga_tuple(*, user: str, relation: str, object_id: str) -> bool:
+    base_url = _openfga_http()
+    if not base_url:
+        raise RuntimeError("OPENFGA_HTTP is not set")
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        store_id = await _get_openfga_store_id(client)
+        response = await client.post(
+            f"{base_url}/stores/{store_id}/check",
+            headers=_openfga_headers(),
+            json={"tuple_key": {"user": user, "relation": relation, "object": object_id}},
+        )
+        response.raise_for_status()
+        return bool(response.json().get("allowed"))
 
 
 def _record(
@@ -222,7 +256,7 @@ async def require_rbac_permission(
     route: str | None = None,
     request_id: str | None = None,
 ) -> AuthzDecision:
-    """Ask Keycloak whether the bearer in `token` may perform `(resource, scope)`.
+    """Ask OpenFGA whether the bearer in `token` may perform `(resource, scope)`.
 
     Never raises. The caller decides whether to translate the returned decision
     into HTTP 403 (synchronous handler) or to short-circuit the agent step
@@ -250,62 +284,35 @@ async def require_rbac_permission(
                 service=service, route=route, request_id=request_id)
         return decision
 
-    token_endpoint = f"{_kc_url()}/realms/{_kc_realm()}/protocol/openid-connect/token"
-    body = {
-        "grant_type": "urn:ietf:params:oauth:grant-type:uma-ticket",
-        "audience": _kc_audience(),
-        "permission": f"{resource}#{scope}",
-        "response_mode": "decision",
-    }
-
     try:
-        with time_pdp(resource=resource, scope=scope, source="keycloak"):
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.post(
-                    token_endpoint,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/x-www-form-urlencoded",
-                    },
-                    data=body,
-                )
-    except httpx.HTTPError as exc:
-        logger.warning("keycloak_authz: PDP unreachable (%s); evaluating fallback", exc)
+        relation = _organization_relation_for(resource, scope)
+        subject = claims.get("sub")
+        if not subject:
+            decision = AuthzDecision(False, AuthzReason.DENY_INVALID_TOKEN, "local")
+            _record(decision, token=token, resource=resource, scope=scope,
+                    service=service, route=route, request_id=request_id)
+            return decision
+        with time_pdp(resource=resource, scope=scope, source="openfga"):
+            allowed = await _check_openfga_tuple(
+                user=f"user:{subject}",
+                relation=relation,
+                object_id=_organization_object_id(),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("keycloak_authz: OpenFGA PDP unreachable (%s); evaluating fallback", exc)
         decision = _evaluate_pdp_unavailable_fallback(token, resource)
         _record(decision, token=token, resource=resource, scope=scope,
                 service=service, route=route, request_id=request_id)
         return decision
 
-    if r.status_code == 200:
-        try:
-            payload = r.json()
-        except Exception:  # noqa: BLE001
-            payload = {}
-        if payload.get("result") is True:
-            decision = AuthzDecision(True, AuthzReason.OK, "keycloak")
-            _CACHE[_cache_key(token, resource, scope)] = decision
-            _record(decision, token=token, resource=resource, scope=scope,
-                    service=service, route=route, request_id=request_id)
-            return decision
-        decision = AuthzDecision(False, AuthzReason.DENY_NO_CAPABILITY, "keycloak")
+    if allowed:
+        decision = AuthzDecision(True, AuthzReason.OK, "openfga")
+        _CACHE[_cache_key(token, resource, scope)] = decision
         _record(decision, token=token, resource=resource, scope=scope,
                 service=service, route=route, request_id=request_id)
         return decision
 
-    if r.status_code == 403:
-        decision = AuthzDecision(False, AuthzReason.DENY_NO_CAPABILITY, "keycloak")
-        _record(decision, token=token, resource=resource, scope=scope,
-                service=service, route=route, request_id=request_id)
-        return decision
-
-    if r.status_code == 401:
-        decision = AuthzDecision(False, AuthzReason.DENY_INVALID_TOKEN, "keycloak")
-        _record(decision, token=token, resource=resource, scope=scope,
-                service=service, route=route, request_id=request_id)
-        return decision
-
-    logger.warning("keycloak_authz: unexpected PDP status=%d body=%r", r.status_code, r.text[:200])
-    decision = _evaluate_pdp_unavailable_fallback(token, resource)
+    decision = AuthzDecision(False, AuthzReason.DENY_NO_CAPABILITY, "openfga")
     _record(decision, token=token, resource=resource, scope=scope,
             service=service, route=route, request_id=request_id)
     return decision

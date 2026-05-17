@@ -76,6 +76,95 @@ routes:
         status: 403
         reason: DENY_NO_CAPABILITY
 
+  # Spec 2026-05-16 Dynamic Agent PDP Gate: per-agent data-plane checks use
+  # OpenFGA ReBAC, not Keycloak realm resources. Expectations assume the test
+  # fixture grants alice_admin and eve_dynamic_agent_user can_use on the selected
+  # agent while the remaining personas lack that tuple.
+  - id: ui-bff-post-api-v1-chat-stream-start-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/start
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents streaming start proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-v1-chat-invoke-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/invoke
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents non-streaming invoke proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-v1-chat-stream-resume-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/resume
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents stream resume proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
   # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
   # added as pending until the corresponding user-story endpoints land.
   - id: ui-bff-get-api-admin-identity-group-sync-providers
@@ -2030,6 +2119,58 @@ routes:
     scope: manage
     migration_status: migrated
     notes: dual-auth mcp_server#manage PDP gate for MCP server probe
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-mcp-servers-agentgateway-discover
+    surface: ui_bff
+    method: GET
+    path: /api/mcp-servers/agentgateway/discover
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for AgentGateway MCP target discovery
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-mcp-servers-agentgateway-sync
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers/agentgateway/sync
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: dual-auth mcp_server#manage PDP gate for selected AgentGateway MCP server onboarding
     expectations:
       alice_admin:
         status: 200

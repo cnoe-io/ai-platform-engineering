@@ -18,7 +18,7 @@ import { decodeJwt } from "jose";
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
  * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access"; set to empty to disable)
- * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
+ * - OIDC_REQUIRED_ADMIN_GROUP: Deprecated; upstream groups now sync to CAIPE teams
  * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
@@ -40,11 +40,11 @@ export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 // the group check. || would treat "" as falsy and fall back to "backstage-access".
 export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
 
-// Required admin group for admin access
+// Deprecated: product admin access is an OpenFGA organization relationship.
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
 
-// Required group for dynamic agents (custom agents) access
-// If not set, falls back to requiring admin group membership
+// Required group for dynamic agents (custom agents) access.
+// This is an identity admission hint only; durable access is OpenFGA-backed.
 export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP || "";
 
 // Required group for read-only admin dashboard access
@@ -52,16 +52,19 @@ export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_A
 // Leave empty to allow all authenticated users to view admin dashboard
 export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "";
 
-// Bootstrap admin emails — solves the chicken-and-egg problem where you
-// need an admin to assign admin roles but can't become admin without one.
-// Comma-separated list of emails that are treated as admin on login.
-// Once real OIDC group mappings or MongoDB roles are configured, remove this.
-const BOOTSTRAP_ADMIN_EMAILS: Set<string> = new Set(
-  (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
+// Bootstrap admin emails — solves the chicken-and-egg problem where the first
+// operator needs to create durable OpenFGA organization admin relationships.
+// Comma-separated list of emails treated as break-glass admins on login.
+function bootstrapAdminEmails(): Set<string> {
+  return new Set(
+    (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
     .split(",")
     .map(e => e.trim().toLowerCase())
     .filter(Boolean)
-);
+  );
+}
+
+const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
 
 if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
   console.log(
@@ -71,8 +74,10 @@ if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
 }
 
 export function isBootstrapAdmin(email: string | undefined | null): boolean {
-  if (!email || BOOTSTRAP_ADMIN_EMAILS.size === 0) return false;
-  return BOOTSTRAP_ADMIN_EMAILS.has(email.toLowerCase());
+  if (!email) return false;
+  const emails = bootstrapAdminEmails();
+  if (emails.size === 0) return false;
+  return emails.has(email.toLowerCase());
 }
 
 // Default group claim names to check (in order of priority)
@@ -167,21 +172,15 @@ export function hasRequiredGroup(groups: string[]): boolean {
   });
 }
 
-// Helper to check if user is in admin group
+// Deprecated: upstream groups map to teams; teams grant OpenFGA organization/admin relations.
 export function isAdminUser(groups: string[]): boolean {
-  if (!REQUIRED_ADMIN_GROUP) return false; // No admin group configured
-
-  return groups.some((group) => {
-    // Handle both simple group names and full DN paths
-    const groupLower = group.toLowerCase();
-    const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
-    return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
-  });
+  void groups;
+  return false;
 }
 
 // Helper to check if user can access dynamic agents.
 // If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
-// (admin group membership does NOT automatically grant access in this case).
+// (organization/team relationships remain authoritative for protected APIs).
 // If unset, falls back to admin-only access.
 export function canAccessDynamicAgents(groups: string[]): boolean {
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
@@ -535,26 +534,8 @@ export const authOptions: NextAuthOptions = {
         (updateData as Record<string, unknown>).forceRefresh &&
         token.refreshToken
       ) {
-        console.log("[Auth] Force-refreshing token (role/permission change)");
+        console.log("[Auth] Force-refreshing token");
         const refreshed = await refreshAccessToken(token) as typeof token;
-        // Re-extract realm roles from the fresh access token
-        if (refreshed.accessToken && !refreshed.error) {
-          try {
-            const parts = (refreshed.accessToken as string).split(".");
-            if (parts.length === 3) {
-              const payload = JSON.parse(
-                Buffer.from(parts[1], "base64url").toString()
-              );
-              const ra = payload.realm_access;
-              if (ra && Array.isArray(ra.roles)) {
-                refreshed.realmRoles = ra.roles;
-                console.log("[Auth] Updated realm roles from refreshed token:", ra.roles);
-              }
-            }
-          } catch (e) {
-            console.warn("[Auth] Could not decode refreshed access token for realm roles:", e);
-          }
-        }
         return refreshed;
       }
 
@@ -601,35 +582,20 @@ export const authOptions: NextAuthOptions = {
         // Only store the authorization result and role (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes
         token.isAuthorized = hasRequiredGroup(groups);
-        token.role = isAdminUser(groups) ? 'admin' : 'user';
-        token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
+        token.role = 'user';
+        token.canViewAdmin = canViewAdminDashboard(groups);
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
-        // Extract Keycloak realm_access.roles (098 RBAC)
-        // Realm roles live in a separate claim from IdP groups and must
-        // be merged so that OIDC_REQUIRED_ADMIN_GROUP works for both
-        // IdP group names AND Keycloak realm role names.
-        const realmAccess = profileData.realm_access as { roles?: string[] } | undefined;
-        if (realmAccess?.roles) {
-          token.realmRoles = realmAccess.roles;
-          for (const role of realmAccess.roles) {
-            if (!groups.includes(role)) {
-              groups.push(role);
-            }
-          }
-        }
-
-        // Only store the authorization result and role (NOT the groups array!)
-        // Storing 40+ groups causes 8KB session cookies and browser crashes
+        // Only store the authorization result (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes.
         token.isAuthorized = hasRequiredGroup(groups);
 
         const email = profileData.email as string | undefined;
-        const adminViaGroup = isAdminUser(groups);
         const adminViaBootstrap = isBootstrapAdmin(email);
-        token.role = (adminViaGroup || adminViaBootstrap) ? 'admin' : 'user';
+        token.role = adminViaBootstrap ? 'admin' : 'user';
 
-        if (adminViaBootstrap && !adminViaGroup) {
+        if (adminViaBootstrap) {
           console.log(`[Auth JWT] ✅ Bootstrap admin granted for ${email} (via BOOTSTRAP_ADMIN_EMAILS)`);
         }
 
@@ -640,12 +606,8 @@ export const authOptions: NextAuthOptions = {
 
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
-        console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
         console.log('[Auth JWT] User role:', token.role);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
-        if (token.realmRoles) {
-          console.log('[Auth JWT] Keycloak realm roles:', token.realmRoles);
-        }
         if (token.org) {
           console.log('[Auth JWT] Org (tenant):', token.org);
         }
@@ -728,13 +690,12 @@ export const authOptions: NextAuthOptions = {
               try {
                 const claims = decodeJwt(refreshedToken.idToken as string);
                 const groups = extractGroups(claims as Record<string, unknown>);
-                const adminUser = isAdminUser(groups);
                 console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
                 return {
                   ...refreshedToken,
                   isAuthorized: hasRequiredGroup(groups),
-                  role: adminUser ? 'admin' : 'user',
-                  canViewAdmin: adminUser || canViewAdminDashboard(groups),
+                  role: refreshedToken.role === 'admin' ? 'admin' : 'user',
+                  canViewAdmin: canViewAdminDashboard(groups),
                   groupsCheckedAt: now,
                 };
               } catch (err) {
@@ -799,8 +760,7 @@ export const authOptions: NextAuthOptions = {
       // Just pass through the sub if available
       session.sub = token.sub as string | undefined;
 
-      // 098 RBAC: Keycloak realm roles and org claim for enterprise RBAC
-      session.realmRoles = token.realmRoles as string[] | undefined;
+      // Organization claim is tenant context only; authorization is OpenFGA-backed.
       session.org = token.org as string | undefined;
 
       return session;
@@ -890,7 +850,6 @@ declare module "next-auth" {
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
     canAccessDynamicAgents?: boolean; // Whether user can access custom agents
-    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
     org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
@@ -908,7 +867,6 @@ declare module "next-auth/jwt" {
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
-    realmRoles?: string[];  // Keycloak realm_access.roles (098 RBAC)
     org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }

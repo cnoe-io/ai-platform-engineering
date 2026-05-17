@@ -463,7 +463,6 @@ export function TeamDetailsDialog({
         {
           slack_channel_id: c.id,
           channel_name: c.name,
-          slack_workspace_id: "unknown",
         },
       ];
     });
@@ -480,7 +479,6 @@ export function TeamDetailsDialog({
         {
           slack_channel_id: id,
           channel_name: name,
-          slack_workspace_id: "unknown",
         },
       ];
     });

@@ -811,6 +811,10 @@ caipe-ui:
     TAGLINE: "Multi-Agent Workflow Automation"
     DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
     APP_NAME: "CAIPE"
+    # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
+    SLACK_WORKSPACE_ALIAS: "CAIPE"
+    CAIPE_ORG_KEY: "caipe"
+    CAIPE_ORG_DISPLAY_NAME: "CAIPE"
     LOGO_URL: "/logo.svg"
     LOGO_STYLE: "default"
     # SPINNER_COLOR: ""
@@ -1004,9 +1008,11 @@ slack-bot:
     SLACK_INTEGRATION_SILENCE_ENV: "false"
     # MONGODB_URI: ""                          # Override per environment
     # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
+    SLACK_WORKSPACE_ALIAS: "CAIPE"             # Canonical workspace namespace for Slack ReBAC/routes
     # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials
     # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
     # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
+    SLACK_AGENT_ROUTES_MODE: "db_prefer"       # Prefer UI-managed Slack routes, fallback to static config
 
   # -- Reference to a pre-existing Kubernetes Secret.
   # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
@@ -1156,13 +1162,26 @@ openfga-authz-bridge:
     httpUrl: "http://{{ .Release.Name }}-openfga:8080"
     storeName: caipe-openfga
     relation: can_call
-    object: document:mcp
+    object: mcp_gateway:list
+  agentContext:
+    existingSecret:
+      name: ""
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
   tokenValidation:
     jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
     issuer: ""
     audiences: []
     algorithms:
       - RS256
+  audit:
+    enabled: true
+    mongodbUri: ""
+    mongodbDatabase: caipe
+    tenantId: default
+    subjectSalt: caipe-098-audit
+    existingSecret:
+      name: ""
+      key: MONGODB_URI
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

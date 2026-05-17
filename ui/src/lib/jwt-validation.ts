@@ -23,7 +23,7 @@ export interface JWTIdentity {
   /**
    * Tenant/organization identifier. Sourced from `org`, `tenant_id`, or
    * `organization` claims (in priority order). Surfaces from the bearer
-   * path into the BFF session so audit/RBAC can attribute decisions to
+   * path into the Web UI backend session so audit/RBAC can attribute decisions to
    * the same tenant the cookie-session callers do.
    */
   org?: string;
@@ -137,7 +137,7 @@ export async function validateBearerJWT(
   //   3. OIDC_EXTRA_AUDIENCES (Spec 104, comma-separated): tokens minted
   //      by the Slack bot's OBO exchange carry `aud=agentgateway` so
   //      they can hit AGW directly, but the same token also flows through
-  //      the BFF on the way there. Only injected when explicitly set —
+  //      the Web UI backend on the way there. Only injected when explicitly set —
   //      we do NOT default to "agentgateway" here because that would
   //      relax audience validation in environments that don't run AGW.
   //      Set OIDC_EXTRA_AUDIENCES=agentgateway in the dev compose stack.

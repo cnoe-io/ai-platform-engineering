@@ -35,7 +35,12 @@ from utils.hitl_handler import HITLCallbackHandler
 from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
-from utils.config_models import get_escalation_config
+from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
+from utils.slack_agent_routes import (  # noqa: E402
+    get_slack_agent_route_resolver,
+    slack_agent_route_mode,
+    slack_workspace_ref,
+)
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -93,13 +98,14 @@ if RBAC_ENABLED:
         if channel_id:
             context["slack_channel_id"] = channel_id
 
-        workspace_id = (
+        slack_team_id = (
             body.get("team_id")
             or body.get("event", {}).get("team")
             or os.environ.get("SLACK_WORKSPACE_ID")
-            or "unknown"
         )
-        context["slack_workspace_id"] = str(workspace_id)
+        if slack_team_id:
+            context["slack_team_id"] = str(slack_team_id)
+        context["slack_workspace_id"] = slack_workspace_ref(str(slack_team_id) if slack_team_id else None)
 
         # Spec 104: every OBO token now carries a signed `active_team` claim.
         # Resolve which team the channel belongs to (or use the personal
@@ -166,7 +172,7 @@ def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | N
         active_team = context.get("active_team")
         if active_team == PERSONAL_ACTIVE_TEAM or is_dm_channel(channel_id):
             return None
-        workspace_id = context.get("slack_workspace_id") or os.environ.get("SLACK_WORKSPACE_ID") or "unknown"
+        workspace_id = context.get("slack_workspace_id") or slack_workspace_ref()
         obo_token = context.get("obo_token")
     except AttributeError:
         return None
@@ -336,6 +342,66 @@ def _match_agents(channel_config, is_bot, bot_username=None, user_id=None, liste
         continue
       matched.append(agent)
   return matched
+
+
+def _configured_or_route_backed_channel(channel_id: str | None):
+  """Return channel config, allowing DB-backed routes in opt-in modes."""
+  if channel_id and utils.is_configured_channel(channel_id):
+    return config.channels[channel_id]
+  if slack_agent_route_mode() != "config" and channel_id:
+    return ChannelConfig(name=channel_id, agents=[])
+  return None
+
+
+def _event_workspace_id(event) -> str:
+  team_id = event.get("team")
+  return slack_workspace_ref(str(team_id) if team_id else None)
+
+
+def _match_channel_agents(
+  channel_id,
+  channel_config,
+  is_bot,
+  bot_username=None,
+  user_id=None,
+  listen=None,
+  workspace_id=None,
+):
+  """Return agent matches from the selected route source.
+
+  Static config is the default. DB routes are used only when
+  ``SLACK_AGENT_ROUTES_MODE`` opts in.
+  """
+  config_matches = _match_agents(
+    channel_config,
+    is_bot=is_bot,
+    bot_username=bot_username,
+    user_id=user_id,
+    listen=listen,
+  )
+  mode = slack_agent_route_mode()
+  if mode == "config":
+    return config_matches
+
+  route_matches = get_slack_agent_route_resolver().match_routes(
+    workspace_id=workspace_id or slack_workspace_ref(),
+    channel_id=channel_id,
+    is_bot=is_bot,
+    bot_username=bot_username,
+    user_id=user_id,
+    listen=listen,
+  )
+  if route_matches:
+    logger.info(
+      "Using DB-backed Slack agent routes channel={} mode={} matches={}",
+      channel_id,
+      mode,
+      [match.agent_id for match in route_matches],
+    )
+    return route_matches
+  if mode == "db_only":
+    return []
+  return config_matches
 
 
 def _resolve_escalation(channel_config, agent_id: str | None = None):
@@ -659,11 +725,10 @@ def handle_mention(event, say, client, context=None):
 
     channel_id = event.get("channel")
 
-    if not utils.is_configured_channel(channel_id):
+    channel_config = _configured_or_route_backed_channel(channel_id)
+    if channel_config is None:
       logger.info(f"Channel {channel_id} has no config, ignoring @mention")
       return
-
-    channel_config = config.channels[channel_id]
 
     thread_ts = event.get("thread_ts") or event.get("ts")
     user_id = event.get("user")
@@ -687,7 +752,14 @@ def handle_mention(event, say, client, context=None):
 
     # Run normal match first to seed agent_id for conversation creation.
     # Ownership may override this below once we have conv_metadata.
-    matches = _match_agents(channel_config, is_bot=False, user_id=user_id, listen="mention")
+    matches = _match_channel_agents(
+      channel_id,
+      channel_config,
+      is_bot=False,
+      user_id=user_id,
+      listen="mention",
+      workspace_id=_event_workspace_id(event),
+    )
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
 
@@ -1212,10 +1284,9 @@ def handle_message_events(body, say, client, context=None):
   bot_id = event.get("bot_id")
   is_bot = bot_id is not None
 
-  if not utils.is_configured_channel(channel_id):
+  channel_config = _configured_or_route_backed_channel(channel_id)
+  if channel_config is None:
     return
-
-  channel_config = config.channels[channel_id]
 
   # Skip thread replies; only root messages trigger the agent.
   is_thread = event.get("thread_ts") is not None
@@ -1233,7 +1304,15 @@ def handle_message_events(body, say, client, context=None):
     bot_username = utils.get_username_by_bot_id(bot_id)
 
   sender_user_id = event.get("user") if not is_bot else None
-  matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
+  matches = _match_channel_agents(
+    channel_id,
+    channel_config,
+    is_bot=is_bot,
+    bot_username=bot_username,
+    user_id=sender_user_id,
+    listen="message",
+    workspace_id=_event_workspace_id(event),
+  )
   if not matches:
     return
 

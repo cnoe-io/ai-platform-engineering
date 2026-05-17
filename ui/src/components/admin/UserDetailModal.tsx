@@ -373,28 +373,28 @@ export function UserDetailModal({
 
   const modalInner = (
     <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
       role="presentation"
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 text-neutral-900 dark:text-neutral-100"
+        className="bg-card text-card-foreground border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="user-detail-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-neutral-500 dark:text-neutral-400">
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
             <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
             <span className="text-sm">Loading user…</span>
           </div>
         ) : loadError ? (
           <div className="space-y-4">
-            <p className="text-sm text-red-600 dark:text-red-400">{loadError}</p>
+            <p className="text-sm text-destructive">{loadError}</p>
             <button
               type="button"
-              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted"
               onClick={onClose}
             >
               Close
@@ -402,10 +402,10 @@ export function UserDetailModal({
           </div>
         ) : user ? (
           <>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-neutral-200 dark:border-neutral-700 pb-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-border pb-4">
               <div className="flex items-start gap-3 min-w-0">
                 <div
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-sm font-semibold text-neutral-700 dark:text-neutral-200"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground"
                   aria-hidden
                 >
                   {initials}
@@ -417,11 +417,11 @@ export function UserDetailModal({
                   >
                     {fullName}
                   </h2>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 truncate">{user.email}</p>
+                  <p className="text-sm text-muted-foreground truncate">{user.email}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                <span className="text-sm text-neutral-600 dark:text-neutral-400">Account</span>
+                <span className="text-sm text-muted-foreground">Account</span>
                 <button
                   type="button"
                   role="switch"
@@ -429,7 +429,7 @@ export function UserDetailModal({
                   disabled={busy === "enabled"}
                   onClick={() => toggleEnabled()}
                   className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400 ${
-                    user.enabled ? "bg-emerald-500" : "bg-neutral-300 dark:bg-neutral-600"
+                    user.enabled ? "bg-emerald-500" : "bg-muted"
                   } ${busy === "enabled" ? "opacity-60 cursor-wait" : ""}`}
                 >
                   <span
@@ -438,35 +438,35 @@ export function UserDetailModal({
                     }`}
                   />
                 </button>
-                <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+                <span className="text-sm font-medium text-foreground">
                   {user.enabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
             </div>
 
             {actionError ? (
-              <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">
+              <p className="mt-4 text-sm text-destructive" role="alert">
                 {actionError}
               </p>
             ) : null}
 
-            <section className="mt-6 border-t border-neutral-200 dark:border-neutral-700 pt-6">
-              <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-3">
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">
                 Realm roles
               </h3>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(user.realmRoles ?? []).length === 0 ? (
-                  <span className="text-sm text-neutral-500 dark:text-neutral-400">No realm roles</span>
+                  <span className="text-sm text-muted-foreground">No realm roles</span>
                 ) : (
                   (user.realmRoles ?? []).map((r) => (
                     <span
                       key={r.id || r.name}
-                      className="inline-flex items-center gap-1 rounded-full border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-2.5 py-0.5 text-xs font-medium text-neutral-800 dark:text-neutral-200"
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
                     >
                       {r.name}
                       <button
                         type="button"
-                        className="ml-0.5 rounded p-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100"
+                        className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                         aria-label={`Remove role ${r.name}`}
                         disabled={busy != null}
                         onClick={() => removeRole(r.name)}
@@ -478,12 +478,12 @@ export function UserDetailModal({
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="add-realm-role" className="text-sm text-neutral-600 dark:text-neutral-400">
+                <label htmlFor="add-realm-role" className="text-sm text-muted-foreground">
                   Add role
                 </label>
                 <select
                   id="add-realm-role"
-                  className="rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1.5 text-sm min-w-[12rem] dark:text-neutral-200"
+                  className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
                   defaultValue=""
                   disabled={busy != null || addableRoles.length === 0}
                   onChange={(e) => {
@@ -506,24 +506,24 @@ export function UserDetailModal({
               </div>
             </section>
 
-            <section className="mt-6 border-t border-neutral-200 dark:border-neutral-700 pt-6">
-              <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-3">Teams</h3>
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Teams</h3>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(user.teams ?? []).length === 0 ? (
-                  <span className="text-sm text-neutral-500 dark:text-neutral-400">No teams</span>
+                  <span className="text-sm text-muted-foreground">No teams</span>
                 ) : (
                   (user.teams ?? []).map((t) => (
                     <span
                       key={`${t.team_id}:${t.tenant_id}`}
-                      className="inline-flex items-center gap-1 rounded-full border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-2.5 py-0.5 text-xs font-medium text-neutral-800 dark:text-neutral-200"
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
                     >
                       {t.team_id}
-                      <span className="text-neutral-500 dark:text-neutral-400 font-normal">
+                      <span className="text-muted-foreground font-normal">
                         ({t.tenant_id})
                       </span>
                       <button
                         type="button"
-                        className="ml-0.5 rounded p-0.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100"
+                        className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                         aria-label={`Remove team ${t.team_id}`}
                         disabled={busy != null}
                         onClick={() => removeTeam(t.team_id)}
@@ -535,12 +535,12 @@ export function UserDetailModal({
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="add-team" className="text-sm text-neutral-600 dark:text-neutral-400">
+                <label htmlFor="add-team" className="text-sm text-muted-foreground">
                   Add team
                 </label>
                 <select
                   id="add-team"
-                  className="rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1.5 text-sm min-w-[12rem] dark:text-neutral-200"
+                  className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
                   defaultValue=""
                   disabled={busy != null || addableTeams.length === 0}
                   onChange={(e) => {
@@ -563,18 +563,18 @@ export function UserDetailModal({
               </div>
             </section>
 
-            <section className="mt-6 border-t border-neutral-200 dark:border-neutral-700 pt-6">
-              <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-3">
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">
                 Per-KB roles
               </h3>
               {kbRows.length === 0 ? (
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                <p className="text-sm text-muted-foreground">
                   No per-KB roles assigned
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    <thead className="bg-muted text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 font-medium">KB ID</th>
                         <th className="px-3 py-2 font-medium">Scope</th>
@@ -584,7 +584,7 @@ export function UserDetailModal({
                       {kbRows.map((row) => (
                         <tr
                           key={`${row.kbId}-${row.scope}`}
-                          className="border-t border-neutral-100 dark:border-neutral-700"
+                          className="border-t border-border"
                         >
                           <td className="px-3 py-2 font-mono text-xs">
                             {row.kbId}
@@ -598,18 +598,18 @@ export function UserDetailModal({
               )}
             </section>
 
-            <section className="mt-6 border-t border-neutral-200 dark:border-neutral-700 pt-6">
-              <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-3">
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">
                 Per-agent roles
               </h3>
               {agentRows.length === 0 ? (
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                <p className="text-sm text-muted-foreground">
                   No per-agent roles assigned
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-sm text-left">
-                    <thead className="bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                    <thead className="bg-muted text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 font-medium">Agent ID</th>
                         <th className="px-3 py-2 font-medium">Scope</th>
@@ -619,7 +619,7 @@ export function UserDetailModal({
                       {agentRows.map((row) => (
                         <tr
                           key={`${row.agentId}-${row.scope}`}
-                          className="border-t border-neutral-100 dark:border-neutral-700"
+                          className="border-t border-border"
                         >
                           <td className="px-3 py-2 font-mono text-xs">
                             {row.agentId}
@@ -633,57 +633,57 @@ export function UserDetailModal({
               )}
             </section>
 
-            <section className="mt-6 border-t border-neutral-200 dark:border-neutral-700 pt-6">
-              <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-3">
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">
                 Identity & account
               </h3>
               <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
                 <div>
-                  <dt className="text-neutral-500 dark:text-neutral-400">IdP source</dt>
-                  <dd className="font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
+                  <dt className="text-muted-foreground">IdP source</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
                     {idpLabel}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-neutral-500 dark:text-neutral-400">Slack</dt>
+                  <dt className="text-muted-foreground">Slack</dt>
                   <dd className="mt-0.5">
                     {user.slackLinkStatus === "linked" ? (
                       <span className="inline-flex flex-col gap-0.5">
-                        <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium">
+                        <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
                           Linked
                         </span>
                         {slackUserId ? (
-                          <span className="font-mono text-xs text-neutral-700 dark:text-neutral-300">
+                          <span className="font-mono text-xs text-muted-foreground">
                             {slackUserId}
                           </span>
                         ) : null}
                       </span>
                     ) : (
-                      <span className="inline-flex rounded-full bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 px-2 py-0.5 text-xs font-medium">
+                      <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
                         Unlinked
                       </span>
                     )}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-neutral-500 dark:text-neutral-400">Last login</dt>
-                  <dd className="font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
+                  <dt className="text-muted-foreground">Last login</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
                     {lastLoginLabel}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-neutral-500 dark:text-neutral-400">Account created</dt>
-                  <dd className="font-medium text-neutral-900 dark:text-neutral-100 mt-0.5">
+                  <dt className="text-muted-foreground">Account created</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
                     {createdLabel}
                   </dd>
                 </div>
               </dl>
             </section>
 
-            <div className="mt-8 flex justify-end gap-2 border-t border-neutral-200 dark:border-neutral-700 pt-4">
+            <div className="mt-8 flex justify-end gap-2 border-t border-border pt-4">
               <button
                 type="button"
-                className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
                 onClick={onClose}
               >
                 Close

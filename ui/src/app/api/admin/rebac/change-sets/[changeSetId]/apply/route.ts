@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ApiError, getAuthFromBearerOrSession, requireRbacPermission, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { logPolicyChangeAuditEvent } from "@/lib/rbac/audit";
+import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getRbacCollection, type RebacRelationshipDocument } from "@/lib/rbac/mongo-collections";
 import { getPolicyChangeSet, updatePolicyChangeSet } from "@/lib/rbac/policy-change-set-store";
 import { validatePolicyChangeSet } from "@/lib/rbac/policy-change-validator";
@@ -114,6 +114,15 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
       updated_by: user.email,
       updated_at: new Date().toISOString(),
     });
+    logOpenFgaRebacAuditEvent({
+      tenantId: session?.org ?? "default",
+      sub: session?.sub ?? user.email,
+      operation: "apply_change_set",
+      outcome: "deny",
+      reasonCode: "DENY_SCOPE",
+      resourceRef: `policy_change_set:${changeSet.id}`,
+      email: user.email,
+    });
     return successResponse({ change_set: updated, validation, applied: false });
   }
 
@@ -133,8 +142,8 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
     updated_at: now,
   });
 
-  logPolicyChangeAuditEvent({
-    tenantId: "default",
+  logOpenFgaRebacAuditEvent({
+    tenantId: session?.org ?? "default",
     sub: session?.sub ?? user.email,
     operation: "apply_change_set",
     resourceRef: `policy_change_set:${changeSet.id}`,

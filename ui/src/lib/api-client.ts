@@ -27,7 +27,7 @@ import type {
 
 /**
  * Thrown by {@link APIClient.request} for any non-OK response. Carries the
- * HTTP status plus the BFF's structured auth-error fields (`code`, `reason`,
+ * HTTP status plus the Web UI backend's structured auth-error fields (`code`, `reason`,
  * `action`) when present, so callers (chat panel, dynamic-agent editor, etc.)
  * can distinguish auth failures from backend errors and render an
  * appropriate toast (see `lib/auth-error.ts`).
@@ -92,7 +92,7 @@ class APIClient {
         });
       }
       
-      // Parse structured BFF error body. Preserves {code, reason, action}
+      // Parse structured Web UI backend error body. Preserves {code, reason, action}
       // for callers (auth-error.ts consumers) so they can branch on stable
       // machine-readable codes instead of substring-matching English.
       let parsed: {

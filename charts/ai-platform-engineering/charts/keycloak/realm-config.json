@@ -66,7 +66,7 @@
     {
       "clientId": "caipe-ui",
       "name": "CAIPE Admin UI",
-      "description": "Next.js frontend — confidential OIDC client for Admin UI (NextAuth server-side flow)",
+      "description": "Next.js frontend \u2014 confidential OIDC client for Admin UI (NextAuth server-side flow)",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-ui-dev-secret",
@@ -114,7 +114,7 @@
     {
       "clientId": "caipe-platform",
       "name": "CAIPE Platform Resource Server",
-      "description": "Confidential client — Authorization Services enabled (PDP-1 for UI/Slack RBAC)",
+      "description": "Confidential service client \u2014 identity and token-exchange only; CAIPE authorization is enforced in OpenFGA.",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-platform-dev-secret",
@@ -122,7 +122,7 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": true,
-      "authorizationServicesEnabled": true,
+      "authorizationServicesEnabled": false,
       "protocol": "openid-connect",
       "fullScopeAllowed": true,
       "defaultClientScopes": [
@@ -134,382 +134,12 @@
       ],
       "attributes": {
         "oidc.token.exchange.enabled": "true"
-      },
-      "authorizationSettings": {
-        "allowRemoteResourceManagement": true,
-        "policyEnforcementMode": "ENFORCING",
-        "decisionStrategy": "UNANIMOUS",
-        "resources": [
-          {
-            "name": "admin_ui",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "view"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "admin"
-              },
-              {
-                "name": "audit.view"
-              }
-            ]
-          },
-          {
-            "name": "slack",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "view"
-              },
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
-            "name": "supervisor",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
-            "name": "rag",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "query"
-              },
-              {
-                "name": "ingest"
-              },
-              {
-                "name": "admin"
-              },
-              {
-                "name": "tool.create"
-              },
-              {
-                "name": "tool.update"
-              },
-              {
-                "name": "tool.delete"
-              },
-              {
-                "name": "tool.view"
-              },
-              {
-                "name": "kb.admin"
-              },
-              {
-                "name": "kb.ingest"
-              },
-              {
-                "name": "kb.query"
-              }
-            ]
-          },
-          {
-            "name": "sub_agent",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
-            "name": "tool",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
-            "name": "skill",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "view"
-              },
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "delete"
-              }
-            ]
-          },
-          {
-            "name": "a2a",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "create"
-              },
-              {
-                "name": "view"
-              },
-              {
-                "name": "configure"
-              },
-              {
-                "name": "delete"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          },
-          {
-            "name": "mcp",
-            "type": "caipe:component",
-            "ownerManagedAccess": false,
-            "scopes": [
-              {
-                "name": "invoke"
-              },
-              {
-                "name": "view"
-              },
-              {
-                "name": "admin"
-              }
-            ]
-          }
-        ],
-        "policies": [
-          {
-            "name": "admin-role-policy",
-            "description": "Grants access to principals with admin realm role",
-            "type": "role",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "roles": "[{\"id\":\"admin\",\"required\":true}]"
-            }
-          },
-          {
-            "name": "chat-user-role-policy",
-            "description": "Grants access to principals with chat_user realm role",
-            "type": "role",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "roles": "[{\"id\":\"chat_user\",\"required\":true}]"
-            }
-          },
-          {
-            "name": "team-member-role-policy",
-            "description": "Grants access to principals with team_member realm role",
-            "type": "role",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "roles": "[{\"id\":\"team_member\",\"required\":true}]"
-            }
-          },
-          {
-            "name": "kb-admin-role-policy",
-            "description": "Grants access to principals with kb_admin realm role",
-            "type": "role",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "roles": "[{\"id\":\"kb_admin\",\"required\":true}]"
-            }
-          },
-          {
-            "name": "admin-ui-full-access",
-            "description": "Admins have full access to admin_ui component",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"admin_ui\"]",
-              "scopes": "[\"view\",\"configure\",\"admin\",\"audit.view\"]",
-              "applyPolicies": "[\"admin-role-policy\"]"
-            }
-          },
-          {
-            "name": "supervisor-invoke-access",
-            "description": "Chat users can invoke supervisor",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"supervisor\"]",
-              "scopes": "[\"invoke\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "supervisor-admin-access",
-            "description": "Admins can configure and administer supervisor",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"supervisor\"]",
-              "scopes": "[\"configure\",\"admin\"]",
-              "applyPolicies": "[\"admin-role-policy\"]"
-            }
-          },
-          {
-            "name": "rag-query-access",
-            "description": "Chat users can query RAG and view tools",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"rag\"]",
-              "scopes": "[\"query\",\"tool.view\",\"kb.query\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "rag-team-tool-access",
-            "description": "Team members can create/update/delete RAG tools",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"rag\"]",
-              "scopes": "[\"tool.create\",\"tool.update\",\"tool.delete\"]",
-              "applyPolicies": "[\"team-member-role-policy\"]"
-            }
-          },
-          {
-            "name": "rag-kb-admin-access",
-            "description": "KB admins can administer and ingest knowledge bases",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"rag\"]",
-              "scopes": "[\"kb.admin\",\"kb.ingest\",\"admin\",\"ingest\"]",
-              "applyPolicies": "[\"kb-admin-role-policy\"]"
-            }
-          },
-          {
-            "name": "tool-invoke-access",
-            "description": "Chat users can invoke tools",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"tool\"]",
-              "scopes": "[\"invoke\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "tool-admin-access",
-            "description": "Admins can configure and administer tools",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"tool\"]",
-              "scopes": "[\"configure\",\"admin\"]",
-              "applyPolicies": "[\"admin-role-policy\"]"
-            }
-          },
-          {
-            "name": "mcp-invoke-access",
-            "description": "Chat users can invoke MCP tools",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"mcp\"]",
-              "scopes": "[\"invoke\",\"view\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "a2a-access",
-            "description": "Chat users can create and view A2A tasks",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"a2a\"]",
-              "scopes": "[\"create\",\"view\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "skill-invoke-access",
-            "description": "Chat users can view and invoke skills",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"skill\"]",
-              "scopes": "[\"view\",\"invoke\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          },
-          {
-            "name": "slack-access",
-            "description": "Chat users can use Slack features",
-            "type": "scope",
-            "logic": "POSITIVE",
-            "decisionStrategy": "UNANIMOUS",
-            "config": {
-              "resources": "[\"slack\"]",
-              "scopes": "[\"view\",\"invoke\"]",
-              "applyPolicies": "[\"chat-user-role-policy\"]"
-            }
-          }
-        ]
       }
     },
     {
       "clientId": "caipe-slack-bot",
       "name": "CAIPE Slack Bot",
-      "description": "Confidential client — service account with token-exchange permission for OBO (FR-018, FR-021)",
+      "description": "Confidential client \u2014 service account with token-exchange permission for OBO (FR-018, FR-021)",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-slack-bot-dev-secret",
@@ -657,7 +287,7 @@
     },
     {
       "name": "roles",
-      "description": "Realm roles claim mapper — carries resolved realm roles in JWT",
+      "description": "Realm roles claim mapper \u2014 carries resolved realm roles in JWT",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -682,7 +312,7 @@
     },
     {
       "name": "groups",
-      "description": "Upstream IdP groups in JWT — maps idp_groups user attribute into groups claim (FR-010)",
+      "description": "Upstream IdP groups in JWT \u2014 maps idp_groups user attribute into groups claim (FR-010)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -708,7 +338,7 @@
     },
     {
       "name": "org",
-      "description": "Organization / tenant claim mapper — carries org attribute in JWT (FR-020)",
+      "description": "Organization / tenant claim mapper \u2014 carries org attribute in JWT (FR-020)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -914,39 +544,6 @@
       }
     },
     {
-      "name": "okta-oidc-platform-admin-role",
-      "identityProviderAlias": "okta-oidc",
-      "identityProviderMapper": "hardcoded-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "admin",
-        "claim": "groups",
-        "claim.value": "platform-admin"
-      }
-    },
-    {
-      "name": "okta-oidc-team-member-role",
-      "identityProviderAlias": "okta-oidc",
-      "identityProviderMapper": "hardcoded-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "team_member",
-        "claim": "groups",
-        "claim.value": "team-a-eng"
-      }
-    },
-    {
-      "name": "okta-oidc-kb-admin-role",
-      "identityProviderAlias": "okta-oidc",
-      "identityProviderMapper": "hardcoded-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "kb_admin",
-        "claim": "groups",
-        "claim.value": "kb-admins"
-      }
-    },
-    {
       "name": "okta-saml-groups-importer",
       "identityProviderAlias": "okta-saml",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
@@ -954,17 +551,6 @@
         "syncMode": "INHERIT",
         "attribute.name": "groups",
         "user.attribute": "idp_groups"
-      }
-    },
-    {
-      "name": "okta-saml-platform-admin-role",
-      "identityProviderAlias": "okta-saml",
-      "identityProviderMapper": "saml-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "admin",
-        "attribute.name": "groups",
-        "attribute.value": "platform-admin"
       }
     },
     {
@@ -978,17 +564,6 @@
       }
     },
     {
-      "name": "entra-oidc-platform-admin-role",
-      "identityProviderAlias": "entra-oidc",
-      "identityProviderMapper": "hardcoded-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "admin",
-        "claim": "groups",
-        "claim.value": "ENTRA_ADMIN_GROUP_GUID_PLACEHOLDER"
-      }
-    },
-    {
       "name": "entra-saml-groups-importer",
       "identityProviderAlias": "entra-saml",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
@@ -996,17 +571,6 @@
         "syncMode": "INHERIT",
         "attribute.name": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
         "user.attribute": "idp_groups"
-      }
-    },
-    {
-      "name": "entra-saml-platform-admin-role",
-      "identityProviderAlias": "entra-saml",
-      "identityProviderMapper": "saml-role-idp-mapper",
-      "config": {
-        "syncMode": "INHERIT",
-        "role": "admin",
-        "attribute.name": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
-        "attribute.value": "ENTRA_ADMIN_GROUP_GUID_PLACEHOLDER"
       }
     }
   ],
@@ -1101,8 +665,6 @@
         }
       ],
       "realmRoles": [
-        "admin",
-        "chat_user",
         "offline_access",
         "uma_authorization"
       ],
@@ -1126,9 +688,6 @@
         }
       ],
       "realmRoles": [
-        "chat_user",
-        "team_member",
-        "kb_reader:kb-team-a",
         "offline_access",
         "uma_authorization"
       ],
@@ -1152,10 +711,6 @@
         }
       ],
       "realmRoles": [
-        "chat_user",
-        "team_member",
-        "kb_admin",
-        "kb_reader:*",
         "offline_access",
         "uma_authorization"
       ],
@@ -1201,7 +756,6 @@
         }
       ],
       "realmRoles": [
-        "chat_user",
         "offline_access",
         "uma_authorization"
       ],
@@ -1215,10 +769,7 @@
       "username": "service-account-caipe-platform",
       "enabled": true,
       "serviceAccountClientId": "caipe-platform",
-      "realmRoles": [
-        "admin",
-        "chat_user"
-      ],
+      "realmRoles": [],
       "clientRoles": {
         "realm-management": [
           "view-users",
@@ -1231,34 +782,6 @@
   "roles": {
     "realm": [
       {
-        "name": "admin",
-        "description": "Platform administrator — full access to all CAIPE components",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "chat_user",
-        "description": "Standard chat user — can invoke supervisor, tools, MCP, A2A, skills",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "team_member",
-        "description": "Team member — can create/manage team-scoped RAG tools",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_admin",
-        "description": "Knowledge base administrator — can administer and ingest KBs",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
         "name": "offline_access",
         "description": "Offline access",
         "composite": false,
@@ -1268,41 +791,6 @@
       {
         "name": "uma_authorization",
         "description": "User-Managed Access",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_reader:*",
-        "description": "Read all knowledge bases (wildcard)",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_reader:kb-platform",
-        "description": "Read kb-platform KB",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_reader:kb-team-a",
-        "description": "Read kb-team-a KB",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_ingestor:kb-team-a",
-        "description": "Ingest into kb-team-a KB",
-        "composite": false,
-        "clientRole": false,
-        "containerId": "caipe"
-      },
-      {
-        "name": "kb_admin:kb-ops",
-        "description": "Admin kb-ops KB",
         "composite": false,
         "clientRole": false,
         "containerId": "caipe"

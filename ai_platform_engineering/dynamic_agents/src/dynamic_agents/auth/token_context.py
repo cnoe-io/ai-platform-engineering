@@ -24,3 +24,7 @@ from typing import Optional
 current_user_token: ContextVar[Optional[str]] = ContextVar(
     "current_user_token", default=None
 )
+
+current_traceparent: ContextVar[Optional[str]] = ContextVar(
+    "current_traceparent", default=None
+)

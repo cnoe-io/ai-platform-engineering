@@ -5,6 +5,7 @@
 import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 
@@ -15,6 +16,7 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
@@ -103,6 +105,7 @@ function request(path: string, init: RequestInit = {}): NextRequest {
 }
 
 const workspaceId = "T123456789";
+const workspaceAlias = "CAIPE";
 const channelId = "C123456789";
 const agentGrant = {
   resource: { type: "agent", id: "incident-agent" },
@@ -111,8 +114,10 @@ const agentGrant = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockCollections.channel_team_mappings = createMockCollection([
@@ -127,10 +132,14 @@ beforeEach(() => {
   mockCollections.slack_channel_grants = createMockCollection([]);
 });
 
+afterEach(() => {
+  delete process.env.SLACK_WORKSPACE_ALIAS;
+});
+
 describe("Slack channel ReBAC APIs", () => {
   it("lists configured Slack channels with active grant counts", async () => {
     mockCollections.slack_channel_grants = createMockCollection([
-      { workspace_id: workspaceId, channel_id: channelId, status: "active", resource: agentGrant.resource },
+      { workspace_id: workspaceAlias, channel_id: channelId, status: "active", resource: agentGrant.resource },
     ]);
     const { GET } = await import("../route");
 
@@ -140,7 +149,7 @@ describe("Slack channel ReBAC APIs", () => {
     expect(response.status).toBe(200);
     expect(body.data.channels).toEqual([
       expect.objectContaining({
-        workspace_id: workspaceId,
+        workspace_id: workspaceAlias,
         channel_id: channelId,
         channel_name: "incidents",
         active_grants: 1,
@@ -164,7 +173,7 @@ describe("Slack channel ReBAC APIs", () => {
     expect(body.data.grants).toHaveLength(1);
     expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceAlias,
         channel_id: channelId,
         "resource.type": "agent",
         "resource.id": "incident-agent",
@@ -173,7 +182,7 @@ describe("Slack channel ReBAC APIs", () => {
       { upsert: true }
     );
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: `slack_channel:${workspaceId}--${channelId}`, relation: "can_use", object: "agent:incident-agent" }],
+      writes: [{ user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" }],
       deletes: [],
     });
   });
@@ -181,7 +190,7 @@ describe("Slack channel ReBAC APIs", () => {
   it("checks both channel grants and user resource grants", async () => {
     mockCollections.slack_channel_grants = createMockCollection([
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceAlias,
         channel_id: channelId,
         resource: { type: "agent", id: "incident-agent" },
         actions: ["use"],
@@ -248,7 +257,7 @@ describe("Slack channel ReBAC APIs", () => {
     expect(body.data.routes).toHaveLength(1);
     expect(mockCollections.slack_channel_agent_routes.updateOne).toHaveBeenCalledWith(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceAlias,
         channel_id: channelId,
         agent_id: "incident-agent",
       },
@@ -263,7 +272,7 @@ describe("Slack channel ReBAC APIs", () => {
     );
     expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
       {
-        workspace_id: workspaceId,
+        workspace_id: workspaceAlias,
         channel_id: channelId,
         "resource.type": "agent",
         "resource.id": "incident-agent",
@@ -280,11 +289,119 @@ describe("Slack channel ReBAC APIs", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
         {
-          user: `slack_channel:${workspaceId}--${channelId}`,
-          relation: "can_use",
+          user: `slack_channel:${workspaceAlias}--${channelId}`,
+          relation: "user",
           object: "agent:incident-agent",
         },
       ],
+      deletes: [],
+    });
+  });
+
+  it("applies migration defaults to Slack channels and default team", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: "C987654321",
+        channel_name: "platform",
+        team_slug: "existing-team",
+        active: true,
+      },
+    ]);
+    mockCollections.teams = createMockCollection([
+      {
+        _id: "team-1",
+        slug: "platform-engineering",
+        name: "Platform Engineering",
+        resources: { agents: [] },
+      },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "incident-agent", name: "Incident Agent", enabled: true },
+    ]);
+    mockCollections.slack_channel_agent_routes = createMockCollection([]);
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/slack/channels/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "incident-agent",
+          create_routes: true,
+        }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.summary).toMatchObject({
+      channels_seen: 2,
+      channels_assigned_team: 1,
+      channel_grants_ensured: 2,
+      routes_ensured: 2,
+      team_grant_ensured: true,
+    });
+    expect(mockCollections.channel_team_mappings.updateOne).toHaveBeenCalledWith(
+      { slack_channel_id: channelId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          team_id: "team-1",
+          team_slug: "platform-engineering",
+          updated_by: "api",
+        }),
+      })
+    );
+    expect(mockCollections.teams.updateOne).toHaveBeenCalledWith(
+      { _id: "team-1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          resources: expect.objectContaining({ agents: ["incident-agent"] }),
+        }),
+      })
+    );
+    expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        "resource.type": "agent",
+        "resource.id": "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          source_type: "migration",
+          status: "active",
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_agent_routes.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          source_type: "bootstrap",
+          status: "active",
+          users: { enabled: true, listen: "mention" },
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" },
+        { user: `slack_channel:${workspaceAlias}--C987654321`, relation: "user", object: "agent:incident-agent" },
+        { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+      ]),
       deletes: [],
     });
   });

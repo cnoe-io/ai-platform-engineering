@@ -16,6 +16,14 @@ docker compose -f docker-compose.dev.yaml ps keycloak
 
 Keycloak admin console: `http://localhost:7080/admin` (admin / admin)
 
+The local `.env` mirrors the Grid RBAC defaults that affect auth behavior:
+`KEYCLOAK_FORCE_IDP_REDIRECT=true`, `OIDC_GROUP_CLAIM=members,groups`,
+`RBAC_ADMIN_GROUPS=eti_sre_admin`, and the RAG ingestor `INGESTOR_OIDC_*`
+client-credentials settings. The compose `keycloak-init` service passes
+`KEYCLOAK_FORCE_IDP_REDIRECT` through to `deploy/keycloak/init-idp.sh`, so a
+fresh `rbac` profile start configures the same IdP-only app-realm login path as
+the Helm deployment.
+
 > **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) and supervisor (`28000`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
 
 ---
@@ -59,8 +67,9 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 ## Verify ReBAC Transition Mode
 
-Use the enforcement comparison endpoint to prove stale resource-specific realm roles
-do not allow access once a resource type is marked `rebac_enforced`:
+Use the engineer-facing enforcement comparison endpoint to prove stale
+resource-specific realm roles do not allow access once a resource type is
+marked `rebac_enforced`. This migration check is not exposed in the admin UI.
 
 ```bash
 curl -s -X POST http://localhost:3000/api/rbac/enforcement-comparison \
@@ -133,7 +142,9 @@ The three outcomes (200, 403, 401) map directly onto the distinct layers in the 
 
 ## Enable Dynamic Agents Auth
 
-`AUTH_ENABLED` defaults to `false` in dev (returns a hardcoded admin bypass). To test the real RBAC path:
+`AUTH_ENABLED` controls the legacy Dynamic Agents user-context dependency. The
+layered execution PDP also requires validated bearer identity at runtime and an
+OpenFGA store with agent-use tuples. To test the full path:
 
 ```bash
 # .env
@@ -141,9 +152,120 @@ AUTH_ENABLED=true
 OIDC_ISSUER=http://localhost:7080/realms/caipe
 OIDC_CLIENT_ID=caipe-ui
 OIDC_REQUIRED_ADMIN_GROUP=admin
+DA_REQUIRE_BEARER=true
+OPENFGA_HTTP=http://openfga:8080
+OPENFGA_STORE_NAME=caipe-openfga
 ```
 
+Use `OPENFGA_STORE_ID` instead of store-name discovery when your environment
+pins the store id. With these settings, `POST /api/v1/chat/stream/start`,
+`POST /api/v1/chat/invoke`, and `POST /api/v1/chat/stream/resume` require
+`user:<sub> can_use agent:<agent_id>` at both the Web UI backend and runtime layers.
+If existing team data was seeded with email principals, both layers fallback to
+`user:<email> can_use agent:<agent_id>` after the subject check fails.
+`POST /api/v1/chat/stream/cancel` remains authentication-only.
+
+The RBAC Audit tab records OpenFGA results as `OpenFGA ReBAC`. Filter by type
+`OpenFGA ReBAC` to see `webui_backend` `dynamic_agent#use` checks, Dynamic Agents
+runtime `dynamic_agent#use` checks, AgentGateway bridge `mcp#can_call` checks, and
+admin graph/check/relationship activity from the OpenFGA ReBAC panel. The Admin UI
+reads MongoDB `audit_events`, so this view works without Jaeger. To keep the
+default feed useful, routine `admin_ui#view` checks are hidden unless the user
+explicitly selects the `Authorization` type filter. The same default filter
+applies to `admin_ui#audit.view` checks generated while viewing the audit page.
+
+### Authz Audit Storage
+
+Authorization audit is MongoDB-backed in local dev. Use Admin → Security &
+Policy → RBAC Audit as the durable view for OpenFGA checks and authorization
+decisions; the dev compose stack does not start a separate trace backend.
+
 See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5-dynamic-agents--the-workshop-floor) for the full env var table and what each one does.
+
+---
+
+## Backfill OpenFGA Relationships
+
+After enabling the Dynamic Agent execution gate, run the OpenFGA relationship
+backfill so existing team/resource assignments and the configured default agent
+are represented in the OpenFGA graph.
+
+Dry-run first:
+
+```bash
+MONGODB_URI=mongodb://localhost:27017 \
+MONGODB_DATABASE=caipe \
+OPENFGA_HTTP=http://localhost:8080 \
+OPENFGA_STORE_NAME=caipe-openfga \
+APPLY=false \
+npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/backfill-universal-rebac.ts
+```
+
+Review the JSON summary for planned tuples, skipped identifiers, unmapped users,
+and `defaultAgent`. If a dynamic default agent is configured, the active model
+must allow `user:*` on `agent.can_use` and the summary should include the
+default-agent grant.
+
+Before applying in an environment that already has team members, make sure users
+have logged in at least once through CAIPE so `users.keycloak_sub` is populated.
+The backfill uses that persisted Keycloak subject for `user:<sub>
+member/admin team:<slug>` tuples; email is only a compatibility fallback.
+
+Apply once:
+
+```bash
+MONGODB_URI=mongodb://localhost:27017 \
+MONGODB_DATABASE=caipe \
+OPENFGA_HTTP=http://localhost:8080 \
+OPENFGA_STORE_NAME=caipe-openfga \
+APPLY=true \
+npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/backfill-universal-rebac.ts
+```
+
+The script records completion in MongoDB `rbac_migrations` with
+`_id=openfga_relationship_backfill_v1`. Re-running with `APPLY=true` exits
+without rewriting when that completed record exists. Use `FORCE=true` only when
+intentionally reconciling again.
+
+The migration writes:
+
+- `user:<sub> member/admin team:<slug>` from team members.
+- Team resource tuples for agents, tools, knowledge bases, skills, and tasks.
+- `user:* can_use agent:<default_agent_id>` when the configured default is a
+  dynamic agent.
+- Mongo provenance in `team_membership_sources` and `rebac_relationships`.
+
+Then backfill per-agent MCP tool restrictions so existing Dynamic Agents match
+the enforcement that new agent create/update calls write automatically:
+
+```bash
+# Dry-run first
+MONGODB_URI=mongodb://localhost:27017 \
+MONGODB_DATABASE=caipe \
+npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/backfill-agent-tool-openfga.ts
+
+# Apply after reviewing planned tuples. Apply mode reconciles existing
+# agent-scoped tool tuples, including deleting stale wildcard grants that are
+# no longer present in dynamic_agents.allowed_tools.
+MONGODB_URI=mongodb://localhost:27017 \
+MONGODB_DATABASE=caipe \
+OPENFGA_HTTP=http://localhost:8080 \
+OPENFGA_STORE_NAME=caipe-openfga \
+npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/backfill-agent-tool-openfga.ts --apply
+```
+
+This reconciles `agent:<agent_id> can_call tool:<server>/<tool>` tuples from
+each agent's `allowed_tools`; empty tool arrays become `tool:<server>/*`, and
+OpenFGA tuples for removed tools are deleted during apply mode.
+
+Verify the default-agent path:
+
+```text
+Check user:<any-authenticated-subject> can_use agent:<default_agent_id>
+```
+
+Expected result: allowed for the configured dynamic default agent; unrelated
+agents remain denied unless the user has a direct or team-derived grant.
 
 ---
 
@@ -163,6 +285,21 @@ See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5
 4. Subsequent messages: OBO exchange happens automatically
 
 The full sequence (HMAC URL shape, TTL enforcement, **JIT user creation** for unknown emails, what happens server-side) is in [Workflows › Slack identity linking](./workflows.md#slack-identity-linking-auto-bootstrap--jit--forced-link).
+
+---
+
+## Slack Channel Migration Defaults
+
+Use **Admin → OpenFGA ReBAC → Slack Channels → Migration Defaults** when onboarding an existing Slack bot workspace. Pick a default team and a default Dynamic Agent, then apply defaults to all onboarded Slack channels.
+
+The bulk action is explicit and idempotent:
+
+- Slack channels without a team mapping get the selected `team_slug`.
+- Every active onboarded channel gets `slack_channel:<channel> can_use agent:<id>`.
+- The selected team gets `team:<slug>#member can_use agent:<id>`.
+- If selected, matching bootstrap rows are added to `slack_channel_agent_routes`.
+
+If the Team or Dynamic Agent dropdown is empty, create the missing object in the admin UI and click **Refresh lists** before applying defaults.
 
 ---
 

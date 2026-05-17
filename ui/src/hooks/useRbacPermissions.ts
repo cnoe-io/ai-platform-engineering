@@ -15,7 +15,7 @@ interface RbacPermissionsState {
 }
 
 /**
- * React hook — fetches the user's effective RBAC permissions from the BFF
+ * React hook — fetches the user's effective RBAC permissions from the Web UI backend
  * and exposes a `hasPermission(resource, scope)` helper for conditional
  * rendering (US2, FR-004).
  *

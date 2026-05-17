@@ -11,9 +11,11 @@ What it checks:
   3. Every `require_rbac_permission(token, "<resource>", "<scope>")` call in
      `ai_platform_engineering/**/server.py` and `ai_platform_engineering/**/__main__.py`
      (Python surface) is represented by a route entry.
-  4. Each entry has expectations for ALL six personas (the JSON schema enforces this,
+  4. Every Dynamic Agent execution route that calls the OpenFGA agent-use helper is
+     represented by an OpenFGA matrix entry.
+  5. Each entry has expectations for ALL six personas (the JSON schema enforces this,
      but we double-check after parse for nicer errors).
-  5. The set of resources referenced by the matrix is a subset of the resources we can
+  6. The set of Keycloak resources referenced by the matrix is a subset of the resources we can
      find in `deploy/keycloak/realm-config.json` `authorizationSettings.resources[]`
      (defence in depth — `validate-realm-config.py` is the authoritative check).
 
@@ -60,6 +62,10 @@ TS_CALL_RE = re.compile(
     r"requireRbacPermission\s*\(\s*[^,]+?,\s*[\"']([a-z0-9_]+(?::[A-Za-z0-9_-]+)?)[\"']\s*,\s*[\"']([a-z_]+)[\"']",
     re.MULTILINE | re.DOTALL,
 )
+# BFF data-plane OpenFGA route gate. The concrete object is request-specific
+# (`agent:<agent_id>`), so validation tracks route coverage rather than realm
+# resource inventory.
+TS_OPENFGA_AGENT_USE_RE = re.compile(r"requireAgentUsePermission\s*\(", re.MULTILINE)
 # require_rbac_permission(token, "resource", "scope")
 PY_CALL_RE = re.compile(
     r"require_rbac_permission\s*\(\s*[^,]+?,\s*[\"']([a-z0-9_]+(?::[A-Za-z0-9_-]+)?)[\"']\s*,\s*[\"']([a-z_]+)[\"']",
@@ -105,7 +111,7 @@ def load_matrix() -> dict:
 
 def load_realm_resources() -> set[str]:
     """Return the set of resource names declared in deploy/keycloak/realm-config.json."""
-    if not REALM_CONFIG_PATH.exists():
+    if not REALM_CONFIG_PATH.is_file():
         # Soft-skip: validate-realm-config.py is the hard gate (T011).
         return set()
     cfg = json.loads(REALM_CONFIG_PATH.read_text())
@@ -138,9 +144,33 @@ def find_call_sites(globs: Iterable[str], pattern: re.Pattern[str]) -> dict[tupl
 
 _ALLOWED_ROUTE_KEYS = frozenset({
     "id", "surface", "method", "path", "resource", "scope",
-    "expectations", "notes", "migration_status",
+    "expectations", "notes", "migration_status", "authorization_system",
+    "relation", "object_type",
 })
 _VALID_MIGRATION_STATUSES = frozenset({"migrated", "pending"})
+_VALID_AUTHORIZATION_SYSTEMS = frozenset({"keycloak", "openfga"})
+
+
+def route_path_from_ui_file(path: Path) -> str:
+    """Convert a Next.js app route file path into its API route path."""
+    rel = path.relative_to(REPO_ROOT / "ui" / "src" / "app")
+    without_route = rel.parent
+    return "/" + "/".join(without_route.parts)
+
+
+def find_openfga_agent_use_route_sites() -> dict[str, list[str]]:
+    """Return {route_path: [file:line, ...]} for BFF OpenFGA agent-use gates."""
+    sites: dict[str, list[str]] = {}
+    for path in REPO_ROOT.glob(UI_ROUTES_GLOB):
+        try:
+            content = path.read_text()
+        except (UnicodeDecodeError, PermissionError):
+            continue
+        for match in TS_OPENFGA_AGENT_USE_RE.finditer(content):
+            line_no = content[: match.start()].count("\n") + 1
+            where = f"{path.relative_to(REPO_ROOT)}:{line_no}"
+            sites.setdefault(route_path_from_ui_file(path), []).append(where)
+    return sites
 
 
 def validate_schema_shape(matrix: dict) -> list[Violation]:
@@ -173,6 +203,20 @@ def validate_schema_shape(matrix: dict) -> list[Violation]:
                     f"migration_status must be one of {sorted(_VALID_MIGRATION_STATUSES)}, got {ms!r}",
                 )
             )
+        authz = entry.get("authorization_system", "keycloak")
+        if authz not in _VALID_AUTHORIZATION_SYSTEMS:
+            violations.append(
+                Violation(
+                    "schema",
+                    rid,
+                    f"authorization_system must be one of {sorted(_VALID_AUTHORIZATION_SYSTEMS)}, got {authz!r}",
+                )
+            )
+        if authz == "openfga":
+            if entry.get("relation") != "can_use":
+                violations.append(Violation("schema", rid, "OpenFGA agent-use entries must set relation: can_use"))
+            if entry.get("object_type") != "agent":
+                violations.append(Violation("schema", rid, "OpenFGA agent-use entries must set object_type: agent"))
         expectations = entry.get("expectations") or {}
         missing = REQUIRED_PERSONAS - set(expectations.keys())
         if missing:
@@ -194,7 +238,16 @@ def main() -> int:
     declared_pairs: set[tuple[str, str]] = {
         (e["resource"], e["scope"]) for e in matrix.get("routes", []) if "resource" in e and "scope" in e
     }
-    declared_resources: set[str] = {res for res, _ in declared_pairs}
+    declared_keycloak_resources: set[str] = {
+        e["resource"]
+        for e in matrix.get("routes", [])
+        if "resource" in e and e.get("authorization_system", "keycloak") != "openfga"
+    }
+    declared_openfga_routes: set[tuple[str, str]] = {
+        (e["method"], e["path"])
+        for e in matrix.get("routes", [])
+        if e.get("authorization_system") == "openfga"
+    }
 
     print("[validate-rbac-matrix] scanning TS call sites…")
     ts_sites = find_call_sites([UI_ROUTES_GLOB], TS_CALL_RE)
@@ -204,9 +257,15 @@ def main() -> int:
     py_sites = find_call_sites(PY_SERVER_GLOBS, PY_CALL_RE)
     print(f"[validate-rbac-matrix]   found {len(py_sites)} unique (resource, scope) pairs in Python")
 
+    print("[validate-rbac-matrix] scanning OpenFGA agent-use route gates…")
+    openfga_sites = find_openfga_agent_use_route_sites()
+    print(f"[validate-rbac-matrix]   found {len(openfga_sites)} OpenFGA-gated BFF route(s)")
+
     if args.print:
         for (res, scope), wheres in sorted({**ts_sites, **py_sites}.items()):
             print(f"  - ({res}, {scope}): {wheres[0]}{' (+%d more)' % (len(wheres)-1) if len(wheres) > 1 else ''}")
+        for route_path, wheres in sorted(openfga_sites.items()):
+            print(f"  - (openfga, POST {route_path}, agent#use): {wheres[0]}{' (+%d more)' % (len(wheres)-1) if len(wheres) > 1 else ''}")
 
     matrix_violations: list[Violation] = []
     for pair, wheres in {**ts_sites, **py_sites}.items():
@@ -218,11 +277,20 @@ def main() -> int:
                     f"call site uses ({pair[0]!r}, {pair[1]!r}) but no entry in tests/rbac/rbac-matrix.yaml",
                 )
             )
+    for route_path, wheres in openfga_sites.items():
+        if ("POST", route_path) not in declared_openfga_routes:
+            matrix_violations.append(
+                Violation(
+                    "missing_in_matrix",
+                    wheres[0],
+                    f"OpenFGA agent-use gate on POST {route_path} has no authorization_system=openfga entry",
+                )
+            )
 
     realm_resources = load_realm_resources()
     realm_violations: list[Violation] = []
     if realm_resources:
-        unknown = declared_resources - realm_resources
+        unknown = declared_keycloak_resources - realm_resources
         for res in sorted(unknown):
             realm_violations.append(
                 Violation(

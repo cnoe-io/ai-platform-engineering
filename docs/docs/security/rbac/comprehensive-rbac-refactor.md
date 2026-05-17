@@ -128,7 +128,7 @@ The current OpenFGA model contains the existing coarse AgentGateway gate plus
 richer ReBAC facts written from the Admin UI.
 
 ```text
-user:<sub> can_call document:mcp
+user:<sub> can_call mcp_gateway:list
 
 user:<sub> member team:<slug>
 team:<slug>#member can_use agent:<agent_id>
@@ -141,8 +141,8 @@ team:<slug>#member can_ingest knowledge_base:<id>
 team:<slug>#member can_admin knowledge_base:<id>
 ```
 
-Important nuance: AgentGateway currently checks OpenFGA only for the coarse
-`document:mcp` object. The richer `team`, `agent`, `tool`, and `knowledge_base`
+Important nuance: AgentGateway currently checks OpenFGA for the coarse
+`mcp_gateway:list` object on browse/list/init traffic. The richer `team`, `agent`, `tool`, and `knowledge_base`
 tuples are written now so the relationship graph is ready for full per-resource
 PDP enforcement once MCP tool context is passed into OpenFGA checks.
 
@@ -151,7 +151,7 @@ PDP enforcement once MCP tool context is passed into OpenFGA checks.
 The Admin UI has two human-facing ReBAC surfaces:
 
 - **Team Resources** is the source-of-truth editor for team grants. Admins choose
-  which agents and MCP tool prefixes a team can use, and the BFF materializes the
+  which agents and MCP tool prefixes a team can use, and the Web UI backend materializes the
   change into OpenFGA tuples and Mongo intent.
 - **OpenFGA ReBAC** is the relationship workbench. It provides a guided tuple
   builder, effective-access preview, full-screen all-relationship graph viewing,

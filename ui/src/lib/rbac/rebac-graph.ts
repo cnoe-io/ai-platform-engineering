@@ -54,6 +54,18 @@ const RELATION_TO_ACTION: Record<string, string> = {
   can_share: "share",
   can_use: "use",
   can_write: "write",
+  approver: "approve",
+  auditor: "audit",
+  caller: "call",
+  ingestor: "ingest",
+  invoker: "invoke",
+  manager: "manage",
+  metadata_reader: "read-metadata",
+  owner: "manage",
+  reader: "read",
+  sharer: "share",
+  user: "use",
+  writer: "write",
 };
 
 function nodeType(id: string): string {
