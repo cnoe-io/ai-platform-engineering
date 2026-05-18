@@ -419,6 +419,10 @@ async def chat_invoke(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (deep merge, validated)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
@@ -476,6 +480,18 @@ async def chat_invoke(
             "trace_id": request.trace_id,
         }
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity for invoke: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error": "This agent is at capacity right now. Please try again in a moment.",
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
     except Exception as e:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return JSONResponse(
