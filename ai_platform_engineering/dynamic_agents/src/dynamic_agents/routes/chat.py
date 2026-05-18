@@ -1,11 +1,12 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
+import json
 import logging
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.log_config import conversation_id_var
@@ -31,10 +32,45 @@ class ResumeStreamRequest(BaseModel):
 
     agent_id: str
     conversation_id: str
-    resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
+    resume_data: str | None = None  # JSON string with type discriminator (form_input or tool_approval)
+    form_data: str | None = None  # Legacy field used by older UI/Slack clients.
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
     client_context: ClientContext | None = Field(None, description="Opaque client context for resumed turns")
+
+    @model_validator(mode="after")
+    def normalize_legacy_form_data(self) -> "ResumeStreamRequest":
+        """Accept old form_data clients and convert them to resume_data."""
+        if self.resume_data is not None:
+            return self
+
+        if self.form_data is None:
+            raise ValueError("Missing required field: resume_data")
+
+        self.resume_data = _normalize_resume_data(self.form_data)
+        return self
+
+
+def _normalize_resume_data(payload: str) -> str:
+    """Normalize legacy form_data payloads into the current resume_data format."""
+    try:
+        data: Any = json.loads(payload)
+    except json.JSONDecodeError:
+        return json.dumps({"type": "form_input", "dismissed": True, "message": payload})
+
+    if not isinstance(data, dict):
+        return payload
+
+    if data.get("type") in {"form_input", "tool_approval"}:
+        return payload
+
+    if data.get("dismissed") or data.get("action") == "reject":
+        return json.dumps({"type": "form_input", "dismissed": True})
+
+    if isinstance(data.get("values"), dict):
+        return json.dumps({"type": "form_input", "values": data["values"]})
+
+    return json.dumps({"type": "form_input", "values": data})
 
 
 async def _generate_sse_events(
@@ -240,6 +276,7 @@ async def chat_resume_stream(
     )
 
     encoder = get_encoder(request.protocol)
+    resume_data = request.resume_data or ""
 
     return StreamingResponse(
         _generate_resume_sse_events(
@@ -247,7 +284,7 @@ async def chat_resume_stream(
             mcp_servers=mcp_servers,
             session_id=request.conversation_id,
             user=user,
-            resume_data=request.resume_data,
+            resume_data=resume_data,
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,

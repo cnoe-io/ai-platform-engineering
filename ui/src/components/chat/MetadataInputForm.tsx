@@ -140,27 +140,35 @@ export function MetadataInputForm({
     }
   }, [formData, onSubmit, validateForm]);
 
+  const useCompactGrid = inputFields.length >= 7;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mt-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30"
+      className="mt-3 w-full max-w-lg rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
     >
       {/* Header */}
-      <div className="flex items-center gap-2 mb-4">
-        <AlertCircle className="h-4 w-4 text-amber-400" />
-        <span className="text-sm font-medium text-amber-400">
+      <div className="mb-2 flex items-center gap-2">
+        <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+        <span className="text-xs font-medium text-amber-400">
           {title}
         </span>
       </div>
 
       {/* Description */}
       {description && (
-        <p className="text-sm text-muted-foreground mb-4">{description}</p>
+        <p className="mb-3 text-xs leading-snug text-muted-foreground">{description}</p>
       )}
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form
+        onSubmit={handleSubmit}
+        className={cn(
+          "grid gap-3",
+          useCompactGrid ? "md:grid-cols-2" : "grid-cols-1"
+        )}
+      >
         {inputFields.map((field, idx) => {
           const fieldType = field.field_type || "text";
           const fieldLabel = field.field_label || field.field_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -168,20 +176,20 @@ export function MetadataInputForm({
           const isMultiselect = hasOptions && multiselectMode[field.field_name];
 
           return (
-            <div key={field.field_name} className="space-y-1.5">
+            <div key={field.field_name} className="min-w-0 space-y-1">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <label className="text-sm font-medium text-foreground">
+                <label className="text-xs font-medium text-foreground">
                   {fieldLabel}
                   {field.required !== false && <span className="text-red-400 ml-1">*</span>}
                 </label>
                 {hasOptions && (
-                  <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground">
                     <input
                       type="checkbox"
                       checked={!!multiselectMode[field.field_name]}
                       onChange={(e) => setMultiselectForField(field.field_name, e.target.checked)}
                       disabled={disabled || isSubmitting}
-                      className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
+                      className="h-3 w-3 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
                     />
                     <span>Allow multiple</span>
                   </label>
@@ -189,14 +197,14 @@ export function MetadataInputForm({
               </div>
 
               {field.field_description && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] leading-snug text-muted-foreground">
                   {field.field_description}
                 </p>
               )}
 
               {/* Multi-select: checkboxes, value stored as comma-separated */}
               {isMultiselect ? (
-                <div className="space-y-2 rounded-lg border border-border bg-background px-3 py-2.5">
+                <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border border-border bg-background px-2.5 py-2">
                   {field.field_values!.map((value) => {
                     const selected = (formData[field.field_name] || "")
                       .split(",")
@@ -207,7 +215,7 @@ export function MetadataInputForm({
                       <label
                         key={value}
                         className={cn(
-                          "flex items-center gap-3 cursor-pointer rounded py-1.5 px-2 -mx-2 hover:bg-muted/50",
+                          "flex cursor-pointer items-center gap-2 rounded px-2 py-1 -mx-2 hover:bg-muted/50",
                           (disabled || isSubmitting) && "opacity-60 cursor-not-allowed"
                         )}
                       >
@@ -216,9 +224,9 @@ export function MetadataInputForm({
                           checked={checked}
                           onChange={() => handleMultiselectToggle(field.field_name, value)}
                           disabled={disabled || isSubmitting}
-                          className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
+                          className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-2 focus:ring-primary/50"
                         />
-                        <span className="text-sm text-foreground">{value}</span>
+                        <span className="text-xs text-foreground">{value}</span>
                       </label>
                     );
                   })}
@@ -230,7 +238,7 @@ export function MetadataInputForm({
                     onChange={(e) => handleFieldChange(field.field_name, e.target.value)}
                     disabled={disabled || isSubmitting}
                     className={cn(
-                      "w-full px-3 py-2 pr-8 rounded-lg text-sm appearance-none",
+                      "h-8 w-full appearance-none rounded-md px-2.5 py-1.5 pr-7 text-xs",
                       "bg-background border transition-colors",
                       "focus:outline-none focus:ring-2 focus:ring-primary/50",
                       errors[field.field_name]
@@ -245,10 +253,10 @@ export function MetadataInputForm({
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 </div>
               ) : fieldType === "boolean" ? (
-                <div className="flex items-center gap-3 pt-1">
+                <div className="flex items-center gap-2 pt-0.5">
                   <button
                     type="button"
                     role="switch"
@@ -260,7 +268,7 @@ export function MetadataInputForm({
                     }}
                     disabled={disabled || isSubmitting}
                     className={cn(
-                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                      "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
                       "focus:outline-none focus:ring-2 focus:ring-primary/50",
                       (formData[field.field_name] === "Yes" || formData[field.field_name] === "true")
                         ? "bg-primary"
@@ -269,14 +277,14 @@ export function MetadataInputForm({
                   >
                     <span
                       className={cn(
-                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                        "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform",
                         (formData[field.field_name] === "Yes" || formData[field.field_name] === "true")
-                          ? "translate-x-6"
+                          ? "translate-x-5"
                           : "translate-x-1"
                       )}
                     />
                   </button>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {(formData[field.field_name] === "Yes" || formData[field.field_name] === "true") ? "Yes" : "No"}
                   </span>
                 </div>
@@ -289,7 +297,7 @@ export function MetadataInputForm({
                   disabled={disabled || isSubmitting}
                   autoFocus={idx === 0}
                   className={cn(
-                    "w-full px-3 py-2 rounded-lg text-sm",
+                    "h-8 w-full rounded-md px-2.5 py-1.5 text-xs",
                     "bg-background border transition-colors",
                     "focus:outline-none focus:ring-2 focus:ring-primary/50",
                     errors[field.field_name]
@@ -304,7 +312,7 @@ export function MetadataInputForm({
                 <motion.p
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-xs text-red-400"
+                  className="text-[11px] text-red-400"
                 >
                   {errors[field.field_name]}
                 </motion.p>
@@ -314,7 +322,7 @@ export function MetadataInputForm({
         })}
 
         {/* Submit button */}
-        <div className="flex justify-end gap-2 pt-2">
+        <div className={cn("flex justify-end gap-2 pt-1", useCompactGrid && "md:col-span-2")}>
           {onCancel && (
             <Button
               type="button"
@@ -322,6 +330,7 @@ export function MetadataInputForm({
               size="sm"
               onClick={onCancel}
               disabled={isSubmitting}
+              className="h-8 px-3 text-xs"
             >
               Cancel
             </Button>
@@ -330,13 +339,13 @@ export function MetadataInputForm({
             type="submit"
             size="sm"
             disabled={disabled || isSubmitting}
-            className="gap-2"
+            className="h-8 gap-2 px-3 text-xs"
           >
             {isSubmitting ? (
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full"
+                className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white"
               />
             ) : (
               <Send className="h-3.5 w-3.5" />
