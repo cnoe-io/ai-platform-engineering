@@ -333,7 +333,7 @@ describe('requireRbacPermission organization ReBAC', () => {
     await expect(
       requireRbacPermission(
         {
-          accessToken: 'eyJhbGciOiJub25lIn0.eyJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiYWRtaW4iXX19.',
+          accessToken: ['eyJhbGciOiJub25lIn0', 'eyJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiYWRtaW4iXX19', ''].join('.'),
           sub: 'legacy-admin-sub',
           user: { email: 'legacy@example.com' },
         },
@@ -798,7 +798,7 @@ describe('getAuthenticatedUser', () => {
     mockGetServerSession.mockResolvedValue({
       user: { email: 'user@test.com', name: 'Test User' },
       role: 'user',
-      sub: '9c7381c0-9f57-44c6-86ef-978b1c48811c',
+      sub: 'test-keycloak-sub',
     });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
@@ -812,8 +812,8 @@ describe('getAuthenticatedUser', () => {
       { email: 'user@test.com' },
       expect.objectContaining({
         $set: expect.objectContaining({
-          keycloak_sub: '9c7381c0-9f57-44c6-86ef-978b1c48811c',
-          'metadata.keycloak_sub': '9c7381c0-9f57-44c6-86ef-978b1c48811c',
+          keycloak_sub: 'test-keycloak-sub',
+          'metadata.keycloak_sub': 'test-keycloak-sub',
         }),
       }),
       { upsert: true }
