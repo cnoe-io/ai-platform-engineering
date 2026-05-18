@@ -12,11 +12,11 @@ keywords = ["webex", "mcp", "llm", "automation"]
 requires-python = ">=3.13,<4.0"
 dependencies = [
     "click==8.3.1",
-    "mcp==1.26.0",
+    "mcp==1.27.1",
     "pydantic==2.12.5",
     "httpx==0.28.1",
     "python-dotenv==1.2.2",
-    "fastmcp==3.2.3",
+    "fastmcp==3.2.4",
     "typing-extensions==4.15.0",
 ]
 

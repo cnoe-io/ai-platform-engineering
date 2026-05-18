@@ -100,7 +100,7 @@ export interface UseSkillFormResult {
   isSubmitting: boolean;
   submitStatus: "idle" | "success" | "error";
   validateForm: () => boolean;
-  handleSubmit: () => Promise<void>;
+  handleSubmit: (extras?: Partial<CreateAgentSkillInput>) => Promise<void>;
 
   // ---- Dirty / discard plumbing ------------------------------------------
   isDirty: boolean;
@@ -280,7 +280,9 @@ export function useSkillForm({
     "idle",
   );
 
-  const handleSubmit = useCallback(async (): Promise<void> => {
+  const handleSubmit = useCallback(async (
+    extras?: Partial<CreateAgentSkillInput>,
+  ): Promise<void> => {
     if (!validateForm()) return;
 
     setIsSubmitting(true);
@@ -314,6 +316,7 @@ export function useSkillForm({
         shared_with_teams: visibility === "team" ? selectedTeamIds : undefined,
         ancillary_files:
           Object.keys(ancillaryFiles).length > 0 ? ancillaryFiles : undefined,
+        ...(extras ?? {}),
       };
 
       let savedId: string;

@@ -52,12 +52,19 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     if: |
-      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed'
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (
+        startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+        github.event.action != 'closed'
+      )
     permissions:
       contents: read
       packages: write

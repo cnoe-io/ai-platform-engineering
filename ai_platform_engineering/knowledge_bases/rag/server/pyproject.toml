@@ -12,7 +12,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     # LangChain ecosystem (versions must align with common's langchain-openai)
     "langchain==1.0.8",
-    "langchain-core==1.3.3",
+    "langchain-core==1.4.0",
     "langchain-community==0.4.1",
     "langchain-milvus==0.3.0",
     # Vector DB
@@ -24,7 +24,7 @@ dependencies = [
     # Web framework
     "fastapi[standard]==0.122.0",
     "uvicorn==0.37.0",
-    "fastmcp==3.2.3",
+    "fastmcp==3.2.4",
     # HTTP clients
     "aiohttp==3.13.4",
     "aiohttp-retry==2.9.1",

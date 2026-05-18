@@ -18,13 +18,20 @@ permissions:
   issues: write
   actions: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   coverage-report:
     runs-on: ubuntu-latest
     # Only run for pull_request triggers (not push to main) and only when tests passed
-    if: >
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
+    if: |
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     steps:
       - name: Download main coverage reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8

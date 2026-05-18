@@ -6,7 +6,7 @@ on:
     branches:
       - main
       - 'release/**'
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: write
@@ -14,6 +14,10 @@ permissions:
   pull-requests: write
   packages: write
   actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   eligibility:
@@ -34,6 +38,24 @@ jobs:
               core.setOutput('should_run', 'false');
               core.setOutput('reason', `unsupported base branch ${pr.base.ref}`);
               core.info(`should_run=false: unsupported base branch ${pr.base.ref}`);
+              return;
+            }
+
+            // For label events, the label name is in the payload — no API call needed.
+            // Only helm labels require a version-bump run; all others are irrelevant.
+            const action = context.payload.action || '';
+            if (action === 'labeled' || action === 'unlabeled') {
+              const helmLabels = new Set(['helm-chart-bump', 'helm-prerelease']);
+              const labelName = context.payload.label?.name;
+              if (!helmLabels.has(labelName)) {
+                core.setOutput('should_run', 'false');
+                core.setOutput('reason', `label event for non-helm label: ${labelName}`);
+                core.info(`should_run=false: label event for non-helm label: ${labelName}`);
+                return;
+              }
+              core.setOutput('should_run', 'true');
+              core.setOutput('reason', `helm label event: ${labelName}`);
+              core.info(`should_run=true: helm label event: ${labelName}`);
               return;
             }
 
@@ -129,7 +151,7 @@ jobs:
             const prNumber = context.payload.pull_request.number;
 
             let pr;
-            for (let attempt = 0; attempt < 6; attempt++) {
+            for (let attempt = 0; attempt < 3; attempt++) {
               const response = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,

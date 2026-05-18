@@ -35,12 +35,19 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   load-config:
     runs-on: ubuntu-latest
     if: |
-      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed'
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (
+        startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+        github.event.action != 'closed'
+      )
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
       mcp_build_args: ${{ steps.read-config.outputs.mcp_build_args }}

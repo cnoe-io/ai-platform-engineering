@@ -40,6 +40,12 @@ import { SkillsSelector } from "./SkillsSelector";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
 import { gradientThemes } from "@/lib/gradient-themes";
 import { AgentAvatar } from "./AgentAvatar";
+import {
+  useAiReview,
+  AiReviewButton,
+  AiReviewPanel,
+  buildLastReview,
+} from "@/components/ai-review";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -417,6 +423,20 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
   const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
 
+  // AI Review hook for the system prompt (Instructions step). The hook is a no-op
+  // when `/api/review-configs/agent-system-prompt` is not configured / disabled —
+  // both the button and panel render null in that case.
+  const review = useAiReview({
+    target: "agent-system-prompt",
+    content: systemPrompt,
+    context: {
+      name,
+      agent_description: description,
+      extra_context: undefined,
+    },
+    onApplyFix: setSystemPrompt,
+  });
+
   // Editor resize drag handlers
   const handleDragStart = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -634,7 +654,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const goToNextStep = () => {
+  const goToNextStep = async () => {
+    // Gate the instructions → tools transition behind a passing AI Review when
+    // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
+    // no-op when the config is disabled or informational.
+    if (activeStep === "instructions" && review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before continuing.");
+        return;
+      }
+    }
     if (currentStepIndex < STEPS.length - 1) {
       setActiveStep(STEPS[currentStepIndex + 1].id);
     }
@@ -781,6 +811,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     setLoading(true);
     setError(null);
 
+    // Gate save behind a passing AI Review when the admin has flagged this
+    // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
+    // disabled or informational.
+    if (review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before saving.");
+        setLoading(false);
+        return;
+      }
+    }
+
     // Validate required fields
     if (!modelId || !modelProvider) {
       setError("Model selection is required");
@@ -811,6 +853,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           }
         : undefined;
 
+      // Stamp the latest in-memory review verdict onto the saved row so the
+      // list view can show a grade badge without re-running the LLM. Only
+      // emit the field when we actually have a result this session — never
+      // overwrite a prior `last_review` with null.
+      const lastReview = buildLastReview(review.result, "agent-system-prompt");
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate = {
@@ -827,6 +875,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -856,6 +905,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -1358,6 +1408,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   <Label htmlFor="systemPrompt">
                     System Prompt <span className="text-destructive">*</span>
                   </Label>
+                  <div className="flex items-center gap-2">
                   <div className="relative">
                     <Button
                       type="button"
@@ -1461,6 +1512,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       )}
                     </AnimatePresence>
                   </div>
+                  {/* AI Review button — sibling to AI Suggest. Renders disabled
+                      when the target isn't configured; the panel below renders
+                      null in the same case so this is the only visible affordance. */}
+                  <AiReviewButton review={review} size="sm" />
+                  </div>
                 </div>
 
                 {/* Edit / Preview tabs */}
@@ -1493,63 +1549,83 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   </button>
                 </div>
 
-                {promptTab === "edit" ? (
-                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
-                    <React.Suspense
-                      fallback={
-                        <div className="flex items-center justify-center h-48 text-zinc-500">
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          <span className="text-sm">Loading editor...</span>
-                        </div>
-                      }
-                    >
-                      <CodeMirrorEditor
-                        value={systemPrompt}
-                        onChange={(val: string) => setSystemPrompt(val)}
-                        extensions={cmExtensions}
-                        theme="dark"
-                        height={`${editorHeight}px`}
-                        style={{ fontSize: "15px" }}
-                        basicSetup={{
-                          lineNumbers: true,
-                          foldGutter: true,
-                          highlightActiveLine: true,
-                          bracketMatching: true,
-                          autocompletion: false,
-                          indentOnInput: true,
-                        }}
-                        placeholder="You are a helpful AI assistant that specializes in..."
-                        editable={!loading && generatingField !== "system_prompt"}
-                      />
-                    </React.Suspense>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
-                    {systemPrompt.trim() ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={getMarkdownComponents()}
-                      >
-                        {systemPrompt}
-                      </ReactMarkdown>
+                {/* Editor column + AI Review panel side-by-side. Panel renders
+                    null when the target isn't configured / disabled, so the
+                    flex container collapses to just the editor in that case. */}
+                <div className="flex gap-3 min-h-0">
+                  <div className="flex-1 min-w-0">
+                    {promptTab === "edit" ? (
+                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
+                        <React.Suspense
+                          fallback={
+                            <div className="flex items-center justify-center h-48 text-zinc-500">
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              <span className="text-sm">Loading editor...</span>
+                            </div>
+                          }
+                        >
+                          <CodeMirrorEditor
+                            value={systemPrompt}
+                            onChange={(val: string) => setSystemPrompt(val)}
+                            extensions={cmExtensions}
+                            theme="dark"
+                            height={`${editorHeight}px`}
+                            style={{ fontSize: "15px" }}
+                            basicSetup={{
+                              lineNumbers: true,
+                              foldGutter: true,
+                              highlightActiveLine: true,
+                              bracketMatching: true,
+                              autocompletion: false,
+                              indentOnInput: true,
+                            }}
+                            placeholder="You are a helpful AI assistant that specializes in..."
+                            editable={!loading && generatingField !== "system_prompt"}
+                          />
+                        </React.Suspense>
+                      </div>
                     ) : (
-                      <p className="text-muted-foreground italic text-sm">
-                        Nothing to preview. Switch to Edit to write your system prompt.
-                      </p>
+                      <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
+                        {systemPrompt.trim() ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={getMarkdownComponents()}
+                          >
+                            {systemPrompt}
+                          </ReactMarkdown>
+                        ) : (
+                          <p className="text-muted-foreground italic text-sm">
+                            Nothing to preview. Switch to Edit to write your system prompt.
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {/* Drag handle to resize editor */}
-                <div
-                  onMouseDown={handleDragStart}
-                  className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
-                >
-                  <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                    {/* Drag handle to resize editor */}
+                    <div
+                      onMouseDown={handleDragStart}
+                      className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
+                    >
+                      <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                    </div>
+                  </div>
+                  <AiReviewPanel
+                    review={review}
+                    style={{ height: `${editorHeight + 12}px` }}
+                    onClickAnchor={(anchor) => {
+                      // Phase 1: no-op stub. A follow-up will scroll the
+                      // CodeMirror view to `anchor.line_start` and flash a
+                      // gutter decoration. Logging keeps the wiring observable
+                      // during development.
+                      if (process.env.NODE_ENV !== "production") {
+                        console.debug("[ai-review] anchor click", anchor);
+                      }
+                    }}
+                  />
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                  Define your agent&apos;s behavior, personality, and capabilities. 
+                  Define your agent&apos;s behavior, personality, and capabilities.
                   You can paste content from an AGENTS.md file here.
                 </p>
               </div>
@@ -1643,10 +1719,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={goToNextStep}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void goToNextStep()}
               disabled={currentStepIndex === STEPS.length - 1 || loading}
               size="sm"
             >

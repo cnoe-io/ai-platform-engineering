@@ -87,6 +87,7 @@ const AGENT_MUTABLE_FIELDS = [
   "features",
   "interrupt_on",
   "enabled",
+  "last_review",
 ] as const;
 
 /**
