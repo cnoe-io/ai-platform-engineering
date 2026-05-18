@@ -67,7 +67,7 @@ wheels = [
 
 [[package]]
 name = "ai-platform-engineering"
-version = "0.5.1rc7"
+version = "0.5.1"
 source = { virtual = "." }
 dependencies = [
     { name = "a2a-sdk" },

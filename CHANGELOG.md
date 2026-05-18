@@ -2,6 +2,13 @@
 
 ### Fix
 
+- **ci**: resolve release UI build and RBAC lint failures
+
+## 0.5.1-rc.7 (2026-05-18)
+
+### Fix
+
+- **ci**: clear release branch lint checks
 - **ci**: avoid secret-scan matches in auth tests
 
 ## 0.5.1-rc.6 (2026-05-18)
