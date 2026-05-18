@@ -25,7 +25,7 @@ import { MetadataInputForm, type UserInputMetadata, type InputField } from "./Me
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
@@ -41,14 +41,16 @@ interface ChatPanelProps {
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
-  agentGradient?: string | null; // Gradient theme for agent avatar
-  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null; // Custom theme config
-  agentName?: string; // Agent name for display
-  agentSkills?: string[]; // Configured skill IDs for this agent
+  agent?: DynamicAgentConfig | null; // Full agent config object
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
+  // Derive display values from agent object
+  const agentGradient = agent?.ui?.gradient_theme ?? null;
+  const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
+  const agentName = agent?.name;
+  const agentSkills = agent?.skills;
   const { data: session } = useSession();
   const { toast } = useToast();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
@@ -119,10 +121,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     messageId: string;
     interruptId: string;
-    toolName: string;
-    toolArgs: Record<string, unknown>;
-    allowedDecisions: string[];
     agentId: string;
+    /** All tool calls needing approval in this interrupt batch */
+    tools: Array<{
+      toolName: string;
+      toolArgs: Record<string, unknown>;
+      allowedDecisions: string[];
+    }>;
+    /** Index of the tool currently being shown to the user */
+    currentIndex: number;
+    /** Accumulated decisions (one per tool, filled as user decides) */
+    decisions: Array<{ decision: string; toolName: string; editedArgs?: Record<string, unknown> }>;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -377,13 +386,25 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             
             if (lastMsg && lastMsg.role === "assistant") {
               if (idata.type === "tool_approval") {
+                // Build tools list from tool_approvals if available, else single tool
+                const tools = idata.tool_approvals && idata.tool_approvals.length > 1
+                  ? idata.tool_approvals.map((t: { tool_name: string; tool_args: Record<string, unknown>; allowed_decisions?: string[] }) => ({
+                      toolName: t.tool_name,
+                      toolArgs: t.tool_args || {},
+                      allowedDecisions: t.allowed_decisions || ["approve", "edit", "reject"],
+                    }))
+                  : [{
+                      toolName: idata.tool_name,
+                      toolArgs: idata.tool_args || {},
+                      allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
+                    }];
                 setPendingToolApproval({
                   messageId: lastMsg.id,
                   interruptId: idata.interrupt_id,
-                  toolName: idata.tool_name,
-                  toolArgs: idata.tool_args || {},
-                  allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
                   agentId,
+                  tools,
+                  currentIndex: 0,
+                  decisions: [],
                 });
               } else {
                 const { prompt, fields } = idata;
@@ -452,8 +473,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         // No Authorization header — session cookie handles auth for same-origin requests.
         // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          `/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -476,8 +498,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDownloadingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
         );
 
         if (response.ok) {
@@ -515,8 +538,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDeletingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
           }
@@ -771,7 +795,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent) {
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent, toolApprovals) {
       loopState.hitlFormRequested = true;
 
       const streamEvent = createStreamEvent("input_required", {
@@ -785,17 +809,29 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       addStreamEvent(streamEvent, convId);
 
+      // Build the list of tools needing approval
+      const tools = toolApprovals && toolApprovals.length > 1
+        ? toolApprovals.map(t => ({
+            toolName: t.tool_name,
+            toolArgs: t.tool_args,
+            allowedDecisions: t.allowed_decisions,
+          }))
+        : [{ toolName, toolArgs, allowedDecisions }];
+
       setPendingToolApproval({
         messageId: assistantMsgId,
         interruptId,
-        toolName,
-        toolArgs,
-        allowedDecisions,
         agentId,
+        tools,
+        currentIndex: 0,
+        decisions: [],
       });
 
+      const toolCount = tools.length;
       updateMessage(convId, assistantMsgId, {
-        content: `Requesting approval to run \`${toolName}\`...`,
+        content: toolCount > 1
+          ? `Requesting approval for ${toolCount} tool calls...`
+          : `Requesting approval to run \`${toolName}\`...`,
       });
     },
 
@@ -1252,17 +1288,41 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle tool approval decisions (approve/reject/edit)
+  // Shows cards sequentially; only resumes after all tools are decided.
   const handleToolApprovalDecision = useCallback(async (
     decision: "approve" | "reject" | "edit",
     editedArgs?: Record<string, unknown>,
   ) => {
     if (!pendingToolApproval || !activeConversationId) return;
 
+    const { tools, currentIndex, decisions } = pendingToolApproval;
+    const currentTool = tools[currentIndex];
+
+    // Accumulate this decision
+    const newDecisions = [
+      ...decisions,
+      { decision, toolName: currentTool.toolName, editedArgs },
+    ];
+
+    // If there are more tools to decide, advance to the next card
+    if (currentIndex + 1 < tools.length) {
+      setPendingToolApproval({
+        ...pendingToolApproval,
+        currentIndex: currentIndex + 1,
+        decisions: newDecisions,
+      });
+      return;
+    }
+
+    // All tools decided — send the resume with all decisions
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const decisionLabel = decision === "approve" ? "Approved" : decision === "reject" ? "Rejected" : "Edited & approved";
+    const summaryParts = newDecisions.map(d => {
+      const label = d.decision === "approve" ? "Approved" : d.decision === "reject" ? "Rejected" : "Edited & approved";
+      return `${label} \`${d.toolName}\``;
+    });
     addMessage(activeConversationId, {
       role: "user",
-      content: `${decisionLabel} \`${pendingToolApproval.toolName}\``,
+      content: summaryParts.join("\n"),
     }, turnId);
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
@@ -1278,11 +1338,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const clientContext: Record<string, unknown> = { source: "webui" };
 
+    // Build resume payload — use batched decisions format
     let resumePayload: Record<string, unknown>;
-    if (decision === "edit" && editedArgs) {
-      resumePayload = { type: "tool_approval", decision: "edit", edited_args: editedArgs };
+    if (newDecisions.length === 1) {
+      // Single tool — use legacy format for backwards compat
+      const d = newDecisions[0];
+      if (d.decision === "edit" && d.editedArgs) {
+        resumePayload = { type: "tool_approval", decision: "edit", edited_args: d.editedArgs };
+      } else {
+        resumePayload = { type: "tool_approval", decision: d.decision };
+      }
     } else {
-      resumePayload = { type: "tool_approval", decision };
+      // Multi-tool — use batched format
+      resumePayload = {
+        type: "tool_approval",
+        decisions: newDecisions.map(d => {
+          if (d.decision === "edit" && d.editedArgs) {
+            return { decision: "edit", tool_name: d.toolName, edited_args: d.editedArgs };
+          }
+          return { decision: d.decision };
+        }),
+      };
     }
     const resumeData = JSON.stringify(resumePayload);
 
@@ -1450,39 +1526,24 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                   </>
                 ) : (
                   <>
-                    {(() => {
-                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
-                      return (
-                        <div 
-                          className={cn(
-                            "w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center",
-                            !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                          )}
-                          style={gradientStyle || undefined}
-                        >
-                          <Sparkles className="h-8 w-8" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
-                        </div>
-                      );
-                    })()}
+                    <AgentAvatar
+                      agent={agent}
+                      rounded="rounded-2xl"
+                      size="w-16 h-16 mx-auto mb-6"
+                      iconSize="h-8 w-8"
+                      icon={Sparkles}
+                    />
                     <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
                     <p className="text-muted-foreground mb-3">
                       Start your conversation with
                     </p>
                     <div className="flex items-center justify-center gap-3">
-                      {(() => {
-                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
-                        return (
-                          <div 
-                            className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center",
-                              !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                            )}
-                            style={gradientStyle || undefined}
-                          >
-                            <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
-                          </div>
-                        );
-                      })()}
+                      <AgentAvatar
+                        agent={agent}
+                        rounded="rounded-lg"
+                        size="w-8 h-8"
+                        iconSize="h-4 w-4"
+                      />
                       <span className="text-lg font-semibold">
                         {agentName || "your agent"}
                       </span>
@@ -1673,17 +1734,23 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             )}
 
             {/* Tool Approval Card */}
-            {pendingToolApproval && (
-              <ToolApprovalCard
-                toolName={pendingToolApproval.toolName}
-                toolArgs={pendingToolApproval.toolArgs}
-                allowedDecisions={pendingToolApproval.allowedDecisions}
-                onApprove={() => handleToolApprovalDecision("approve")}
-                onReject={() => handleToolApprovalDecision("reject")}
-                onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
-                disabled={isThisConversationStreaming}
-              />
-            )}
+            {pendingToolApproval && (() => {
+              const currentTool = pendingToolApproval.tools[pendingToolApproval.currentIndex];
+              const total = pendingToolApproval.tools.length;
+              const current = pendingToolApproval.currentIndex + 1;
+              return (
+                <ToolApprovalCard
+                  toolName={total > 1 ? `${currentTool.toolName} (${current}/${total})` : currentTool.toolName}
+                  toolArgs={currentTool.toolArgs}
+                  allowedDecisions={currentTool.allowedDecisions}
+                  onApprove={() => handleToolApprovalDecision("approve")}
+                  onReject={() => handleToolApprovalDecision("reject")}
+                  onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
+                  disabled={isThisConversationStreaming}
+                  totalCount={total}
+                />
+              );
+            })()}
 
             {/* Loading indicator while checking for pending HITL interrupt */}
             {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (
@@ -2066,38 +2133,33 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {(() => {
-        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
-        const iconColor = getAccentColor(agentGradient, agentCustomTheme) || "white";
-        return (
-          <div
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
-              isUser
-                ? "bg-primary"
-                : !gradientStyle && "gradient-primary-br",
-              isStreaming && "animate-pulse"
-            )}
-            style={gradientStyle || undefined}
-          >
-            {isUser ? (
-              message.senderImage ? (
-                <img
-                  src={message.senderImage}
-                  alt={message.senderName || userDisplayName}
-                  className="w-9 h-9 rounded-xl object-cover"
-                />
-              ) : (
-                <User className="h-4 w-4 text-white" />
-              )
-            ) : isStreaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" style={{ color: iconColor }} />
-            ) : (
-              <Bot className="h-4 w-4" style={{ color: iconColor }} />
-            )}
-          </div>
-        );
-      })()}
+      {isUser ? (
+        <div
+          className={cn(
+            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden bg-primary",
+          )}
+        >
+          {message.senderImage ? (
+            <img
+              src={message.senderImage}
+              alt={message.senderName || userDisplayName}
+              className="w-9 h-9 rounded-xl object-cover"
+            />
+          ) : (
+            <User className="h-4 w-4 text-white" />
+          )}
+        </div>
+      ) : (
+        <AgentAvatar
+          gradientTheme={agentGradient}
+          customThemeConfig={agentCustomTheme}
+          rounded="rounded-xl"
+          size="w-9 h-9"
+          iconSize="h-4 w-4"
+          isStreaming={isStreaming}
+          className="overflow-hidden"
+        />
+      )}
 
       <div className={cn(
         "flex-1 min-w-0",

@@ -25,8 +25,8 @@ import { cn } from "@/lib/utils";
 import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
 
 interface AllowedToolsPickerProps {
-  value: Record<string, string[]>; // server_id -> tool names (empty = all)
-  onChange: (value: Record<string, string[]>) => void;
+  value: Record<string, string[] | boolean>; // server_id -> tool names, true=all, false=disabled
+  onChange: (value: Record<string, string[] | boolean>) => void;
   disabled?: boolean;
 }
 
@@ -104,8 +104,8 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
         }));
         
         // Detect missing tools - tools in config but not returned by probe
-        const configuredTools = value[serverId] || [];
-        if (configuredTools.length > 0) {
+        const configuredTools = value[serverId];
+        if (Array.isArray(configuredTools) && configuredTools.length > 0) {
           const availableToolNames = new Set(tools.map((t) => t.name));
           const missing = configuredTools.filter((t) => !availableToolNames.has(t));
           if (missing.length > 0) {
@@ -137,18 +137,21 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
   };
 
   const isServerSelected = (serverId: string) => {
-    return serverId in value;
+    return serverId in value && value[serverId] !== false;
   };
 
   const isToolSelected = (serverId: string, toolName: string) => {
     if (!isServerSelected(serverId)) return false;
     const tools = value[serverId];
-    // Empty array means all tools
-    return tools.length === 0 || tools.includes(toolName);
+    // true or empty array means all tools
+    if (tools === true || (Array.isArray(tools) && tools.length === 0)) return true;
+    return Array.isArray(tools) && tools.includes(toolName);
   };
 
   const isAllToolsSelected = (serverId: string) => {
-    return isServerSelected(serverId) && value[serverId].length === 0;
+    if (!isServerSelected(serverId)) return false;
+    const tools = value[serverId];
+    return tools === true || (Array.isArray(tools) && tools.length === 0);
   };
 
   const toggleServer = (serverId: string) => {
@@ -158,8 +161,8 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     if (isServerSelected(serverId)) {
       delete newValue[serverId];
     } else {
-      // Select server with all tools (empty array)
-      newValue[serverId] = [];
+      // Select server with all tools
+      newValue[serverId] = true;
     }
     onChange(newValue);
   };
@@ -168,9 +171,8 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     if (disabled || !isServerSelected(serverId)) return;
     
     const newValue = { ...value };
-    // If currently has specific tools, switch to all tools (empty array)
-    // If currently all tools, keep all tools
-    newValue[serverId] = [];
+    // Switch to all tools
+    newValue[serverId] = true;
     onChange(newValue);
   };
 
@@ -189,7 +191,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
       newValue[serverId] = allTools.filter((t) => t !== toolName);
     } else {
       // Currently specific tools selected
-      const currentTools = [...value[serverId]];
+      const currentTools = [...(Array.isArray(value[serverId]) ? value[serverId] as string[] : [])];
       if (currentTools.includes(toolName)) {
         // Remove tool
         const filtered = currentTools.filter((t) => t !== toolName);
@@ -202,9 +204,9 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
       } else {
         // Add tool
         currentTools.push(toolName);
-        // If all tools are now selected, switch to empty array (all)
+        // If all tools are now selected, switch to true
         if (allTools.length > 0 && currentTools.length === allTools.length) {
-          newValue[serverId] = [];
+          newValue[serverId] = true;
         } else {
           newValue[serverId] = currentTools;
         }
@@ -233,12 +235,12 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
   const getSelectedToolsCount = (serverId: string) => {
     if (!isServerSelected(serverId)) return 0;
     const tools = value[serverId];
-    if (tools.length === 0) {
+    if (tools === true || (Array.isArray(tools) && tools.length === 0)) {
       // All tools
       const probe = probeStates[serverId];
       return probe?.tools?.length || "all";
     }
-    return tools.length;
+    return Array.isArray(tools) ? tools.length : 0;
   };
 
   // Filter tools by search query

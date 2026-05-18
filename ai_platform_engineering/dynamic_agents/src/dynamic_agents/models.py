@@ -130,6 +130,34 @@ class AgentBackendConfig(BaseModel):
         ge=0,
         description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
     )
+    fs_namespace: list[str] | None = Field(
+        None,
+        min_length=3,
+        max_length=3,
+        description=(
+            "Override filesystem namespace as [scope, id, 'filesystem']. "
+            "Defaults to [agent_id, session_id, 'filesystem']. "
+            "Used by workflow service to scope files to a workflow run."
+        ),
+    )
+    checkpoint_collection: str | None = Field(
+        None,
+        description=(
+            "Override checkpoint collection name for MongoDBSaver. "
+            "Use 'workflow_checkpoints' for workflow steps to isolate from regular chat history. "
+            "None = use server default collection."
+        ),
+    )
+    checkpoint_ttl: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "TTL in seconds for checkpoint documents (MongoDBSaver ttl param). "
+            "Creates a MongoDB TTL index that auto-expires documents. "
+            "Only effective with a custom checkpoint_collection to avoid expiring regular chats. "
+            "None = no TTL (checkpoints persist indefinitely)."
+        ),
+    )
 
 
 class AgentBackend(BaseModel):
@@ -297,6 +325,11 @@ class BuiltinToolsConfig(BaseModel):
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
     )
+    workflows: list[str] | None = Field(
+        None,
+        description="List of workflow config IDs this agent can interact with. "
+        "When set, adds list_workflow_runs, get_workflow_run_status, and start_workflow_run tools.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -430,9 +463,13 @@ class DynamicAgentConfigBase(BaseModel):
     name: str = Field(..., description="Display name")
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
-    allowed_tools: dict[str, list[str]] = Field(
+    allowed_tools: dict[str, list[str] | bool] = Field(
         default_factory=dict,
-        description="Map of server_id -> tool names (empty list = all tools)",
+        description=(
+            "Map of server_id -> tool names or boolean. "
+            "true = all tools from server, false = server disabled, "
+            "list = specific tools only, [] = legacy (treated as true)"
+        ),
     )
     model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
@@ -528,6 +565,15 @@ class ChatRequest(BaseModel):
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
+    config_override: dict | None = Field(
+        None,
+        description=(
+            "Override agent config fields for this request. "
+            "Supported: system_prompt, allowed_tools, model, builtin_tools, "
+            "interrupt_on, subagents, skills, features, backend. "
+            "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
+        ),
+    )
 
 
 # =============================================================================

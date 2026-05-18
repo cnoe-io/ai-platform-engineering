@@ -31,7 +31,7 @@ import {
   Copy,
   ExternalLink,
 } from "lucide-react";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "./AgentAvatar";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
 
 interface ConversationItem {
@@ -163,18 +163,6 @@ export function ConversationsTab() {
     if (!agentId) return "Unknown";
     const agent = agents.get(agentId);
     return agent?.name || agentId;
-  };
-
-  const getAgentGradient = (agentId: string | null): string | null => {
-    if (!agentId) return null;
-    const agent = agents.get(agentId);
-    return agent?.ui?.gradient_theme || null;
-  };
-
-  const getAgentCustomTheme = (agentId: string | null) => {
-    if (!agentId) return null;
-    const agent = agents.get(agentId);
-    return agent?.ui?.custom_theme_config || null;
   };
 
   const handleClear = async (conversationId: string) => {
@@ -361,21 +349,12 @@ export function ConversationsTab() {
 
                   <div className="col-span-2">
                     <div className="flex items-center gap-1.5">
-                      {(() => {
-                        const gradient = getAgentGradient(conv.agent_id);
-                        const customTheme = getAgentCustomTheme(conv.agent_id);
-                        const gradientStyle = gradient ? getGradientStyle(gradient, customTheme) : null;
-                        return gradientStyle ? (
-                          <div 
-                            className="h-4 w-4 rounded-full flex items-center justify-center shrink-0"
-                            style={gradientStyle}
-                          >
-                            <Bot className="h-2.5 w-2.5" style={{ color: getAccentColor(gradient, customTheme) || "white" }} />
-                          </div>
-                        ) : (
-                          <Bot className="h-3 w-3 text-purple-500" />
-                        );
-                      })()}
+                      <AgentAvatar
+                        agent={conv.agent_id ? agents.get(conv.agent_id) : undefined}
+                        rounded="rounded-full"
+                        size="h-4 w-4"
+                        iconSize="h-2.5 w-2.5"
+                      />
                       <span className="text-sm truncate">{getAgentName(conv.agent_id)}</span>
                     </div>
                   </div>

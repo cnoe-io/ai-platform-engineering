@@ -143,6 +143,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }
@@ -290,6 +291,13 @@ export interface ToolApprovalInterrupt {
   tool_args: Record<string, unknown>;
   allowed_decisions: DecisionType[];
   agent: string;
+  /** Multiple tool calls needing approval (when LLM batches gated tools) */
+  tool_approvals?: Array<{
+    tool_name: string;
+    tool_args: Record<string, unknown>;
+    tool_call_id: string;
+    allowed_decisions: string[];
+  }>;
 }
 
 export type InterruptPayload = FormInputInterrupt | ToolApprovalInterrupt;
@@ -302,14 +310,15 @@ export type ResumeData =
   | { type: "form_input"; dismissed: true }
   | { type: "tool_approval"; decision: "approve" }
   | { type: "tool_approval"; decision: "reject" }
-  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> };
+  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> }
+  | { type: "tool_approval"; decisions: Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }> };
 
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
+  allowed_tools: Record<string, string[] | boolean>;  // server_id -> tool names, true=all, false=disabled
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model: ModelConfig;  // Required: LLM model configuration
   visibility: VisibilityType;
@@ -339,7 +348,7 @@ export interface DynamicAgentConfigCreate {
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig;  // Required: LLM model configuration
   visibility?: VisibilityType;
@@ -359,7 +368,7 @@ export interface DynamicAgentConfigUpdate {
   name?: string;
   description?: string;
   system_prompt?: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
   visibility?: VisibilityType;

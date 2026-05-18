@@ -16,8 +16,8 @@ import type {
   StreamEvent,
   ToolStartEventData,
   ToolEndEventData,
-} from "@/components/dynamic-agents/sse-types";
-import { isToolStartData } from "@/components/dynamic-agents/sse-types";
+} from "@/lib/streaming/types";
+import { isToolStartData } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Types

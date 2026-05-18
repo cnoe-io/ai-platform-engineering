@@ -182,31 +182,42 @@ async def make_api_request(
                 url = f"{url}/{path}"
                 logger.debug(f"Full request URL: {url}")
 
-                method_map = {
-                    "GET": client.get,
-                    "POST": client.post,
-                    "PUT": client.put,
-                    "PATCH": client.patch,
-                    "DELETE": client.delete,
-                }
-
-                if method not in method_map:
-                    logger.error(f"Unsupported HTTP method: {method}")
-                    return (False, {"error": f"Unsupported method: {method}"})
-
-                if method in ["POST", "PUT", "PATCH"]:
-                    response = await method_map[method](
+                if method == "GET":
+                    response = await client.get(
                         url,
                         headers=headers,
                         params=params,
-                        json=data
                     )
-                else:
-                    response = await method_map[method](
+                elif method == "POST":
+                    response = await client.post(
                         url,
                         headers=headers,
-                        params=params
+                        params=params,
+                        json=data,
                     )
+                elif method == "PUT":
+                    response = await client.put(
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=data,
+                    )
+                elif method == "PATCH":
+                    response = await client.patch(
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=data,
+                    )
+                elif method == "DELETE":
+                    response = await client.delete(
+                        url,
+                        headers=headers,
+                        params=params,
+                    )
+                else:
+                    logger.error(f"Unsupported HTTP method: {method}")
+                    return (False, {"error": f"Unsupported method: {method}"})
 
 
                 logger.debug(f"Response status code: {response.status_code}")
@@ -276,6 +287,9 @@ async def make_api_request(
             logger.error(f"Unexpected error: {str(e)}")
             return (False, {"error": f"Unexpected error: {str(e)}"})
 
+    logger.error("Jira API request exhausted retry loop without returning a response.")
+    return (False, {"error": "Jira API request failed without a response."})
+
 
 def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tuple[bool, Dict[str, Any]]:
     """Generate mock responses based on the API path and method.
@@ -310,21 +324,65 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             else:  # Getting all comments for an issue
                 return (True, {
                     "comments": [
-                        {"id": "10000", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "First comment"}]}]}, "author": {"displayName": "John Doe"}},
-                        {"id": "10001", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second comment"}]}]}, "author": {"displayName": "Jane Smith"}}
+                        {
+                            "id": "10000",
+                            "body": {
+                                "type": "doc",
+                                "version": 1,
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "First comment"}],
+                                    }
+                                ],
+                            },
+                            "author": {"displayName": "John Doe"},
+                        },
+                        {
+                            "id": "10001",
+                            "body": {
+                                "type": "doc",
+                                "version": 1,
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "Second comment"}],
+                                    }
+                                ],
+                            },
+                            "author": {"displayName": "Jane Smith"},
+                        }
                     ],
                     "total": 2
                 })
         elif method == "POST":
             return (True, {
                 "id": "10002",
-                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "New comment"}]}]},
+                "body": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "New comment"}],
+                        }
+                    ],
+                },
                 "author": {"displayName": "Current User"}
             })
         elif method == "PUT":
             return (True, {
                 "id": "10000",
-                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Updated comment"}]}]}
+                "body": {
+                    "type": "doc",
+                    "version": 1,
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "Updated comment"}],
+                        }
+                    ],
+                }
             })
         elif method == "DELETE":
             return (True, {})

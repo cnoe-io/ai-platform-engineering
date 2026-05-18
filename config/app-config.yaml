@@ -103,3 +103,41 @@ agents: []
   #   allowed_tools: {}
   #   subagents: []
   #   enabled: true
+
+# ── Workflow Configs ──────────────────────────────────────────────
+workflow_configs:
+  - id: "wf-movie-guessing"
+    name: "Movie guessing workflow"
+    description: "Guesses a movie based on genre & decade"
+    visibility: "global"
+    steps:
+      - type: step
+        display_text: Ask questions
+        agent_id: dynamic-agent-1774287013861
+        prompt: |-
+          Ask the user following questions:
+          1. Name a decade (e.g. 80s, 90s, 2000s)
+          2. Give them options for genres [Action, Comedy, Sci-Fi, Horror]
+
+          Echo the choices in a file called "choices.txt"
+        on_error: abort
+      - type: step
+        display_text: Name a movie
+        agent_id: dynamic-agent-1773833968652
+        prompt: |-
+          Read choices.txt and tell me a movie title that matches the choices.
+          If you cant think of one, say None exist. Write the movie title in to movie_title.txt
+        on_error: abort
+      - type: step
+        display_text: Send message
+        agent_id: agent-webex-messaging-agent
+        prompt: Read the movie_title.txt, and send me a message
+        on_error: abort
+      - type: step
+        display_text: Evaluate
+        agent_id: security-audit-agent
+        prompt: |-
+          Can you evaluate the workflow and see if all went well? if so just say so
+          and end, if anything seems suspicious, then raise an error using error
+          file instructions
+        on_error: abort

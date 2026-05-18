@@ -90,6 +90,7 @@ def main():
     mcp.tool()(comments.get_comments)
     mcp.tool()(comments.get_comment)
     mcp.tool()(comments.add_comment)
+    mcp.tool()(comments.add_internal_comment)
     mcp.tool()(comments.update_comment)
     mcp.tool()(comments.delete_comment)
 
