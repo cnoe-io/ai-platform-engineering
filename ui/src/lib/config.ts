@@ -96,6 +96,11 @@ export interface Config {
    */
   workflowsEnabled: boolean;
   /**
+   * Whether the Task Builder tab is shown in the top navigation.
+   * Enabled by default. Set TASK_BUILDER_ENABLED=false to disable.
+   */
+  taskBuilderEnabled: boolean;
+  /**
    * Whether the admin Feedback tab and feedback API are enabled.
    * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
    */
@@ -223,6 +228,7 @@ const DEFAULT_CONFIG: Config = {
   sourceUrl: null,
   workflowRunnerEnabled: false,
   workflowsEnabled: false,
+  taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
   npsEnabled: false,
@@ -323,6 +329,7 @@ export function getServerConfig(): Config {
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
+  const taskBuilderEnabled = env('TASK_BUILDER_ENABLED') !== 'false';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   // Default `false` (locked). Must mirror the server-side check in
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
@@ -381,6 +388,7 @@ export function getServerConfig(): Config {
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
     workflowsEnabled,
+    taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
     npsEnabled,

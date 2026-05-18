@@ -320,6 +320,8 @@ export function AppHeader() {
             <Zap className="h-3.5 w-3.5 shrink-0" />
             Skills
           </GuardedLink>
+          {/* Task Builder tab - only show if task builder is enabled */}
+          {config.taskBuilderEnabled && (
           <GuardedLink
             href="/task-builder"
             prefetch={true}
@@ -333,6 +335,7 @@ export function AppHeader() {
             <Workflow className="h-3.5 w-3.5 shrink-0" />
             Task Builder
           </GuardedLink>
+          )}
           {/* Workflows tab - only show if workflows are enabled */}
           {config.workflowsEnabled && (
           <GuardedLink
