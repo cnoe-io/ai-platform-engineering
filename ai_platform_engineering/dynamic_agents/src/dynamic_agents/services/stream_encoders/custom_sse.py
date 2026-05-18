@@ -255,6 +255,15 @@ class CustomStreamEncoder(StreamEncoder):
                     # Detect tool errors: wrap_tools_with_error_handling() returns
                     # "ERROR: ..." strings instead of raising exceptions.
                     content = getattr(msg, "content", "")
+                    # MCP tools return content as list of blocks, e.g. [{"type": "text", "text": "..."}]
+                    if isinstance(content, list):
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif isinstance(block, str):
+                                text_parts.append(block)
+                        content = "\n".join(p for p in text_parts if p)
                     error = None
                     if isinstance(content, str) and content.startswith("ERROR: "):
                         error = content
