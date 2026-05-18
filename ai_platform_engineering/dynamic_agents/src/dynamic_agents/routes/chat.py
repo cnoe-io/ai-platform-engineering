@@ -1,6 +1,7 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
 import logging
+from contextlib import AsyncExitStack
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -438,61 +439,61 @@ async def chat_invoke(
     cache = get_runtime_cache()
     cache.set_mongo_service(mongo)
 
-    async def _run(runtime) -> dict:
-        encoder = get_encoder("custom")
-
-        async for _frame in runtime.stream(
-            request.message, request.conversation_id, user.email, request.trace_id, encoder
-        ):
-            pass  # Frames are SSE strings, we don't need them for invoke
-
-        interrupt = await runtime.has_pending_interrupt(request.conversation_id)
-        if interrupt:
-            interrupt_type = interrupt.get("type", "unknown")
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": (
-                        "Agent requires human interaction which is not supported via the invoke endpoint. "
-                        "Use the streaming chat endpoint or consider disabling tool approvals "
-                        "and the user input tool for this agent."
-                    ),
-                    "interrupt_type": interrupt_type,
-                    "agent_id": agent.id,
-                    "conversation_id": request.conversation_id,
-                    "trace_id": request.trace_id,
-                },
-            )
-
-        return {
-            "success": True,
-            "content": encoder.get_accumulated_content(),
-            "thinking": encoder.get_thinking_content() or None,
-            "agent_id": agent.id,
-            "conversation_id": request.conversation_id,
-            "trace_id": request.trace_id,
-        }
-
     try:
-        if persist_history:
-            runtime = await cache.get_or_create(
-                agent,
-                mcp_servers,
-                request.conversation_id,
-                user=user,
-                client_context=request.client_context,
-            )
-            return await _run(runtime)
-        else:
-            async with cache.ephemeral(
-                agent,
-                mcp_servers,
-                request.conversation_id,
-                user=user,
-                client_context=request.client_context,
-            ) as runtime:
-                return await _run(runtime)
+        async with AsyncExitStack() as stack:
+            if persist_history:
+                runtime = await cache.get_or_create(
+                    agent,
+                    mcp_servers,
+                    request.conversation_id,
+                    user=user,
+                    client_context=request.client_context,
+                )
+            else:
+                runtime = await stack.enter_async_context(
+                    cache.ephemeral(
+                        agent,
+                        mcp_servers,
+                        request.conversation_id,
+                        user=user,
+                        client_context=request.client_context,
+                    )
+                )
+
+            encoder = get_encoder("custom")
+
+            async for _frame in runtime.stream(
+                request.message, request.conversation_id, user.email, request.trace_id, encoder
+            ):
+                pass  # Frames are SSE strings, we don't need them for invoke
+
+            interrupt = await runtime.has_pending_interrupt(request.conversation_id)
+            if interrupt:
+                interrupt_type = interrupt.get("type", "unknown")
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": (
+                            "Agent requires human interaction which is not supported via the invoke endpoint. "
+                            "Use the streaming chat endpoint or consider disabling tool approvals "
+                            "and the user input tool for this agent."
+                        ),
+                        "interrupt_type": interrupt_type,
+                        "agent_id": agent.id,
+                        "conversation_id": request.conversation_id,
+                        "trace_id": request.trace_id,
+                    },
+                )
+
+            return {
+                "success": True,
+                "content": encoder.get_accumulated_content(),
+                "thinking": encoder.get_thinking_content() or None,
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            }
 
     except RuntimeCapacityError as e:
         logger.warning(f"Agent runtime at capacity for invoke: {e}")
