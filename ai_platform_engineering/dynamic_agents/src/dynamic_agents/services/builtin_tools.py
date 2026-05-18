@@ -98,7 +98,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="fetch_url",
             name="Fetch URL",
-            description="Fetches content from web pages, APIs, or documentation sites",
+            description="Simple tool to fetch web pages.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
@@ -116,7 +116,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="curl",
             name="Curl",
-            description="Executes HTTP requests (GET, POST, PUT, PATCH, DELETE) via curl — use when you need to call write APIs. WARNING: enabling this tool allows the agent to make write requests (PUT/PATCH/DELETE) that may modify or delete data.",
+            description="Uses curl in a shell to execute HTTP requests. Use with caution.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
@@ -870,6 +870,285 @@ def create_format_file_tool(store, namespace_factory):
     return format_file
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Workflow tools — list runs, get run status, start a workflow run
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import time
+from typing import Optional
+
+
+class WorkflowApiClient:
+    """HTTP client for calling the CAIPE UI workflow API with OAuth2 client credentials.
+
+    Handles token acquisition, caching, and auto-refresh.
+    If no credentials are configured, requests are made without auth headers
+    (suitable for development / same-cluster without auth gateway).
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        token_url: str = "",
+        client_id: str = "",
+        client_secret: str = "",
+        scope: str = "",
+        audience: str = "",
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.token_url = token_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.scope = scope
+        self.audience = audience
+        self._caipe_api_auth_enabled = bool(token_url and client_id and client_secret)
+        self._cached_token: Optional[str] = None
+        self._token_expires_at: float = 0
+
+        if self._caipe_api_auth_enabled:
+            logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url})")
+        else:
+            logger.warning("WorkflowApiClient: No OAuth2 credentials configured, requests will be unauthenticated")
+
+    def _get_token(self) -> Optional[str]:
+        """Get a valid access token, refreshing if needed."""
+        if not self._caipe_api_auth_enabled:
+            return None
+
+        if self._cached_token and time.time() < (self._token_expires_at - 60):
+            return self._cached_token
+
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        if self.scope:
+            payload["scope"] = self.scope
+        if self.audience:
+            payload["audience"] = self.audience
+
+        resp = requests.post(
+            self.token_url,
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.error(f"OAuth2 token fetch failed: {resp.status_code} {resp.text}")
+            raise RuntimeError(f"OAuth2 token fetch failed: HTTP {resp.status_code}")
+
+        data = resp.json()
+        self._cached_token = data["access_token"]
+        self._token_expires_at = time.time() + data.get("expires_in", 3600)
+        logger.info("Workflow API: OAuth2 token acquired (expires in %ds)", data.get("expires_in", 3600))
+        return self._cached_token
+
+    def _headers(self) -> dict[str, str]:
+        """Build request headers with optional auth."""
+        headers = {"Content-Type": "application/json"}
+        token = self._get_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def get(self, path: str, params: dict | None = None) -> requests.Response:
+        """Make an authenticated GET request."""
+        url = f"{self.base_url}{path}"
+        return requests.get(url, params=params, headers=self._headers(), timeout=30)
+
+    def post(self, path: str, json_data: dict | None = None) -> requests.Response:
+        """Make an authenticated POST request."""
+        url = f"{self.base_url}{path}"
+        return requests.post(url, json=json_data, headers=self._headers(), timeout=30)
+
+
+def create_workflow_tools(
+    client: WorkflowApiClient,
+    allowed_config_ids: list[str],
+    trigger_context: dict | None = None,
+) -> list:
+    """Create the 3 workflow built-in tools.
+
+    Args:
+        client: WorkflowApiClient for making authenticated HTTP calls.
+        allowed_config_ids: Workflow config IDs this agent is allowed to interact with.
+        trigger_context: Optional dict with agent/user context for trigger_info.
+    Returns:
+        List of 3 LangChain tools: list_workflow_runs, get_workflow_run_status, start_workflow_run.
+    """
+
+    allowed_set = set(allowed_config_ids)
+
+    @tool
+    def list_workflow_runs(
+        thought: str = "",
+        workflow_config_id: str = "",
+    ) -> str:
+        """List recent runs for a specific workflow.
+
+        Use this tool to check the history of a workflow — see past runs,
+        their statuses, and how many steps completed.
+
+        Args:
+            thought: Brief reasoning for why you want to list runs.
+            workflow_config_id: The workflow config ID to list runs for.
+                Must be one of the workflow IDs described in your system prompt.
+
+        Returns:
+            JSON array of recent runs with status, step progress, and timestamps.
+        """
+        if not workflow_config_id:
+            return "ERROR: workflow_config_id is required"
+        if workflow_config_id not in allowed_set:
+            return (
+                f"ERROR: You are not allowed to access workflow '{workflow_config_id}'. Allowed: {sorted(allowed_set)}"
+            )
+
+        try:
+            resp = client.get(
+                "/api/workflow-runs",
+                params={"workflow_config_id": workflow_config_id},
+            )
+            if not resp.ok:
+                return f"ERROR: Failed to list runs: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            runs = resp.json()
+            # Return a simplified summary
+            summaries = []
+            for run in runs[:20]:  # cap at 20
+                completed = sum(1 for s in run.get("steps", []) if s.get("status") == "completed")
+                total = len(run.get("steps", []))
+                summaries.append(
+                    {
+                        "run_id": run.get("_id"),
+                        "status": run.get("status"),
+                        "steps": f"{completed}/{total}",
+                        "started_at": run.get("started_at"),
+                        "completed_at": run.get("completed_at"),
+                    }
+                )
+            return json.dumps(summaries, indent=2)
+        except Exception as e:
+            return f"ERROR: Failed to list workflow runs: {e}"
+
+    @tool
+    def get_workflow_run_status(
+        thought: str = "",
+        run_id: str = "",
+    ) -> str:
+        """Get the detailed status of a specific workflow run.
+
+        Use this tool to check on a running or completed workflow run,
+        see step-by-step progress, errors, and timing.
+
+        Args:
+            thought: Brief reasoning for why you want to check this run.
+            run_id: The ID of the workflow run to check.
+
+        Returns:
+            JSON object with run status, step details, errors, and timestamps.
+        """
+        if not run_id:
+            return "ERROR: run_id is required"
+
+        try:
+            resp = client.get(
+                "/api/workflow-runs",
+                params={"run_id": run_id},
+            )
+            if not resp.ok:
+                return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            run = resp.json()
+            # Validate this run belongs to an allowed workflow
+            config_id = run.get("workflow_config_id", "")
+            if config_id not in allowed_set:
+                return f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+
+            # Return a clean summary
+            steps_summary = []
+            for s in run.get("steps", []):
+                step_info = {
+                    "index": s.get("index"),
+                    "display_text": s.get("display_text"),
+                    "agent_id": s.get("agent_id"),
+                    "status": s.get("status"),
+                    "started_at": s.get("started_at"),
+                    "completed_at": s.get("completed_at"),
+                }
+                if s.get("error"):
+                    step_info["error"] = s["error"]
+                steps_summary.append(step_info)
+
+            return json.dumps(
+                {
+                    "run_id": run.get("_id"),
+                    "workflow_config_id": config_id,
+                    "status": run.get("status"),
+                    "started_at": run.get("started_at"),
+                    "completed_at": run.get("completed_at"),
+                    "steps": steps_summary,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"ERROR: Failed to get workflow run status: {e}"
+
+    @tool
+    def start_workflow_run(
+        thought: str = "",
+        workflow_config_id: str = "",
+        user_context: str = "",
+    ) -> str:
+        """Start a new workflow run.
+
+        Use this tool to trigger a workflow. The workflow will run in the
+        background — use get_workflow_run_status to monitor its progress.
+
+        Args:
+            thought: Brief reasoning for why you want to start this workflow.
+            workflow_config_id: The workflow config ID to run.
+                Must be one of the workflow IDs described in your system prompt.
+            user_context: Optional free-text context to pass to the workflow.
+                This will be available to each step as {{ user_context }}.
+
+        Returns:
+            JSON object with the new run_id and initial status.
+        """
+        if not workflow_config_id:
+            return "ERROR: workflow_config_id is required"
+        if workflow_config_id not in allowed_set:
+            return f"ERROR: You are not allowed to run workflow '{workflow_config_id}'. Allowed: {sorted(allowed_set)}"
+
+        try:
+            body: dict = {"workflow_config_id": workflow_config_id}
+            if user_context:
+                body["user_context"] = user_context
+            body["trigger_info"] = {
+                "triggered_by": "agent",
+                "context": trigger_context or {},
+            }
+
+            resp = client.post("/api/workflow-runs", json_data=body)
+            if not resp.ok:
+                return f"ERROR: Failed to start workflow: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            result = resp.json()
+            return json.dumps(
+                {
+                    "run_id": result.get("run_id"),
+                    "status": result.get("status", "running"),
+                    "message": "Workflow started successfully. Use get_workflow_run_status to monitor progress.",
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"ERROR: Failed to start workflow run: {e}"
+
+    return [list_workflow_runs, get_workflow_run_status, start_workflow_run]
+
+
 __all__ = [
     "create_fetch_url_tool",
     "create_curl_tool",
@@ -879,6 +1158,8 @@ __all__ = [
     "create_request_user_input_tool",
     "create_self_identity_tool",
     "create_format_file_tool",
+    "create_workflow_tools",
+    "WorkflowApiClient",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

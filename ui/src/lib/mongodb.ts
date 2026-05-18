@@ -230,14 +230,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'skill_hubs', { enabled: 1 }),
     safeCreateIndex(db, 'skill_hubs', { location: 1 }),
 
-    // Workflow runs collection (skill / workflow run history)
-    safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1 }),
+    // Workflow runs collection (v2 — uses _id as primary key)
+    safeCreateIndex(db, 'workflow_runs', { workflow_config_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { status: 1 }),
     safeCreateIndex(db, 'workflow_runs', { started_at: -1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, workflow_id: 1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, started_at: -1 }),
 
     // Task configs collection (Task Builder)
     safeCreateIndex(db, 'task_configs', { id: 1 }, { unique: true }),

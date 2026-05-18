@@ -43,6 +43,7 @@ from dynamic_agents.models import (
     UserContext,
 )
 from dynamic_agents.services.builtin_tools import (
+    WorkflowApiClient,
     create_curl_tool,
     create_current_datetime_tool,
     create_fetch_url_tool,
@@ -51,6 +52,7 @@ from dynamic_agents.services.builtin_tools import (
     create_self_identity_tool,
     create_user_info_tool,
     create_wait_tool,
+    create_workflow_tools,
 )
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
@@ -180,12 +182,23 @@ class AgentRuntime:
             # Use shared MongoClient if provided; otherwise create our own
             self._owns_mongo_client = mongo_client is None
             self._mongo_client = mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
+            # Resolve checkpoint collection — allows override via backend.config.checkpoint_collection
+            checkpoint_coll = self.settings.checkpoint_collection
+            writes_coll = self.settings.checkpoint_writes_collection
+            checkpoint_ttl = None
+            if config.backend and config.backend.config:
+                if config.backend.config.checkpoint_collection:
+                    checkpoint_coll = config.backend.config.checkpoint_collection
+                    writes_coll = f"{config.backend.config.checkpoint_collection}_writes"
+                if config.backend.config.checkpoint_ttl is not None:
+                    checkpoint_ttl = config.backend.config.checkpoint_ttl
             # Use MongoDBSaver from langgraph-checkpoint-mongodb for persistent chat history
             self._checkpointer = MongoDBSaver(
                 self._mongo_client,
                 db_name=self.settings.mongodb_database,
-                checkpoint_collection_name=self.settings.checkpoint_collection,
-                writes_collection_name=self.settings.checkpoint_writes_collection,
+                checkpoint_collection_name=checkpoint_coll,
+                writes_collection_name=writes_coll,
+                ttl=checkpoint_ttl,
             )
             # GridFS-backed store for large file content (avoids 16MB checkpoint limit)
             fs_ttl = self._resolve_fs_ttl()
@@ -225,6 +238,10 @@ class AgentRuntime:
         self._failed_servers_error: str = ""  # Error message for display
         self._failed_skills: list[str] = []  # Skill IDs that failed to load
         self._failed_skills_error: str = ""  # Error message for display
+        self._failed_workflows: list[str] = []  # Workflow config IDs not found
+        self._failed_workflows_error: str = ""  # Error message for display
+        self._valid_workflow_configs: list[str] = []  # Validated workflow config IDs
+        self._workflow_prompt_addendum: str = ""  # System prompt addendum with workflow info
         # Track config timestamps for cache invalidation
         self._config_updated_at: datetime = config.updated_at
         self._mcp_servers_updated_at: datetime = max(
@@ -238,6 +255,18 @@ class AgentRuntime:
         if self.config.backend and self.config.backend.type:
             return self.config.backend.type
         return self.settings.default_runtime_backend
+
+    def _resolve_fs_namespace(self) -> tuple[str, str, str]:
+        """Resolve filesystem namespace from config override or default.
+
+        Returns a 3-tuple used as the GridFS store namespace key.
+        Default: (agent_id, session_id, "filesystem")
+        Override: from backend.config.fs_namespace (list of 3 strings)
+        """
+        if self.config.backend and self.config.backend.config and self.config.backend.config.fs_namespace:
+            ns = self.config.backend.config.fs_namespace
+            return (ns[0], ns[1], ns[2])
+        return (self.config.id, self._session_id, "filesystem")
 
     def _resolve_fs_ttl(self) -> int:
         """Resolve filesystem TTL from agent config or server default.
@@ -270,7 +299,7 @@ class AgentRuntime:
         # ─────────────────────────────────────────────────────────────────
 
         # 1. Attach MCP servers and tools
-        server_ids = list(self.config.allowed_tools.keys())
+        server_ids = [sid for sid, val in self.config.allowed_tools.items() if val is not False]
         if not server_ids:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
@@ -362,6 +391,16 @@ class AgentRuntime:
         # 7. Skills
         self._skills_files: dict[str, Any] = {}
         skills_middleware = None
+
+        # Always clear stale skill files from the shared filesystem when using
+        # StoreBackend.  This is critical for workflows where multiple agents
+        # share the same fs_namespace — without this, Agent B would inherit
+        # Agent A's skill files if Agent B has no skills of its own (because
+        # the seeding block below is skipped when self.config.skills is empty).
+        if self._resolve_backend_type() == BACKEND_STORE and self._store:
+            fs_ns = self._resolve_fs_namespace()
+            self._store.delete_by_key_prefix(fs_ns, "/skills/")
+
         if self.config.skills:
             try:
                 skills_data = load_skills(
@@ -379,20 +418,19 @@ class AgentRuntime:
                         # enabled so skills are read from the same store as read_file;
                         # otherwise fall back to StateBackend (reads from state["files"]).
                         if self._resolve_backend_type() == BACKEND_STORE:
-                            agent_id = self.config.id
-                            session_id = self._session_id
+                            fs_ns = self._resolve_fs_namespace()
 
                             def skills_backend(rt):
                                 return StoreBackend(
                                     rt,
-                                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                                    namespace=lambda ctx: fs_ns,
                                 )
 
                             # Seed skill files into GridFS so SkillsMiddleware and
                             # read_file can find them via StoreBackend.
+                            # Note: stale skills were already cleared above.
                             if self._store:
-                                namespace = (agent_id, session_id, "filesystem")
-                                self._store.delete_by_key_prefix(namespace, "/skills/")
+                                namespace = fs_ns
                                 for path, file_data in self._skills_files.items():
                                     self._store.put(namespace, path, file_data)
                                 logger.info(
@@ -411,6 +449,73 @@ class AgentRuntime:
                 self._failed_skills = list(self.config.skills)
                 self._failed_skills_error = f"Skills loading failed: {e}"
 
+        # 8. Workflows — validate configured workflow IDs against MongoDB
+        if self.config.builtin_tools and self.config.builtin_tools.workflows:
+            try:
+                mongo_client = self._mongo_client or MongoClient(self.settings.mongodb_uri, tz_aware=True)
+                db = mongo_client[self.settings.mongodb_database]
+                wf_col = db["workflow_configs"]
+                requested_ids = list(self.config.builtin_tools.workflows)
+                found_docs = list(
+                    wf_col.find({"_id": {"$in": requested_ids}}, {"_id": 1, "name": 1, "description": 1, "steps": 1})
+                )
+                found_ids = {doc["_id"] for doc in found_docs}
+                missing = [wid for wid in requested_ids if wid not in found_ids]
+                if missing:
+                    self._failed_workflows = missing
+                    self._failed_workflows_error = f"Workflow config IDs not found in database: {', '.join(missing)}"
+                    logger.warning(f"Agent '{self.config.name}': {self._failed_workflows_error}")
+                self._valid_workflow_configs = [wid for wid in requested_ids if wid in found_ids]
+                # Build system prompt addendum with workflow details
+                if found_docs:
+                    lines = ["\n\n## Available Workflows\n"]
+                    lines.append("You have access to workflow tools. The following workflows are available:\n")
+                    for doc in found_docs:
+                        name = doc.get("name", doc["_id"])
+                        desc = doc.get("description", "No description")
+                        steps = doc.get("steps", [])
+                        step_summary = ", ".join(
+                            f"{i + 1}. {s.get('agent_name', 'unknown agent')}" for i, s in enumerate(steps)
+                        )
+                        lines.append(f"- **{name}** (`{doc['_id']}`): {desc}")
+                        if step_summary:
+                            lines.append(f"  Steps: {step_summary}")
+                    lines.append(
+                        "\nUse `start_workflow_run` to trigger a workflow, `list_workflow_runs` to see past runs, and `get_workflow_run_status` to check progress."
+                    )
+                    self._workflow_prompt_addendum = "\n".join(lines)
+            except Exception as e:
+                logger.warning(f"Agent '{self.config.name}': failed to validate workflow configs: {e}", exc_info=True)
+                self._failed_workflows = list(self.config.builtin_tools.workflows)
+                self._failed_workflows_error = f"Workflow validation failed: {e}"
+
+        # 8b. Add workflow tools (must be after validation populates _valid_workflow_configs)
+        if self._valid_workflow_configs:
+            client = WorkflowApiClient(
+                base_url=self.settings.caipe_api_url,
+                token_url=self.settings.oauth2_token_url,
+                client_id=self.settings.oauth2_client_id,
+                client_secret=self.settings.oauth2_client_secret,
+                scope=self.settings.oauth2_scope,
+                audience=self.settings.oauth2_audience,
+            )
+            wf_tools = create_workflow_tools(
+                client,
+                self._valid_workflow_configs,
+                trigger_context={
+                    "agent_name": self.config.name,
+                    "agent_id": self.config.id,
+                    "conv_id": self._session_id,
+                    "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
+                    "client_context": self._client_context.model_dump() if self._client_context else None,
+                },
+            )
+            tools.extend(wf_tools)
+            logger.info(
+                f"Agent '{self.config.name}': added {len(wf_tools)} workflow tools "
+                f"for workflows: {self._valid_workflow_configs}"
+            )
+
         # 9. Build middleware stack
         middleware_stack = build_middleware(
             self.config.features,
@@ -425,6 +530,28 @@ class AgentRuntime:
         # 10. Interrupt config
         interrupt_config = self._build_interrupt_config(tools, builtin_tool_names)
 
+        # 10b. Append workflow details to system prompt (after section 8 validates workflows)
+        if self._workflow_prompt_addendum:
+            system_prompt += self._workflow_prompt_addendum
+
+        # 10c. Append warnings about failed resources so the agent is aware of limitations
+        warning_lines: list[str] = []
+        if self._failed_servers:
+            warning_lines.append("**MCP servers that failed to load (tools from these servers are unavailable):**")
+            warning_lines.append(f"  {self._failed_servers_error}")
+        if self._failed_skills:
+            warning_lines.append(f"**Skills that failed to load:** {', '.join(self._failed_skills)}")
+            warning_lines.append(f"  Reason: {self._failed_skills_error}")
+        if self._failed_workflows:
+            warning_lines.append(f"**Workflows that failed to load:** {', '.join(self._failed_workflows)}")
+            warning_lines.append(f"  Reason: {self._failed_workflows_error}")
+        if warning_lines:
+            system_prompt += "\n\n## Warning: Unavailable Resources\n"
+            system_prompt += (
+                "The following resources were configured but failed to load. Do not attempt to use them.\n\n"
+            )
+            system_prompt += "\n".join(warning_lines)
+
         # 11. Create agent graph
         # Sanitize agent name for use as OpenAI message `name` field.
         # deepagents middleware (subagents.py) propagates this into message
@@ -432,8 +559,7 @@ class AgentRuntime:
         safe_name = _sanitize_agent_name(self.config.name)
 
         # Namespace factory for StoreBackend — scopes files to this agent+conversation
-        agent_id = self.config.id
-        session_id = self._session_id
+        fs_ns = self._resolve_fs_namespace()
 
         # Backend selection: GridFS-backed StoreBackend or in-checkpoint StateBackend
         backend_type = self._resolve_backend_type()
@@ -443,7 +569,7 @@ class AgentRuntime:
             def backend(rt):
                 return StoreBackend(
                     rt,
-                    namespace=lambda ctx: (agent_id, session_id, "filesystem"),
+                    namespace=lambda ctx: fs_ns,
                 )
         else:
             backend = None  # defaults to StateBackend
@@ -556,12 +682,11 @@ class AgentRuntime:
 
         # format_file tool — always available when using GridFS backend
         if self._resolve_backend_type() == BACKEND_STORE and self._store:
-            agent_id = config.id
-            session_id = self._session_id
+            fs_ns = self._resolve_fs_namespace()
             tools.append(
                 create_format_file_tool(
                     store=self._store,
-                    namespace_factory=lambda: (agent_id, session_id, "filesystem"),
+                    namespace_factory=lambda: fs_ns,
                 )
             )
             config_summary["format_file"] = {}
@@ -699,7 +824,7 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
-        server_ids = list(subagent_config.allowed_tools.keys())
+        server_ids = [sid for sid, val in subagent_config.allowed_tools.items() if val is not False]
         if server_ids:
             connections = build_mcp_connections(self.mcp_servers, server_ids)
             if connections:
@@ -821,6 +946,11 @@ class AgentRuntime:
         config["metadata"]["agent_config_id"] = self.config.id
         config["metadata"]["agent_name"] = self.config.name
 
+        # Derive Langfuse session_id: group workflow steps by run_id, normal chats by conversation_id
+        workflow_match = re.match(r"^(workflow-.+)-step-\d+$", session_id)
+        langfuse_session_id = workflow_match.group(1) if workflow_match else session_id
+        config["metadata"]["langfuse_session_id"] = langfuse_session_id
+
         if trace_id:
             config["metadata"]["trace_id"] = trace_id
         else:
@@ -858,7 +988,7 @@ class AgentRuntime:
 
         logger.info(
             f"[stream] Starting stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"agent_id={self.config.id}, user={user_id}, "
             f"user_context={self._user}, client_context={self._client_context}"
         )
 
@@ -880,6 +1010,13 @@ class AgentRuntime:
             ):
                 yield frame
 
+        if self._failed_workflows:
+            for frame in encoder.on_warning(
+                f"{len(self._failed_workflows)} workflow(s) not found: {', '.join(self._failed_workflows)}. "
+                f"{self._failed_workflows_error}",
+            ):
+                yield frame
+
         # ── Core lifecycle: chunks ──
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
@@ -893,10 +1030,7 @@ class AgentRuntime:
             subgraphs=True,
         ):
             if self._cancelled:
-                logger.info(
-                    f"[stream] Stream cancelled by user for agent '{self.config.name}': "
-                    f"conv={session_id}, user={user_id}"
-                )
+                logger.info(f"[stream] Stream cancelled by user for agent '{self.config.name}': user={user_id}")
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "stream", turn_status)
                 return
@@ -922,7 +1056,7 @@ class AgentRuntime:
         # ── Core lifecycle: run finish ──
         logger.info(
             f"[stream] Completed stream for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
+            f"content_length={len(encoder.get_accumulated_content())}"
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
@@ -938,6 +1072,7 @@ class AgentRuntime:
             tool_name=interrupt_data.get("tool_name"),
             tool_args=interrupt_data.get("tool_args"),
             allowed_decisions=interrupt_data.get("allowed_decisions"),
+            tool_approvals=interrupt_data.get("tool_approvals"),
             agent=self.config.name,
         )
 
@@ -975,12 +1110,13 @@ class AgentRuntime:
                     continue
 
                 action_requests = interrupt_value.get("action_requests", [])
+
+                # Check for form_input first (request_user_input is always solo)
                 for action in action_requests:
                     tool_name = action.get("name", "")
-                    tool_call_id = action.get("id", str(id(interrupt)))
-                    args = action.get("args", {})
-
                     if tool_name == "request_user_input":
+                        tool_call_id = action.get("id", str(id(interrupt)))
+                        args = action.get("args", {})
                         logger.info(
                             f"[has_pending_interrupt] Found request_user_input interrupt: tool_call_id={tool_call_id}"
                         )
@@ -992,19 +1128,37 @@ class AgentRuntime:
                             "tool_call_id": tool_call_id,
                         }
 
-                    # Any other tool in interrupt_on → tool approval
-                    logger.info(
-                        f"[has_pending_interrupt] Found tool approval interrupt: "
-                        f"tool={tool_name}, tool_call_id={tool_call_id}"
-                    )
+                # Collect ALL tool approval action_requests
+                tool_approvals: list[dict[str, Any]] = []
+                for action in action_requests:
+                    tool_name = action.get("name", "")
+                    tool_call_id = action.get("id", str(id(interrupt)))
+                    args = action.get("args", {})
                     allowed_decisions = self._get_allowed_decisions_for_tool(tool_name)
+                    tool_approvals.append(
+                        {
+                            "tool_name": tool_name,
+                            "tool_args": args,
+                            "tool_call_id": tool_call_id,
+                            "allowed_decisions": allowed_decisions,
+                        }
+                    )
+
+                if tool_approvals:
+                    # Use first tool_call_id as the interrupt_id for backwards compat
+                    logger.info(
+                        f"[has_pending_interrupt] Found {len(tool_approvals)} tool approval interrupt(s): "
+                        f"tools={[t['tool_name'] for t in tool_approvals]}"
+                    )
                     return {
                         "type": "tool_approval",
-                        "interrupt_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "tool_args": args,
-                        "tool_call_id": tool_call_id,
-                        "allowed_decisions": allowed_decisions,
+                        "interrupt_id": tool_approvals[0]["tool_call_id"],
+                        # Single-tool backwards compat fields
+                        "tool_name": tool_approvals[0]["tool_name"],
+                        "tool_args": tool_approvals[0]["tool_args"],
+                        "allowed_decisions": tool_approvals[0]["allowed_decisions"],
+                        # New: full list for multi-tool support
+                        "tool_approvals": tool_approvals,
                     }
 
             logger.debug("[has_pending_interrupt] No actionable interrupt found")
@@ -1047,11 +1201,41 @@ class AgentRuntime:
         interrupt_type = data.get("type", "form_input")
 
         if interrupt_type == "tool_approval":
+            # Support batched decisions for multi-tool interrupts
+            raw_decisions = data.get("decisions")
+            if raw_decisions and isinstance(raw_decisions, list):
+                # New format: UI sends pre-built list of decisions
+                built: list[dict[str, Any]] = []
+                for d in raw_decisions:
+                    dec = d.get("decision", "approve")
+                    if dec == "approve":
+                        built.append({"type": "approve"})
+                    elif dec == "reject":
+                        built.append({"type": "reject"})
+                    elif dec == "edit":
+                        edited_args = d.get("edited_args", {})
+                        tool_name = d.get("tool_name", "unknown")
+                        built.append(
+                            {
+                                "type": "edit",
+                                "edited_action": {"name": tool_name, "args": edited_args},
+                            }
+                        )
+                    else:
+                        built.append({"type": "approve"})
+                return {"decisions": built}
+
+            # Legacy single-decision format
             decision = data.get("decision", "approve")
             if decision == "approve":
-                return {"decisions": [{"type": "approve"}]}
+                # If there are multiple pending tools, approve all of them
+                interrupt_data = await self.has_pending_interrupt(session_id)
+                tool_count = len(interrupt_data.get("tool_approvals", [])) if interrupt_data else 1
+                return {"decisions": [{"type": "approve"}] * tool_count}
             elif decision == "reject":
-                return {"decisions": [{"type": "reject"}]}
+                interrupt_data = await self.has_pending_interrupt(session_id)
+                tool_count = len(interrupt_data.get("tool_approvals", [])) if interrupt_data else 1
+                return {"decisions": [{"type": "reject"}] * tool_count}
             elif decision == "edit":
                 edited_args = data.get("edited_args", {})
                 interrupt_data = await self.has_pending_interrupt(session_id)
@@ -1138,7 +1322,7 @@ class AgentRuntime:
 
         logger.info(
             f"[resume] Resuming stream for agent '{self.config.name}': "
-            f"agent_id={self.config.id}, conv={session_id}, user={user_id}, "
+            f"agent_id={self.config.id}, user={user_id}, "
             f"user_context={self._user}, client_context={self._client_context}"
         )
 
@@ -1159,9 +1343,7 @@ class AgentRuntime:
             subgraphs=True,
         ):
             if self._cancelled:
-                logger.info(
-                    f"[resume] Resume stream cancelled by user for agent '{self.config.name}': conv={session_id}"
-                )
+                logger.info(f"[resume] Resume stream cancelled by user for agent '{self.config.name}'")
                 turn_status = "cancelled"
                 self._record_turn(turn_start, "resume", turn_status)
                 return
@@ -1185,7 +1367,7 @@ class AgentRuntime:
         # ── Core lifecycle: run finish ──
         logger.info(
             f"[resume] Completed resume for agent '{self.config.name}': "
-            f"conv={session_id}, content_length={len(encoder.get_accumulated_content())}"
+            f"content_length={len(encoder.get_accumulated_content())}"
         )
         for frame in encoder.on_run_finish(run_id, session_id):
             yield frame
