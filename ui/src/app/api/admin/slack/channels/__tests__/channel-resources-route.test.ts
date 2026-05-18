@@ -130,6 +130,8 @@ beforeEach(() => {
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  process.env.SLACK_DEFAULT_TEAM_SLUG = "platform-engineering";
+  process.env.SLACK_DEFAULT_AGENT_ID = "incident-agent";
   mockCollections.channel_team_mappings = createMockCollection([
     {
       slack_workspace_id: workspaceId,
@@ -144,9 +146,25 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.SLACK_WORKSPACE_ALIAS;
+  delete process.env.SLACK_DEFAULT_TEAM_SLUG;
+  delete process.env.SLACK_DEFAULT_AGENT_ID;
 });
 
 describe("Slack channel ReBAC APIs", () => {
+  it("returns configured Slack channel association defaults", async () => {
+    const { GET } = await import("../defaults/route");
+
+    const response = await GET(request("/api/admin/slack/channels/defaults"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.defaults).toEqual({
+      team_slug: "platform-engineering",
+      agent_id: "incident-agent",
+      create_routes: true,
+    });
+  });
+
   it("lists configured Slack channels with active grant counts", async () => {
     mockCollections.slack_channel_grants = createMockCollection([
       { workspace_id: workspaceAlias, channel_id: channelId, status: "active", resource: agentGrant.resource },
@@ -601,7 +619,7 @@ describe("Slack channel ReBAC APIs", () => {
     });
   });
 
-  it("applies migration defaults to Slack channels and default team", async () => {
+  it("applies Slack channel association defaults to Slack channels and default team", async () => {
     mockCollections.channel_team_mappings = createMockCollection([
       {
         slack_workspace_id: workspaceId,

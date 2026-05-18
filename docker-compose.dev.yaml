@@ -1387,6 +1387,13 @@ services:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
+      # UI BFF -> Slack bot admin API. The browser never calls the bot directly;
+      # caipe-ui obtains this client_credentials token server-side.
+      - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
+      - SLACK_BOT_ADMIN_CLIENT_ID=${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}
+      - SLACK_BOT_ADMIN_CLIENT_SECRET=${SLACK_BOT_ADMIN_CLIENT_SECRET:-}
+      - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
+      - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       # App config: loaded at Next.js startup via instrumentation.ts.
       # APP_CONFIG_FILE on the host (set in .env) selects which file is
       # mounted — defaults to the committed example template (./config/app-config.yaml,
@@ -2314,6 +2321,14 @@ services:
       - SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=${SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS:-false}
       - SLACK_DEFAULT_TEAM_SLUG=${SLACK_DEFAULT_TEAM_SLUG:-}
       - SLACK_DEFAULT_AGENT_ID=${SLACK_DEFAULT_AGENT_ID:-}
+      # Internal admin API used by the Web UI BFF for route status/reload/config sync.
+      - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-false}
+      - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
+      - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
+      - SLACK_ADMIN_JWT_ISSUER=${SLACK_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      - SLACK_ADMIN_JWKS_URL=${SLACK_ADMIN_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      - SLACK_ADMIN_JWT_AUDIENCE=${SLACK_ADMIN_JWT_AUDIENCE:-caipe-slack-bot-admin}
+      - SLACK_ADMIN_ALLOWED_CLIENT_IDS=${SLACK_ADMIN_ALLOWED_CLIENT_IDS:-caipe-ui}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
@@ -2487,7 +2502,7 @@ services:
     container_name: keycloak-init
     entrypoint: ["/bin/sh", "/scripts/init-idp.sh"]
     volumes:
-      - ./deploy/keycloak/init-idp.sh:/scripts/init-idp.sh:ro
+      - ./charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh:/scripts/init-idp.sh:ro
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
@@ -2500,6 +2515,8 @@ services:
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      SLACK_BOT_ADMIN_CLIENT_ID: ${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}
+      SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe
       # Spec 104: comma-separated emails that get the admin_user role and the
       # demo team/agent/tool bundle on first run of init-idp.sh. Sourced from

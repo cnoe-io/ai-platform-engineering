@@ -74,12 +74,47 @@ interface TeamOption {
   name: string;
 }
 
+interface SlackChannelAssociationDefaults {
+  team_slug: string;
+  agent_id: string;
+  create_routes?: boolean;
+}
+
+interface SlackBotRuntimeStatus {
+  route_mode: string;
+  static_config: {
+    channels: number;
+    routes: number;
+  };
+  route_cache: {
+    ttl_seconds: number;
+    cache_size: number;
+    cached_channels?: string[];
+  };
+  last_sync?: SlackBotRuntimeSyncSummary | null;
+}
+
+interface SlackBotRuntimeSyncSummary {
+  dry_run: boolean;
+  channels_seen: number;
+  routes_planned: number;
+  routes_upserted: number;
+  openfga_tuples_written: number;
+}
+
+type RuntimeSyncModalMode = "preview" | "apply";
+type RuntimeSyncModalStatus = "idle" | "loading" | "success" | "error";
+
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
 }
 
 function agentLabel(agent: DynamicAgentOption): string {
   return `${agent.name || agent._id} (${agent._id})`;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolean }) {
@@ -94,6 +129,13 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   const [routePendingDelete, setRoutePendingDelete] = useState<SlackChannelAgentRoute | null>(null);
   const [defaultTeamSlug, setDefaultTeamSlug] = useState("");
   const [defaultAgentId, setDefaultAgentId] = useState("");
+  const [configuredDefaults, setConfiguredDefaults] = useState<SlackChannelAssociationDefaults | null>(null);
+  const [slackRuntimeStatus, setSlackRuntimeStatus] = useState<SlackBotRuntimeStatus | null>(null);
+  const [runtimeSyncSummary, setRuntimeSyncSummary] = useState<SlackBotRuntimeSyncSummary | null>(null);
+  const [runtimeSyncModalOpen, setRuntimeSyncModalOpen] = useState(false);
+  const [runtimeSyncModalMode, setRuntimeSyncModalMode] = useState<RuntimeSyncModalMode>("preview");
+  const [runtimeSyncModalStatus, setRuntimeSyncModalStatus] = useState<RuntimeSyncModalStatus>("idle");
+  const [runtimeSyncModalError, setRuntimeSyncModalError] = useState<string | null>(null);
   const [createDefaultRoutes, setCreateDefaultRoutes] = useState(true);
   const [routeListen, setRouteListen] = useState<"message" | "mention" | "all">("mention");
   const [routePriority, setRoutePriority] = useState(100);
@@ -162,6 +204,25 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     setTeams(data.teams ?? []);
   }, []);
 
+  const loadAssociationDefaults = useCallback(async () => {
+    const response = await fetch("/api/admin/slack/channels/defaults");
+    if (!response.ok) throw new Error(await response.text());
+    const data = apiData<{ defaults: SlackChannelAssociationDefaults }>(await response.json());
+    setConfiguredDefaults(data.defaults ?? null);
+    if (data.defaults?.team_slug) setDefaultTeamSlug((current) => current || data.defaults.team_slug);
+    if (data.defaults?.agent_id) setDefaultAgentId((current) => current || data.defaults.agent_id);
+    if (typeof data.defaults?.create_routes === "boolean") {
+      setCreateDefaultRoutes(data.defaults.create_routes);
+    }
+  }, []);
+
+  const loadSlackRuntimeStatus = useCallback(async () => {
+    const response = await fetch("/api/admin/slack/runtime/status");
+    if (!response.ok) throw new Error(await response.text());
+    const data = apiData<SlackBotRuntimeStatus>(await response.json());
+    setSlackRuntimeStatus(data);
+  }, []);
+
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
@@ -177,6 +238,18 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       setMessage(error instanceof Error ? error.message : "Failed to load teams")
     );
   }, [loadTeams]);
+
+  useEffect(() => {
+    void loadAssociationDefaults().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "Failed to load Slack channel association defaults")
+    );
+  }, [loadAssociationDefaults]);
+
+  useEffect(() => {
+    void loadSlackRuntimeStatus().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "Failed to load Slack bot runtime status")
+    );
+  }, [loadSlackRuntimeStatus]);
 
   useEffect(() => {
     void loadRoutes().catch((error) =>
@@ -278,10 +351,65 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     setLoading(true);
     setMessage(null);
     try {
-      await Promise.all([loadChannels(), loadDynamicAgents(), loadTeams()]);
-      setMessage("Migration default lists refreshed.");
+      await Promise.all([loadChannels(), loadDynamicAgents(), loadTeams(), loadAssociationDefaults()]);
+      setMessage("Slack channel association default lists refreshed.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to refresh migration defaults");
+      setMessage(error instanceof Error ? error.message : "Failed to refresh Slack channel association defaults");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reloadSlackBotRoutes = async () => {
+    setLoading(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/slack/runtime/reload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setMessage("Slack bot route cache reloaded.");
+      await loadSlackRuntimeStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to reload Slack bot routes");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const syncSlackBotConfig = async (dryRun: boolean) => {
+    setRuntimeSyncModalOpen(true);
+    setRuntimeSyncModalMode(dryRun ? "preview" : "apply");
+    setRuntimeSyncModalStatus("loading");
+    setRuntimeSyncModalError(null);
+    if (dryRun) {
+      setRuntimeSyncSummary(null);
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/slack/runtime/sync-from-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dry_run: dryRun }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const data = apiData<SlackBotRuntimeSyncSummary>(await response.json());
+      setRuntimeSyncSummary(data);
+      setRuntimeSyncModalStatus("success");
+      setMessage(
+        dryRun
+          ? `Sync preview: ${data.routes_planned} routes planned from ${data.channels_seen} channels.`
+          : `Config sync applied: upserted ${data.routes_upserted} routes and wrote ${data.openfga_tuples_written} OpenFGA tuples.`
+      );
+      await Promise.all([loadSlackRuntimeStatus(), loadChannels(), loadRoutes(), loadDiagnostics()]);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to sync Slack bot config";
+      setRuntimeSyncModalError(errorMessage);
+      setRuntimeSyncModalStatus("error");
+      setMessage(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -317,11 +445,11 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       }>(await response.json());
       await Promise.all([loadChannels(), loadRoutes(), loadDiagnostics()]);
       setMessage(
-        `Migration defaults applied: assigned ${data.summary.channels_assigned_team} channels, ensured ${data.summary.channel_grants_ensured} channel grants, ensured ${data.summary.routes_ensured} routes.`
+        `Slack channel association defaults applied: assigned ${data.summary.channels_assigned_team} channels, ensured ${data.summary.channel_grants_ensured} channel grants, ensured ${data.summary.routes_ensured} routes.`
       );
       setMigrationConfirmOpen(false);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to apply migration defaults");
+      setMessage(error instanceof Error ? error.message : "Failed to apply Slack channel association defaults");
     } finally {
       setLoading(false);
     }
@@ -395,11 +523,172 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
 
         <div className="rounded-md border p-4 space-y-3">
           <div>
-            <Label>Migration Defaults</Label>
+            <Label>Slack Bot Runtime Sync</Label>
             <p className="text-xs text-muted-foreground">
-              Use this during onboarding to assign unconfigured Slack channels to a default team and
-              grant every onboarded channel access to a default Dynamic Agent.
+              Inspect the running Slack bot route cache, force a reload, or migrate the
+              bot's static YAML channel config into MongoDB/OpenFGA.
             </p>
+          </div>
+          <div className="grid gap-2 text-sm md:grid-cols-3">
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Route mode</div>
+              <div className="font-medium">{slackRuntimeStatus?.route_mode ?? "unknown"}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Static config</div>
+              <div className="font-medium">
+                {slackRuntimeStatus
+                  ? `${slackRuntimeStatus.static_config.channels} channels / ${slackRuntimeStatus.static_config.routes} routes`
+                  : "unknown"}
+              </div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-muted-foreground">Route cache</div>
+              <div className="font-medium">
+                {slackRuntimeStatus
+                  ? `${slackRuntimeStatus.route_cache.cache_size} cached channel${slackRuntimeStatus.route_cache.cache_size === 1 ? "" : "s"}`
+                  : "unknown"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                TTL {slackRuntimeStatus?.route_cache.ttl_seconds ?? "?"}s
+              </div>
+            </div>
+          </div>
+          {runtimeSyncSummary && (
+            <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <div>
+                {runtimeSyncSummary.dry_run
+                  ? `Sync preview: ${runtimeSyncSummary.routes_planned} routes planned.`
+                  : `Config sync applied: upserted ${runtimeSyncSummary.routes_upserted} routes.`}
+              </div>
+              Last sync {runtimeSyncSummary.dry_run ? "preview" : "apply"}:{" "}
+              {runtimeSyncSummary.routes_planned} planned, {runtimeSyncSummary.routes_upserted} upserted,{" "}
+              {runtimeSyncSummary.openfga_tuples_written} OpenFGA tuples.
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" onClick={loadSlackRuntimeStatus} disabled={disabled || loading}>
+              Refresh Runtime Status
+            </Button>
+            <Button type="button" variant="outline" onClick={reloadSlackBotRoutes} disabled={disabled || loading}>
+              Reload Slack Bot Routes
+            </Button>
+            <Button type="button" variant="outline" onClick={() => syncSlackBotConfig(true)} disabled={disabled || loading}>
+              Preview Sync From Config
+            </Button>
+            <Button type="button" onClick={() => syncSlackBotConfig(false)} disabled={disabled || loading}>
+              Apply Sync From Config
+            </Button>
+          </div>
+        </div>
+
+        <Dialog open={runtimeSyncModalOpen} onOpenChange={setRuntimeSyncModalOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {runtimeSyncModalMode === "preview"
+                  ? "Slack Bot Config Sync Preview"
+                  : "Slack Bot Config Sync Apply"}
+              </DialogTitle>
+              <DialogDescription>
+                Preview reads the Slack bot's loaded static YAML config. Apply upserts matching
+                MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="font-medium">
+                  {runtimeSyncModalStatus === "loading"
+                    ? runtimeSyncModalMode === "preview"
+                      ? "Previewing..."
+                      : "Applying..."
+                    : runtimeSyncModalStatus === "success"
+                      ? runtimeSyncModalMode === "preview"
+                        ? "Preview complete"
+                        : "Apply complete"
+                      : runtimeSyncModalStatus === "error"
+                        ? "Sync failed"
+                        : "Ready"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {runtimeSyncModalStatus === "loading"
+                    ? "Contacting the Slack bot admin API..."
+                    : "Static config sync is upsert-only and leaves existing UI-managed associations in place."}
+                </div>
+              </div>
+
+              {runtimeSyncModalError && (
+                <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">
+                  {runtimeSyncModalError}
+                </div>
+              )}
+
+              {runtimeSyncSummary && (
+                <div className="grid gap-2 text-sm md:grid-cols-2">
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Channels</div>
+                    <div className="font-medium">
+                      {pluralize(runtimeSyncSummary.channels_seen, "channel")} scanned
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">Planned routes</div>
+                    <div className="font-medium">
+                      {pluralize(runtimeSyncSummary.routes_planned, "route")} planned
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">MongoDB route metadata</div>
+                    <div className="font-medium">
+                      {pluralize(runtimeSyncSummary.routes_upserted, "route")} upserted
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <div className="text-xs text-muted-foreground">OpenFGA tuples</div>
+                    <div className="font-medium">
+                      {pluralize(runtimeSyncSummary.openfga_tuples_written, "OpenFGA tuple")} written
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRuntimeSyncModalOpen(false)}
+                disabled={runtimeSyncModalStatus === "loading"}
+              >
+                Close
+              </Button>
+              {runtimeSyncModalMode === "preview" && runtimeSyncModalStatus === "success" && (
+                <Button type="button" onClick={() => syncSlackBotConfig(false)} disabled={disabled || loading}>
+                  Apply This Sync
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <div className="rounded-md border p-4 space-y-3">
+          <div>
+            <Label>Slack Channel Association Default</Label>
+            <p className="text-xs text-muted-foreground">
+              Use this to assign unconfigured Slack channels to the configured default team
+              and grant onboarded channels access to the configured default Dynamic Agent.
+            </p>
+          </div>
+          <div className="grid gap-2 rounded-md border bg-muted/20 p-3 text-xs md:grid-cols-2">
+            <div>
+              <div className="text-muted-foreground">Current default team</div>
+              <code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Current default Dynamic Agent</div>
+              <code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code>
+            </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
@@ -472,7 +761,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
         <Dialog open={migrationConfirmOpen} onOpenChange={setMigrationConfirmOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Apply migration defaults?</DialogTitle>
+              <DialogTitle>Apply Slack channel association defaults?</DialogTitle>
               <DialogDescription>
                 This will update {channels.length} onboarded Slack channel{channels.length === 1 ? "" : "s"}.
               </DialogDescription>
@@ -529,7 +818,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                   key={`${channel.workspace_id}/${channel.channel_id}`}
                   value={`${channel.workspace_id}/${channel.channel_id}`}
                 >
-                  {channel.channel_name} ({channel.active_grants} grants)
+                  {channel.channel_name}
                 </option>
               ))}
             </select>

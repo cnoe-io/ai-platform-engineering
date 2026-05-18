@@ -9,13 +9,25 @@ import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
-import { withSlackChannelRebacManageAuth } from "../_lib";
+import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../_lib";
 
 interface SlackMigrationDefaultsRequest {
   team_slug?: unknown;
   agent_id?: unknown;
   create_routes?: unknown;
 }
+
+export const GET = withErrorHandler(async (request: NextRequest) =>
+  withSlackChannelRebacViewAuth(request, async () =>
+    successResponse({
+      defaults: {
+        team_slug: process.env.SLACK_DEFAULT_TEAM_SLUG?.trim() || "",
+        agent_id: process.env.SLACK_DEFAULT_AGENT_ID?.trim() || "",
+        create_routes: true,
+      },
+    })
+  )
+);
 
 interface ChannelTeamMappingDoc extends Document {
   slack_workspace_id?: string;

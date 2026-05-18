@@ -437,6 +437,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [tupleFilter, setTupleFilter] = useState<Partial<TupleKey>>({});
   const [pendingGraphWrites, setPendingGraphWrites] = useState<TupleKey[]>([]);
   const [pendingGraphDeletes, setPendingGraphDeletes] = useState<TupleKey[]>([]);
+  const [graphSelectedResourceObjects, setGraphSelectedResourceObjects] = useState<Set<string>>(() => new Set());
   const [teamAccessTeamId, setTeamAccessTeamId] = useState("");
   const [ragAdminEnabled, setRagAdminEnabled] = useState(false);
   const [teamAccessLoading, setTeamAccessLoading] = useState(false);
@@ -734,6 +735,32 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     setPendingGraphDeletes([]);
   }
 
+  const toggleGraphResource = useCallback((object: string) => {
+    setGraphSelectedResourceObjects((current) => {
+      const next = new Set(current);
+      if (next.has(object)) {
+        next.delete(object);
+      } else {
+        next.add(object);
+      }
+      return next;
+    });
+  }, []);
+
+  const setGraphResourceVisibility = useCallback((objects: string[], visible: boolean) => {
+    setGraphSelectedResourceObjects((current) => {
+      const next = new Set(current);
+      for (const object of objects) {
+        if (visible) {
+          next.add(object);
+        } else {
+          next.delete(object);
+        }
+      }
+      return next;
+    });
+  }, []);
+
   if (loading) {
     return (
       <Card>
@@ -954,10 +981,14 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 graph={graph}
                 teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
                 preferredRelation={relation}
+                selectedResourceObjects={graphSelectedResourceObjects}
                 pendingWrites={pendingGraphWrites}
                 pendingDeletes={pendingGraphDeletes}
                 isAdmin={isAdmin}
                 busy={busy}
+                showUsers={Boolean(graphUser)}
+                onToggleResource={toggleGraphResource}
+                onSetResourceVisibility={setGraphResourceVisibility}
                 onStageWrite={stageGraphWrite}
                 onStageDelete={stageGraphDelete}
                 onUnstageWrite={(tuple) => {
@@ -966,9 +997,10 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 onClearChanges={clearGraphChanges}
                 onSaveChanges={applyGraphChanges}
               />
+              <GraphDetails graph={graph} />
               <Dialog open={graphFullscreenOpen} onOpenChange={setGraphFullscreenOpen}>
-                <DialogContent className="flex h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] flex-col gap-3 p-4">
-                  <DialogHeader className="pr-10">
+                <DialogContent className="flex h-[92vh] max-h-[92vh] min-w-0 w-[96vw] max-w-[96vw] flex-col gap-3 overflow-hidden p-4">
+                  <DialogHeader className="min-w-0 shrink-0 pr-10">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <DialogTitle>OpenFGA Policy / Resource Graph</DialogTitle>
@@ -987,17 +1019,33 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                       </Button>
                     </div>
                   </DialogHeader>
-                  <div className="min-h-0 flex-1">
+                  <div className="min-w-0 shrink-0 rounded-md border bg-muted/10 p-3">
+                    <RebacGraphFilters
+                      teams={catalog?.teams ?? []}
+                      scope={graphScope}
+                      allScopeValue={ALL_RELATIONSHIPS_SCOPE}
+                      selectedUser={graphUser}
+                      idPrefix="graph-fullscreen"
+                      onScopeChange={setGraphScope}
+                      onUserChange={setGraphUser}
+                      onRender={loadGraph}
+                    />
+                  </div>
+                  <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                     <OpenFgaGraphEditor
                       catalog={catalog}
                       graph={graph}
                       teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
                       preferredRelation={relation}
+                      selectedResourceObjects={graphSelectedResourceObjects}
                       pendingWrites={pendingGraphWrites}
                       pendingDeletes={pendingGraphDeletes}
                       isAdmin={isAdmin}
                       busy={busy}
+                      showUsers={Boolean(graphUser)}
                       fullscreen
+                      onToggleResource={toggleGraphResource}
+                      onSetResourceVisibility={setGraphResourceVisibility}
                       onStageWrite={stageGraphWrite}
                       onStageDelete={stageGraphDelete}
                       onUnstageWrite={(tuple) => {
@@ -1168,49 +1216,69 @@ function GraphSummary({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge
   }, {});
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard label="Nodes" value={graph.nodes.length} />
-        <MetricCard label="Relationships" value={graph.edges.length} />
-        <MetricCard label="Relation types" value={Object.keys(grouped).length} />
+    <div className="grid gap-3 md:grid-cols-3">
+      <MetricCard label="Nodes" value={graph.nodes.length} />
+      <MetricCard label="Relationships" value={graph.edges.length} />
+      <MetricCard label="Relation types" value={Object.keys(grouped).length} />
+    </div>
+  );
+}
+
+function GraphDetails({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge[] } }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-md border bg-muted/10 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium">Node and edge details</div>
+          <p className="text-xs text-muted-foreground">
+            Raw graph inventory is collapsed by default to keep the policy canvas readable.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setExpanded((current) => !current)}>
+          {expanded ? "Hide node and edge details" : "Show node and edge details"}
+        </Button>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-md border p-3">
-          <div className="mb-2 text-sm font-medium">Nodes</div>
-          <div className="flex flex-wrap gap-2">
-            {graph.nodes.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No graph nodes loaded.</span>
-            ) : (
-              graph.nodes.map((node) => {
-                const meta = graphKindMeta(node.type);
-                const Icon = meta.icon;
-                return (
-                  <Badge key={node.id} variant="secondary" className="gap-1.5">
-                    <Icon className="h-3 w-3" aria-hidden="true" />
-                    <span className="text-muted-foreground">{meta.label}</span>
-                    {node.label}
-                  </Badge>
-                );
-              })
-            )}
+      {expanded && (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-md border p-3">
+            <div className="mb-2 text-sm font-medium">Nodes</div>
+            <div className="flex flex-wrap gap-2">
+              {graph.nodes.length === 0 ? (
+                <span className="text-sm text-muted-foreground">No graph nodes loaded.</span>
+              ) : (
+                graph.nodes.map((node) => {
+                  const meta = graphKindMeta(node.type);
+                  const Icon = meta.icon;
+                  return (
+                    <Badge key={node.id} variant="secondary" className="gap-1.5">
+                      <Icon className="h-3 w-3" aria-hidden="true" />
+                      <span className="text-muted-foreground">{meta.label}</span>
+                      {node.label}
+                    </Badge>
+                  );
+                })
+              )}
+            </div>
+          </div>
+          <div className="rounded-md border p-3">
+            <div className="mb-2 text-sm font-medium">Edges</div>
+            <div className="space-y-2">
+              {graph.edges.length === 0 ? (
+                <span className="text-sm text-muted-foreground">No graph edges loaded.</span>
+              ) : (
+                graph.edges.map((edge) => (
+                  <div key={edge.id} className="rounded bg-muted/40 p-2 text-xs">
+                    <code>{edge.from}</code> <span className="text-muted-foreground">{edge.relation}</span>{" "}
+                    <code>{edge.to}</code>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
-        <div className="rounded-md border p-3">
-          <div className="mb-2 text-sm font-medium">Edges</div>
-          <div className="space-y-2">
-            {graph.edges.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No graph edges loaded.</span>
-            ) : (
-              graph.edges.map((edge) => (
-                <div key={edge.id} className="rounded bg-muted/40 p-2 text-xs">
-                  <code>{edge.from}</code> <span className="text-muted-foreground">{edge.relation}</span>{" "}
-                  <code>{edge.to}</code>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1220,11 +1288,15 @@ interface OpenFgaGraphEditorProps {
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   teamSlug: string;
   preferredRelation: string;
+  selectedResourceObjects: Set<string>;
   pendingWrites: TupleKey[];
   pendingDeletes: TupleKey[];
   isAdmin: boolean;
   busy: boolean;
+  showUsers?: boolean;
   fullscreen?: boolean;
+  onToggleResource: (object: string) => void;
+  onSetResourceVisibility: (objects: string[], visible: boolean) => void;
   onStageWrite: (tuple: TupleKey) => void;
   onStageDelete: (tuple: TupleKey) => void;
   onUnstageWrite: (tuple: TupleKey) => void;
@@ -1245,11 +1317,15 @@ function OpenFgaGraphEditorInner({
   graph,
   teamSlug,
   preferredRelation,
+  selectedResourceObjects,
   pendingWrites,
   pendingDeletes,
   isAdmin,
   busy,
+  showUsers = false,
   fullscreen = false,
+  onToggleResource,
+  onSetResourceVisibility,
   onStageWrite,
   onStageDelete,
   onUnstageWrite,
@@ -1264,9 +1340,21 @@ function OpenFgaGraphEditorInner({
   const [graphWarning, setGraphWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    setNodes(buildFlowNodes(graph, teamSlug, team?.name, pendingWrites));
-    setEdges(buildFlowEdges(graph, pendingWrites, pendingDeletes));
-  }, [graph, pendingDeletes, pendingWrites, setEdges, setNodes, team?.name, teamSlug]);
+    const nextNodes = buildFlowNodes(graph, teamSlug, team?.name, pendingWrites, selectedResourceObjects, showUsers);
+    const visibleNodeIds = new Set(nextNodes.map((node) => node.id));
+    setNodes(nextNodes);
+    setEdges(buildFlowEdges(graph, pendingWrites, pendingDeletes, visibleNodeIds));
+  }, [
+    graph,
+    pendingDeletes,
+    pendingWrites,
+    selectedResourceObjects,
+    setEdges,
+    setNodes,
+    showUsers,
+    team?.name,
+    teamSlug,
+  ]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -1298,6 +1386,9 @@ function OpenFgaGraphEditorInner({
       if (!raw) return;
       const resource = JSON.parse(raw) as CatalogResource & { resourceType: ResourceType };
       const object = resource.object || `${resource.resourceType}:${resource.id}`;
+      if (!selectedResourceObjects.has(object)) {
+        onToggleResource(object);
+      }
       const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       setNodes((currentNodes) => {
         if (currentNodes.some((node) => node.id === object)) return currentNodes;
@@ -1317,7 +1408,7 @@ function OpenFgaGraphEditorInner({
         ];
       });
     },
-    [reactFlow, setNodes]
+    [onToggleResource, reactFlow, selectedResourceObjects, setNodes]
   );
 
   const selectedTuple = selectedEdge?.data?.tuple ?? null;
@@ -1325,10 +1416,29 @@ function OpenFgaGraphEditorInner({
   const hasPendingChanges = pendingWrites.length > 0 || pendingDeletes.length > 0;
 
   return (
-    <div className={cn("grid gap-3 xl:grid-cols-[260px_1fr_300px]", fullscreen && "h-full min-h-0")}>
-      <GraphResourcePalette catalog={catalog} disabled={!isAdmin} />
+    <div
+      className={cn(
+        "grid min-w-0 gap-3",
+        fullscreen
+          ? "h-full min-h-0 overflow-hidden xl:grid-cols-[minmax(220px,260px)_minmax(0,1fr)_minmax(220px,280px)]"
+          : "xl:grid-cols-[280px_minmax(0,1fr)_300px]"
+      )}
+    >
+      <GraphResourcePalette
+        catalog={catalog}
+        selectedResourceObjects={selectedResourceObjects}
+        disabled={!isAdmin}
+        onToggleResource={onToggleResource}
+        onSetResourceVisibility={onSetResourceVisibility}
+      />
 
-      <div className={cn("overflow-hidden rounded-md border bg-background", fullscreen ? "h-full min-h-[640px]" : "h-[560px]")}>
+      <div
+        data-testid="openfga-graph-canvas"
+        className={cn(
+          "min-w-0 overflow-hidden rounded-md border bg-background",
+          fullscreen ? "h-full min-h-0" : "h-[560px]"
+        )}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1357,7 +1467,7 @@ function OpenFgaGraphEditorInner({
         </ReactFlow>
       </div>
 
-      <div className="space-y-3">
+      <div className={cn("min-w-0 space-y-3", fullscreen && "min-h-0 overflow-auto")}>
         {graphWarning && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
             {graphWarning}
@@ -1403,7 +1513,9 @@ function buildFlowNodes(
   graph: { nodes: GraphNode[]; edges: GraphEdge[] },
   teamSlug: string,
   teamName: string | undefined,
-  pendingWrites: TupleKey[]
+  pendingWrites: TupleKey[],
+  selectedResourceObjects: Set<string>,
+  showUsers: boolean
 ): Node<RebacNodeData>[] {
   const nodesById = new Map<string, { id: string; label: string; kind: string }>();
   const addNode = (id: string, label = id, kind = nodeKind(id)) => {
@@ -1425,6 +1537,13 @@ function buildFlowNodes(
     addNode(tuple.object);
   });
 
+  const pendingNodeIds = new Set(pendingWrites.flatMap((tuple) => [tuple.user, tuple.object]));
+  const visibleNodes = [...nodesById.values()].filter((node) => {
+    if (node.kind === "team" || node.kind === "userset") return true;
+    if (node.kind === "user") return showUsers || pendingNodeIds.has(node.id);
+    return selectedResourceObjects.has(node.id) || pendingNodeIds.has(node.id);
+  });
+
   const columnByKind: Record<string, number> = {
     user: 0,
     slack_channel: 0,
@@ -1436,7 +1555,7 @@ function buildFlowNodes(
   };
   const rowByColumn: Record<number, number> = {};
 
-  return [...nodesById.values()]
+  return visibleNodes
     .sort((left, right) => {
       const leftColumn = columnByKind[left.kind] ?? 3;
       const rightColumn = columnByKind[right.kind] ?? 3;
@@ -1462,13 +1581,17 @@ function buildFlowNodes(
 function buildFlowEdges(
   graph: { nodes: GraphNode[]; edges: GraphEdge[] },
   pendingWrites: TupleKey[],
-  pendingDeletes: TupleKey[]
+  pendingDeletes: TupleKey[],
+  visibleNodeIds: Set<string>
 ): Edge<RebacEdgeData>[] {
   const deleted = new Set(pendingDeletes.map(tupleKey));
   const existingKeys = new Set<string>();
   const persistedEdges = graph.edges
     .map((edge) => ({ edge, tuple: edgeTuple(edge) }))
-    .filter(({ tuple }) => !deleted.has(tupleKey(tuple)))
+    .filter(
+      ({ edge, tuple }) =>
+        !deleted.has(tupleKey(tuple)) && visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to)
+    )
     .map(({ edge, tuple }) => {
       existingKeys.add(tupleKey(tuple));
       return {
@@ -1487,6 +1610,7 @@ function buildFlowEdges(
 
   const stagedEdges = pendingWrites
     .filter((tuple) => !existingKeys.has(tupleKey(tuple)))
+    .filter((tuple) => visibleNodeIds.has(tuple.user) && visibleNodeIds.has(tuple.object))
     .map((tuple) => ({
       id: `pending-${tupleKey(tuple)}`,
       source: tuple.user,
@@ -1504,47 +1628,129 @@ function buildFlowEdges(
   return [...persistedEdges, ...stagedEdges];
 }
 
-function GraphResourcePalette({ catalog, disabled }: { catalog: CatalogResponse | null; disabled: boolean }) {
+function GraphResourcePalette({
+  catalog,
+  selectedResourceObjects,
+  disabled,
+  onToggleResource,
+  onSetResourceVisibility,
+}: {
+  catalog: CatalogResponse | null;
+  selectedResourceObjects: Set<string>;
+  disabled: boolean;
+  onToggleResource: (object: string) => void;
+  onSetResourceVisibility: (objects: string[], visible: boolean) => void;
+}) {
+  const [resourceSearch, setResourceSearch] = useState("");
   const resourceGroups: Array<{ type: ResourceType; label: string; resources: CatalogResource[] }> = [
     { type: "agent", label: "Agents", resources: catalog?.resources.agents ?? [] },
     { type: "tool", label: "Tools", resources: catalog?.resources.tools ?? [] },
     { type: "knowledge_base", label: "Knowledge bases", resources: catalog?.resources.knowledge_bases ?? [] },
   ];
+  const normalizedSearch = resourceSearch.trim().toLowerCase();
+  const filteredResourceGroups = resourceGroups.map((group) => ({
+    ...group,
+    resources: normalizedSearch
+      ? group.resources.filter((resource) =>
+          [resource.name, resource.object, resource.description].some((value) =>
+            value.toLowerCase().includes(normalizedSearch)
+          )
+        )
+      : group.resources,
+  }));
+  const visibleResources = filteredResourceGroups.flatMap((group) =>
+    group.resources.map((resource) => ({
+      ...resource,
+      resourceType: group.type,
+      object: resource.object || `${group.type}:${resource.id}`,
+    }))
+  );
+  const visibleResourceObjects = visibleResources.map((resource) => resource.object);
 
   return (
-    <div className="space-y-3 rounded-md border p-3">
+    <div data-testid="openfga-graph-resource-palette" className="min-h-0 min-w-0 space-y-3 overflow-auto rounded-md border p-3">
       <div>
-        <div className="text-sm font-medium">Resource palette</div>
-        <p className="text-xs text-muted-foreground">Drag resources into the canvas before connecting them.</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-medium">Resource palette</div>
+          <Badge variant="secondary">{selectedResourceObjects.size} shown</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Select resources to show them in the graph, or drag one into the canvas before connecting it.
+        </p>
       </div>
-      {resourceGroups.map((group) => (
+      <Input
+        value={resourceSearch}
+        onChange={(event) => setResourceSearch(event.target.value)}
+        placeholder="Search resources"
+        aria-label="Search resources"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={visibleResourceObjects.length === 0}
+          onClick={() => onSetResourceVisibility(visibleResourceObjects, true)}
+        >
+          Select all shown
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={visibleResourceObjects.length === 0}
+          onClick={() => onSetResourceVisibility(visibleResourceObjects, false)}
+        >
+          Unselect all shown
+        </Button>
+      </div>
+      {filteredResourceGroups.map((group) => (
         <div key={group.type} className="space-y-1">
           <div className="text-xs font-medium text-muted-foreground">{group.label}</div>
           {group.resources.length === 0 ? (
             <div className="rounded border border-dashed p-2 text-xs text-muted-foreground">No resources found.</div>
           ) : (
-            group.resources.slice(0, 8).map((resource) => (
-              <button
-                key={`${group.type}:${resource.id}`}
-                type="button"
-                draggable={!disabled}
-                disabled={disabled}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(
-                    "application/caipe-openfga-resource",
-                    JSON.stringify({ ...resource, resourceType: group.type })
-                  );
-                  event.dataTransfer.effectAllowed = "copy";
-                }}
-                className="w-full rounded-md border bg-card px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <div className="font-medium">{resource.name}</div>
-                <code className="text-[10px] text-muted-foreground">{resource.object}</code>
-              </button>
-            ))
+            group.resources.map((resource) => {
+              const object = resource.object || `${group.type}:${resource.id}`;
+              const checked = selectedResourceObjects.has(object);
+              return (
+                <label
+                  key={`${group.type}:${resource.id}`}
+                  draggable={!disabled}
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(
+                      "application/caipe-openfga-resource",
+                      JSON.stringify({ ...resource, resourceType: group.type })
+                    );
+                    event.dataTransfer.effectAllowed = "copy";
+                  }}
+                  className={cn(
+                    "flex w-full cursor-pointer items-start gap-2 rounded-md border bg-card px-2 py-1.5 text-left text-xs shadow-sm transition-colors hover:bg-muted",
+                    checked && "border-primary bg-primary/10",
+                    disabled && "cursor-default"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={checked}
+                    onChange={() => onToggleResource(object)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{resource.name}</span>
+                    <code className="block truncate text-[10px] text-muted-foreground">{object}</code>
+                  </span>
+                </label>
+              );
+            })
           )}
         </div>
       ))}
+      {visibleResources.length === 0 && (
+        <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+          No resources match the current search.
+        </p>
+      )}
     </div>
   );
 }

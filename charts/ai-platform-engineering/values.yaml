@@ -813,6 +813,16 @@ caipe-ui:
     APP_NAME: "CAIPE"
     # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
     SLACK_WORKSPACE_ALIAS: "CAIPE"
+    # Slack bot internal admin API used by the Web UI BFF for route reload and
+    # one-time static-config-to-MongoDB/OpenFGA migration. Provide
+    # SLACK_BOT_ADMIN_CLIENT_SECRET via existingSecret/externalSecrets.
+    SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
+    SLACK_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+    SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
+    # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+    # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
+    SLACK_DEFAULT_TEAM_SLUG: ""
+    SLACK_DEFAULT_AGENT_ID: ""
     CAIPE_ORG_KEY: "caipe"
     CAIPE_ORG_DISPLAY_NAME: "CAIPE"
     LOGO_URL: "/logo.svg"
@@ -1019,6 +1029,12 @@ slack-bot:
     SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false" # Opt-in first-message channel onboarding
     SLACK_DEFAULT_TEAM_SLUG: ""                # Required when auto-assignment is enabled
     SLACK_DEFAULT_AGENT_ID: ""                 # Required when auto-assignment is enabled
+    SLACK_ADMIN_API_ENABLED: "false"           # Internal admin API for route status/reload/config sync
+    SLACK_ADMIN_API_HOST: "0.0.0.0"
+    SLACK_ADMIN_API_PORT: "3001"
+    SLACK_ADMIN_JWT_ISSUER: ""                 # Set to Keycloak/OIDC issuer when admin API is enabled
+    SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
+    SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
 
   # -- Reference to a pre-existing Kubernetes Secret.
   # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
@@ -1049,10 +1065,41 @@ slack-bot:
       name: "vault"
       kind: "ClusterSecretStore"
     data: []
+      # Example placeholders. Keep values in your external secret backend; these
+      # keys are materialized into the generated Kubernetes Secret and injected
+      # into the slack-bot pod via envFrom.
       # - secretKey: SLACK_BOT_TOKEN
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: bot_token
+      # - secretKey: SLACK_APP_TOKEN
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: app_token
+      # - secretKey: SLACK_SIGNING_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: signing_secret
+      # - secretKey: SLACK_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: slack_client_secret
+      # - secretKey: SLACK_LINK_HMAC_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: slack_link_hmac_secret
+      # - secretKey: OAUTH2_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: oauth2_client_secret
+      # - secretKey: KEYCLOAK_BOT_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: keycloak_bot_client_secret
+      # - secretKey: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: keycloak_slack_bot_admin_client_secret
 
   resources:
     requests:

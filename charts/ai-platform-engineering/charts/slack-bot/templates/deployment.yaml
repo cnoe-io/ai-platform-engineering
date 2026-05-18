@@ -107,11 +107,20 @@ spec:
             - secretRef:
                 name: {{ include "slack-bot.fullname" . }}-secret
             {{- end }}
-          {{- if eq (default "socket" (index .Values.config "SLACK_BOT_MODE")) "http" }}
+          {{- $botMode := default "socket" (index .Values.config "SLACK_BOT_MODE") }}
+          {{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "SLACK_ADMIN_API_ENABLED"))) "true" }}
+          {{- if or (eq $botMode "http") $adminApiEnabled }}
           ports:
+            {{- if eq $botMode "http" }}
             - name: http
               containerPort: 3000
               protocol: TCP
+            {{- end }}
+            {{- if $adminApiEnabled }}
+            - name: admin
+              containerPort: {{ default "3001" (index .Values.config "SLACK_ADMIN_API_PORT") | int }}
+              protocol: TCP
+            {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

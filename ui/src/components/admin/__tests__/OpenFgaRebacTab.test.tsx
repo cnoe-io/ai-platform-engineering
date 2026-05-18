@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { OpenFgaRebacTab } from "../OpenFgaRebacTab";
 
@@ -70,10 +71,32 @@ beforeEach(() => {
       return jsonResponse({
         data: {
           nodes: [
+            { id: "user:alice-sub", label: "Alice Admin", type: "user" },
+            { id: "team:platform", label: "Platform", type: "team" },
+            { id: "team:platform#member", label: "Platform members", type: "userset" },
             { id: "slack_channel:C123", label: "#incidents", type: "slack_channel" },
             { id: "agent:agent-1", label: "Agent One", type: "agent" },
+            { id: "knowledge_base:kb-alpha", label: "KB Alpha", type: "knowledge_base" },
           ],
           edges: [
+            {
+              id: "alice-platform",
+              from: "user:alice-sub",
+              to: "team:platform",
+              relation: "member",
+            },
+            {
+              id: "platform-agent",
+              from: "team:platform#member",
+              to: "agent:agent-1",
+              relation: "user",
+            },
+            {
+              id: "platform-kb",
+              from: "team:platform#member",
+              to: "knowledge_base:kb-alpha",
+              relation: "reader",
+            },
             {
               id: "slack-agent",
               from: "slack_channel:C123",
@@ -83,6 +106,27 @@ beforeEach(() => {
           ],
         },
       });
+    }
+    if (url === "/api/admin/slack/channels") {
+      return jsonResponse({ data: { channels: [] } });
+    }
+    if (url === "/api/admin/slack/runtime/status") {
+      return jsonResponse({
+        data: {
+          route_mode: "openfga",
+          static_config: { channels: 0, routes: 0 },
+          route_cache: { cache_size: 0, ttl_seconds: 60 },
+        },
+      });
+    }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return jsonResponse({ data: { defaults: { team_id: "", agent_id: "" } } });
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return jsonResponse({ data: { items: [] } });
+    }
+    if (url === "/api/admin/teams") {
+      return jsonResponse({ data: { teams: [] } });
     }
     return jsonResponse({ data: {} });
   });
@@ -148,7 +192,8 @@ it("shows an OpenFGA permission cheatsheet in the relationship builder", async (
   expect(screen.getByTestId("openfga-builder-stacked-layout")).toHaveClass("space-y-4");
 });
 
-it("shows Slack channel graph nodes from the universal ReBAC graph", async () => {
+it("starts the policy graph with only team nodes and selected resources visible", async () => {
+  const user = userEvent.setup();
   currentSearchParams = new URLSearchParams("openfgaTab=graph");
 
   render(<OpenFgaRebacTab isAdmin />);
@@ -157,9 +202,126 @@ it("shows Slack channel graph nodes from the universal ReBAC graph", async () =>
     "aria-selected",
     "true"
   );
-  expect(await screen.findAllByText("Slack Channel")).not.toHaveLength(0);
-  expect(screen.getAllByText("#incidents")).not.toHaveLength(0);
+  const canvas = await screen.findByTestId("openfga-graph-canvas");
+  expect(within(canvas).getByText("Platform")).toBeInTheDocument();
+  expect(within(canvas).getByText("Platform members")).toBeInTheDocument();
+  expect(within(canvas).queryByText("Alice Admin")).not.toBeInTheDocument();
+  expect(within(canvas).queryByText("Agent One")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("checkbox", { name: /Agent One/ }));
+
+  expect(within(canvas).getByText("Agent One")).toBeInTheDocument();
+  expect(within(canvas).queryByText("Alice Admin")).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?limit=1000");
+});
+
+it("filters the resource palette search and keeps node and edge details collapsed at the bottom", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  expect(screen.queryByText("team:platform#member reader knowledge_base:kb-alpha")).not.toBeInTheDocument();
+
+  const palette = screen.getByTestId("openfga-graph-resource-palette");
+  await user.type(within(palette).getByPlaceholderText("Search resources"), "kb");
+
+  expect(within(palette).queryByRole("checkbox", { name: /Agent One/ })).not.toBeInTheDocument();
+  expect(within(palette).getByRole("checkbox", { name: /KB Alpha/ })).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Show node and edge details" }));
+
+  expect(
+    screen.getByText((_, element) => element?.textContent === "team:platform#member reader knowledge_base:kb-alpha")
+  ).toBeInTheDocument();
+});
+
+it("selects and unselects all currently shown resources in the graph palette", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  const palette = screen.getByTestId("openfga-graph-resource-palette");
+  const agent = within(palette).getByRole("checkbox", { name: /Agent One/ });
+  const kb = within(palette).getByRole("checkbox", { name: /KB Alpha/ });
+
+  expect(agent).not.toBeChecked();
+  expect(kb).not.toBeChecked();
+
+  await user.click(within(palette).getByRole("button", { name: "Select all shown" }));
+
+  expect(agent).toBeChecked();
+  expect(kb).toBeChecked();
+
+  await user.click(within(palette).getByRole("button", { name: "Unselect all shown" }));
+
+  expect(agent).not.toBeChecked();
+  expect(kb).not.toBeChecked();
+});
+
+it("accepts a manual wildcard user subject for the graph filter", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+
+  const userFilter = screen.getByLabelText("User filter");
+  expect(userFilter).toHaveAttribute("autocomplete", "off");
+
+  await user.type(userFilter, "user:*");
+  await user.click(screen.getByRole("button", { name: "Use subject" }));
+  await user.click(screen.getByRole("button", { name: "Render graph" }));
+
+  expect(await screen.findByText(/Showing graph for/)).toHaveTextContent("user:*");
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&limit=1000");
+  });
+});
+
+it("shows the manual user subject controls inside the fullscreen graph", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+
+  await user.click(screen.getByRole("button", { name: "Full screen" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog).toHaveClass("overflow-hidden");
+  const fullscreenCanvas = within(dialog).getByTestId("openfga-graph-canvas");
+  expect(fullscreenCanvas).toHaveClass("min-h-0");
+  expect(fullscreenCanvas).toHaveClass("min-w-0");
+  expect(fullscreenCanvas).not.toHaveClass("min-h-[640px]");
+
+  const fullscreenUserFilter = within(dialog).getByLabelText("User filter");
+  expect(fullscreenUserFilter).toHaveAttribute("autocomplete", "off");
+
+  await user.type(fullscreenUserFilter, "user:*");
+  await user.click(within(dialog).getByRole("button", { name: "Use subject" }));
+  await user.click(within(dialog).getByRole("button", { name: "Render graph" }));
+
+  expect(within(dialog).getByText(/Showing graph for/)).toHaveTextContent("user:*");
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&limit=1000");
+  });
 });
 
 it("saves RAG datasource admin access as an admin surface tuple", async () => {

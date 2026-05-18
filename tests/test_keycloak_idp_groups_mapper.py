@@ -3,7 +3,9 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INIT_IDP = REPO_ROOT / "deploy" / "keycloak" / "init-idp.sh"
+INIT_IDP = (
+    REPO_ROOT / "charts" / "ai-platform-engineering" / "charts" / "keycloak" / "scripts" / "init-idp.sh"
+)
 REALM_CONFIG = REPO_ROOT / "deploy" / "keycloak" / "realm-config.example.json"
 CHART_REALM_CONFIG = (
     REPO_ROOT / "charts" / "ai-platform-engineering" / "charts" / "keycloak" / "realm-config.json"
@@ -43,6 +45,30 @@ def _assert_caipe_ui_groups_mapper(path: Path) -> None:
 
 def test_realm_config_has_caipe_ui_groups_mapper() -> None:
     _assert_caipe_ui_groups_mapper(CHART_REALM_CONFIG)
+
+
+def test_caipe_ui_client_supports_slack_bot_admin_client_credentials() -> None:
+    realm = json.loads(CHART_REALM_CONFIG.read_text())
+    caipe_ui = next(client for client in realm["clients"] if client["clientId"] == "caipe-ui")
+
+    assert caipe_ui["serviceAccountsEnabled"] is True
+    mapper = next(
+        protocol_mapper
+        for protocol_mapper in caipe_ui["protocolMappers"]
+        if protocol_mapper["name"] == "slack-bot-admin-audience"
+    )
+    assert mapper["protocolMapper"] == "oidc-audience-mapper"
+    assert mapper["config"]["included.custom.audience"] == "caipe-slack-bot-admin"
+    assert mapper["config"]["access.token.claim"] == "true"
+
+
+def test_init_idp_enables_caipe_ui_client_credentials_for_slack_bot_admin() -> None:
+    script = INIT_IDP.read_text()
+
+    assert "_ensure_caipe_ui_slack_admin_client_credentials" in script
+    assert 'client["serviceAccountsEnabled"] = True' in script
+    assert "slack-bot-admin-audience" in script
+    assert "caipe-slack-bot-admin" in script
 
 
 def _assert_shared_groups_scope_excludes_access_token(path: Path) -> None:

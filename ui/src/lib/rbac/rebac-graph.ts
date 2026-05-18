@@ -164,6 +164,24 @@ async function readTuplesForUser(user: string, maxTuples: number): Promise<OpenF
   return tuples;
 }
 
+async function readTuplesForSubject(subject: string, maxTuples: number): Promise<OpenFgaTuple[]> {
+  if (subject !== "user:*") return readTuplesForUser(subject, maxTuples);
+
+  const tuples: OpenFgaTuple[] = [];
+  let continuationToken: string | undefined;
+  let tuplesRead = 0;
+  do {
+    const result = await readOpenFgaTuples({
+      pageSize: Math.min(100, maxTuples - tuplesRead),
+      continuationToken,
+    });
+    tuples.push(...result.tuples.filter((tuple) => tuple.key.user === subject));
+    tuplesRead += result.tuples.length;
+    continuationToken = result.continuationToken;
+  } while (continuationToken && tuplesRead < maxTuples && tuples.length < maxTuples);
+  return tuples.slice(0, maxTuples);
+}
+
 function usersetForMembership(tuple: OpenFgaTuple): string | null {
   if (!["member", "admin"].includes(tuple.key.relation)) return null;
   if (tuple.key.object.includes("#")) return null;
@@ -185,7 +203,7 @@ export async function queryRebacGraph(filters: RebacGraphFilters = {}): Promise<
   const provenanceByKey = new Map(provenanceRows.map((row) => [provenanceKey(row), row]));
 
   if (filters.subject) {
-    const directTuples = await readTuplesForUser(filters.subject, maxTuples);
+    const directTuples = await readTuplesForSubject(filters.subject, maxTuples);
     const subjectlessFilters = { ...filters, subject: undefined };
     const expandedUsersets = new Set<string>();
     for (const tuple of directTuples.filter((candidate) => includeTuple(candidate, subjectlessFilters))) {

@@ -19,10 +19,25 @@ export interface RebacGraphUserOption {
 }
 
 function userLabel(user: RebacGraphUserOption): string {
+  if (user.id === "*") return "user:*";
+  if (user.username?.startsWith("user:")) return user.username;
   const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
   const primary = name || user.email || user.username || user.id;
   const secondary = primary === user.id ? "" : ` (${user.id})`;
   return `${primary}${secondary}`;
+}
+
+function manualUserOption(value: string): RebacGraphUserOption | null {
+  const trimmed = value.trim();
+  if (trimmed === "user:*") return { id: "*", username: "user:*" };
+
+  const prefixed = /^user:([A-Za-z0-9._-]+)$/.exec(trimmed);
+  if (prefixed?.[1]) return { id: prefixed[1], username: `user:${prefixed[1]}` };
+
+  const uuidLike = /^[A-Fa-f0-9][A-Fa-f0-9-]{7,}$/.exec(trimmed);
+  if (uuidLike) return { id: trimmed, username: `user:${trimmed}` };
+
+  return null;
 }
 
 export function RebacGraphFilters({
@@ -30,6 +45,7 @@ export function RebacGraphFilters({
   scope,
   allScopeValue,
   selectedUser,
+  idPrefix = "graph",
   onScopeChange,
   onUserChange,
   onRender,
@@ -38,6 +54,7 @@ export function RebacGraphFilters({
   scope: string;
   allScopeValue: string;
   selectedUser: RebacGraphUserOption | null;
+  idPrefix?: string;
   onScopeChange: (scope: string) => void;
   onUserChange: (user: RebacGraphUserOption | null) => void;
   onRender: () => void;
@@ -68,12 +85,24 @@ export function RebacGraphFilters({
     }
   }
 
+  function applyManualUserSubject() {
+    const user = manualUserOption(userSearch);
+    if (!user) {
+      setUserSearchError("Enter user:* or user:<uuid> to apply a raw OpenFGA user subject.");
+      return;
+    }
+    setUserSearchError(null);
+    setUserResults([]);
+    setUserSearch(user.username || `user:${user.id}`);
+    onUserChange(user);
+  }
+
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
       <div>
-        <Label htmlFor="graph-scope">Graph scope</Label>
+        <Label htmlFor={`${idPrefix}-scope`}>Graph scope</Label>
         <select
-          id="graph-scope"
+          id={`${idPrefix}-scope`}
           className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
           value={scope}
           onChange={(event) => onScopeChange(event.target.value)}
@@ -87,10 +116,17 @@ export function RebacGraphFilters({
         </select>
       </div>
       <div>
-        <Label htmlFor="graph-user-search">User filter</Label>
+        <Label htmlFor={`${idPrefix}-user-search`}>User filter</Label>
         <div className="mt-1 flex gap-2">
           <input
-            id="graph-user-search"
+            id={`${idPrefix}-user-search`}
+            name={`${idPrefix}-openfga-subject-filter`}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            data-1p-ignore="true"
+            data-lpignore="true"
+            data-form-type="other"
             className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm"
             placeholder="Search by name, email, or username"
             value={userSearch}
@@ -98,7 +134,11 @@ export function RebacGraphFilters({
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                void searchUsers();
+                if (userSearch.trim().startsWith("user:")) {
+                  applyManualUserSubject();
+                } else {
+                  void searchUsers();
+                }
               }
             }}
           />
@@ -106,7 +146,13 @@ export function RebacGraphFilters({
             <Search className="h-4 w-4" />
             Search
           </Button>
+          <Button type="button" variant="outline" onClick={applyManualUserSubject}>
+            Use subject
+          </Button>
         </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Use search for named users, or enter <code>user:*</code> / <code>user:&lt;uuid&gt;</code> directly.
+        </p>
         {selectedUser && (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
             <span className="min-w-0 truncate">

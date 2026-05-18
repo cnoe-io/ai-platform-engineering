@@ -45,6 +45,11 @@ serviceAccount:
 #                                             SLACK_DEFAULT_AGENT_ID
 #   SLACK_DEFAULT_TEAM_SLUG:                  Team slug used for auto-assignment
 #   SLACK_DEFAULT_AGENT_ID:                   Agent id used for auto-assignment
+#   SLACK_ADMIN_API_ENABLED:                  "true" to expose the internal route admin API
+#   SLACK_ADMIN_API_PORT:                     Internal admin API port
+#   SLACK_ADMIN_JWT_ISSUER:                   Expected issuer for UI BFF service tokens
+#   SLACK_ADMIN_JWT_AUDIENCE:                 Expected audience for UI BFF service tokens
+#   SLACK_ADMIN_ALLOWED_CLIENT_IDS:           Comma-separated client IDs allowed to call admin API
 #
 # Spec 103 (Just-In-Time Keycloak user creation):
 #   SLACK_JIT_CREATE_USER:               "true" (default) auto-creates a
@@ -75,6 +80,12 @@ config:
   SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false"
   SLACK_DEFAULT_TEAM_SLUG: ""
   SLACK_DEFAULT_AGENT_ID: ""
+  SLACK_ADMIN_API_ENABLED: "false"
+  SLACK_ADMIN_API_HOST: "0.0.0.0"
+  SLACK_ADMIN_API_PORT: "3001"
+  SLACK_ADMIN_JWT_ISSUER: ""
+  SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
+  SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
   SLACK_JIT_CREATE_USER: "true"
   SLACK_JIT_ALLOWED_EMAIL_DOMAINS: ""
 
@@ -151,7 +162,9 @@ externalSecrets:
     name: "vault"  # Your secret store name
     kind: "ClusterSecretStore"
   data: []
-    # Example:
+    # Example placeholders. Keep values in your external secret backend; these
+    # keys are materialized into the generated Kubernetes Secret and injected
+    # into the slack-bot pod via envFrom.
     # - secretKey: SLACK_BOT_TOKEN
     #   remoteRef:
     #     key: prod/slack-bot
@@ -164,10 +177,26 @@ externalSecrets:
     #   remoteRef:
     #     key: prod/slack-bot
     #     property: signing_secret
+    # - secretKey: SLACK_CLIENT_SECRET
+    #   remoteRef:
+    #     key: prod/slack-bot
+    #     property: slack_client_secret
+    # - secretKey: SLACK_LINK_HMAC_SECRET
+    #   remoteRef:
+    #     key: prod/slack-bot
+    #     property: slack_link_hmac_secret
     # - secretKey: OAUTH2_CLIENT_SECRET
     #   remoteRef:
     #     key: prod/slack-bot
     #     property: oauth2_client_secret
+    # - secretKey: KEYCLOAK_BOT_CLIENT_SECRET
+    #   remoteRef:
+    #     key: prod/slack-bot
+    #     property: keycloak_bot_client_secret
+    # - secretKey: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
+    #   remoteRef:
+    #     key: prod/slack-bot
+    #     property: keycloak_slack_bot_admin_client_secret
 
 # -- Structured channel configuration rendered as a YAML file and volume-mounted
 # at /etc/caipe/bot-config.yaml. Only mounted when non-empty.

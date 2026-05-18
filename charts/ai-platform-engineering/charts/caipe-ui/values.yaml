@@ -199,6 +199,16 @@ config:
   APP_NAME: "CAIPE"
   # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
   SLACK_WORKSPACE_ALIAS: "CAIPE"
+  # Slack bot internal admin API used for route-cache reload and one-time
+  # static-config-to-MongoDB/OpenFGA migration. The client secret is sensitive
+  # and must come from existingSecret/externalSecrets as SLACK_BOT_ADMIN_CLIENT_SECRET.
+  SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
+  SLACK_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+  SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
+  # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+  # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
+  SLACK_DEFAULT_TEAM_SLUG: ""
+  SLACK_DEFAULT_AGENT_ID: ""
   LOGO_URL: "/logo.svg"
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""
@@ -268,6 +278,8 @@ config:
 # Example: kubectl create secret generic my-caipe-secrets --from-literal=MONGODB_URI='mongodb://user:pass@host:27017/caipe'
 # For AWS DocumentDB use the DocumentDB connection string (MongoDB-compatible) as MONGODB_URI.
 # You can also include NEXTAUTH_SECRET, OIDC_*, etc. in the same secret.
+# Slack bot admin sync/reload: include SLACK_BOT_ADMIN_CLIENT_SECRET when
+# enabling the Slack bot admin API.
 existingSecret: ""
 
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
@@ -308,6 +320,10 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: OIDC_CLIENT_SECRET
+    # - secretKey: SLACK_BOT_ADMIN_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: SLACK_BOT_ADMIN_CLIENT_SECRET
 
 # Structured application config (models, MCP servers, agents).
 # Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.

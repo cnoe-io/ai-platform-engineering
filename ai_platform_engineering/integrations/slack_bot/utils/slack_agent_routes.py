@@ -335,6 +335,24 @@ class SlackAgentRouteResolver:
 
         self._cache.pop((workspace_id, channel_id), None)
 
+    def invalidate_all(self) -> None:
+        """Drop all cached Slack route decisions."""
+
+        self._cache.clear()
+
+    def cache_status(self) -> dict[str, Any]:
+        """Return route-cache status for admin diagnostics."""
+
+        return {
+            "ttl_seconds": self._ttl,
+            "cache_size": len(self._cache),
+            "cached_channels": [f"{workspace_id}/{channel_id}" for workspace_id, channel_id in self._cache],
+            "last_errors": {
+                f"{workspace_id}/{channel_id}": error
+                for (workspace_id, channel_id), error in self._last_errors.items()
+            },
+        }
+
 
 def _ttl_from_env() -> int:
     try:

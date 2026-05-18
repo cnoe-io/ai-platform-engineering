@@ -134,4 +134,40 @@ describe("GET /api/admin/rebac/graph", () => {
     const bySlack = await (await GET(request("/api/admin/rebac/graph?slack_channel=C123"))).json();
     expect(bySlack.data.edges).toHaveLength(1);
   });
+
+  it("handles typed wildcard user subjects without passing user:* as an OpenFGA read filter", async () => {
+    mockReadOpenFgaTuples.mockImplementation(async (readRequest?: { tuple?: { user?: string } }) => {
+      if (readRequest?.tuple?.user === "user:*") {
+        throw new Error("OpenFGA rejects typed wildcard tuple-key read filters");
+      }
+      return {
+        tuples: [
+          {
+            key: { user: "user:*", relation: "user", object: "agent:default-agent" },
+            timestamp: "2026-05-12T00:00:03.000Z",
+          },
+          {
+            key: { user: "team:platform#member", relation: "user", object: "agent:incident-agent" },
+            timestamp: "2026-05-12T00:00:01.000Z",
+          },
+        ],
+      };
+    });
+    const { GET } = await import("../graph/route");
+
+    const response = await GET(request("/api/admin/rebac/graph?subject=user%3A*&limit=100"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.edges).toEqual([
+      expect.objectContaining({
+        from: "user:*",
+        relation: "user",
+        to: "agent:default-agent",
+      }),
+    ]);
+    expect(mockReadOpenFgaTuples).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tuple: { user: "user:*" } }),
+    );
+  });
 });

@@ -72,7 +72,7 @@
       "secret": "caipe-ui-dev-secret",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
+      "serviceAccountsEnabled": true,
       "authorizationServicesEnabled": false,
       "redirectUris": [
         "http://localhost:3000/*"
@@ -107,6 +107,18 @@
             "id.token.claim": "true",
             "access.token.claim": "false",
             "introspection.token.claim": "false"
+          }
+        },
+        {
+          "name": "slack-bot-admin-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "caipe-slack-bot-admin",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
           }
         }
       ]

@@ -41,6 +41,7 @@ from utils.slack_agent_routes import (  # noqa: E402
     slack_agent_route_mode,
     slack_workspace_ref,
 )
+from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
@@ -1932,6 +1933,7 @@ def custom_error_handler(error, body, logger):
 
 
 if __name__ == "__main__":
+  start_slack_admin_api_server(config)
   bot_mode = os.environ.get("SLACK_INTEGRATION_BOT_MODE", os.environ.get("SLACK_BOT_MODE", "socket")).lower()
 
   if bot_mode == "http":

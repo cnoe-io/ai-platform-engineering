@@ -25,7 +25,7 @@ The local `.env` mirrors the Grid RBAC defaults that affect auth behavior:
 `KEYCLOAK_FORCE_IDP_REDIRECT=true`, `OIDC_GROUP_CLAIM=members,groups`,
 deployment-specific access/admin group settings, and the RAG ingestor
 `INGESTOR_OIDC_*` client-credentials settings. The compose `keycloak-init` service passes
-`KEYCLOAK_FORCE_IDP_REDIRECT` through to `deploy/keycloak/init-idp.sh`, so a
+`KEYCLOAK_FORCE_IDP_REDIRECT` through to `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh`, so a
 fresh `rbac` profile start configures the same IdP-only app-realm login path as
 the Helm deployment. `OIDC_GROUP_CLAIM` and upstream access/admin group settings
 feed identity sync and team membership reconciliation; RAG runtime authorization
@@ -211,6 +211,23 @@ admins write, and the derived `can_*` permissions OpenFGA checks at runtime. Thi
 is the quickest UI reference when deciding whether to grant `user`, `manager`,
 `caller`, `reader`, or `ingestor`.
 
+Use **Admin → Security & Policy → OpenFGA ReBAC → Policy Graph** to inspect the
+same relationships visually without starting from the full tuple blast radius.
+The graph starts with teams and team usersets only; direct user nodes remain
+hidden unless the user filter is applied. Use named-user search for normal
+operators, or enter `user:*` / `user:<uuid>` and click **Use subject** when you
+need a raw OpenFGA subject; the same scope and subject controls are available
+above the canvas in the viewport-contained full-screen graph dialog. The
+resource palette is searchable and multi-selectable: select individual agents,
+tools, or knowledge bases, or use
+**Select all shown** / **Unselect all shown** against the current palette search
+results. Knowledge-base entries use the canonical RAG datasource display name
+when the RAG catalog is reachable, while the immutable
+`knowledge_base:<datasource_id>` object remains visible as secondary text for
+audits. The raw node and edge inventory sits below the graph and is collapsed by
+default so operators can keep the canvas focused while still auditing the
+underlying tuple list when needed.
+
 ### Authz Audit Storage
 
 Authorization audit is MongoDB-backed in local dev. Use Admin → Security &
@@ -325,9 +342,9 @@ The full sequence (HMAC URL shape, TTL enforcement, **JIT user creation** for un
 
 ---
 
-## Slack Channel Migration Defaults
+## Slack Channel Association Default
 
-Use **Admin → OpenFGA ReBAC → Slack Channels → Migration Defaults** when onboarding an existing Slack bot workspace. Pick a default team and a default Dynamic Agent, then apply defaults to all onboarded Slack channels.
+Use **Admin → OpenFGA ReBAC → Slack Channels → Slack Channel Association Default** when onboarding an existing Slack bot workspace. The panel shows the currently configured default team and default Dynamic Agent from `SLACK_DEFAULT_TEAM_SLUG` and `SLACK_DEFAULT_AGENT_ID`. Pick the values to apply, then apply defaults to all onboarded Slack channels.
 
 The bulk action is explicit and idempotent:
 
@@ -339,6 +356,18 @@ The bulk action is explicit and idempotent:
 If the Team or Dynamic Agent dropdown is empty, create the missing object in the admin UI and click **Refresh lists** before applying defaults.
 
 For runtime onboarding of new Slack channels, set `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true` on the Slack bot together with `SLACK_DEFAULT_TEAM_SLUG` and `SLACK_DEFAULT_AGENT_ID`. On the first message from an unmapped group channel, the bot creates the same channel-team mapping, OpenFGA channel-agent tuple, and route metadata for the configured defaults. Keep this off unless the default team and agent are intentionally broad enough for newly invited channels.
+
+## Slack Bot Runtime Sync
+
+Use **Admin → OpenFGA ReBAC → Slack Channels → Slack Bot Runtime Sync** to inspect the running Slack bot's route mode/cache, reload the route cache after UI edits, or migrate static Slack bot YAML config into MongoDB/OpenFGA.
+
+The sync flow is upsert-only:
+
+- **Preview Sync From Config** shows how many routes would be planned from the bot's loaded static config.
+- **Apply Sync From Config** creates missing `slack_channel_agent_routes` rows, updates matching channel/agent route metadata, and ensures the channel-agent OpenFGA tuple exists.
+- Existing UI-managed associations that are not present in static config are left in place.
+
+The Web UI backend must be configured with `SLACK_BOT_ADMIN_URL`, `SLACK_BOT_ADMIN_CLIENT_ID`, `SLACK_BOT_ADMIN_CLIENT_SECRET`, and `SLACK_BOT_ADMIN_AUDIENCE`. The Keycloak init job enables client credentials on `caipe-ui` and adds the `caipe-slack-bot-admin` audience mapper. The Slack bot must have `SLACK_ADMIN_API_ENABLED=true`, `SLACK_ADMIN_JWT_ISSUER`, `SLACK_ADMIN_JWKS_URL` when an internal JWKS URL is needed, `SLACK_ADMIN_JWT_AUDIENCE`, and `SLACK_ADMIN_ALLOWED_CLIENT_IDS` configured. Keep the Slack bot admin API internal to the cluster; it is not a browser-facing API.
 
 ---
 

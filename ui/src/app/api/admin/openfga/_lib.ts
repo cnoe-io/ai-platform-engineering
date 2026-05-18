@@ -15,7 +15,7 @@ const SUBJECT_PREFIXES = ["user:", "service_account:", "anonymous:", "slack_chan
 
 export interface OpenFgaAuthContext {
   user: { email: string };
-  session?: { sub?: string; org?: string } | null;
+  session?: { accessToken?: string; sub?: string; org?: string } | null;
 }
 
 function objectType(value: string): string | null {

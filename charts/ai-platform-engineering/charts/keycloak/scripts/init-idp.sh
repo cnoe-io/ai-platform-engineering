@@ -228,6 +228,100 @@ _ensure_caipe_platform_user_roles() {
 
 _ensure_caipe_platform_user_roles
 
+# The Web UI BFF calls the Slack bot admin API with a Keycloak
+# client_credentials token. The same caipe-ui confidential client is used for
+# NextAuth's browser sign-in flow, so patch it idempotently rather than relying
+# on a destructive realm re-import. The Slack bot verifies the token via JWKS
+# and expects the configured admin audience.
+_ensure_caipe_ui_slack_admin_client_credentials() {
+  local BFF_CLIENT_ID="${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}"
+  local SLACK_ADMIN_AUDIENCE="${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}"
+  local AUDIENCE_MAPPER_NAME="slack-bot-admin-audience"
+
+  echo "[init-idp] Ensuring ${BFF_CLIENT_ID} supports client_credentials for Slack bot admin API ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token — skipping ${BFF_CLIENT_ID} client_credentials setup."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  local UI_CLIENT_UUID
+  UI_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BFF_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${UI_CLIENT_UUID}" ]; then
+    echo "[init-idp]   WARNING: client ${BFF_CLIENT_ID} not found — skipping Slack bot admin client_credentials setup."
+    return 0
+  fi
+
+  local UI_CLIENT_JSON
+  UI_CLIENT_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" 2>/dev/null || echo "")
+  if [ -z "${UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   WARNING: could not fetch client ${BFF_CLIENT_ID} — skipping Slack bot admin client_credentials setup."
+    return 0
+  fi
+
+  local UPDATED_UI_CLIENT_JSON
+  UPDATED_UI_CLIENT_JSON=$(printf '%s' "${UI_CLIENT_JSON}" | \
+    SLACK_ADMIN_AUDIENCE="${SLACK_ADMIN_AUDIENCE}" \
+    AUDIENCE_MAPPER_NAME="${AUDIENCE_MAPPER_NAME}" \
+    python3 -c '
+import json
+import os
+import sys
+
+client = json.load(sys.stdin)
+client["serviceAccountsEnabled"] = True
+client["publicClient"] = False
+client["bearerOnly"] = False
+client.setdefault("protocol", "openid-connect")
+
+mapper_name = os.environ["AUDIENCE_MAPPER_NAME"]
+audience = os.environ["SLACK_ADMIN_AUDIENCE"]
+mappers = client.setdefault("protocolMappers", [])
+mapper = next((item for item in mappers if item.get("name") == mapper_name), None)
+mapper_payload = {
+    "name": mapper_name,
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-audience-mapper",
+    "consentRequired": False,
+    "config": {
+        "included.custom.audience": audience,
+        "id.token.claim": "false",
+        "access.token.claim": "true",
+        "introspection.token.claim": "true",
+    },
+}
+if mapper is None:
+    mappers.append(mapper_payload)
+else:
+    mapper.update(mapper_payload)
+
+json.dump(client, sys.stdout)
+' 2>/dev/null)
+
+  if [ -z "${UPDATED_UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   WARNING: failed to patch ${BFF_CLIENT_ID} client JSON."
+    return 0
+  fi
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" \
+    -d "${UPDATED_UI_CLIENT_JSON}" && \
+    echo "[init-idp]   ${BFF_CLIENT_ID} service account and ${AUDIENCE_MAPPER_NAME} mapper are ready." || \
+    echo "[init-idp]   WARNING: failed to update ${BFF_CLIENT_ID} for Slack bot admin client_credentials."
+}
+
+_ensure_caipe_ui_slack_admin_client_credentials
+
 if [ -n "${KEYCLOAK_ADMIN_FRONTEND_URL:-}" ]; then
   echo "[init-idp] Ensuring master realm frontendUrl for private admin console ..."
   ADMIN_FRONTEND_TOKEN_RESP=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \

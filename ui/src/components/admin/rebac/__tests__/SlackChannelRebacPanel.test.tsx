@@ -53,6 +53,41 @@ beforeEach(() => {
         },
       });
     }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return response({
+        data: {
+          defaults: {
+            team_slug: "platform-engineering",
+            agent_id: "incident-agent",
+          },
+        },
+      });
+    }
+    if (url === "/api/admin/slack/runtime/status") {
+      return response({
+        data: {
+          route_mode: "db_prefer",
+          static_config: { channels: 1, routes: 1 },
+          route_cache: { ttl_seconds: 60, cache_size: 1, cached_channels: ["CAIPE/C123456789"] },
+          last_sync: null,
+        },
+      });
+    }
+    if (url === "/api/admin/slack/runtime/reload") {
+      return response({ data: { reloaded: "all" } });
+    }
+    if (url === "/api/admin/slack/runtime/sync-from-config") {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      return response({
+        data: {
+          dry_run: Boolean(body.dry_run),
+          channels_seen: 1,
+          routes_planned: 1,
+          routes_upserted: body.dry_run ? 0 : 1,
+          openfga_tuples_written: body.dry_run ? 0 : 1,
+        },
+      });
+    }
     if (url.endsWith("/resources") && init?.method === "PUT") {
       return response({ data: { grants: [{ resource: { type: "agent", id: "test-april-2025" }, actions: ["use"], status: "active" }] } });
     }
@@ -160,6 +195,16 @@ it("uses enabled Dynamic Agents dropdown for Slack channel-agent associations", 
   );
 });
 
+it("does not show legacy grant counts in the Slack channel dropdown", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  const channelSelect = await screen.findByRole("combobox", { name: "Channel" });
+
+  expect(channelSelect).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "incidents" })).toBeInTheDocument();
+  expect(screen.queryByRole("option", { name: /0 grants/i })).not.toBeInTheDocument();
+});
+
 it("fixes stale Slack runtime diagnostics by deleting orphaned route metadata", async () => {
   render(<SlackChannelRebacPanel />);
 
@@ -248,7 +293,7 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   );
 });
 
-it("applies migration defaults for Slack channels", async () => {
+it("applies Slack channel association defaults for Slack channels", async () => {
   const confirmSpy = jest.spyOn(window, "confirm");
   render(<SlackChannelRebacPanel />);
 
@@ -264,7 +309,7 @@ it("applies migration defaults for Slack channels", async () => {
   fireEvent.click(applyButton);
 
   expect(confirmSpy).not.toHaveBeenCalled();
-  expect(await screen.findByRole("dialog", { name: "Apply migration defaults?" })).toBeInTheDocument();
+  expect(await screen.findByRole("dialog", { name: "Apply Slack channel association defaults?" })).toBeInTheDocument();
   expect(screen.getByText(/This will update 1 onboarded Slack channel/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Apply defaults" }));
 
@@ -281,5 +326,84 @@ it("applies migration defaults for Slack channels", async () => {
       })
     )
   );
-  expect(await screen.findByText(/Migration defaults applied/i)).toBeInTheDocument();
+  expect(await screen.findByText(/Slack channel association defaults applied/i)).toBeInTheDocument();
+});
+
+it("labels Slack channel association defaults and shows current configured values", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByText("Slack Channel Association Default")).toBeInTheDocument();
+  expect(screen.queryByText("Migration Defaults")).not.toBeInTheDocument();
+  expect(screen.getByText("Current default team")).toBeInTheDocument();
+  expect(screen.getByText("team:platform-engineering")).toBeInTheDocument();
+  expect(screen.getByText("Current default Dynamic Agent")).toBeInTheDocument();
+  expect(screen.getByText("agent:incident-agent")).toBeInTheDocument();
+});
+
+it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByText("Slack Bot Runtime Sync")).toBeInTheDocument();
+  expect(screen.getByText("db_prefer")).toBeInTheDocument();
+  expect(screen.getByText(/1 cached channel/i)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Reload Slack Bot Routes" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/runtime/reload",
+      expect.objectContaining({ method: "POST" })
+    )
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Preview Sync From Config" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/runtime/sync-from-config",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ dry_run: true }),
+      })
+    )
+  );
+  expect(await screen.findByText(/Sync preview: 1 routes planned/i)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Apply This Sync" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/runtime/sync-from-config",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ dry_run: false }),
+      })
+    )
+  );
+  expect(await screen.findByText(/Config sync applied: upserted 1 routes/i)).toBeInTheDocument();
+});
+
+it("opens a runtime sync modal with preview progress and apply results", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Preview Sync From Config" }));
+
+  expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  expect(screen.getByText("Slack Bot Config Sync Preview")).toBeInTheDocument();
+  expect(screen.getByText("Preview complete")).toBeInTheDocument();
+  expect(screen.getByText("1 route planned")).toBeInTheDocument();
+  expect(screen.getByText("1 channel scanned")).toBeInTheDocument();
+  expect(screen.getByText("0 routes upserted")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Apply This Sync" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/runtime/sync-from-config",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ dry_run: false }),
+      })
+    )
+  );
+  expect(await screen.findByText("Apply complete")).toBeInTheDocument();
+  expect(screen.getByText("1 route upserted")).toBeInTheDocument();
+  expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
 });

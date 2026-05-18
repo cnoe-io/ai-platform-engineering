@@ -25,8 +25,36 @@ interface TeamKbOwnershipLite {
   kb_permissions?: Record<string, string>;
 }
 
+interface CatalogDatasource {
+  datasource_id?: string;
+  name?: string | null;
+  description?: string | null;
+}
+
+function getRagServerUrl(): string {
+  return process.env.RAG_SERVER_URL || process.env.NEXT_PUBLIC_RAG_URL || "http://localhost:9446";
+}
+
+async function loadDatasourceNames(accessToken?: string): Promise<Map<string, CatalogDatasource>> {
+  try {
+    const response = await fetch(`${getRagServerUrl()}/v1/datasources`, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    });
+    if (!response.ok) return new Map();
+    const payload = await response.json();
+    const datasources = Array.isArray(payload?.datasources) ? payload.datasources : [];
+    return new Map(
+      datasources
+        .filter((datasource: CatalogDatasource) => typeof datasource.datasource_id === "string")
+        .map((datasource: CatalogDatasource) => [datasource.datasource_id as string, datasource])
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) =>
-  withOpenFgaViewAuth(request, async () => {
+  withOpenFgaViewAuth(request, async (auth) => {
     const teamsCol = await getCollection<Team>("teams");
     const agentsCol = await getCollection<CatalogAgent>("dynamic_agents");
     const mcpCol = await getCollection<CatalogMcpServer>("mcp_servers");
@@ -63,6 +91,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
         kbIds.add(id);
       }
     }
+    const datasourceById = await loadDatasourceNames(auth.session?.accessToken);
 
     const universal = await listRebacCatalog();
     const universalByType = universal.resources.reduce<Record<string, unknown[]>>((acc, resource) => {
@@ -102,12 +131,15 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
           description: server.description || "",
           object: `tool:${String(server._id)}_*`,
         })),
-        knowledge_bases: Array.from(kbIds).sort().map((id) => ({
-          id,
-          name: id,
-          description: "",
-          object: `knowledge_base:${id}`,
-        })),
+        knowledge_bases: Array.from(kbIds).sort().map((id) => {
+          const datasource = datasourceById.get(id);
+          return {
+            id,
+            name: datasource?.name || id,
+            description: datasource?.description || "",
+            object: `knowledge_base:${id}`,
+          };
+        }),
         by_type: universalByType,
       },
       universal_resources: universal.resources,
