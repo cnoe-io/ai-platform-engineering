@@ -352,7 +352,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     source?.shared_with_teams || []
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
-  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
+  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
   const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(

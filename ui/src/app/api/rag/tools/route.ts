@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
+import { extractRealmRolesFromSession } from "@/lib/rbac/task-skill-realm-access";
 
 /**
  * Team-scoped RAG tool management (098 Enterprise RBAC — FR-009).
@@ -71,7 +72,7 @@ export async function GET() {
     );
 
     const tools = await getCollection<TeamRagToolDoc>("team_rag_tools");
-    const realmRoles = session.realmRoles;
+    const realmRoles = extractRealmRolesFromSession(session);
 
     let filter: Record<string, unknown> = {};
     if (isAdmin(realmRoles) || isKbAdmin(realmRoles)) {
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
       throw new ApiError("name and team_id are required", 400);
     }
 
-    const realmRoles = session.realmRoles;
+    const realmRoles = extractRealmRolesFromSession(session);
     if (!isAdmin(realmRoles) && !isKbAdmin(realmRoles)) {
       const callerTeams = extractTeamIds(realmRoles);
       if (!callerTeams.includes(team_id)) {

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection } from '@/lib/mongodb';
-import { withAuth, withErrorHandler, requireAdmin } from '@/lib/api-middleware';
+import { withAuth, withErrorHandler, requireRbacPermission } from '@/lib/api-middleware';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 
 const CONFIG_ID = 'platform_settings';
@@ -35,7 +35,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async (_req, user, session) => {
-    await requireAdmin(session);
+    await requireRbacPermission(session, 'admin_ui', 'admin');
     await requireResourcePermission(session, {
       type: 'system_config',
       id: CONFIG_ID,

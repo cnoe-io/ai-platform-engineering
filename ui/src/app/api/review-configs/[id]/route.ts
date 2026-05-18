@@ -19,7 +19,7 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { ReviewConfig, ReviewCriterion } from "@/types/ai-review";
 import { ensureConfig, getTargetMeta } from "@/lib/server/ai-review/defaults";
@@ -199,7 +199,7 @@ export const PUT = withErrorHandler(
     context: { params: Promise<{ id: string }> },
   ) => {
     return await withAuth(request, async (_req, user, session) => {
-      await requireAdmin(session);
+      await requireRbacPermission(session, "admin_ui", "admin");
       const { id } = await context.params;
 
       if (!getTargetMeta(id)) {

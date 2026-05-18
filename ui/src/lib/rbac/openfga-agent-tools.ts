@@ -11,10 +11,12 @@ import {
   type OpenFgaReconcileResult,
 } from "./openfga";
 
+type AllowedToolsConfig = Record<string, string[] | boolean>;
+
 export interface AgentToolTupleDiffInput {
   agentId: string;
-  previousAllowedTools?: Record<string, string[]>;
-  nextAllowedTools: Record<string, string[]>;
+  previousAllowedTools?: AllowedToolsConfig;
+  nextAllowedTools: AllowedToolsConfig;
   ownerSubject?: string | null;
   organizationId?: string | null;
   ownerTeamSlug?: string | null;
@@ -43,7 +45,7 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
 }
 
 function normalizeAllowedTools(
-  allowedTools?: Record<string, string[]>,
+  allowedTools?: AllowedToolsConfig,
 ): Map<string, Set<string>> {
   const normalized = new Map<string, Set<string>>();
   for (const [serverId, tools] of Object.entries(allowedTools ?? {})) {
@@ -183,6 +185,6 @@ export async function deleteAllAgentToolTuples(agentId: string): Promise<OpenFga
   });
 }
 
-export function allowedToolsFromAgent(agent: Pick<DynamicAgentConfig, "allowed_tools">): Record<string, string[]> {
-  return (agent.allowed_tools ?? {}) as Record<string, string[]>;
+export function allowedToolsFromAgent(agent: Pick<DynamicAgentConfig, "allowed_tools">): AllowedToolsConfig {
+  return (agent.allowed_tools ?? {}) as AllowedToolsConfig;
 }
