@@ -1,4 +1,110 @@
-## 0.5.1 (2026-05-16)
+## 0.5.1 (2026-05-18)
+
+### Fix
+
+- **ci**: avoid secret-scan matches in auth tests
+
+## 0.5.1-rc.6 (2026-05-18)
+
+## 0.5.1-rc.5 (2026-05-18)
+
+## 0.4.13-dev.3 (2026-05-18)
+
+### Feat
+
+- **rbac**: add Slack runtime sync admin flow
+- **slack**: auto-assign unmapped channels
+
+### Fix
+
+- **chat**: make /invoke history persistence configurable (default: ephemeral)
+- **chat**: apply config_override and handle capacity errors in /invoke
+- **chat**: persist conversation history on /invoke endpoint
+
+### Refactor
+
+- **chat**: use AsyncExitStack to unify runtime acquisition in /invoke
+
+## 0.5.1-rc.4 (2026-05-18)
+
+## 0.4.13-dev.2 (2026-05-18)
+
+### Fix
+
+- **agent-runtime**: guard delete_by_key_prefix against InMemoryStore
+
+## 0.4.13-dev.1 (2026-05-18)
+
+### Feat
+
+- **jira**: add internal service desk comments
+
+### Fix
+
+- **ci**: always run image builds on tag push regardless of actor
+- **jira**: type MCP client request dispatch
+
+## 0.4.13 (2026-05-18)
+
+## 0.4.12-dev.13 (2026-05-18)
+
+### Fix
+
+- **rag**: expand trusted network CIDRs default and remove init failure sleep
+
+## 0.4.12-dev.12 (2026-05-18)
+
+### Feat
+
+- **ui**: add TASK_BUILDER_ENABLED toggle for Task Builder tab
+- **workflows**: gate workflows tab with WORKFLOWS_ENABLED env var
+- **workflows**: add visibility/sharing RBAC with config-access checks on runs
+- **workflows**: add Tool Access picker for step-level tool restrictions
+- **da**: support boolean values in allowed_tools (true=all, false=disabled)
+- **workflows**: include user email/name in trigger_info from API route
+- **workflows**: add cancelled status, waiting_for_input to run cards, hide HITL forms on terminal runs
+- **workflows**: show read-only banner and disable forms for config-driven workflows
+- **workflows**: add config-driven workflow seeding with read-only protection
+- **workflows**: add step context injection, artifact capture, and unavailable resource warnings
+- **workflows**: switch export/import from JSON to YAML
+- **workflows**: add workflow tools for dynamic agents with run cards and trigger info
+- **workflows**: add ReactFlow-based workflow editor with skill isolation fix
+- **workflows**: add workflow run deletion with file cleanup and auto-expiry
+- **da**: make context panel resizable with Show Files button
+- **files**: add generic files API and remove conversation file endpoints
+- **workflows**: add workflow UI components and pages
+- **workflows**: add workflow API routes, stores, and types
+- **workflows**: add server-side workflow infrastructure
+- **rag**: anchor slack document fresh_until to message post time
+- **rbac**: finalize comprehensive ReBAC enforcement
+
+### Fix
+
+- **ui**: pin nunjucks deps and add workflowsEnabled to config test
+- **dynamic-agents**: emit TOOL_CALL_RESULT for MCP tools with list-type content
+- **da**: remove client_id from log to satisfy CodeQL sensitive data rule
+- **workflows**: fix retry logic and builtin_tools override format
+- **workflows**: dynamic canvas layout to prevent node overlap with on_error badges
+- **workflows**: normalize legacy allowed_tools [] to true in StepToolOverridePicker
+- **da**: simplify curl and fetch_url builtin tool descriptions
+- **workflows**: prevent add-step in config-driven workflows with warning toast
+- **workflows**: correct error.txt detection and add Langfuse session grouping
+- **ui**: workflow editor and run view UX polish
+- **ui**: align run delete button with top row to avoid timestamp overlap
+- **ui**: slow down workflow progress pulse and fix dark mode in tool approval card
+- **hitl**: support multi-tool approval and fix workflow file download
+
+### Refactor
+
+- **ui**: extract AgentAvatar component and standardize agent prop passing
+- **streaming**: extract shared AG-UI protocol and split consumers
+
+## 0.5.1-rc.3 (2026-05-18)
+
+### Feat
+
+- **rbac**: complete OpenFGA authorization cleanup
+- **rbac**: move CAIPE authorization to OpenFGA ReBAC
 
 ### Fix
 
