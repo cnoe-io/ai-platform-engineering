@@ -123,6 +123,11 @@ config:
   MONGODB_DATABASE: "caipe"
   # Agent runtime TTL in seconds (purged after this much inactivity)
   AGENT_RUNTIME_TTL_SECONDS: "60"
+  # Set to "true" to enable multi-turn conversation history via POST /invoke.
+  # When false (default), each /invoke call uses an ephemeral in-memory runtime
+  # with no MongoDB writes. Enable only if callers reuse conversation_id across
+  # /invoke calls and require history — it increases MongoDB load.
+  INVOKE_PERSIST_HISTORY: "false"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
   # MCP server IDs routed through the shared AgentGateway backend.
