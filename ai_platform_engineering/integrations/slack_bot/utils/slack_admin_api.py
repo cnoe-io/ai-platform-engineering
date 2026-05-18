@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +17,6 @@ import requests
 from jwt import PyJWKClient
 from pymongo import MongoClient
 from pymongo.collection import Collection
-from pymongo.errors import PyMongoError
 
 from .config_models import AgentBinding, Config
 from .slack_agent_routes import (
