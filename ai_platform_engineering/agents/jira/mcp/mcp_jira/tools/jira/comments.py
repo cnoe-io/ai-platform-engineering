@@ -220,8 +220,10 @@ async def add_internal_comment(
     }
 
     # Atlassian's documented JSM Cloud API uses `public=false` to create an
-    # internal note on the customer request. The Jira Platform `/rest/api/3`
-    # comment endpoint only supports role/group visibility restrictions.
+    # internal note on the customer request:
+    # https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-post
+    # The Jira Platform `/rest/api/3` comment endpoint only supports role/group
+    # visibility restrictions.
     success, response = await make_api_request(
         path=f"rest/servicedeskapi/request/{issue_key}/comment",
         method="POST",
