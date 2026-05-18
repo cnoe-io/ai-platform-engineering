@@ -19,13 +19,20 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   determine-changes:
     runs-on: ubuntu-latest
     if: |
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
-      (github.event_name == 'workflow_dispatch')
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+        (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
+        (github.event_name == 'workflow_dispatch')
+      )
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}

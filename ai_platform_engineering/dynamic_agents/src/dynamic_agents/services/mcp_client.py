@@ -76,32 +76,49 @@ def build_mcp_connections(
 
 def filter_tools_by_allowed(
     all_tools: list,
-    allowed_tools: dict[str, list[str]],
+    allowed_tools: dict[str, list[str] | bool],
 ) -> tuple[list, list[str]]:
     """Filter tools based on allowed_tools config.
 
     Args:
         all_tools: List of all tools from MCP client (with namespaced names)
-        allowed_tools: Config mapping server_id -> tool_names (empty = all)
+        allowed_tools: Config mapping server_id -> tool_names | bool.
+            true = all tools from server, false = server disabled,
+            list = specific tools only, [] = legacy (treated as true, logs warning)
 
     Returns:
         Tuple of (filtered_tools, missing_tool_names)
     """
+    logger = logging.getLogger(__name__)
+
     # Build set of allowed namespaced tool names
     allowed_names: set[str] = set()
 
-    for server_id, tool_names in allowed_tools.items():
-        if not tool_names:
-            # Empty array = all tools from this server
+    for server_id, value in allowed_tools.items():
+        if value is False:
+            # Explicitly disabled — skip entirely
+            continue
+        elif value is True:
+            # All tools from this server
             for tool in all_tools:
-                # Tools are namespaced as "{server_id}_{tool_name}"
                 if tool.name.startswith(f"{server_id}_"):
                     allowed_names.add(tool.name)
-        else:
-            # Specific tools only
-            for tool_name in tool_names:
-                namespaced = f"{server_id}_{tool_name}"
-                allowed_names.add(namespaced)
+        elif isinstance(value, list):
+            if not value:
+                # Empty list = legacy for "all tools", log deprecation warning
+                logger.warning(
+                    "allowed_tools[%s] uses empty list [] which is deprecated. "
+                    "Use `true` instead to indicate all tools are allowed.",
+                    server_id,
+                )
+                for tool in all_tools:
+                    if tool.name.startswith(f"{server_id}_"):
+                        allowed_names.add(tool.name)
+            else:
+                # Specific tools only
+                for tool_name in value:
+                    namespaced = f"{server_id}_{tool_name}"
+                    allowed_names.add(namespaced)
 
     # Filter and validate tools
     filtered_tools = []

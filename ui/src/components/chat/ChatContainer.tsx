@@ -406,17 +406,8 @@ export function ChatContainer() {
       conversationId={uuid}
       conversationTitle={conversationTitle}
       selectedAgentId={selectedAgentId}
-      agentName={agentInfo?.name}
-      agentDescription={agentInfo?.description}
-      agentModel={agentInfo?.model?.id}
-      agentVisibility={agentInfo?.visibility}
-      agentGradient={agentInfo?.ui?.gradient_theme}
-      agentCustomTheme={agentInfo?.ui?.custom_theme_config}
-      allowedTools={agentInfo?.allowed_tools}
-      subagents={agentInfo?.subagents}
-      agentSkills={agentInfo?.skills ?? []}
+      agent={agentInfo}
       agentNotFound={agentNotFound}
-      agentDisabled={agentInfo?.enabled === false}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
       adminOrigin={adminOrigin}

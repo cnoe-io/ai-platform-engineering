@@ -25,10 +25,15 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   load-config:
     runs-on: ubuntu-latest
-    if: always()
+    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (always())
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
     steps:

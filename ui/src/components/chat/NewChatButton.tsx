@@ -5,7 +5,7 @@ import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
@@ -21,8 +21,22 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [defaultAgentId, setDefaultAgentId] = useState<string | null>(null);
+  const [defaultAgentName, setDefaultAgentName] = useState<string>("New Chat");
 
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
+
+  // Fetch configured default agent on mount
+  useEffect(() => {
+    fetch('/api/admin/platform-config')
+      .then((r) => r.json())
+      .catch(() => ({ success: false }))
+      .then((data) => {
+        if (data.success && data.data.default_agent_id) {
+          setDefaultAgentId(data.data.default_agent_id);
+        }
+      });
+  }, []);
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
@@ -37,7 +51,13 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           throw new Error("Failed to fetch agents");
         }
         const data = await response.json();
-        setAgents(data.data || []);
+        const fetched: DynamicAgentConfig[] = data.data || [];
+        setAgents(fetched);
+        // Update default agent display name now that we have the full list
+        if (defaultAgentId) {
+          const found = fetched.find((a) => a._id === defaultAgentId);
+          if (found) setDefaultAgentName(found.name);
+        }
       } catch (err) {
         console.error("Error fetching dynamic agents:", err);
         setError("Failed to load agents");
@@ -47,7 +67,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     };
 
     fetchAgents();
-  }, [dropdownOpen, dynamicAgentsEnabled]);
+  }, [dropdownOpen, dynamicAgentsEnabled, defaultAgentId]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -79,8 +99,8 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const handleMainClick = () => {
-    // Main button always creates Platform Engineer chat
-    onNewChat(undefined);
+    // Route to configured default agent (or supervisor when none configured)
+    onNewChat(defaultAgentId ?? undefined);
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {
@@ -134,7 +154,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         size="default"
       >
         <Plus className="h-4 w-4 shrink-0" />
-        <span className="whitespace-nowrap">New Chat</span>
+        <span className="whitespace-nowrap">{defaultAgentName}</span>
       </Button>
     );
   }
@@ -154,7 +174,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           size="default"
         >
           <Plus className="h-4 w-4 shrink-0" />
-          <span className="whitespace-nowrap">New Chat</span>
+          <span className="whitespace-nowrap">{defaultAgentName}</span>
         </Button>
 
         {/* Dropdown trigger */}
@@ -238,22 +258,18 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
 
             {/* Dynamic agents list */}
             {!loading && !error && filteredAgents.map((agent) => {
-              const gradientStyle = agent.ui?.gradient_theme ? getGradientStyle(agent.ui.gradient_theme, agent.ui.custom_theme_config) : null;
               return (
                 <button
                   key={agent._id}
                   onClick={() => handleSelectAgent(agent._id)}
                   className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
                 >
-                  <div
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                      !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
-                    )}
-                    style={gradientStyle || undefined}
-                  >
-                    <Bot className="h-4 w-4" style={{ color: getAccentColor(agent.ui?.gradient_theme, agent.ui?.custom_theme_config) || "white" }} />
-                  </div>
+                  <AgentAvatar
+                    agent={agent}
+                    rounded="rounded-full"
+                    size="w-8 h-8"
+                    iconSize="h-4 w-4"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{agent.name}</div>
                     {agent.description && (
