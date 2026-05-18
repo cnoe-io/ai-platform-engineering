@@ -1114,3 +1114,334 @@ async def rotate_llm_api_key(user_email: str, requesting_user_email: str) -> str
     error_msg = f"Failed to rotate LLM API key: {e}"
     logger.error(error_msg)
     return error_msg
+
+
+@tool
+async def add_litellm_user(
+  user_email: str,
+  max_budget: float = 100.0,
+  models: Optional[str] = None,
+) -> str:
+  """
+  Add a new user to LiteLLM and optionally generate an API key with specified models.
+
+  If the user already exists, their information is returned without modification.
+  If models are provided, an API key is generated and sent to the user via Webex.
+
+  Args:
+      user_email: User's corporate email address.
+      max_budget: Monthly budget limit in USD. Default is 100.0.
+      models: Optional comma-separated list of full model IDs to grant access to
+              (e.g., "openai/gpt-4o, anthropic/claude-3-sonnet").
+
+  Returns:
+      Result message with user creation status and optional key information.
+  """
+  try:
+    config_error = _validate_config()
+    if config_error:
+      return f"**Configuration Error:** {config_error}"
+
+    user_id = await _get_or_create_user(user_email, max_budget=max_budget)
+    if not user_id:
+      return f"Failed to create user {user_email} in LiteLLM."
+
+    if not models:
+      return (
+        f"User `{user_email}` has been added to LiteLLM successfully.\n"
+        f"- User ID: `{user_id}`\n"
+        f"- Budget: ${max_budget}/month\n\n"
+        f"No models were specified, so no API key was generated. "
+        f"Use the `create_llm_api_key` tool to grant model access and generate a key."
+      )
+
+    model_list = [m.strip() for m in models.split(",") if m.strip()]
+
+    provider_model_map = await _list_models()
+    validated_models: list[str] = []
+    errors: list[str] = []
+
+    for model_id in model_list:
+      if "/" in model_id:
+        provider, model_name = model_id.split("/", 1)
+        provider = provider.lower()
+        model_name = model_name.lower()
+      else:
+        errors.append(f"Model '{model_id}' must include provider prefix (e.g., 'openai/gpt-4o').")
+        continue
+
+      if provider not in provider_model_map:
+        available = ", ".join(provider_model_map.keys())
+        errors.append(f"Provider '{provider}' not found. Available: {available}")
+      elif model_name not in provider_model_map[provider]:
+        available = ", ".join(provider_model_map[provider])
+        errors.append(f"Model '{model_name}' not available for {provider}. Available: {available}")
+      else:
+        full_name = f"{provider}/{model_name}"
+        if full_name not in validated_models:
+          validated_models.append(full_name)
+
+    if not validated_models:
+      error_detail = "\n".join(errors)
+      return (
+        f"User `{user_email}` was added but no API key was generated — "
+        f"no valid models specified.\n\n{error_detail}"
+      )
+
+    key_response = await _generate_key(
+      user_id=user_id,
+      user_email=user_email,
+      models=validated_models,
+      max_budget=max_budget,
+    )
+
+    if "error" in key_response:
+      return (
+        f"User `{user_email}` was added but key generation failed: "
+        f"{key_response['error']}"
+      )
+
+    api_key = key_response.get("key", "")
+    primary_model = validated_models[0]
+    provider_name = primary_model.split("/")[0]
+    model_name_only = primary_model.split("/", 1)[1] if "/" in primary_model else primary_model
+
+    webex_msg = _build_webex_message(
+      user_email=user_email,
+      provider_name=provider_name,
+      model_name=model_name_only,
+      full_model_name=primary_model,
+      api_key=api_key,
+      models=validated_models,
+      status="created",
+      user_max_budget=max_budget,
+    )
+    await _send_webex_message(user_email, webex_msg)
+
+    error_note = ""
+    if errors:
+      error_note = "\n\nSome models could not be added:\n" + "\n".join(f"- {e}" for e in errors)
+
+    return (
+      f"User `{user_email}` has been added to LiteLLM with an API key.\n"
+      f"- User ID: `{user_id}`\n"
+      f"- Budget: ${max_budget}/month\n"
+      f"- Models: {', '.join(f'`{m}`' for m in validated_models)}\n\n"
+      f"API key and usage instructions have been sent to {user_email} via Webex.{error_note}"
+    )
+
+  except Exception as e:
+    error_msg = f"Failed to add user to LiteLLM: {e}"
+    logger.error(error_msg)
+    return error_msg
+
+
+@tool
+async def add_bulk_litellm_users(
+  user_emails: str,
+  max_budget: float = 100.0,
+  models: Optional[str] = None,
+) -> str:
+  """
+  Add multiple users to LiteLLM in bulk. Optionally generate API keys with
+  specified models for each user. Each user's key and instructions are sent
+  via Webex individually.
+
+  Args:
+      user_emails: Comma-separated list of user email addresses.
+      max_budget: Monthly budget limit in USD applied to all users. Default is 100.0.
+      models: Optional comma-separated list of full model IDs to grant access to
+              (e.g., "openai/gpt-4o, anthropic/claude-3-sonnet"). Applied to all users.
+
+  Returns:
+      Summary of bulk user creation results.
+  """
+  try:
+    config_error = _validate_config()
+    if config_error:
+      return f"**Configuration Error:** {config_error}"
+
+    emails = [e.strip() for e in user_emails.split(",") if e.strip()]
+    if not emails:
+      return "No valid email addresses provided."
+
+    validated_models: list[str] = []
+    model_errors: list[str] = []
+
+    if models:
+      model_list = [m.strip() for m in models.split(",") if m.strip()]
+      provider_model_map = await _list_models()
+
+      for model_id in model_list:
+        if "/" in model_id:
+          provider, model_name = model_id.split("/", 1)
+          provider = provider.lower()
+          model_name = model_name.lower()
+        else:
+          model_errors.append(f"Model '{model_id}' must include provider prefix (e.g., 'openai/gpt-4o').")
+          continue
+
+        if provider not in provider_model_map:
+          available = ", ".join(provider_model_map.keys())
+          model_errors.append(f"Provider '{provider}' not found. Available: {available}")
+        elif model_name not in provider_model_map[provider]:
+          available = ", ".join(provider_model_map[provider])
+          model_errors.append(f"Model '{model_name}' not available for {provider}. Available: {available}")
+        else:
+          full_name = f"{provider}/{model_name}"
+          if full_name not in validated_models:
+            validated_models.append(full_name)
+
+    succeeded: list[str] = []
+    failed: list[tuple[str, str]] = []
+
+    for email in emails:
+      try:
+        user_id = await _get_or_create_user(email, max_budget=max_budget)
+        if not user_id:
+          failed.append((email, "Failed to create user"))
+          continue
+
+        if validated_models:
+          key_response = await _generate_key(
+            user_id=user_id,
+            user_email=email,
+            models=validated_models,
+            max_budget=max_budget,
+          )
+
+          if "error" in key_response:
+            failed.append((email, f"User created but key generation failed: {key_response['error']}"))
+            continue
+
+          api_key = key_response.get("key", "")
+          if api_key:
+            primary_model = validated_models[0]
+            provider_name = primary_model.split("/")[0]
+            model_name_only = primary_model.split("/", 1)[1] if "/" in primary_model else primary_model
+
+            webex_msg = _build_webex_message(
+              user_email=email,
+              provider_name=provider_name,
+              model_name=model_name_only,
+              full_model_name=primary_model,
+              api_key=api_key,
+              models=validated_models,
+              status="created",
+              user_max_budget=max_budget,
+            )
+            await _send_webex_message(email, webex_msg)
+
+        succeeded.append(email)
+
+      except Exception as e:
+        failed.append((email, str(e)))
+
+    message = "## Bulk User Addition Results\n\n"
+    message += f"**Total:** {len(emails)} | **Succeeded:** {len(succeeded)} | **Failed:** {len(failed)}\n\n"
+
+    if validated_models:
+      message += f"**Models assigned:** {', '.join(f'`{m}`' for m in validated_models)}\n"
+      message += f"**Budget:** ${max_budget}/month per user\n\n"
+    else:
+      message += f"**Budget:** ${max_budget}/month per user\n"
+      message += "_No models specified — users were added without API keys._\n\n"
+
+    if succeeded:
+      message += "### Succeeded\n"
+      for email in succeeded:
+        message += f"- {email}\n"
+      message += "\n"
+
+    if failed:
+      message += "### Failed\n"
+      for email, reason in failed:
+        message += f"- {email}: {reason}\n"
+      message += "\n"
+
+    if model_errors:
+      message += "### Model Validation Warnings\n"
+      for err in model_errors:
+        message += f"- {err}\n"
+
+    return message
+
+  except Exception as e:
+    error_msg = f"Failed to add bulk users: {e}"
+    logger.error(error_msg)
+    return error_msg
+
+
+@tool
+async def get_keys_for_multiple_users(user_emails: str) -> str:
+  """
+  Retrieve LLM API key status, model access, and budget information for
+  multiple users. API key values are not included in the response for
+  security — they are only sent to each user directly via Webex.
+
+  Args:
+      user_emails: Comma-separated list of user email addresses.
+
+  Returns:
+      Summary of key status and budget information for each user.
+  """
+  try:
+    config_error = _validate_config()
+    if config_error:
+      return f"**Configuration Error:** {config_error}"
+
+    emails = [e.strip() for e in user_emails.split(",") if e.strip()]
+    if not emails:
+      return "No valid email addresses provided."
+
+    message = "## LLM API Key Report\n\n"
+    found_count = 0
+    not_found_count = 0
+
+    for email in emails:
+      try:
+        existing_key = await _get_existing_key(email)
+        if not existing_key:
+          message += f"### {email}\n- **Status:** No key found\n\n"
+          not_found_count += 1
+          continue
+
+        token = existing_key.get("key") or existing_key.get("token", "")
+        models: list[str] = []
+
+        if token:
+          key_info = await _get_key_info(token)
+          if key_info:
+            models = key_info.get("models") or []
+
+        budget_info = await _get_user_budget_info(email)
+
+        message += f"### {email}\n"
+        message += "- **Status:** Active\n"
+
+        if models:
+          message += f"- **Models:** {', '.join(f'`{m}`' for m in models)}\n"
+
+        if budget_info:
+          max_b = budget_info.get("max_budget")
+          spend = budget_info.get("spend", 0)
+          if max_b is not None:
+            message += f"- **Budget:** ${max_b}/month\n"
+            message += f"- **Spend:** ${spend:.2f}\n"
+            message += f"- **Remaining:** ${(max_b - spend):.2f}\n"
+
+        message += "\n"
+        found_count += 1
+
+      except Exception as e:
+        message += f"### {email}\n- **Status:** Error — {e}\n\n"
+        not_found_count += 1
+
+    message += f"---\n**Summary:** {found_count} active key(s), {not_found_count} not found or errored.\n"
+
+    return message
+
+  except Exception as e:
+    error_msg = f"Failed to retrieve keys for multiple users: {e}"
+    logger.error(error_msg)
+    return error_msg
