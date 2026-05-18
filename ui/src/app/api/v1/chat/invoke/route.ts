@@ -112,15 +112,11 @@ async function ensureScheduledConversation(
       $setOnInsert: {
         _id: conversationId,
         title,
-        client_type: "webui",
         owner_id: ownerUserId,
         idempotency_key: idempotencyKey,
         participants: buildParticipants(agentId, ownerUserId),
         created_at: now,
-        metadata: {
-          ...compactMetadata(schedulerMetadata),
-          total_messages: 0,
-        },
+        "metadata.total_messages": 0,
         sharing: {
           is_public: false,
           shared_with: [],

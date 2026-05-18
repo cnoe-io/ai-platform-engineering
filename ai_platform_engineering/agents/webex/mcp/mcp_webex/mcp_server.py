@@ -149,7 +149,10 @@ class ListMessagesInRoom(BaseModel):
     )
 
     class Config:
-        description = "List messages in a Webex room"
+        description = (
+            "List messages mentioning the bot in a Webex room. Returns message IDs "
+            "so callers can fetch thread replies with list_thread_messages."
+        )
 
 
 class ListRooms(BaseModel):
@@ -202,6 +205,19 @@ def register_tools(server, auth_token):
     logger.info("🔧 Initializing Webex MCP tools registration")
     logger.info(f"🌐 Webex API Base URL: {WEBEX_API_BASE}")
     http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
+
+    def format_message(message: dict) -> str:
+        mentions = message.get("mentionedPeople") or []
+        mentions_text = ", ".join(mentions) if mentions else "none"
+        parent_id = message.get("parentId") or "none"
+        text = message.get("text") or message.get("markdown") or ""
+        return (
+            f"[{message.get('created', '')}] {message.get('personEmail', '')}\n"
+            f"ID: {message.get('id', '')}\n"
+            f"Parent ID: {parent_id}\n"
+            f"Mentions: {mentions_text}\n"
+            f"Message: {text}"
+        )
 
     def handle_mcp_errors(func):
         @functools.wraps(func)
@@ -364,12 +380,7 @@ def register_tools(server, auth_token):
         )
         response.raise_for_status()
         messages = response.json().get("items", [])
-        formatted = "\n".join(
-            [
-                f"[{m.get('created')}] {m.get('personEmail')}: {m.get('text', '')}"
-                for m in messages
-            ]
-        )
+        formatted = "\n\n".join([format_message(m) for m in messages])
         return [TextContent(type="text", text=formatted or "No messages found.")]
 
     @server.tool(name=WebexTools.LIST_ROOMS, description=ListRooms.Config.description)
@@ -434,13 +445,7 @@ def register_tools(server, auth_token):
         messages = response.json().get("items", [])
         if not messages:
             return [TextContent(type="text", text="No messages found in this thread.")]
-        formatted = "\n".join(
-            [
-                f"[{m.get('created', '')}] {m.get('personEmail', '')}: "
-                f"{m.get('text', '')}"
-                for m in messages
-            ]
-        )
+        formatted = "\n\n".join([format_message(m) for m in messages])
         return [TextContent(type="text", text=formatted)]
 
     logger.info("✅ Webex MCP tools registration completed successfully")

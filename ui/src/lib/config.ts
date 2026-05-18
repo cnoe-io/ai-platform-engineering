@@ -136,6 +136,8 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /** Dynamic agent id used by the main "+ New Chat" button. Null keeps Platform Engineer as default. */
+  defaultNewChatAgentId: string | null;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -227,6 +229,7 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  defaultNewChatAgentId: null,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -324,6 +327,7 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const defaultNewChatAgentId = env('DEFAULT_NEW_CHAT_AGENT_ID')?.trim() || null;
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -383,6 +387,7 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    defaultNewChatAgentId,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

@@ -21,6 +21,8 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
+  const configuredDefaultAgentId = getConfig("defaultNewChatAgentId");
+  const defaultAgentId = configuredDefaultAgentId?.trim() || undefined;
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
@@ -77,8 +79,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   }, [dropdownOpen]);
 
   const handleMainClick = () => {
-    // Main button always creates Platform Engineer chat
-    onNewChat(undefined);
+    onNewChat(defaultAgentId);
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {
@@ -176,6 +177,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                   Default AI assistant
                 </div>
               </div>
+              {!defaultAgentId && <Check className="h-4 w-4 text-primary shrink-0" />}
             </button>
 
             {/* Divider if there are dynamic agents */}
@@ -224,6 +226,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                       </div>
                     )}
                   </div>
+                  {defaultAgentId === agent._id && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               );
             })}
