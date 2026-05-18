@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     # Maximum allowed TTL (0 = no cap, infinite allowed)
     max_fs_ttl_seconds: int = 0
 
+    # /invoke endpoint persistence
+    # When False (default), each /invoke call uses an ephemeral in-memory runtime that is
+    # discarded after the request — no MongoDB writes, no conversation history across calls.
+    # Set to True to use the shared MongoDB-backed runtime cache, enabling multi-turn
+    # conversation history via /invoke at the cost of additional MongoDB load.
+    invoke_persist_history: bool = False
+
     # Runtime
     agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
