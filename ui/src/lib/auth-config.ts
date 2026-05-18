@@ -17,12 +17,12 @@ import { decodeJwt } from "jose";
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
- * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access"; set to empty to disable)
+ * - OIDC_REQUIRED_GROUP: Group name required for access (unset or empty disables the group gate)
  * - OIDC_REQUIRED_ADMIN_GROUP: Deprecated; upstream groups now sync to CAIPE teams
  * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
- * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "true" to reconcile signed-in user's OIDC group claims
+ * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: Set to "false" to disable signed-in user's OIDC group claim reconciliation
  * - IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: Provider id for claim-derived sync rules (default: "oidc-claims")
  */
 
@@ -37,8 +37,8 @@ export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
 // Required group for authorization.
 // Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
-// the group check. || would treat "" as falsy and fall back to "backstage-access".
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
+// the group check. Do not bake deployment-specific group names into source.
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "";
 
 // Deprecated: product admin access is an OpenFGA organization relationship.
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
@@ -144,7 +144,7 @@ function reconcileLoginGroupsFromClaims(input: {
   displayName?: string;
   groups: string[];
 }): void {
-  if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED !== "true") return;
+  if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED === "false") return;
   if (!input.subject || input.groups.length === 0) return;
 
   void import("@/lib/rbac/oidc-claim-reconciler")
@@ -165,7 +165,7 @@ export function hasRequiredGroup(groups: string[]): boolean {
 
   return groups.some((group) => {
     // Handle both simple group names and full DN paths
-    // e.g., "backstage-access" or "CN=backstage-access,OU=Groups,DC=example,DC=com"
+    // e.g., "caipe-users" or "CN=caipe-users,OU=Groups,DC=example,DC=com"
     const groupLower = group.toLowerCase();
     const requiredLower = REQUIRED_GROUP.toLowerCase();
     return groupLower === requiredLower || groupLower.includes(`cn=${requiredLower}`);
@@ -224,17 +224,19 @@ const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side token store
 // ─────────────────────────────────────────────────────────────────────────────
-// Large OAuth tokens (refreshToken, idToken) are kept in server memory instead
+// Large OAuth tokens (accessToken, refreshToken, idToken) are kept in server memory instead
 // of the JWT cookie.  This keeps the encrypted cookie under the 4096-byte
-// browser limit.  Only the accessToken and small metadata stay in the cookie.
+// browser limit.  Only small metadata stays in the cookie.
 //
-// Trade-off: tokens are lost on process restart.  The accessToken (still in the
-// cookie) remains valid until it expires; after that the user re-authenticates.
+// Trade-off: tokens are lost on process restart. After that the user re-authenticates.
 // For multi-replica deployments, use sticky sessions or a shared store (Redis).
 
 interface CachedTokens {
+  accessToken?: string;
   refreshToken?: string;
   idToken?: string;
+  claimGroups?: string[];
+  claimGroupsCheckedAt?: number;
   updatedAt: number;
 }
 
@@ -252,14 +254,38 @@ export function _getStoredTokens(sub: string | undefined): CachedTokens | undefi
   return entry;
 }
 
-function _storeTokens(sub: string | undefined, data: { refreshToken?: string; idToken?: string }): void {
+function _storeTokens(
+  sub: string | undefined,
+  data: { accessToken?: string; refreshToken?: string; idToken?: string }
+): void {
   if (!sub) return;
   const existing = _serverTokenStore.get(sub);
   _serverTokenStore.set(sub, {
+    accessToken: data.accessToken ?? existing?.accessToken,
     refreshToken: data.refreshToken ?? existing?.refreshToken,
     idToken: data.idToken ?? existing?.idToken,
+    claimGroups: existing?.claimGroups,
+    claimGroupsCheckedAt: existing?.claimGroupsCheckedAt,
     updatedAt: Math.floor(Date.now() / 1000),
   });
+}
+
+export function cacheOidcClaimGroups(sub: string | undefined, groups: string[]): void {
+  if (!sub) return;
+  const existing = _serverTokenStore.get(sub);
+  _serverTokenStore.set(sub, {
+    accessToken: existing?.accessToken,
+    refreshToken: existing?.refreshToken,
+    idToken: existing?.idToken,
+    claimGroups: [...groups],
+    claimGroupsCheckedAt: Math.floor(Date.now() / 1000),
+    updatedAt: Math.floor(Date.now() / 1000),
+  });
+}
+
+export function getCachedOidcClaimGroups(sub: string | undefined): string[] {
+  if (!sub) return [];
+  return _getStoredTokens(sub)?.claimGroups ?? [];
 }
 
 /** Reset server-side token store (for testing only). */
@@ -578,6 +604,8 @@ export const authOptions: NextAuthOptions = {
 
         // Extract groups for authorization check only (not stored in token)
         const groups = extractGroups(profileData);
+        const subject = (profileData.sub as string | undefined) ?? (token.sub as string | undefined);
+        cacheOidcClaimGroups(subject, groups);
 
         // Only store the authorization result and role (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes
@@ -613,7 +641,7 @@ export const authOptions: NextAuthOptions = {
         }
 
         reconcileLoginGroupsFromClaims({
-          subject: (profileData.sub as string | undefined) ?? (token.sub as string | undefined),
+          subject,
           email,
           displayName:
             (profileData.name as string | undefined) ??
@@ -690,6 +718,7 @@ export const authOptions: NextAuthOptions = {
               try {
                 const claims = decodeJwt(refreshedToken.idToken as string);
                 const groups = extractGroups(claims as Record<string, unknown>);
+                cacheOidcClaimGroups(token.sub as string | undefined, groups);
                 console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
                 return {
                   ...refreshedToken,
@@ -782,11 +811,17 @@ export const authOptions: NextAuthOptions = {
     async encode({ token, secret, maxAge }) {
       if (token?.sub) {
         _storeTokens(token.sub, {
+          accessToken: token.accessToken as string | undefined,
           refreshToken: token.refreshToken as string | undefined,
           idToken: token.idToken as string | undefined,
         });
       }
-      const { refreshToken: _rt, idToken: _idt, ...slimToken } = (token ?? {}) as Record<string, unknown>;
+      const {
+        accessToken: _at,
+        refreshToken: _rt,
+        idToken: _idt,
+        ...slimToken
+      } = (token ?? {}) as Record<string, unknown>;
       // Dynamic import avoids top-level ESM/CJS conflict with jose in test environments
       const { encode } = await import("next-auth/jwt");
       return encode({ token: slimToken as any, secret, maxAge });
@@ -797,6 +832,7 @@ export const authOptions: NextAuthOptions = {
       if (decoded?.sub) {
         const stored = _getStoredTokens(decoded.sub);
         if (stored) {
+          if (stored.accessToken) decoded.accessToken = stored.accessToken;
           if (stored.refreshToken) decoded.refreshToken = stored.refreshToken;
           if (stored.idToken) decoded.idToken = stored.idToken;
         }

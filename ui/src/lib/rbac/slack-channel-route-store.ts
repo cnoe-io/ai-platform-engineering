@@ -64,13 +64,17 @@ export async function replaceSlackChannelAgentRoutes(
   );
 
   for (const route of routes) {
+    const unset: Record<string, ""> = {};
+    if (!route.users) unset.users = "";
+    if (!route.bots) unset.bots = "";
+    if (!route.escalation) unset.escalation = "";
     await collection.updateOne(
       {
         workspace_id: workspaceRef,
         channel_id: channelId,
         agent_id: route.agent_id,
       } as never,
-      {
+      ({
         $set: {
           workspace_id: workspaceRef,
           channel_id: channelId,
@@ -87,10 +91,26 @@ export async function replaceSlackChannelAgentRoutes(
           updated_by: actor,
           updated_at: now,
         },
-      },
+        ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+      } as never),
       { upsert: true }
     );
   }
 
   return listSlackChannelAgentRoutes(workspaceRef, channelId);
+}
+
+export async function deleteSlackChannelAgentRoute(
+  workspaceId: string,
+  channelId: string,
+  agentId: string
+): Promise<boolean> {
+  const collection = await getRbacCollection<SlackChannelAgentRouteDocument>("slackChannelAgentRoutes");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+  const result = await collection.deleteOne({
+    workspace_id: workspaceRef,
+    channel_id: channelId,
+    agent_id: agentId,
+  } as never);
+  return result.deletedCount > 0;
 }

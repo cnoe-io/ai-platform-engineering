@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 const mockCheckPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 
 const mockCollections: Record<string, any> = {};
@@ -19,6 +20,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
@@ -90,6 +92,13 @@ function createMockCollection(rows: any[]) {
       }
       return { matchedCount: matching.length, modifiedCount: matching.length };
     }),
+    deleteOne: jest.fn(async (filter: Record<string, any>) => {
+      const index = rows.findIndex((candidate) => matchesFilter(candidate, filter));
+      if (index >= 0) {
+        rows.splice(index, 1);
+      }
+      return { deletedCount: index >= 0 ? 1 : 0 };
+    }),
   };
 }
 
@@ -119,6 +128,7 @@ beforeEach(() => {
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
+  mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockCollections.channel_team_mappings = createMockCollection([
     {
@@ -158,6 +168,17 @@ describe("Slack channel ReBAC APIs", () => {
   });
 
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `slack_channel:${workspaceAlias}--${channelId}`,
+            relation: "user",
+            object: "agent:stale-agent",
+          },
+        },
+      ],
+    });
     const { PUT } = await import("../[workspaceId]/[channelId]/resources/route");
 
     const response = await PUT(
@@ -183,7 +204,7 @@ describe("Slack channel ReBAC APIs", () => {
     );
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [{ user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" }],
-      deletes: [],
+      deletes: [{ user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:stale-agent" }],
     });
   });
 
@@ -222,7 +243,14 @@ describe("Slack channel ReBAC APIs", () => {
       user_allowed: true,
       reason: "allowed",
     });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(2);
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: { type: "slack_channel", id: `${workspaceAlias}--${channelId}` },
+        action: "use",
+        resource: { type: "agent", id: "incident-agent" },
+      })
+    );
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: { type: "team", id: "platform-engineering", relation: "member" },
@@ -231,8 +259,62 @@ describe("Slack channel ReBAC APIs", () => {
     );
   });
 
-  it("saving Slack agent routes automatically creates matching channel grants", async () => {
+  it("denies Slack access when the OpenFGA channel tuple was removed", async () => {
+    mockCollections.slack_channel_grants = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        resource: { type: "agent", id: "incident-agent" },
+        actions: ["use"],
+        status: "active",
+      },
+    ]);
+    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: false });
+    const { POST } = await import("../[workspaceId]/[channelId]/access-check/route");
+
+    const response = await POST(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/access-check`, {
+        method: "POST",
+        body: JSON.stringify({
+          user_subject: "team:platform-engineering#member",
+          resource: { type: "agent", id: "incident-agent" },
+          action: "use",
+        }),
+      }),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      allowed: false,
+      channel_allowed: false,
+      user_allowed: false,
+      reason: "missing_channel_grant",
+    });
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: { type: "slack_channel", id: `${workspaceAlias}--${channelId}` },
+        action: "use",
+        resource: { type: "agent", id: "incident-agent" },
+      })
+    );
+  });
+
+  it("saving Slack agent routes writes OpenFGA tuples and route metadata", async () => {
     mockCollections.slack_channel_agent_routes = createMockCollection([]);
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `slack_channel:${workspaceAlias}--${channelId}`,
+            relation: "user",
+            object: "agent:stale-agent",
+          },
+        },
+      ],
+    });
     const { PUT } = await import("../[workspaceId]/[channelId]/routes/route");
 
     const response = await PUT(
@@ -270,22 +352,7 @@ describe("Slack channel ReBAC APIs", () => {
       }),
       { upsert: true }
     );
-    expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
-      {
-        workspace_id: workspaceAlias,
-        channel_id: channelId,
-        "resource.type": "agent",
-        "resource.id": "incident-agent",
-      },
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          actions: ["use"],
-          source_type: "route",
-          status: "active",
-        }),
-      }),
-      { upsert: true }
-    );
+    expect(mockCollections.slack_channel_grants.updateOne).not.toHaveBeenCalled();
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
         {
@@ -294,7 +361,135 @@ describe("Slack channel ReBAC APIs", () => {
           object: "agent:incident-agent",
         },
       ],
-      deletes: [],
+      deletes: [
+        {
+          user: `slack_channel:${workspaceAlias}--${channelId}`,
+          relation: "user",
+          object: "agent:stale-agent",
+        },
+      ],
+    });
+  });
+
+  it("fails route saves when OpenFGA reconciliation fails", async () => {
+    mockCollections.slack_channel_agent_routes = createMockCollection([]);
+    mockWriteOpenFgaTuples.mockRejectedValue(new Error("OpenFGA down"));
+    const { PUT } = await import("../[workspaceId]/[channelId]/routes/route");
+
+    const response = await PUT(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/routes`, {
+        method: "PUT",
+        body: JSON.stringify({
+          routes: [{ agent_id: "incident-agent", enabled: true }],
+        }),
+      }),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(JSON.stringify(body)).toMatch(/OpenFGA tuple write failed/i);
+  });
+
+  it("lists only OpenFGA-backed route associations and joins saved metadata", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `slack_channel:${workspaceAlias}--${channelId}`,
+            relation: "user",
+            object: "agent:incident-agent",
+          },
+        },
+      ],
+    });
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 25,
+        status: "active",
+        users: { enabled: true, listen: "message" },
+      },
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "stale-mongo-agent",
+        enabled: true,
+        priority: 1,
+        status: "active",
+        users: { enabled: true, listen: "mention" },
+      },
+    ]);
+    const { GET } = await import("../[workspaceId]/[channelId]/routes/route");
+
+    const response = await GET(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/routes`),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.routes).toEqual([
+      expect.objectContaining({
+        agent_id: "incident-agent",
+        priority: 25,
+        users: { enabled: true, listen: "message" },
+      }),
+    ]);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      tuple: {
+        user: `slack_channel:${workspaceAlias}--${channelId}`,
+        relation: "user",
+      },
+      pageSize: 100,
+    });
+  });
+
+  it("deletes Slack agent associations from OpenFGA and dependent Mongo route metadata", async () => {
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 25,
+        status: "active",
+        users: { enabled: true, listen: "message" },
+      },
+    ]);
+    const { DELETE } = await import("../[workspaceId]/[channelId]/routes/route");
+
+    const response = await DELETE(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/routes`, {
+        method: "DELETE",
+        body: JSON.stringify({ agent_id: "incident-agent" }),
+      }),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.deleted).toEqual({
+      agent_id: "incident-agent",
+      route_metadata_deleted: true,
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [],
+      deletes: [
+        {
+          user: `slack_channel:${workspaceAlias}--${channelId}`,
+          relation: "user",
+          object: "agent:incident-agent",
+        },
+      ],
+    });
+    expect(mockCollections.slack_channel_agent_routes.deleteOne).toHaveBeenCalledWith({
+      workspace_id: workspaceAlias,
+      channel_id: channelId,
+      agent_id: "incident-agent",
     });
   });
 

@@ -60,10 +60,30 @@ beforeEach(() => {
       return response({ data: { grants: [] } });
     }
     if (url.endsWith("/routes") && init?.method === "PUT") {
-      return response({ data: { routes: [{ agent_id: "incident-agent", enabled: true, priority: 100, users: { listen: "mention" } }] } });
+      const body = JSON.parse(String(init.body ?? "{}"));
+      return response({ data: { routes: body.routes } });
+    }
+    if (url.endsWith("/routes") && init?.method === "DELETE") {
+      return response({
+        data: {
+          deleted: { agent_id: "incident-agent", route_metadata_deleted: true },
+          openfga: { enabled: true, writes: 0, deletes: 1 },
+        },
+      });
     }
     if (url.endsWith("/routes")) {
-      return response({ data: { routes: [] } });
+      return response({
+        data: {
+          routes: [
+            {
+              agent_id: "incident-agent",
+              enabled: true,
+              priority: 100,
+              users: { enabled: true, listen: "mention" },
+            },
+          ],
+        },
+      });
     }
     return response({});
   });
@@ -78,51 +98,77 @@ function response(payload: unknown): Response {
   } as Response;
 }
 
-it("uses enabled Dynamic Agents dropdowns for Slack grants and routes", async () => {
+it("uses enabled Dynamic Agents dropdown for Slack channel-agent associations", async () => {
   render(<SlackChannelRebacPanel />);
 
   expect(
-    await screen.findByText(/Slack runtime only enforces Dynamic Agent access/i)
+    await screen.findByText(/OpenFGA is the source of truth/i)
   ).toBeInTheDocument();
   expect(screen.queryByLabelText("Resource Type")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Action")).not.toBeInTheDocument();
 
-  const agentSelects = await screen.findAllByRole("combobox", { name: "Dynamic Agent" });
-  expect(agentSelects).toHaveLength(2);
+  const agentSelect = await screen.findByRole("combobox", { name: "Dynamic Agent" });
   await waitFor(() =>
-    expect(screen.getAllByRole("option", { name: "Test April 2025 (test-april-2025)" })).toHaveLength(3)
+    expect(screen.getAllByRole("option", { name: "Test April 2025 (test-april-2025)" })).toHaveLength(2)
   );
 
-  fireEvent.change(agentSelects[0], { target: { value: "test-april-2025" } });
-  fireEvent.click(screen.getByRole("button", { name: "Grant Agent To Channel" }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/slack/channels/T123456789/C123456789/resources",
-      expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({
-          grants: [
-            {
-              resource: { type: "agent", id: "test-april-2025" },
-              actions: ["use"],
-              status: "active",
-            },
-          ],
-        }),
-      })
-    )
-  );
-
-  fireEvent.change(agentSelects[1], { target: { value: "incident-agent" } });
-  fireEvent.click(screen.getByRole("button", { name: "Create Route + Grant" }));
+  fireEvent.change(agentSelect, { target: { value: "test-april-2025" } });
+  fireEvent.click(screen.getByRole("button", { name: "Create Association" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/slack/channels/T123456789/C123456789/routes",
       expect.objectContaining({
         method: "PUT",
-        body: expect.stringContaining('"agent_id":"incident-agent"'),
+        body: expect.stringContaining('"agent_id":"test-april-2025"'),
+      })
+    )
+  );
+});
+
+it("edits and deletes Slack channel-agent associations with metadata warning", async () => {
+  const confirmSpy = jest.spyOn(window, "confirm");
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByText("agent:incident-agent")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /edit agent:incident-agent/i }));
+  fireEvent.change(screen.getByRole("combobox", { name: "Listen" }), {
+    target: { value: "message" },
+  });
+  fireEvent.change(screen.getByLabelText("Priority"), {
+    target: { value: "25" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Update Association" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/routes",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"priority":25'),
+      })
+    )
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/admin/slack/channels/T123456789/C123456789/routes",
+    expect.objectContaining({
+      method: "PUT",
+      body: expect.stringContaining('"listen":"message"'),
+    })
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /delete agent:incident-agent/i }));
+  expect(confirmSpy).not.toHaveBeenCalled();
+  expect(await screen.findByRole("dialog", { name: "Delete channel-agent association?" })).toBeInTheDocument();
+  expect(screen.getByText(/saved Mongo route metadata/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Delete association" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/routes",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ agent_id: "incident-agent" }),
       })
     )
   );

@@ -71,7 +71,7 @@ sequenceDiagram
       note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>and refresh upstream groups into idp_groups
       KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users]
       note over UI: NextAuth stores JWT in<br/>encrypted server-side session cookie
-      opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=true
+      opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED is not false
         UI->>MDB: Best-effort reconcile Alice's<br/>memberOf/groups claims into managed<br/>team_membership_sources + OpenFGA tuples
       end
       UI-->>User: logged in (Duo identity never leaves KC boundary)
@@ -327,14 +327,15 @@ All log lines that reference a Slack profile email run it through `mask_email()`
 
 ### How It Works
 
-Slack channel routing now separates "which team owns this channel?" from "which Dynamic Agents may be used here?" The workspace key is a configured alias (`SLACK_WORKSPACE_ALIAS`, for example `CAIPE`) rather than Slack's opaque `team_id`; the Slack bot maps incoming `team_id` values to that alias before looking up routes or grants. When a message arrives, the Slack bot prefers active `slack_channel_agent_routes` rows by default (`SLACK_AGENT_ROUTES_MODE=db_prefer`) and falls back to static Slack bot config when no route matches. Operators can set `config` for static-only routing or `db_only` to use only UI-managed route rows. The selected agent is then verified against OpenFGA:
+Slack channel routing now separates "which team owns this channel?" from "which Dynamic Agents may be used here?" The workspace key is a configured alias (`SLACK_WORKSPACE_ALIAS`, for example `CAIPE`) rather than Slack's opaque `team_id`; the Slack bot maps incoming `team_id` values to that alias before looking up routes or grants. When a message arrives, the Slack bot reads OpenFGA tuples for `slack_channel:<workspace_alias>--<channel_id> user agent:<id>`, then joins optional `slack_channel_agent_routes` metadata for listen mode and priority. Stale Mongo route rows without a matching OpenFGA tuple are ignored. Operators can set `config` for static-only routing or `db_only` to use only UI-managed OpenFGA-backed routes. The selected agent is then verified against OpenFGA:
 
 1. **Team lookup**: query `channel_team_mappings` in MongoDB by `slack_channel_id`.
 2. **Active team minting**: mint the user's OBO token with the channel team's `active_team` claim.
-3. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's active team/agent relationship.
-4. **Route**: dispatch to the selected `agent_id` only after both the channel grant and user/team agent grant allow the request.
+3. **Channel association lookup**: read OpenFGA channel-agent tuples and join Mongo route metadata only for tuple-backed agents.
+4. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's active team/agent relationship.
+5. **Route**: dispatch to the selected `agent_id` only after both the channel association and user/team agent grant allow the request.
 
-The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime relationship authorization lives in `slack_channel_grants`, where the admin UI grants Slack channels to Dynamic Agents because that is the path currently enforced before dispatch.
+The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association.
 
 ## Keycloak Role → ReBAC Transition Check
 
@@ -349,9 +350,9 @@ The transition comparison API is intentionally read-only and engineer-facing:
 Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/agent grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
 
 - Channel/team ownership is exclusive: a channel cannot be actively mapped to two teams.
-- Channel/agent grants are many-to-many: a channel can have multiple Dynamic Agent grants.
-- Removing a grant denies that resource in the channel even if the user has access elsewhere.
-- UI-managed route dispatch is the default with static YAML fallback (`SLACK_AGENT_ROUTES_MODE=db_prefer`). Set `config` only for static YAML routing, and use `db_only` only after the channel's UI routes are complete.
+- Channel/agent associations are many-to-many OpenFGA tuples: a channel can have multiple Dynamic Agent associations.
+- Removing an association deletes the OpenFGA tuple and its saved Mongo listen/priority metadata, denying that resource in the channel even if the user has access elsewhere.
+- UI-managed route dispatch is the default with static YAML fallback (`SLACK_AGENT_ROUTES_MODE=db_prefer`). Set `config` only for static YAML routing, and use `db_only` only after the channel's OpenFGA-backed UI routes are complete.
 
 ### MongoDB Collection: `channel_team_mappings`
 
@@ -368,14 +369,24 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
 }
 ```
 
-### MongoDB Collection: `slack_channel_grants`
+### OpenFGA Tuple: Slack Channel Agent Association
+
+```text
+slack_channel:CAIPE--C0123456789 user agent:my-k8s-agent
+```
+
+The channel-agent association lives in OpenFGA. The `agent:<id>` value is the Dynamic Agent slug (string `_id` in the `dynamic_agents` collection). The legacy `slack_channel_grants` collection may exist during migration, but it is not an allow source for Slack runtime channel-agent decisions.
+
+### MongoDB Collection: `slack_channel_agent_routes`
 
 ```json
 {
   "workspace_id": "CAIPE",
   "channel_id": "C0123456789",
-  "resource": { "type": "agent", "id": "my-k8s-agent" },
-  "actions": ["use"],
+  "agent_id": "my-k8s-agent",
+  "enabled": true,
+  "priority": 100,
+  "users": { "enabled": true, "listen": "mention" },
   "source_type": "manual",
   "status": "active",
   "created_by": "admin@example.com",
@@ -383,7 +394,7 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
 }
 ```
 
-The agent grant itself lives in `slack_channel_grants`; the `resource.id` value is the dynamic agent's slug (string `_id` in `dynamic_agents` collection).
+This row is metadata for a matching OpenFGA tuple. It does not authorize dispatch by itself, and it is deleted when the channel-agent association is deleted.
 
 ---
 

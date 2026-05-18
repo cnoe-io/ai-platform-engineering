@@ -11,8 +11,6 @@ export interface UserDetailModalProps {
   onSaved: () => void;
 }
 
-type RealmRoleRow = { id: string; name: string; description?: string };
-
 type ProfileUser = {
   id: string;
   username: string;
@@ -23,7 +21,6 @@ type ProfileUser = {
   createdAt?: number | null;
   attributes: Record<string, string[]>;
   slackLinkStatus: "linked" | "unlinked";
-  realmRoles: RealmRoleRow[];
   sessions: Array<{
     id: string;
     start?: number;
@@ -37,34 +34,6 @@ type ProfileUser = {
   teams: Array<{ team_id: string; tenant_id: string }>;
   lastAccess: number | null;
 };
-
-function parseKbRoles(
-  roles: RealmRoleRow[]
-): Array<{ kbId: string; scope: string }> {
-  const out: Array<{ kbId: string; scope: string }> = [];
-  for (const r of roles) {
-    const m = r.name.match(/^kb_(reader|ingestor|admin):(.+)$/);
-    if (m) {
-      const scope =
-        m[1] === "reader" ? "reader" : m[1] === "ingestor" ? "ingestor" : "admin";
-      out.push({ kbId: m[2], scope });
-    }
-  }
-  return out;
-}
-
-function parseAgentRoles(
-  roles: RealmRoleRow[]
-): Array<{ agentId: string; scope: string }> {
-  const out: Array<{ agentId: string; scope: string }> = [];
-  for (const r of roles) {
-    const m = r.name.match(/^agent_(user|admin):(.+)$/);
-    if (m) {
-      out.push({ agentId: m[2], scope: m[1] === "user" ? "user" : "admin" });
-    }
-  }
-  return out;
-}
 
 function formatTs(ms: number | null | undefined): string {
   if (ms == null || ms <= 0) return "";
@@ -96,7 +65,6 @@ export function UserDetailModal({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [user, setUser] = useState<ProfileUser | null>(null);
-  const [allRealmRoles, setAllRealmRoles] = useState<RealmRoleRow[]>([]);
   const [teamOptions, setTeamOptions] = useState<
     Array<{ teamId: string; label: string }>
   >([]);
@@ -121,22 +89,8 @@ export function UserDetailModal({
     setUser(json.data.user);
   }, [userId]);
 
-  const loadRolesAndTeams = useCallback(async () => {
-    const [rolesRes, teamsRes] = await Promise.all([
-      fetch("/api/admin/roles"),
-      fetch("/api/admin/teams"),
-    ]);
-
-    const rolesJson = (await readJson(rolesRes)) as {
-      success?: boolean;
-      data?: { roles?: RealmRoleRow[] };
-    } | null;
-    if (rolesRes.ok && rolesJson?.success && Array.isArray(rolesJson.data?.roles)) {
-      setAllRealmRoles(rolesJson.data.roles);
-    } else {
-      setAllRealmRoles([]);
-    }
-
+  const loadTeams = useCallback(async () => {
+    const teamsRes = await fetch("/api/admin/teams");
     const teamsJson = (await readJson(teamsRes)) as {
       success?: boolean;
       data?: { teams?: Array<{ name?: string }> };
@@ -178,7 +132,7 @@ export function UserDetailModal({
       setLoading(true);
       setLoadError(null);
       try {
-        await Promise.all([refreshProfile(), loadRolesAndTeams()]);
+        await Promise.all([refreshProfile(), loadTeams()]);
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Load failed");
@@ -191,7 +145,7 @@ export function UserDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [refreshProfile, loadRolesAndTeams]);
+  }, [refreshProfile, loadTeams]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>) => {
@@ -201,9 +155,7 @@ export function UserDetailModal({
         await fn();
         await refreshProfile();
         onSaved();
-        // Force-refresh the current user's access token so the RAG server
-        // (and other services) pick up the updated Keycloak realm roles
-        // immediately instead of waiting for the token to expire.
+        // Refresh client session-derived UI after account/team mutations.
         void updateSession({ forceRefresh: true });
       } catch (e) {
         setActionError(e instanceof Error ? e.message : "Request failed");
@@ -235,27 +187,6 @@ export function UserDetailModal({
     const alnum = src.replace(/[^a-zA-Z0-9]/g, "");
     return (alnum.slice(0, 2) || "?").toUpperCase();
   }, [user]);
-
-  const assignedRoleNames = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of user?.realmRoles ?? []) s.add(r.name);
-    return s;
-  }, [user]);
-
-  const addableRoles = useMemo(() => {
-    return allRealmRoles
-      .filter((r) => !assignedRoleNames.has(r.name))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [allRealmRoles, assignedRoleNames]);
-
-  const kbRows = useMemo(
-    () => parseKbRoles(user?.realmRoles ?? []),
-    [user?.realmRoles]
-  );
-  const agentRows = useMemo(
-    () => parseAgentRoles(user?.realmRoles ?? []),
-    [user?.realmRoles]
-  );
 
   const memberTeamIds = useMemo(() => {
     const s = new Set<string>();
@@ -301,41 +232,6 @@ export function UserDetailModal({
     });
   };
 
-  const removeRole = (name: string) => {
-    void runAction(`role-del-${name}`, async () => {
-      const res = await fetch(
-        `/api/admin/users/${encodeURIComponent(userId)}/roles`,
-        {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roles: [{ name }] }),
-        }
-      );
-      const json = (await readJson(res)) as { success?: boolean; error?: string };
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || `Remove role failed (${res.status})`);
-      }
-    });
-  };
-
-  const addRole = (name: string) => {
-    if (!name) return;
-    void runAction(`role-add-${name}`, async () => {
-      const res = await fetch(
-        `/api/admin/users/${encodeURIComponent(userId)}/roles`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roles: [{ name }] }),
-        }
-      );
-      const json = (await readJson(res)) as { success?: boolean; error?: string };
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || `Add role failed (${res.status})`);
-      }
-    });
-  };
-
   const removeTeam = (teamId: string) => {
     void runAction(`team-del-${teamId}`, async () => {
       const res = await fetch(
@@ -367,6 +263,20 @@ export function UserDetailModal({
       const json = (await readJson(res)) as { success?: boolean; error?: string };
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || `Add team failed (${res.status})`);
+      }
+    });
+  };
+
+  const unlinkSlack = () => {
+    if (!user || user.slackLinkStatus !== "linked") return;
+    if (!window.confirm("Remove Slack link for this user?")) return;
+    void runAction("slack-unlink", async () => {
+      const res = await fetch(`/api/admin/slack/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Unlink Slack failed (${res.status})`);
       }
     });
   };
@@ -451,62 +361,6 @@ export function UserDetailModal({
             ) : null}
 
             <section className="mt-6 border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-3">
-                Realm roles
-              </h3>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {(user.realmRoles ?? []).length === 0 ? (
-                  <span className="text-sm text-muted-foreground">No realm roles</span>
-                ) : (
-                  (user.realmRoles ?? []).map((r) => (
-                    <span
-                      key={r.id || r.name}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
-                    >
-                      {r.name}
-                      <button
-                        type="button"
-                        className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        aria-label={`Remove role ${r.name}`}
-                        disabled={busy != null}
-                        onClick={() => removeRole(r.name)}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="add-realm-role" className="text-sm text-muted-foreground">
-                  Add role
-                </label>
-                <select
-                  id="add-realm-role"
-                  className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
-                  defaultValue=""
-                  disabled={busy != null || addableRoles.length === 0}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    e.target.value = "";
-                    if (v) addRole(v);
-                  }}
-                >
-                  <option value="">
-                    {addableRoles.length === 0
-                      ? "No roles to add"
-                      : "Select a role…"}
-                  </option>
-                  {addableRoles.map((r) => (
-                    <option key={r.id || r.name} value={r.name}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </section>
-
-            <section className="mt-6 border-t border-border pt-6">
               <h3 className="text-sm font-semibold text-foreground mb-3">Teams</h3>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(user.teams ?? []).length === 0 ? (
@@ -565,76 +419,6 @@ export function UserDetailModal({
 
             <section className="mt-6 border-t border-border pt-6">
               <h3 className="text-sm font-semibold text-foreground mb-3">
-                Per-KB roles
-              </h3>
-              {kbRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No per-KB roles assigned
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">KB ID</th>
-                        <th className="px-3 py-2 font-medium">Scope</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {kbRows.map((row) => (
-                        <tr
-                          key={`${row.kbId}-${row.scope}`}
-                          className="border-t border-border"
-                        >
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {row.kbId}
-                          </td>
-                          <td className="px-3 py-2 capitalize">{row.scope}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="mt-6 border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-3">
-                Per-agent roles
-              </h3>
-              {agentRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No per-agent roles assigned
-                </p>
-              ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Agent ID</th>
-                        <th className="px-3 py-2 font-medium">Scope</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agentRows.map((row) => (
-                        <tr
-                          key={`${row.agentId}-${row.scope}`}
-                          className="border-t border-border"
-                        >
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {row.agentId}
-                          </td>
-                          <td className="px-3 py-2 capitalize">{row.scope}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="mt-6 border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-3">
                 Identity & account
               </h3>
               <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
@@ -648,14 +432,22 @@ export function UserDetailModal({
                   <dt className="text-muted-foreground">Slack</dt>
                   <dd className="mt-0.5">
                     {user.slackLinkStatus === "linked" ? (
-                      <span className="inline-flex flex-col gap-0.5">
-                        <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
-                          Linked
+                      <span className="inline-flex flex-col gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
+                            Linked
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy === "slack-unlink"}
+                            onClick={() => unlinkSlack()}
+                            className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                          >
+                            {busy === "slack-unlink" ? "Unlinking…" : "Unlink Slack"}
+                          </button>
                         </span>
                         {slackUserId ? (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {slackUserId}
-                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">{slackUserId}</span>
                         ) : null}
                       </span>
                     ) : (

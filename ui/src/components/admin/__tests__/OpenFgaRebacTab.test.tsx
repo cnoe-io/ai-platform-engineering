@@ -122,3 +122,4 @@ it("shows Slack channel graph nodes from the universal ReBAC graph", async () =>
   expect(screen.getAllByText("#incidents")).not.toHaveLength(0);
   expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?limit=1000");
 });
+

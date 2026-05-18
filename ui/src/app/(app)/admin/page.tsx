@@ -11,6 +11,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { MultiSelect, TagInput } from "@/components/ui/multi-select";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
@@ -28,8 +36,6 @@ import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
-import { RolesAccessTab } from "@/components/admin/RolesAccessTab";
-import { SlackUsersTab } from "@/components/admin/SlackUsersTab";
 import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
@@ -198,14 +204,13 @@ interface Team {
     tools?: string[];
     tool_wildcard?: boolean;
   };
-  keycloak_roles?: string[];
   // Spec 098 US9 — denormalised channel count for the team-card StatChip.
   // Source of truth is `channel_team_mappings`, but we mirror a thin array
   // onto the team document so the card doesn't need an extra round-trip.
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'roles', 'identity-groups', 'slack', 'openfga', 'ai-review', 'settings'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'ai-review', 'settings'] as const;
 
 type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
 const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'system';
@@ -242,9 +247,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
       { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
-      { value: 'roles', label: 'Roles', icon: Shield, gateKey: 'roles' },
       { value: 'identity-groups', label: 'Identity Groups', icon: UserPlus, gateKey: 'identity_group_sync' },
-      { value: 'slack', label: 'Slack', icon: MessageSquare, gateKey: 'slack' },
     ],
   },
   {
@@ -271,9 +274,9 @@ const CATEGORIES: Category[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
-      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
-      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
+      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
     ],
   },
 ];
@@ -439,6 +442,7 @@ function AdminPage() {
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
   const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
+  const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
   const initUsers = searchParams.get('users');
@@ -811,10 +815,6 @@ function AdminPage() {
   };
 
   const handleDeleteTeam = async (team: Team) => {
-    if (!confirm(`Are you sure you want to delete the team "${team.name}"? This cannot be undone.`)) {
-      return;
-    }
-
     setDeletingTeam(team._id);
     try {
       const response = await fetch(`/api/admin/teams/${team._id}`, {
@@ -828,6 +828,7 @@ function AdminPage() {
 
       // Remove from local state
       setTeams(teams.filter(t => t._id !== team._id));
+      setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
     } catch (err: any) {
       console.error('[Admin] Failed to delete team:', err);
@@ -1069,7 +1070,8 @@ function AdminPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteTeam(team)}
+                                aria-label={`Delete ${team.name}`}
+                                onClick={() => setTeamPendingDelete(team)}
                                 disabled={deletingTeam === team._id}
                               >
                                 {deletingTeam === team._id ? (
@@ -1133,12 +1135,6 @@ function AdminPage() {
                               label="Channels"
                               count={team.slack_channels?.length}
                               onClick={() => openTeamDialog(team, "channels")}
-                            />
-                            <StatChip
-                              icon={<Shield className="h-3.5 w-3.5" />}
-                              label="Roles"
-                              count={team.keycloak_roles?.length}
-                              onClick={() => openTeamDialog(team, "roles")}
                             />
                           </div>
 
@@ -2588,23 +2584,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-              {tabGateValues.roles && (
-                <TabsContent value="roles" className="space-y-4">
-                  <RolesAccessTab isAdmin={isAdmin} />
-                </TabsContent>
-              )}
-
               {tabGateValues.identity_group_sync && (
                 <TabsContent value="identity-groups" className="space-y-4">
                   <IdentityGroupSyncTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 
-              {tabGateValues.slack && (
-                <TabsContent value="slack" className="space-y-4">
-                  <SlackUsersTab isAdmin={isAdmin} />
-                </TabsContent>
-              )}
             </Tabs>
           </div>
         </ScrollArea>
@@ -2624,6 +2609,49 @@ function AdminPage() {
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={loadAdminData}
       />
+
+      <Dialog
+        open={Boolean(teamPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingTeam) {
+            setTeamPendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete team?</DialogTitle>
+            <DialogDescription>
+              {teamPendingDelete
+                ? `Are you sure you want to delete the team "${teamPendingDelete.name}"? This cannot be undone.`
+                : "This cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setTeamPendingDelete(null)}
+              disabled={Boolean(deletingTeam)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (teamPendingDelete) {
+                  void handleDeleteTeam(teamPendingDelete);
+                }
+              }}
+              disabled={Boolean(deletingTeam)}
+            >
+              {deletingTeam ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Delete team
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* User Detail Sliding Panel */}
       <UserDetailPanel

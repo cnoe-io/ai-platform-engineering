@@ -223,12 +223,12 @@ config:
   # tracks the actual Helm release name instead of hardcoding the default
   # `ai-platform-engineering` and silently breaking on `helm install foo …`.
   SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
-  # OIDC required group (non-sensitive)
-  OIDC_REQUIRED_GROUP: "app-users"
-  # OIDC admin group (non-sensitive)
-  OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
+  # OIDC group required for basic Web UI admission. Set per deployment; empty disables the group gate.
+  OIDC_REQUIRED_GROUP: ""
+  # Deprecated: admin access is granted through Identity Group Sync + OpenFGA organization admin relationships.
+  OIDC_REQUIRED_ADMIN_GROUP: ""
   # Bootstrap admin emails — comma-separated list for initial admin setup.
-  # Remove after configuring proper role mappings via the Admin > Roles tab.
+  # Remove after configuring Identity Group Sync to grant OpenFGA admin.
   BOOTSTRAP_ADMIN_EMAILS: ""
   CAIPE_ORG_KEY: "caipe"
   CAIPE_ORG_DISPLAY_NAME: "CAIPE"

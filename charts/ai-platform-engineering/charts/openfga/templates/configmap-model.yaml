@@ -21,6 +21,7 @@ data:
     STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
     SEED_SUB = os.environ.get("OPENFGA_SEED_SUB", "").strip()
     SEED_OBJECT = os.environ.get("OPENFGA_SEED_OBJECT", "mcp_gateway:list").strip()
+    SEED_RELATION = os.environ.get("OPENFGA_SEED_RELATION", "caller").strip()
 
     def request(method, path, body=None):
         data = None
@@ -57,9 +58,9 @@ data:
     print(f"authorization_model_id={model_id}")
 
     if SEED_SUB:
-        tuple_key = {"user": f"user:{SEED_SUB}", "relation": "can_call", "object": SEED_OBJECT}
+        tuple_key = {"user": f"user:{SEED_SUB}", "relation": SEED_RELATION, "object": SEED_OBJECT}
         allowed = request("POST", f"/stores/{store_id}/check", {"tuple_key": tuple_key}).get("allowed")
         if not allowed:
             request("POST", f"/stores/{store_id}/write", {"writes": {"tuple_keys": [tuple_key]}})
-            print(f"tuple written for user:{SEED_SUB} can_call {SEED_OBJECT}")
+            print(f"tuple written for user:{SEED_SUB} {SEED_RELATION} {SEED_OBJECT}")
 {{- end }}

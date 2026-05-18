@@ -242,7 +242,7 @@ sequenceDiagram
 
     KC->>KC: 1. Verify bot client credentials<br/>2. Validate signed assertion<br/>3. Lookup: slack_user_id → keycloak_sub<br/>4. Enrich with Okta groups (from federation)<br/>5. Mint access token
 
-    KC->>SB: Access Token<br/>{sub: "user@example.com",<br/> groups: ["sre-team", "platform-admins"],<br/> scope: "github jira argocd pagerduty",<br/> act: {sub: "caipe-slack-bot"}}
+    KC->>SB: Access Token<br/>{sub: "user@example.com",<br/> groups: ["sre-team", "caipe-admins"],<br/> scope: "github jira argocd pagerduty",<br/> act: {sub: "caipe-slack-bot"}}
 
     Note over SB,SVC: OBO Exchange: Orchestrator → Agent (Scope Narrowing)
 
@@ -488,7 +488,7 @@ The resulting token carries the full audit trail as nested `act` claims:
   "sub": "user@example.com",
   "scope": "github:repo:read github:pull_request:read",
   "aud": "caipe-agent-pr-reader",
-  "groups": ["sre-team", "platform-admins"],
+  "groups": ["sre-team", "caipe-admins"],
   "act": {
     "sub": "caipe-orchestrator",
     "act": {
@@ -626,7 +626,7 @@ policy.csv: |
   p, role:sre-team, applications, get, */*, allow
   p, role:platform-admin, applications, *, */*, allow
   g, sre-team, role:sre-team
-  g, platform-admins, role:platform-admin
+  g, caipe-admins, role:platform-admin
 ```
 
 The agent's Keycloak token contains the user's Okta groups (federated through Keycloak). ArgoCD validates the token against Keycloak's OIDC endpoint and resolves groups to permissions. No consent step is needed beyond the initial identity linking.
@@ -911,7 +911,7 @@ spec:
   autoConnect: true  # Shows as auto-connected in UI
   groupMapping:
     "sre-team": "role:sre-team"
-    "platform-admins": "role:platform-admin"
+    "caipe-admins": "role:platform-admin"
 ```
 
 The CAIPE operator watches these CRDs and configures Keycloak identity providers accordingly. Adding a new connector is a `kubectl apply` or a PR to the CAIPE infrastructure repo — fully GitOps.

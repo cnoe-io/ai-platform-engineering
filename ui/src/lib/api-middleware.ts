@@ -206,6 +206,16 @@ export async function getAuthenticatedUser(
     );
   }
 
+  if (getConfig('ssoEnabled') && session.isAuthorized === false) {
+    throw new ApiError(
+      'Your account is not authorized to access this application. Contact an administrator if you need access.',
+      403,
+      'WEB_UI_ACCESS_DENIED',
+      'missing_required_group',
+      'contact_admin'
+    );
+  }
+
   let role = 'user';
   if (isBootstrapAdmin(session.user.email)) {
     role = 'admin';

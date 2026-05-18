@@ -4,7 +4,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INIT_IDP = REPO_ROOT / "deploy" / "keycloak" / "init-idp.sh"
-REALM_CONFIG = REPO_ROOT / "deploy" / "keycloak" / "realm-config.json"
+REALM_CONFIG = REPO_ROOT / "deploy" / "keycloak" / "realm-config.example.json"
 CHART_REALM_CONFIG = (
     REPO_ROOT / "charts" / "ai-platform-engineering" / "charts" / "keycloak" / "realm-config.json"
 )
@@ -42,5 +42,24 @@ def _assert_caipe_ui_groups_mapper(path: Path) -> None:
 
 
 def test_realm_config_has_caipe_ui_groups_mapper() -> None:
-    _assert_caipe_ui_groups_mapper(REALM_CONFIG)
     _assert_caipe_ui_groups_mapper(CHART_REALM_CONFIG)
+
+
+def _assert_shared_groups_scope_excludes_access_token(path: Path) -> None:
+    realm = json.loads(path.read_text())
+    groups_scope = next(scope for scope in realm["clientScopes"] if scope["name"] == "groups")
+    mapper = next(
+        protocol_mapper
+        for protocol_mapper in groups_scope["protocolMappers"]
+        if protocol_mapper["name"] == "idp-groups"
+    )
+
+    assert mapper["config"]["userinfo.token.claim"] == "true"
+    assert mapper["config"]["id.token.claim"] == "true"
+    assert mapper["config"]["access.token.claim"] == "false"
+    assert mapper["config"].get("introspection.token.claim", "false") == "false"
+
+
+def test_shared_groups_scope_keeps_large_idp_groups_out_of_access_tokens() -> None:
+    _assert_shared_groups_scope_excludes_access_token(REALM_CONFIG)
+    _assert_shared_groups_scope_excludes_access_token(CHART_REALM_CONFIG)

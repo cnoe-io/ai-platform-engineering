@@ -246,7 +246,7 @@ const DEFAULT_CONFIG: Config = {
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
-  oidcRequiredGroup: 'backstage-access',
+  oidcRequiredGroup: '',
 };
 
 // ---------------------------------------------------------------------------
@@ -414,7 +414,7 @@ export function getServerConfig(): Config {
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,
-    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? DEFAULT_CONFIG.oidcRequiredGroup,
   };
 }
 

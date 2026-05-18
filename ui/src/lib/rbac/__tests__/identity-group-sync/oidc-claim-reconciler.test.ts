@@ -110,4 +110,26 @@ describe("OIDC claim identity group reconciliation", () => {
       })
     );
   });
+
+  it("does not create teams or grant missing teams during login-time claim reconciliation", async () => {
+    const { reconcileOidcClaimGroupsForUser } = await import("../../oidc-claim-reconciler");
+
+    await reconcileOidcClaimGroupsForUser({
+      subject: "keycloak-sub",
+      email: "bob@example.test",
+      displayName: "Bob",
+      groups: ["Engineering Platform Users"],
+      now: "2026-05-12T00:00:00.000Z",
+    });
+
+    expect(applyIdentityGroupSyncPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          teams_to_create: [],
+          membership_sources_to_add: [],
+          tuple_writes: [],
+        }),
+      })
+    );
+  });
 });

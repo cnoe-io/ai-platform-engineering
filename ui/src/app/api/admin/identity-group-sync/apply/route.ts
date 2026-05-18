@@ -12,6 +12,12 @@ import { withIdentityGroupSyncAdminAuth } from "../_lib";
 interface ApplyBody {
   dry_run?: IdentityGroupSyncDryRunResult;
   reviewed?: boolean;
+  acknowledge_removal_risks?: boolean;
+}
+
+function requiresRemovalRiskAcknowledgement(dryRun: IdentityGroupSyncDryRunResult): boolean {
+  if (dryRun.safety_warnings?.some((warning) => warning.requires_acknowledgement)) return true;
+  return dryRun.membership_sources_to_remove.some((source) => source.relationship === "admin");
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -33,6 +39,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
     if (body.dry_run.conflicts.length > 0) {
       throw new ApiError("Cannot apply identity group sync while conflicts are present", 409);
+    }
+    if (requiresRemovalRiskAcknowledgement(body.dry_run) && !body.acknowledge_removal_risks) {
+      throw new ApiError(
+        "Identity group sync includes risky membership removals; acknowledge_removal_risks=true is required",
+        409
+      );
     }
 
     const now = new Date().toISOString();

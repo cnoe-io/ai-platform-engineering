@@ -14,6 +14,7 @@ import httpx
 OPENFGA = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
 STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
 SEED_OBJECT = os.environ.get("OPENFGA_SEED_OBJECT", "mcp_gateway:list").strip()
+SEED_RELATION = os.environ.get("OPENFGA_SEED_RELATION", "caller").strip()
 SEED_SUB = (
     os.environ.get("OPENFGA_SEED_SUB", "").strip()
     or os.environ.get("OPENFGA_EXPERIMENT_SUB", "").strip()
@@ -62,7 +63,7 @@ def main() -> None:
         if SEED_SUB:
             tuple_key = {
                 "user": f"user:{SEED_SUB}",
-                "relation": "can_call",
+                "relation": SEED_RELATION,
                 "object": SEED_OBJECT,
             }
             r = client.post(
@@ -71,7 +72,7 @@ def main() -> None:
             )
             r.raise_for_status()
             if r.json().get("allowed"):
-                print(f"tuple already present for user:{SEED_SUB} can_call {SEED_OBJECT}")
+                print(f"tuple already present for user:{SEED_SUB} {SEED_RELATION} {SEED_OBJECT}")
                 return
             w = {
                 "writes": {
@@ -82,7 +83,7 @@ def main() -> None:
             }
             r = client.post(f"{OPENFGA}/stores/{store_id}/write", json=w)
             r.raise_for_status()
-            print(f"tuple written for user:{SEED_SUB} can_call {SEED_OBJECT}")
+            print(f"tuple written for user:{SEED_SUB} {SEED_RELATION} {SEED_OBJECT}")
         else:
             print(
                 "OPENFGA_SEED_SUB not set — no tuple written; "

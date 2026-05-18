@@ -108,6 +108,21 @@ export interface TeamMembershipSource {
   removed_at?: string;
 }
 
+export type IdentityGroupSyncSafetyWarningCode =
+  | "large_membership_removal"
+  | "admin_membership_removal"
+  | "orphaned_team_membership";
+
+export interface IdentityGroupSyncSafetyWarning {
+  code: IdentityGroupSyncSafetyWarningCode;
+  severity: "warning" | "blocker";
+  message: string;
+  requires_acknowledgement: boolean;
+  team_slug?: string;
+  user_identifier?: string;
+  affected_count?: number;
+}
+
 export interface IdentityGroupSyncDryRunResult {
   matched_groups: ExternalGroup[];
   ignored_groups: ExternalGroup[];
@@ -118,4 +133,5 @@ export interface IdentityGroupSyncDryRunResult {
   tuple_deletes: IdentityGroupSyncTuple[];
   skipped_users: Array<{ source_group_id: string; user_identifier: string; reason: string }>;
   conflicts: Array<{ source_group_id: string; reason: string }>;
+  safety_warnings?: IdentityGroupSyncSafetyWarning[];
 }

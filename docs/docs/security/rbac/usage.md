@@ -10,16 +10,21 @@ How to bring up the stack, log in as different roles, verify denials, run the de
 COMPOSE_PROFILES='rbac,caipe-ui,caipe-mongodb' \
   docker compose -f docker-compose.dev.yaml up -d
 
-# Wait for Keycloak to be healthy before logging in
+# Confirm Keycloak is healthy before logging in
 docker compose -f docker-compose.dev.yaml ps keycloak
 ```
 
 Keycloak admin console: `http://localhost:7080/admin` (admin / admin)
 
+When the `rbac` profile is selected, `caipe-ui` has an optional `depends_on`
+health dependency on `keycloak`. This keeps UI startup seed/scope sync from
+racing Keycloak realm import while preserving non-RBAC UI runs where Keycloak is
+not selected.
+
 The local `.env` mirrors the Grid RBAC defaults that affect auth behavior:
 `KEYCLOAK_FORCE_IDP_REDIRECT=true`, `OIDC_GROUP_CLAIM=members,groups`,
-`RBAC_ADMIN_GROUPS=eti_sre_admin`, and the RAG ingestor `INGESTOR_OIDC_*`
-client-credentials settings. The compose `keycloak-init` service passes
+deployment-specific access/admin group settings, and the RAG ingestor
+`INGESTOR_OIDC_*` client-credentials settings. The compose `keycloak-init` service passes
 `KEYCLOAK_FORCE_IDP_REDIRECT` through to `deploy/keycloak/init-idp.sh`, so a
 fresh `rbac` profile start configures the same IdP-only app-realm login path as
 the Helm deployment.
@@ -151,7 +156,7 @@ OpenFGA store with agent-use tuples. To test the full path:
 AUTH_ENABLED=true
 OIDC_ISSUER=http://localhost:7080/realms/caipe
 OIDC_CLIENT_ID=caipe-ui
-OIDC_REQUIRED_ADMIN_GROUP=admin
+OIDC_REQUIRED_GROUP=caipe-users
 DA_REQUIRE_BEARER=true
 OPENFGA_HTTP=http://openfga:8080
 OPENFGA_STORE_NAME=caipe-openfga

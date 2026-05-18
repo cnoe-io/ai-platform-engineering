@@ -23,7 +23,7 @@ const mockWithOpenFgaViewAuth = jest.fn(
 );
 
 jest.mock("../_lib", () => ({
-  validateTupleKey: (tuple: unknown) => tuple,
+  ...jest.requireActual("../_lib"),
   withOpenFgaAdminAuth: (...args: unknown[]) => mockWithOpenFgaAdminAuth(...args),
   withOpenFgaViewAuth: (...args: unknown[]) => mockWithOpenFgaViewAuth(...args),
 }));
@@ -96,5 +96,25 @@ describe("/api/admin/openfga/tuples", () => {
         resourceRef: expect.stringContaining('"applied_writes":1'),
       }),
     );
+  });
+
+  it("rejects materialized can_* tuple writes", async () => {
+    const { POST } = await import("../tuples/route");
+
+    const response = await POST(
+      request("/api/admin/openfga/tuples", {
+        method: "POST",
+        body: JSON.stringify({
+          writes: [{ user: "team:platform#member", relation: "can_use", object: "agent:agent-1" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: expect.stringContaining("materialized relation can_use is not writable"),
+    });
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 });

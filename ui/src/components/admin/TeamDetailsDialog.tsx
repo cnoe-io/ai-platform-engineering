@@ -34,9 +34,8 @@ import {
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
-import { MultiSelect } from "@/components/ui/multi-select";
 
-export type DialogMode = "details" | "members" | "resources" | "kbs" | "roles" | "channels";
+export type DialogMode = "details" | "members" | "resources" | "kbs" | "channels";
 
 interface ResourceOption {
   id: string;
@@ -52,17 +51,6 @@ interface ResourcesPayload {
     tool_wildcard: boolean;
   };
   available: { agents: ResourceOption[]; tools: ResourceOption[] };
-}
-
-interface RoleCatalogEntry {
-  name: string;
-  description?: string;
-  category: string;
-}
-
-interface RolesPayload {
-  roles: string[];
-  available: RoleCatalogEntry[];
 }
 
 // Spec 098 US9 — Slack channels tab.
@@ -174,13 +162,6 @@ export function TeamDetailsDialog({
   const [resourcesSaving, setResourcesSaving] = useState(false);
   const [resourcesNotice, setResourcesNotice] = useState<string | null>(null);
 
-  // Spec 104 — Roles tab state (global / catch-all realm-role assignment)
-  const [rolesData, setRolesData] = useState<RolesPayload | null>(null);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
-  const [rolesSaving, setRolesSaving] = useState(false);
-  const [rolesNotice, setRolesNotice] = useState<string | null>(null);
-
   // Spec 098 US9 — Slack channels tab state
   const [channelsData, setChannelsData] = useState<SlackChannelsPayload | null>(null);
   const [editedChannels, setEditedChannels] = useState<TeamSlackChannel[]>([]);
@@ -215,8 +196,6 @@ export function TeamDetailsDialog({
       setNewMemberRole("member");
       setResourcesData(null);
       setResourcesNotice(null);
-      setRolesData(null);
-      setRolesNotice(null);
       setChannelsData(null);
       setEditedChannels([]);
       setChannelsNotice(null);
@@ -291,43 +270,8 @@ export function TeamDetailsDialog({
     };
   }, [open, activeMode, currentTeam]);
 
-  // Spec 104 — load realm-role catalog when the Roles tab opens. Same
-  // pattern as Resources: refetch on every tab open so newly created roles
-  // (e.g. an admin just added a new KB-scoped role) show up without a
-  // dialog close/reopen cycle.
-  useEffect(() => {
-    if (!open || activeMode !== "roles" || !currentTeam) return;
-    let cancelled = false;
-    setRolesLoading(true);
-    setError(null);
-    setRolesNotice(null);
-    fetch(`/api/admin/teams/${currentTeam._id}/roles`)
-      .then(async (res) => {
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error || "Failed to load roles");
-        }
-        if (!cancelled) {
-          const payload = data.data as RolesPayload;
-          setRolesData(payload);
-          setSelectedRoles(payload.roles ?? []);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load roles");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setRolesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, activeMode, currentTeam]);
-
   // Spec 098 US9 — load this team's channel assignments + bindable agents
-  // when the Slack Channels tab opens. Mirrors the resources/roles tabs:
+  // when the Slack Channels tab opens. Mirrors the resources tab:
   // refetch on every open so newly-added agents show up in the bind dropdown
   // without a dialog close cycle.
   useEffect(() => {
@@ -571,36 +515,6 @@ export function TeamDetailsDialog({
     }
   };
 
-  const handleSaveRoles = async () => {
-    if (!currentTeam) return;
-    setRolesSaving(true);
-    setError(null);
-    setRolesNotice(null);
-    try {
-      const res = await fetch(`/api/admin/teams/${currentTeam._id}/roles`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roles: selectedRoles }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || "Failed to save roles");
-      }
-      const skipped: string[] = data.data?.members_skipped ?? [];
-      const updated: string[] = data.data?.members_updated ?? [];
-      setRolesNotice(
-        skipped.length > 0
-          ? `Saved. ${updated.length} member(s) updated; ${skipped.length} skipped (no Keycloak account yet): ${skipped.join(", ")}`
-          : `Saved. ${updated.length} member(s) updated.`
-      );
-      onTeamUpdated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save roles");
-    } finally {
-      setRolesSaving(false);
-    }
-  };
-
   const refreshTeam = async () => {
     if (!currentTeam) return;
     try {
@@ -781,14 +695,6 @@ export function TeamDetailsDialog({
             className="text-xs"
           >
             Slack Channels
-          </Button>
-          <Button
-            variant={activeMode === "roles" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setActiveMode("roles")}
-            className="text-xs"
-          >
-            Roles
           </Button>
         </div>
 
@@ -1005,14 +911,7 @@ export function TeamDetailsDialog({
             <p className="text-xs text-muted-foreground">
               Grant this team access to agents and tools. Saving writes OpenFGA
               relationships for this team; Keycloak no longer mirrors
-              per-resource realm roles. For global realm roles see the{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => setActiveMode("roles")}
-              >
-                Roles tab
-              </button>.
+              per-resource realm roles.
             </p>
 
             {resourcesNotice && (
@@ -1058,61 +957,6 @@ export function TeamDetailsDialog({
                   <Check className="h-4 w-4 mr-1" />
                 )}
                 Save Resources
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Roles Mode (Spec 104 — global / catch-all realm-role assignment) */}
-        {activeMode === "roles" && (
-          <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
-            <p className="text-xs text-muted-foreground">
-              Assign realm roles to every member of this team. Use this for
-              global flags (<code className="font-mono">admin_user</code>,{" "}
-              <code className="font-mono">chat_user</code>), or any custom
-              coarse realm role. Agent, tool, KB, task, and skill grants live
-              in OpenFGA through the{" "}
-              <button
-                type="button"
-                className="underline"
-                onClick={() => setActiveMode("resources")}
-              >
-                Resources tab
-              </button>.
-            </p>
-
-            {rolesNotice && (
-              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
-                <p className="text-sm text-emerald-700 dark:text-emerald-400">
-                  {rolesNotice}
-                </p>
-              </div>
-            )}
-
-            {rolesLoading || !rolesData ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <RoleAssignmentPanel
-                catalog={rolesData.available}
-                selected={selectedRoles}
-                onChange={setSelectedRoles}
-              />
-            )}
-
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button
-                size="sm"
-                onClick={handleSaveRoles}
-                disabled={rolesSaving || rolesLoading || !rolesData}
-              >
-                {rolesSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Check className="h-4 w-4 mr-1" />
-                )}
-                Save Roles
               </Button>
             </div>
           </div>
@@ -1203,7 +1047,7 @@ export function TeamDetailsDialog({
 
 /**
  * Spec 104 — Agents picker. Each row has two independent checkboxes:
- * "Use" (`can_use agent:<id>`) and "Manage" (`can_manage agent:<id>`).
+ * "Use" (base `user agent:<id>`) and "Manage" (base `manager agent:<id>`).
  * Manage implies Use in our authz model, so ticking Manage auto-ticks Use; the
  * UI mirrors this so admins don't end up with the visually-confusing
  * state of "manage but cannot use".
@@ -1268,7 +1112,7 @@ function AgentList({
                   <div className="flex items-center gap-3 mt-0.5">
                     <label
                       className="flex items-center cursor-pointer"
-                      title="OpenFGA can_use agent:<id> — chat with this agent"
+                      title="OpenFGA user agent:<id> — chat with this agent"
                     >
                       <input
                         type="checkbox"
@@ -1283,7 +1127,7 @@ function AgentList({
                     </label>
                     <label
                       className="flex items-center cursor-pointer"
-                      title="OpenFGA can_manage agent:<id> — edit/configure this agent"
+                      title="OpenFGA manager agent:<id> — edit/configure this agent"
                     >
                       <input
                         type="checkbox"
@@ -1390,15 +1234,6 @@ function ToolList({
   );
 }
 
-/**
- * Spec 104 — Roles picker. Renders the realm-role catalog grouped by
- * category prefix (`agent_user`, `tool_user`, `kb_reader`, …) with a
- * MultiSelect that supports search + free-form add (so admins can paste
- * a role name like `kb_reader:kb-new` even if the catalog hasn't been
- * refreshed yet). Currently-assigned roles that aren't in the catalog
- * (e.g. role was deleted, or a custom one) are still surfaced as chips
- * so admins can remove them.
- */
 /**
  * Spec 098 US9 — Slack channels picker.
  *
@@ -1705,103 +1540,3 @@ function SlackChannelsPanel({
   );
 }
 
-function RoleAssignmentPanel({
-  catalog,
-  selected,
-  onChange,
-}: {
-  catalog: RoleCatalogEntry[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const catalogNames = catalog.map((r) => r.name);
-  // Surface assigned-but-not-in-catalog roles so they can be removed.
-  const orphan = selected.filter((r) => !catalogNames.includes(r));
-  const allOptions = Array.from(new Set([...catalogNames, ...selected])).sort();
-
-  const grouped = catalog.reduce<Record<string, RoleCatalogEntry[]>>((acc, r) => {
-    (acc[r.category] = acc[r.category] || []).push(r);
-    return acc;
-  }, {});
-  const categoryOrder = Object.keys(grouped).sort();
-
-  return (
-    <div className="space-y-3 flex-1 min-h-0 flex flex-col">
-      <div>
-        <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-          Assigned roles ({selected.length})
-        </Label>
-        <div className="mt-1">
-          <MultiSelect
-            options={allOptions}
-            selected={selected}
-            onChange={onChange}
-            placeholder="Pick or type a realm role…"
-            searchPlaceholder="Search roles (e.g. kb_reader)"
-            emptyLabel="No matching roles"
-            badgeLabel="role"
-          />
-        </div>
-        {orphan.length > 0 && (
-          <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-            {orphan.length} role(s) not in catalog (orphan or custom): {orphan.join(", ")}
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-md border flex-1 min-h-0 flex flex-col">
-        <div className="px-3 py-2 border-b bg-muted/30">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Catalog ({catalog.length})
-          </p>
-        </div>
-        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "240px" }}>
-          {categoryOrder.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              No realm roles found. Check that the Keycloak Admin API is reachable.
-            </p>
-          ) : (
-            categoryOrder.map((cat) => (
-              <div key={cat} className="mb-3 last:mb-0">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 mb-1">
-                  {cat}
-                </p>
-                <ul className="space-y-0.5">
-                  {grouped[cat].map((r) => {
-                    const checked = selected.includes(r.name);
-                    return (
-                      <li key={r.name}>
-                        <label className="flex items-start gap-2 px-2 py-1 rounded hover:bg-muted/50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5"
-                            checked={checked}
-                            onChange={() =>
-                              onChange(
-                                checked
-                                  ? selected.filter((s) => s !== r.name)
-                                  : [...selected, r.name]
-                              )
-                            }
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-mono truncate">{r.name}</span>
-                            {r.description ? (
-                              <span className="block text-xs text-muted-foreground truncate">
-                                {r.description}
-                              </span>
-                            ) : null}
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))
-          )}
-        </ScrollArea>
-      </div>
-    </div>
-  );
-}

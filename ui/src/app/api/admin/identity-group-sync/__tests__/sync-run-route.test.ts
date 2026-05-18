@@ -6,11 +6,15 @@ import { NextRequest } from "next/server";
 
 const mockGetServerSession = jest.fn();
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockPlanIdentityGroupSync = jest.fn();
 const mockApplyIdentityGroupSyncPlan = jest.fn();
 const mockFetchOktaExternalGroups = jest.fn();
 const mockListIdentityGroupSyncRules = jest.fn();
 const mockListActiveTeamMembershipSourcesForProvider = jest.fn();
+const mockListActiveTeamMembershipSourcesForUser = jest.fn();
+const mockExtractGroups = jest.fn();
+const mockGetCachedOidcClaimGroups = jest.fn();
 const mockInsertOne = jest.fn();
 const mockTeamsToArray = jest.fn();
 
@@ -20,6 +24,8 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
+  extractGroups: (...args: unknown[]) => mockExtractGroups(...args),
+  getCachedOidcClaimGroups: (...args: unknown[]) => mockGetCachedOidcClaimGroups(...args),
   isBootstrapAdmin: jest.fn().mockReturnValue(false),
   REQUIRED_ADMIN_GROUP: "",
 }));
@@ -30,6 +36,10 @@ jest.mock("@/lib/config", () => ({
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
@@ -55,6 +65,8 @@ jest.mock("@/lib/rbac/identity-group-sync-rule-store", () => ({
 jest.mock("@/lib/rbac/team-membership-source-store", () => ({
   listActiveTeamMembershipSourcesForProvider: (...args: unknown[]) =>
     mockListActiveTeamMembershipSourcesForProvider(...args),
+  listActiveTeamMembershipSourcesForUser: (...args: unknown[]) =>
+    mockListActiveTeamMembershipSourcesForUser(...args),
 }));
 
 jest.mock("@/lib/rbac/mongo-collections", () => ({
@@ -121,8 +133,10 @@ const dryRunResult = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.OIDC_DISCOVERY_URL = "http://keycloak:7080/realms/caipe";
   mockIsMongoDBConfigured = true;
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true, reason: "OK" });
   mockPlanIdentityGroupSync.mockReturnValue(dryRunResult);
   mockApplyIdentityGroupSyncPlan.mockResolvedValue({
     membershipSourcesAdded: 0,
@@ -143,8 +157,21 @@ beforeEach(() => {
   ]);
   mockListIdentityGroupSyncRules.mockResolvedValue([{ id: "rule-platform", provider_id: "okta-main" }]);
   mockListActiveTeamMembershipSourcesForProvider.mockResolvedValue([]);
+  mockListActiveTeamMembershipSourcesForUser.mockResolvedValue([]);
+  mockExtractGroups.mockReturnValue(["caipe-users", "caipe-admins"]);
+  mockGetCachedOidcClaimGroups.mockReturnValue(["caipe-users", "caipe-admins"]);
   mockTeamsToArray.mockResolvedValue([{ id: "platform", slug: "platform", name: "Platform" }]);
   mockInsertOne.mockResolvedValue({ insertedId: "run-id" });
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      userinfo_endpoint: "http://keycloak:7080/realms/caipe/protocol/openid-connect/userinfo",
+      sub: "admin-sub",
+      email: "admin@example.test",
+      name: "Admin",
+      groups: ["caipe-users", "caipe-admins"],
+    }),
+  })) as jest.Mock;
 });
 
 describe("Identity Group Sync dry-run and apply routes", () => {
@@ -258,6 +285,101 @@ describe("Identity Group Sync dry-run and apply routes", () => {
     expect(mockApplyIdentityGroupSyncPlan).not.toHaveBeenCalled();
   });
 
+  it("rejects risky membership removals until explicitly acknowledged", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const { POST } = await import("../apply/route");
+    const riskyDryRun = {
+      ...dryRunResult,
+      membership_sources_to_remove: [
+        {
+          team_id: "platform-id",
+          team_slug: "platform",
+          user_subject: "admin-sub",
+          user_email: "admin@example.test",
+          relationship: "admin",
+          source_type: "oidc_claim",
+          provider_id: "oidc-claims",
+          external_group_id: "caipe-admins",
+          sync_rule_id: "rule-admin",
+          managed: true,
+          status: "removed",
+          created_at: "2026-05-12T00:00:00.000Z",
+        },
+      ],
+      safety_warnings: [
+        {
+          code: "admin_membership_removal",
+          severity: "blocker",
+          message: "Admin membership would be removed.",
+          requires_acknowledgement: true,
+          team_slug: "platform",
+          user_identifier: "admin@example.test",
+        },
+      ],
+    };
+
+    const response = await POST(
+      makeRequest("/api/admin/identity-group-sync/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          reviewed: true,
+          dry_run: riskyDryRun,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(mockApplyIdentityGroupSyncPlan).not.toHaveBeenCalled();
+  });
+
+  it("applies risky membership removals after explicit acknowledgement", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const { POST } = await import("../apply/route");
+    const riskyDryRun = {
+      ...dryRunResult,
+      membership_sources_to_remove: [
+        {
+          team_id: "platform-id",
+          team_slug: "platform",
+          user_subject: "admin-sub",
+          user_email: "admin@example.test",
+          relationship: "admin",
+          source_type: "oidc_claim",
+          provider_id: "oidc-claims",
+          external_group_id: "caipe-admins",
+          sync_rule_id: "rule-admin",
+          managed: true,
+          status: "removed",
+          created_at: "2026-05-12T00:00:00.000Z",
+        },
+      ],
+      safety_warnings: [
+        {
+          code: "admin_membership_removal",
+          severity: "blocker",
+          message: "Admin membership would be removed.",
+          requires_acknowledgement: true,
+        },
+      ],
+    };
+
+    const response = await POST(
+      makeRequest("/api/admin/identity-group-sync/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          reviewed: true,
+          acknowledge_removal_risks: true,
+          dry_run: riskyDryRun,
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockApplyIdentityGroupSyncPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ plan: riskyDryRun })
+    );
+  });
+
   it("returns 503 when MongoDB is unavailable", async () => {
     mockIsMongoDBConfigured = false;
     mockGetServerSession.mockResolvedValue(adminSession());
@@ -271,5 +393,82 @@ describe("Identity Group Sync dry-run and apply routes", () => {
     );
 
     expect(response.status).toBe(503);
+  });
+
+  it("suggests CAIPE teams from the current admin's OIDC group claims", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockListIdentityGroupSyncRules.mockResolvedValue([{ id: "rule", provider_id: "oidc-claims" }]);
+    mockPlanIdentityGroupSync.mockReturnValue({
+      ...dryRunResult,
+      ignored_groups: [
+        {
+          provider_id: "oidc-claims",
+          external_group_id: "caipe-users",
+          display_name: "caipe-users",
+          normalized_name: "caipe-users",
+          status: "active",
+        },
+        {
+          provider_id: "oidc-claims",
+          external_group_id: "caipe-admins",
+          display_name: "caipe-admins",
+          normalized_name: "caipe-admins",
+          status: "active",
+        },
+      ],
+    });
+    const { GET } = await import("../claim-suggestions/route");
+
+    const response = await GET(makeRequest("/api/admin/identity-group-sync/claim-suggestions"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockGetCachedOidcClaimGroups).toHaveBeenCalledWith("admin-sub");
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockExtractGroups).not.toHaveBeenCalled();
+    expect(mockPlanIdentityGroupSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groups: expect.arrayContaining([
+          expect.objectContaining({ external_group_id: "caipe-users" }),
+          expect.objectContaining({ external_group_id: "caipe-admins" }),
+        ]),
+        rules: [expect.objectContaining({ id: "rule" })],
+      })
+    );
+    expect(mockListActiveTeamMembershipSourcesForUser).toHaveBeenCalledWith({
+      providerId: "oidc-claims",
+      sourceType: "oidc_claim",
+      userSubject: "admin-sub",
+      userEmail: "admin@example.test",
+    });
+    expect(body.data.suggestions).toEqual([
+      expect.objectContaining({
+        source_group_id: "caipe-users",
+        suggested_team_slug: "caipe-users",
+        suggested_relationship: "member",
+        suggested_org_admin: false,
+      }),
+      expect.objectContaining({
+        source_group_id: "caipe-admins",
+        suggested_team_slug: "caipe-admins",
+        suggested_relationship: "admin",
+        suggested_org_admin: true,
+      }),
+    ]);
+  });
+
+  it("returns an empty suggestion set when userinfo has no group claims", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockGetCachedOidcClaimGroups.mockReturnValue([]);
+    const { GET } = await import("../claim-suggestions/route");
+
+    const response = await GET(makeRequest("/api/admin/identity-group-sync/claim-suggestions"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.groups).toEqual([]);
+    expect(body.data.suggestions).toEqual([]);
+    expect(body.data.reason).toBe("missing_session_group_claims");
+    expect(mockPlanIdentityGroupSync).not.toHaveBeenCalled();
   });
 });

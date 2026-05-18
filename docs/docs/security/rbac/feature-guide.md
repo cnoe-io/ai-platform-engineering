@@ -167,13 +167,13 @@ OpenFGA stores relationship tuples. The model represents relationships such as:
 
 ```text
 user:<sub> member team:<slug>
-team:<slug>#member can_use agent:<agent_id>
-team:<slug>#member can_call tool:<server>_*
-team:<slug>#member can_read knowledge_base:<id>
-slack_channel:<channel> can_use agent:<agent_id>
+team:<slug>#member user agent:<agent_id>
+team:<slug>#member caller tool:<server>_*
+team:<slug>#member reader knowledge_base:<id>
+slack_channel:<channel> user agent:<agent_id>
 ```
 
-The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call mcp_gateway:list`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured differently. Richer per-team, per-agent, per-tool, and per-KB tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
+The exact vocabulary is owned by the Universal ReBAC resource catalog and tuple builders in the UI codebase. OpenFGA stores base relationships only; derived `can_*` relations are check-time permissions from the authorization model and are rejected on tuple writes. The current AgentGateway bridge uses OpenFGA for the gateway decision, but it defaults to a coarse configured object (`can_call mcp_gateway:list`) unless `OPENFGA_RELATION` and `OPENFGA_OBJECT` are configured differently. Richer per-team, per-agent, per-tool, and per-KB base tuples are still authored for ReBAC views, explanations, service-side checks, and finer-grained gateway enforcement work.
 
 ### Data Plane
 
@@ -229,9 +229,7 @@ Common examples:
 | `tool_user:<prefix>` | Legacy compatibility role for an MCP tool or server prefix      |
 
 
-Roles are not the final long-term source for relationship decisions. New team membership and resource grants are OpenFGA relationships; Team Resources and Team Roles no longer mirror per-resource Keycloak roles.
-
-In the Admin Users table, CAIPE shows a curated role view: global/business roles are displayed as chips, team membership appears in the Teams column, and Keycloak plumbing roles such as `default-roles-caipe`, `offline_access`, and `uma_authorization` are hidden. The API still keeps raw Keycloak role data available for diagnostics as `raw_roles` and `role_classifications`.
+Roles are not the source for CAIPE relationship decisions. Team membership and resource grants are OpenFGA relationships; the Admin Dashboard no longer exposes product role chips, role filters, a Roles tab, or a standalone Slack users tab. The Users table shows identity, team membership, and Slack link state with `linked` / `pending` / `unlinked` filters. Slack unlink is handled from the user detail modal, while resource access remains managed through Team Resources and OpenFGA ReBAC views.
 
 ### Teams
 
@@ -538,7 +536,7 @@ For large deployments, do not render all users in the Policy Graph. Keep the tea
 
 ## 12. Identity Group Sync
 
-Identity Group Sync maps enterprise groups into CAIPE teams.
+Identity Group Sync maps enterprise groups into CAIPE teams. Basic Web UI admission is a separate login/session gate controlled by the deployment's `OIDC_REQUIRED_GROUP`; users missing that upstream group are blocked before CAIPE product authorization runs. Admin access is not a Keycloak role: map your enterprise admin group to a CAIPE admin team, then grant that team `admin` on the organization in OpenFGA.
 
 ### Sources
 
@@ -573,7 +571,7 @@ CAIPE team: platform-engineering
 action: ensure membership
 ```
 
-When the rule runs, CAIPE plans adds/removes, records provenance, updates team membership, reconciles Keycloak roles, and writes OpenFGA tuples.
+When the rule runs, CAIPE plans adds/removes, records provenance, updates team membership, and writes OpenFGA tuples.
 
 ### Dry Run
 
@@ -893,7 +891,7 @@ Check:
 
 - Subject format: `user:<sub>`.
 - Object format: `team:<slug>`, `tool:<prefix>`, `agent:<id>`, or `knowledge_base:<id>`.
-- Relation name: `member`, `can_call`, `can_use`, `can_manage`, `can_read`, `can_ingest`, or `can_admin`.
+- Relation name: use base relations for stored tuples (`member`, `user`, `manager`, `caller`, `reader`, `ingestor`) and `can_*` relations only for checks.
 - Tuple exists in the expected store/model.
 - The authorization model version matches the bridge.
 - The bridge is querying the same OpenFGA store as the admin UI writes to.

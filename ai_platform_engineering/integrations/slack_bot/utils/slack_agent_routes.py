@@ -11,6 +11,7 @@ import os
 import time
 from typing import Any, Callable, Literal, Optional
 
+import requests
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
@@ -22,6 +23,7 @@ logger = logging.getLogger("caipe.slack_bot.slack_agent_routes")
 
 SlackAgentRouteMode = Literal["config", "db_prefer", "db_only"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
+OpenFgaAgentIdsFactory = Callable[[str, str], list[str]]
 
 
 def slack_agent_route_mode() -> SlackAgentRouteMode:
@@ -63,16 +65,18 @@ def slack_workspace_ref(team_id: Optional[str] = None) -> str:
 
 
 class SlackAgentRouteResolver:
-    """Load and match UI-managed Slack agent routes from MongoDB."""
+    """Load OpenFGA-backed Slack agent routes with optional Mongo metadata."""
 
     def __init__(
         self,
         *,
         ttl_seconds: Optional[int] = None,
         collection_factory: Optional[CollectionFactory] = None,
+        openfga_agent_ids_factory: Optional[OpenFgaAgentIdsFactory] = None,
     ) -> None:
         self._ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         self._collection_factory = collection_factory
+        self._openfga_agent_ids_factory = openfga_agent_ids_factory
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
         self._cache: dict[tuple[str, str], tuple[list[dict[str, Any]], float]] = {}
@@ -97,17 +101,66 @@ class SlackAgentRouteResolver:
         return self._client[self._db_name]["slack_channel_agent_routes"]
 
     def _load_routes(self, workspace_id: str, channel_id: str) -> list[dict[str, Any]]:
+        agent_ids = self._load_openfga_agent_ids(workspace_id, channel_id)
+        if not agent_ids and workspace_id != "unknown":
+            agent_ids = self._load_openfga_agent_ids("unknown", channel_id)
+        if not agent_ids:
+            return []
+
         collection = self._get_collection()
         if collection is None:
-            return []
+            return [_default_route(agent_id) for agent_id in agent_ids]
 
         try:
             routes = self._query_routes(collection, workspace_id, channel_id)
-            if routes or workspace_id == "unknown":
-                return routes
-            return self._query_routes(collection, "unknown", channel_id)
+            if not routes and workspace_id != "unknown":
+                routes = self._query_routes(collection, "unknown", channel_id)
+            return _merge_openfga_agents_with_route_metadata(agent_ids, routes)
         except PyMongoError as exc:
             logger.warning("SlackAgentRouteResolver: route query failed: %s", exc)
+            return [_default_route(agent_id) for agent_id in agent_ids]
+
+    def _load_openfga_agent_ids(self, workspace_id: str, channel_id: str) -> list[str]:
+        if self._openfga_agent_ids_factory is not None:
+            return self._openfga_agent_ids_factory(workspace_id, channel_id)
+
+        base_url = os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
+        if not base_url:
+            return []
+
+        try:
+            store_id = _openfga_store_id(base_url)
+            workspace_ref = slack_workspace_ref(workspace_id)
+            agent_ids: list[str] = []
+            seen: set[str] = set()
+            continuation_token: str | None = None
+            while True:
+                body: dict[str, Any] = {
+                    "tuple_key": {
+                        "user": f"slack_channel:{workspace_ref}--{channel_id}",
+                        "relation": "user",
+                    },
+                    "page_size": 100,
+                }
+                if continuation_token:
+                    body["continuation_token"] = continuation_token
+                response = requests.post(
+                    f"{base_url}/stores/{store_id}/read",
+                    headers={"Content-Type": "application/json"},
+                    json=body,
+                    timeout=5,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                for agent_id in _agent_ids_from_openfga_read(payload):
+                    if agent_id not in seen:
+                        seen.add(agent_id)
+                        agent_ids.append(agent_id)
+                continuation_token = payload.get("continuation_token") or None
+                if not continuation_token:
+                    return agent_ids
+        except requests.RequestException as exc:
+            logger.warning("SlackAgentRouteResolver: OpenFGA tuple read failed: %s", exc)
             return []
 
     def _query_routes(
@@ -174,6 +227,58 @@ def _ttl_from_env() -> int:
         return max(0, int(os.environ.get("SLACK_AGENT_ROUTES_TTL_SECONDS", "60")))
     except ValueError:
         return 60
+
+
+def _openfga_store_id(base_url: str) -> str:
+    explicit = os.environ.get("OPENFGA_STORE_ID", "").strip()
+    if explicit:
+        return explicit
+
+    store_name = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
+    response = requests.get(f"{base_url}/stores", headers={"Content-Type": "application/json"}, timeout=5)
+    response.raise_for_status()
+    for store in response.json().get("stores", []):
+        if store.get("name") == store_name and store.get("id"):
+            return str(store["id"])
+    raise requests.RequestException(f"OpenFGA store {store_name!r} was not found")
+
+
+def _agent_ids_from_openfga_read(payload: dict[str, Any]) -> list[str]:
+    agent_ids: list[str] = []
+    seen: set[str] = set()
+    for tuple_row in payload.get("tuples", []):
+        key = tuple_row.get("key") if isinstance(tuple_row, dict) else None
+        object_id = key.get("object") if isinstance(key, dict) else None
+        if not isinstance(object_id, str) or not object_id.startswith("agent:"):
+            continue
+        agent_id = object_id.removeprefix("agent:").strip()
+        if agent_id and agent_id not in seen:
+            seen.add(agent_id)
+            agent_ids.append(agent_id)
+    return agent_ids
+
+
+def _default_route(agent_id: str) -> dict[str, Any]:
+    return {
+        "agent_id": agent_id,
+        "enabled": True,
+        "priority": 100,
+        "status": "active",
+        "users": {"enabled": True, "listen": "mention"},
+    }
+
+
+def _merge_openfga_agents_with_route_metadata(
+    agent_ids: list[str],
+    routes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    metadata_by_agent_id = {
+        route["agent_id"]: route
+        for route in routes
+        if isinstance(route.get("agent_id"), str) and route["agent_id"] in agent_ids
+    }
+    merged = [metadata_by_agent_id.get(agent_id, _default_route(agent_id)) for agent_id in agent_ids]
+    return sorted(merged, key=lambda route: (route.get("priority", 100), route.get("agent_id", "")))
 
 
 def _side_matches(

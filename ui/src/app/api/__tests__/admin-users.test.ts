@@ -27,6 +27,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
 }));
 
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
@@ -74,6 +79,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
     role: 'admin' as const,
+    sub: 'admin-sub',
     accessToken: 'admin-token',
   };
 }
@@ -82,6 +88,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user' as const,
+    sub: 'user-sub',
     accessToken: 'user-token',
   };
 }
@@ -97,7 +104,9 @@ function resetMocks() {
   mockListRealmRoleMappingsForUser.mockReset();
   mockGetUserFederatedIdentities.mockReset();
   mockCheckPermission.mockReset();
+  mockCheckOpenFgaTuple.mockReset();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true, reason: 'OK' });
   mockListRealmRoleMappingsForUser.mockResolvedValue([{ name: 'user' }]);
   mockGetUserFederatedIdentities.mockResolvedValue([]);
 }
@@ -212,5 +221,46 @@ describe('GET /api/admin/users — Keycloak list', () => {
     expect(body.users).toEqual([]);
     expect(body.total).toBe(0);
     expect(mockSearchRealmUsers).not.toHaveBeenCalled();
+  });
+
+  it('filters Slack pending users from active link nonces', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const raw = [
+      {
+        id: 'u1',
+        username: 'alice',
+        email: 'alice@example.com',
+        attributes: { slack_user_id: ['U_PENDING'] },
+      },
+      {
+        id: 'u2',
+        username: 'bob',
+        email: 'bob@example.com',
+        attributes: { slack_user_id: ['U_LINKED'] },
+      },
+    ];
+    mockSearchRealmUsers
+      .mockResolvedValueOnce(raw)
+      .mockResolvedValueOnce([]);
+    mockCollections.slack_link_nonces = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ slack_user_id: 'U_PENDING' }]),
+        }),
+      }),
+      findOne: jest.fn(),
+    } as any;
+
+    const res = await GET(makeRequest('/api/admin/users?slackStatus=pending'));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(1);
+    expect(body.users[0]).toMatchObject({
+      id: 'u1',
+      email: 'alice@example.com',
+      slack_link_status: 'pending',
+    });
+    expect(body.total).toBe(1);
   });
 });

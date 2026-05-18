@@ -26,6 +26,7 @@ type AdminUsersListItem = {
   lastName: string;
   enabled: boolean;
   attributes: Record<string, string[]>;
+  slack_link_status: "linked" | "pending" | "unlinked";
   roles: string[];
   raw_roles: string[];
   role_classifications: RealmRoleClassification[];
@@ -49,12 +50,48 @@ function normalizeAttributes(raw: unknown): Record<string, string[]> {
   return out;
 }
 
-function isSlackLinkedFromUser(u: Record<string, unknown>): boolean {
+function readSlackUserIdFromUser(u: Record<string, unknown>): string | undefined {
   const attrs = u.attributes as Record<string, unknown> | undefined;
-  if (!attrs) return false;
+  if (!attrs) return undefined;
   const sid = attrs.slack_user_id;
   const v = Array.isArray(sid) ? sid[0] : sid;
-  return Boolean(v != null && String(v).trim() !== "");
+  const normalized = v != null ? String(v).trim() : "";
+  return normalized || undefined;
+}
+
+async function loadPendingSlackIds(): Promise<Set<string>> {
+  try {
+    const nonceColl = await getCollection<{
+      slack_user_id: string;
+      expires_at?: Date;
+      created_at?: Date;
+      consumed?: boolean;
+    }>("slack_link_nonces");
+    const now = Date.now();
+    const ttlMs = 10 * 60 * 1000;
+    const rows = await nonceColl
+      .find({
+        consumed: { $ne: true },
+        $or: [
+          { expires_at: { $gt: new Date() } },
+          { created_at: { $gte: new Date(now - ttlMs) } },
+        ],
+      })
+      .project({ slack_user_id: 1 })
+      .toArray();
+    return new Set(rows.map((r) => String(r.slack_user_id).trim()).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+function getSlackLinkStatus(
+  u: Record<string, unknown>,
+  pendingSlackIds: Set<string>
+): AdminUsersListItem["slack_link_status"] {
+  const slackUserId = readSlackUserIdFromUser(u);
+  if (!slackUserId) return "unlinked";
+  return pendingSlackIds.has(slackUserId) ? "pending" : "linked";
 }
 
 async function loadRoleUserIdSet(roleName: string): Promise<Set<string>> {
@@ -85,7 +122,10 @@ async function loadTeamMemberEmails(teamId: string): Promise<Set<string>> {
   return emails;
 }
 
-async function enrichListRow(u: Record<string, unknown>): Promise<AdminUsersListItem> {
+async function enrichListRow(
+  u: Record<string, unknown>,
+  pendingSlackIds: Set<string>
+): Promise<AdminUsersListItem> {
   const id = String(u.id ?? "");
   const roleRows = await listRealmRoleMappingsForUser(id);
   const curatedRoles = curateRealmRolesForUser(roleRows.map((r) => r.name));
@@ -98,6 +138,7 @@ async function enrichListRow(u: Record<string, unknown>): Promise<AdminUsersList
     lastName: u.lastName !== undefined && u.lastName !== null ? String(u.lastName) : "",
     enabled: u.enabled !== false,
     attributes: normalizeAttributes(u.attributes),
+    slack_link_status: getSlackLinkStatus(u, pendingSlackIds),
     ...curatedRoles,
   };
 }
@@ -108,7 +149,8 @@ async function userMatchesFilters(
     roleIdSet: Set<string> | null;
     teamEmailSet: Set<string> | null;
     idp: string | null;
-    slackStatus: "linked" | "unlinked" | null;
+    slackStatus: AdminUsersListItem["slack_link_status"] | null;
+    pendingSlackIds: Set<string>;
   }
 ): Promise<boolean> {
   const id = String(u.id ?? "");
@@ -117,8 +159,7 @@ async function userMatchesFilters(
   const email = String(u.email ?? "").trim().toLowerCase();
   if (opts.teamEmailSet && !opts.teamEmailSet.has(email)) return false;
 
-  if (opts.slackStatus === "linked" && !isSlackLinkedFromUser(u)) return false;
-  if (opts.slackStatus === "unlinked" && isSlackLinkedFromUser(u)) return false;
+  if (opts.slackStatus && getSlackLinkStatus(u, opts.pendingSlackIds) !== opts.slackStatus) return false;
 
   if (opts.idp) {
     const feds = await getUserFederatedIdentities(id);
@@ -140,12 +181,12 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     const idp = (url.searchParams.get("idp") ?? "").trim() || undefined;
     const slackRaw = (url.searchParams.get("slackStatus") ?? "").trim().toLowerCase();
     const slackStatus =
-      slackRaw === "linked" || slackRaw === "unlinked"
-        ? (slackRaw as "linked" | "unlinked")
+      slackRaw === "linked" || slackRaw === "pending" || slackRaw === "unlinked"
+        ? (slackRaw as AdminUsersListItem["slack_link_status"])
         : slackRaw === ""
           ? null
           : (() => {
-              throw new ApiError('slackStatus must be "linked" or "unlinked"', 400);
+              throw new ApiError('slackStatus must be "linked", "pending", or "unlinked"', 400);
             })();
 
     const enabled = parseBoolParam(url.searchParams.get("enabled"));
@@ -196,6 +237,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       Boolean(teamEmailSet) ||
       Boolean(idp) ||
       Boolean(slackStatus);
+    const pendingSlackIds =
+      needsScan || !slackStatus ? await loadPendingSlackIds() : new Set<string>();
 
     const skip = (page - 1) * pageSize;
 
@@ -208,7 +251,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         max: pageSize,
       });
       const total = await countRealmUsers({ search, enabled });
-      const users = await Promise.all(raw.map((row) => enrichListRow(row)));
+      const users = await Promise.all(raw.map((row) => enrichListRow(row, pendingSlackIds)));
       return NextResponse.json({
         users,
         total,
@@ -222,6 +265,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       teamEmailSet,
       idp: idp ?? null,
       slackStatus,
+      pendingSlackIds,
     };
 
     const pageRows: AdminUsersListItem[] = [];
@@ -241,7 +285,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       for (const row of batch) {
         if (!(await userMatchesFilters(row, filterOpts))) continue;
         if (matchCount >= skip && pageRows.length < pageSize) {
-          pageRows.push(await enrichListRow(row));
+        pageRows.push(await enrichListRow(row, pendingSlackIds));
         }
         matchCount += 1;
       }

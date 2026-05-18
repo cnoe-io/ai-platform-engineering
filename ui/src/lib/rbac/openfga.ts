@@ -69,6 +69,17 @@ export interface OpenFgaCheckResult {
   allowed: boolean;
 }
 
+function assertWritableRelations(diff: TeamResourceTupleDiff): void {
+  const materialized = [...diff.writes, ...diff.deletes].find((tuple) =>
+    tuple.relation.startsWith("can_")
+  );
+  if (materialized) {
+    throw new Error(
+      `Materialized relation ${materialized.relation} is not writable; write the base OpenFGA relationship instead`
+    );
+  }
+}
+
 const DEFAULT_STORE_NAME = "caipe-openfga";
 const MAX_READ_PAGE_SIZE = 100;
 
@@ -273,6 +284,7 @@ export async function readOpenFgaTuples(options: OpenFgaReadOptions = {}): Promi
 }
 
 export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<OpenFgaReconcileResult> {
+  assertWritableRelations(diff);
   if (!isOpenFgaConfigured()) {
     return { enabled: false, writes: 0, deletes: 0 };
   }

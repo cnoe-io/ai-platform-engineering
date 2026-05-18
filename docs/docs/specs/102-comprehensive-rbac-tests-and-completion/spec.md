@@ -58,7 +58,7 @@ Without comprehensive tests this gap is invisible to reviewers and easy to regre
 
 | Persona | Keycloak realm roles | Team membership (Mongo) | Slack link |
 |---|---|---|---|
-| `alice_admin` | `admin` | `platform-admins` | linked |
+| `alice_admin` | `admin` | `caipe-admins` | linked |
 | `bob_chat_user` | `chat_user`, `team_member` | `team-a` | linked |
 | `carol_kb_ingestor` | `chat_user`, `kb_ingestor` (per-KB role: `kb_ingestor:team-a-docs`) | `team-a` | linked |
 | `dave_no_role` | (none) | (none) | unlinked |

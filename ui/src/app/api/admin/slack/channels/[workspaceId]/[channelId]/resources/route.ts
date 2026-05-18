@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { readOpenFgaTuples, writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import {
   replaceSlackChannelGrants,
-  listSlackChannelGrants,
   SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
+  slackChannelSubjectId,
   type SlackChannelGrantInput,
 } from "@/lib/rbac/slack-channel-grant-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
@@ -17,6 +17,60 @@ import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;
+}
+
+function agentIdFromObject(object: string): string | null {
+  if (!object.startsWith("agent:")) return null;
+  const agentId = object.slice("agent:".length).trim();
+  return agentId || null;
+}
+
+async function listOpenFgaAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
+  const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
+  const seen = new Set<string>();
+  let continuationToken: string | undefined;
+  do {
+    const result = await readOpenFgaTuples({
+      tuple: { user: subject, relation: "user" },
+      pageSize: 100,
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    for (const tuple of result.tuples) {
+      const agentId = agentIdFromObject(tuple.key.object);
+      if (agentId) seen.add(agentId);
+    }
+    continuationToken = result.continuationToken;
+  } while (continuationToken);
+  return Array.from(seen).sort();
+}
+
+async function listOpenFgaAgentGrants(workspaceId: string, channelId: string): Promise<SlackChannelGrantInput[]> {
+  const agentIds = await listOpenFgaAgentIds(workspaceId, channelId);
+  return agentIds
+    .map((agentId) => ({
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      resource: { type: "agent" as const, id: agentId },
+      actions: ["use" as const],
+    }));
+}
+
+async function writeRequiredOpenFgaTuples(
+  writes: ReturnType<typeof slackChannelGrantRelationship>[],
+  deletes: ReturnType<typeof slackChannelGrantRelationship>[]
+) {
+  try {
+    const result = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes }));
+    if (!result.enabled) {
+      throw new Error("OpenFGA is not configured");
+    }
+    return result;
+  } catch (error) {
+    throw new ApiError(
+      error instanceof Error ? `OpenFGA tuple write failed: ${error.message}` : "OpenFGA tuple write failed",
+      502
+    );
+  }
 }
 
 function parseGrant(value: unknown, index: number): Omit<SlackChannelGrantInput, "workspace_id" | "channel_id"> {
@@ -43,7 +97,7 @@ function parseGrant(value: unknown, index: number): Omit<SlackChannelGrantInput,
 export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
   withSlackChannelRebacViewAuth(request, async () => {
     const { workspaceId, channelId } = await context.params;
-    const grants = await listSlackChannelGrants(workspaceId, channelId);
+    const grants = await listOpenFgaAgentGrants(workspaceId, channelId);
     return successResponse({ grants });
   })
 );
@@ -63,19 +117,22 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
       ...parseGrant(grant, index),
       created_by: actor,
     }));
-    const saved = await replaceSlackChannelGrants(workspaceId, channelId, grants, actor);
+    const existingAgentIds = await listOpenFgaAgentIds(workspaceId, channelId);
+    const nextAgentIds = grants
+      .filter((grant) => grant.resource.type === "agent" && grant.actions.includes("use"))
+      .map((grant) => grant.resource.id);
     const writes = grants.flatMap((grant) =>
       grant.actions.map((action) =>
         slackChannelGrantRelationship(workspaceId, channelId, grant.resource, action)
       )
     );
-    const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] }))
-      .catch((error) => ({
-        enabled: false,
-        writes: 0,
-        deletes: 0,
-        error: error instanceof Error ? error.message : "OpenFGA tuple write failed",
-      }));
+    const deletes = existingAgentIds
+      .filter((agentId) => !nextAgentIds.includes(agentId))
+      .map((agentId) =>
+        slackChannelGrantRelationship(workspaceId, channelId, { type: "agent", id: agentId }, "use")
+      );
+    const openfga = await writeRequiredOpenFgaTuples(writes, deletes);
+    const saved = await replaceSlackChannelGrants(workspaceId, channelId, grants, actor);
 
     return successResponse({ grants: saved, openfga });
   })

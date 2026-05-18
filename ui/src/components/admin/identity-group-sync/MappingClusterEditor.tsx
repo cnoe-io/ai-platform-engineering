@@ -25,9 +25,9 @@ export function MappingClusterEditor({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Mapping cluster</CardTitle>
+        <CardTitle>Manual preview</CardTitle>
         <CardDescription>
-          Start with a representative upstream group. Full rule management lands in the next slice.
+          Use this only to test a specific upstream group before creating sync rules.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

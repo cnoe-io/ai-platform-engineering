@@ -112,7 +112,7 @@ sequenceDiagram
     U->>OK: Authenticate (password + MFA)
     OK->>KC: OIDC callback<br/>(id_token with sub, email, groups)
 
-    Note over KC: Keycloak creates identity binding:<br/>┌─────────────────────────────────────┐<br/>│ slack_user_id: U12345               │<br/>│ keycloak_sub: kc-uuid-abc123        │<br/>│ okta_uid: okta-uid-xyz789           │<br/>│ email: user@example.com             │<br/>│ groups: [sre-team, platform-admins] │<br/>└─────────────────────────────────────┘
+    Note over KC: Keycloak creates identity binding:<br/>┌─────────────────────────────────────┐<br/>│ slack_user_id: U12345               │<br/>│ keycloak_sub: kc-uuid-abc123        │<br/>│ okta_uid: okta-uid-xyz789           │<br/>│ email: user@example.com             │<br/>│ groups: [sre-team, caipe-admins]    │<br/>└─────────────────────────────────────┘
 
     KC->>SB: Auth code callback (redirect)
     SB->>KC: Exchange code → tokens<br/>(validates binding succeeded)
@@ -355,7 +355,7 @@ graph LR
     end
 
     subgraph T2["② Keycloak User Token"]
-        S2["Full-scope JWT<br/>─────────────<br/>sub: user@example.com<br/>scope: github jira argocd pagerduty<br/>groups: [sre-team, platform-admins]<br/>act: {sub: caipe-slack-bot}<br/>TTL: 30 min"]
+        S2["Full-scope JWT<br/>─────────────<br/>sub: user@example.com<br/>scope: github jira argocd pagerduty<br/>groups: [sre-team, caipe-admins]<br/>act: {sub: caipe-slack-bot}<br/>TTL: 30 min"]
     end
 
     subgraph T3["③ Agent Token (OBO)"]

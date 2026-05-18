@@ -85,7 +85,14 @@ def test_resolver_matches_enabled_routes_by_listen_and_priority() -> None:
             },
         ]
     )
-    resolver = SlackAgentRouteResolver(collection_factory=lambda: collection)
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: [
+            "low-priority-agent",
+            "high-priority-agent",
+            "message-only-agent",
+        ],
+    )
 
     matches = resolver.match_routes(
         workspace_id="T123",
@@ -129,7 +136,10 @@ def test_resolver_matches_configured_workspace_alias_routes() -> None:
             }
         ]
     )
-    resolver = SlackAgentRouteResolver(collection_factory=lambda: collection)
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["ui-managed-agent"],
+    )
 
     matches = resolver.match_routes(
         workspace_id="CAIPE",
@@ -140,3 +150,62 @@ def test_resolver_matches_configured_workspace_alias_routes() -> None:
     )
 
     assert [match.agent_id for match in matches] == ["ui-managed-agent"]
+
+
+def test_resolver_ignores_mongo_routes_without_openfga_tuple() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "tuple-backed-agent",
+                "enabled": True,
+                "priority": 100,
+                "status": "active",
+                "users": {"enabled": True, "listen": "mention"},
+            },
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "stale-mongo-agent",
+                "enabled": True,
+                "priority": 1,
+                "status": "active",
+                "users": {"enabled": True, "listen": "mention"},
+            },
+        ]
+    )
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["tuple-backed-agent"],
+    )
+
+    matches = resolver.match_routes(
+        workspace_id="CAIPE",
+        channel_id="C123",
+        is_bot=False,
+        user_id="U123",
+        listen="mention",
+    )
+
+    assert [match.agent_id for match in matches] == ["tuple-backed-agent"]
+
+
+def test_resolver_uses_default_metadata_for_openfga_tuple_without_mongo_route() -> None:
+    collection = _Collection([])
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["tuple-only-agent"],
+    )
+
+    matches = resolver.match_routes(
+        workspace_id="CAIPE",
+        channel_id="C123",
+        is_bot=False,
+        user_id="U123",
+        listen="mention",
+    )
+
+    assert [match.agent_id for match in matches] == ["tuple-only-agent"]
+    assert matches[0].users is not None
+    assert matches[0].users.listen == "mention"

@@ -53,6 +53,12 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
   if (!ALLOWED_RELATIONS.has(relation)) {
     throw new ApiError(`unsupported relation: ${relation}`, 400);
   }
+  if (relation.startsWith("can_")) {
+    throw new ApiError(
+      `materialized relation ${relation} is not writable; use a base OpenFGA relation`,
+      400
+    );
+  }
 
   const isUserMembership = user.startsWith("user:") && relation === "member" && object.startsWith("team:");
   const isTeamAgent =

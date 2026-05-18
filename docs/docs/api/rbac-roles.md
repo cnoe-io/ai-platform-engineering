@@ -313,7 +313,7 @@ Creates an **OIDC advanced role IdP mapper** that assigns a **realm role** when 
 ```json
 {
   "idpAlias": "duo-sso",
-  "groupName": "platform-admins",
+  "groupName": "caipe-admins",
   "roleName": "admin"
 }
 ```
@@ -325,13 +325,13 @@ Creates an **OIDC advanced role IdP mapper** that assigns a **realm role** when 
   "success": true,
   "data": {
     "id": "new-mapper-uuid",
-    "name": "duo-sso-platform-admins-to-admin",
+    "name": "duo-sso-caipe-admins-to-admin",
     "identityProviderAlias": "duo-sso",
     "identityProviderMapper": "oidc-advanced-role-idp-mapper",
     "config": {
       "syncMode": "INHERIT",
       "are.claim.values.regex": "false",
-      "claims": "[{\"key\":\"groups\",\"value\":\"platform-admins\"}]",
+      "claims": "[{\"key\":\"groups\",\"value\":\"caipe-admins\"}]",
       "role": "admin"
     }
   }

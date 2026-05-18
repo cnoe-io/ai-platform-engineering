@@ -527,7 +527,7 @@
             "userinfo.token.claim": "true",
             "user.attribute": "profile",
             "id.token.claim": "true",
-            "access.token.claim": "true",
+            "access.token.claim": "false",
             "claim.name": "profile",
             "jsonType.label": "String"
           }
@@ -617,7 +617,8 @@
             "userinfo.token.claim": "true",
             "user.attribute": "idp_groups",
             "id.token.claim": "true",
-            "access.token.claim": "true",
+            "access.token.claim": "false",
+            "introspection.token.claim": "false",
             "claim.name": "groups",
             "jsonType.label": "String"
           }

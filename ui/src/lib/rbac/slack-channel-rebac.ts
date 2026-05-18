@@ -12,7 +12,6 @@ import type {
 import { checkUniversalRebacRelationship } from "./openfga";
 import {
   SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
-  listSlackChannelGrants,
   slackChannelSubjectId,
 } from "./slack-channel-grant-store";
 
@@ -65,14 +64,12 @@ export async function checkSlackChannelAccess(input: {
     };
   }
 
-  const channelGrants = await listSlackChannelGrants(input.workspace_id, input.channel_id);
-  const channelAllowed = channelGrants.some(
-    (grant) =>
-      grant.resource.type === input.resource.type &&
-      grant.resource.id === input.resource.id &&
-      grant.actions.includes(input.action)
-  );
-  if (!channelAllowed) {
+  const channelResult = await checkUniversalRebacRelationship({
+    subject: { type: "slack_channel", id: slackChannelSubjectId(input.workspace_id, input.channel_id) },
+    action: input.action,
+    resource: input.resource,
+  });
+  if (!channelResult.allowed) {
     return {
       allowed: false,
       channel_allowed: false,

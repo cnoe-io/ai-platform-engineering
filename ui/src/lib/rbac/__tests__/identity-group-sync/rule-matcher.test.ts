@@ -73,21 +73,20 @@ describe("identity group rule matcher", () => {
     ]);
   });
 
-  it("reports slug conflicts instead of auto-merging generated teams", () => {
+  it("matches generated slugs to existing teams instead of treating them as conflicts", () => {
     const result = evaluateIdentityGroupRules({
       groups: [group("Engineering Platform Users")],
       rules: [baseRule],
       existingTeamSlugs: ["platform"],
     });
 
-    expect(result.matches).toEqual([]);
-    expect(result.conflicts).toEqual([
-      {
+    expect(result.matches).toEqual([
+      expect.objectContaining({
         group: group("Engineering Platform Users"),
-        reason: 'Generated team slug "platform" already exists',
-        ruleId: "rule-platform",
         teamSlug: "platform",
-      },
+        relationship: "member",
+      }),
     ]);
+    expect(result.conflicts).toEqual([]);
   });
 });

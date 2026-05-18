@@ -135,7 +135,7 @@ export function GroupRoleMappingDialog({
               </Label>
               <Input
                 id="groupName"
-                placeholder="e.g., backstage-access"
+                placeholder="e.g., caipe-admins"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
                 disabled={loading}

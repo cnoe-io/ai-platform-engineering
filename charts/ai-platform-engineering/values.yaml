@@ -1097,8 +1097,8 @@ keycloak:
     issuer: ""             # OIDC issuer URL
     clientId: ""
     secretRef: ""          # K8s Secret with key: IDP_CLIENT_SECRET
-    accessGroup: ""        # IdP group claim → chat_user role
-    adminGroup: ""         # IdP group claim → admin role
+    accessGroup: ""        # Optional upstream group reference; mirrored into idp_groups only
+    adminGroup: ""         # Optional upstream admin group reference; map to OpenFGA admin via Identity Group Sync
 
   # External Secrets for admin password
   externalSecrets:

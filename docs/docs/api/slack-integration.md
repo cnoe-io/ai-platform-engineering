@@ -10,7 +10,7 @@ This page describes the **Slack integration** surface area: Next.js UI Backend A
 
 ## Slack User Bootstrapping Dashboard API (admin)
 
-Admin-only JSON APIs used by the CAIPE admin UI to list Slack-linked identities, metrics, and to trigger re-link or revoke.
+Admin-only JSON APIs used by the CAIPE admin UI to inspect Slack-linked identities, metrics, and to trigger re-link or revoke. The primary UI for Slack identity state is now the Admin **Users** tab and user detail modal; this listing route is kept as an API surface for operational views.
 
 ### GET `/api/admin/slack/users`
 
@@ -41,7 +41,6 @@ Returns a **paginated** list of Slack users merged from Keycloak (`slack_user_id
         "slack_user_id": "U012ABCDEF",
         "link_status": "linked",
         "enabled": true,
-        "roles": ["offline_access", "uma_authorization", "team-member-507f1f77bcf86cd799439011"],
         "teams": ["Platform"],
         "last_interaction": "2026-03-25T14:22:01.000Z",
         "obo_success_count": 42,
@@ -52,7 +51,6 @@ Returns a **paginated** list of Slack users merged from Keycloak (`slack_user_id
         "keycloak_user_id": "",
         "slack_user_id": "U099ZZZZ",
         "link_status": "unlinked",
-        "roles": [],
         "teams": [],
         "last_interaction": "2026-03-20T09:00:00.000Z",
         "obo_success_count": 0,
@@ -223,12 +221,12 @@ Slack Bolt registrations in `app.py`. These are **not** HTTP routes; payloads fo
 | Step | Behavior |
 |------|----------|
 | Identity | Reads Slack user id from `body.event.user`, `body.user.id`, or `body.user_id`. |
-| Resolve | Async: `resolve_slack_user` → Keycloak user by `slack_user_id` attribute; resolves channel team via `resolve_effective_team_for_user` and realm roles. |
+| Resolve | Async: `resolve_slack_user` → Keycloak user by `slack_user_id` attribute; resolves the channel's effective CAIPE team before downstream OpenFGA-backed checks. |
 | Unlinked | Generates URL via `generate_linking_url(slack_user_id)` (Mongo nonce + UI Backend API URL); `chat_postEphemeral` with link when `channel` is present; then **`next()`** — downstream handlers still run. |
 | Deny | Team/role mismatch → ephemeral denial; **`return` without `next()`** — handler chain stops. |
 | OK | Sets `context["keycloak_user_id"]`, `context["platform_team_id"]`, optional `context["slack_channel_id"]`; calls `next()`. |
 
-> **Note:** The middleware docstring mentions OBO token exchange; the **enrichment function** in `app.py` focuses on identity + team + realm roles. OBO exchange is implemented in `obo_exchange.py` for callers that obtain a user token and call `exchange_token`; `require_permission` (below) expects an `access_token` kwarg for Keycloak AuthZ.
+> **Note:** The middleware docstring mentions OBO token exchange; the **enrichment function** in `app.py` focuses on Slack identity and team context. OBO exchange is implemented in `obo_exchange.py` for callers that obtain a user token and call `exchange_token`.
 
 ### Decorator — `require_permission` (`rbac_middleware.py`)
 
@@ -238,7 +236,7 @@ Slack Bolt registrations in `app.py`. These are **not** HTTP routes; payloads fo
 | Args | `resource`, `scope`, optional `tenant_id` (default `default`). |
 | Token | Expects `access_token` and `user_sub` in kwargs; uses `context["obo_token"]` / `access_token` for tenant (`org` claim). |
 | On deny | Returns human-readable string for Slack ephemeral; logs via `log_authz_decision`. |
-| Team gate | If `context["rbac_enabled"]` and `platform_team_id`, verifies JWT realm roles include team membership before PDP call. |
+| Team gate | If `context["rbac_enabled"]` and `platform_team_id`, verifies team membership before downstream authorization. |
 
 ### Keycloak PDP — `keycloak_authz.py`
 

@@ -120,9 +120,10 @@ idp:
   displayName: "Enterprise SSO"
   issuer: "https://your-enterprise-idp.example.com"
   clientId: caipe
-  accessGroup: caipe-users
-  # Users in this upstream group receive the Keycloak `admin` realm role.
-  adminGroup: caipe-admins
+  # Optional group references only; Keycloak mirrors upstream groups into idp_groups.
+  accessGroup: ""
+  # Map your enterprise admin group to a CAIPE admin team through Identity Group Sync.
+  adminGroup: ""
   # Default true: require the IdP redirector and disable local app-realm login.
   forceRedirect: true
   secretRef: caipe-keycloak-idp
@@ -146,7 +147,7 @@ Create the referenced non-admin secrets out of band. The Keycloak admin Secret s
 
 `idp.forceRedirect=true` is also the production default when an external IdP is enabled. The init hook makes the `caipe` realm browser flow enterprise-IdP-only by requiring the Identity Provider Redirector and disabling the local Keycloak username/password form. The `master` realm admin login is unaffected and should remain private through `admin.frontendUrl`.
 
-Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config if you need the UI fallback before enterprise group claims have propagated. For steady-state admin access, prefer `idp.adminGroup` / `OIDC_REQUIRED_ADMIN_GROUP` backed by your enterprise group, such as `eti_sre_admin`.
+Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config if you need the UI fallback before enterprise group claims have propagated. For steady-state admin access, map your enterprise admin group to a CAIPE admin team through Identity Group Sync, then grant that team `admin` on `organization:<org>` in OpenFGA.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
@@ -368,7 +369,7 @@ caipe-ui:
     NEXTAUTH_URL: "https://caipe.example.com"
     SSO_ENABLED: "true"
     OIDC_REQUIRED_GROUP: "caipe-users"
-    OIDC_REQUIRED_ADMIN_GROUP: "caipe-admins"
+    OIDC_REQUIRED_ADMIN_GROUP: ""
     OIDC_IDP_HINT: "enterprise-sso"
     IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "true"
     IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: "enterprise-sso"
@@ -544,7 +545,7 @@ Run these checks before declaring the install production-ready:
 - Keycloak token exchange job completed successfully.
 - OpenFGA HTTP URL, store name, and store ID are set in the UI and bridge environment.
 - Team membership writes create OpenFGA `user:<sub> member team:<slug>` tuples.
-- Team Resources writes OpenFGA `can_use`, `can_manage`, and `can_call` tuples.
+- Team Resources writes base OpenFGA tuples such as `user`, `manager`, and `caller`; `can_use`, `can_manage`, and `can_call` are derived check relations only.
 - AgentGateway validates JWTs from Keycloak JWKS.
 - AgentGateway calls the OpenFGA bridge for MCP authorization.
 - AgentGateway fails closed when the OpenFGA bridge is unavailable.

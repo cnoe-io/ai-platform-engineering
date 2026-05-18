@@ -8,6 +8,7 @@ const mockGetServerSession = jest.fn();
 const mockValidateBearerJWT = jest.fn();
 const mockValidateLocalSkillsJWT = jest.fn();
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockListRealmRoles = jest.fn();
 const mockCreateRealmRole = jest.fn();
 const mockGetRoleByName = jest.fn();
@@ -42,6 +43,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
@@ -115,6 +120,10 @@ describe("admin RBAC plumbing routes", () => {
       org: "default",
     });
     mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: "DENY_NO_CAPABILITY",
+    });
+    mockCheckOpenFgaTuple.mockResolvedValue({
       allowed: false,
       reason: "DENY_NO_CAPABILITY",
     });

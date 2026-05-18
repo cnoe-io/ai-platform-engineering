@@ -738,19 +738,23 @@ describe('getServerConfig', () => {
       delete process.env.OIDC_REQUIRED_GROUP;
     });
 
-    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    it('defaults to no required group when OIDC_REQUIRED_GROUP is not set', () => {
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
 
     it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
-      process.env.OIDC_REQUIRED_GROUP = 'my-org-platform-users';
-      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
+      process.env.OIDC_REQUIRED_GROUP = 'my-org-caipe-users';
+      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-caipe-users');
     });
 
-    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
-      // config.ts uses || so an empty string is treated as absent
+    it('preserves whitespace exactly so invalid deployment config is visible', () => {
+      process.env.OIDC_REQUIRED_GROUP = '  caipe-users  ';
+      expect(getServerConfig().oidcRequiredGroup).toBe('  caipe-users  ');
+    });
+
+    it('keeps OIDC_REQUIRED_GROUP disabled when the env var is an empty string', () => {
       process.env.OIDC_REQUIRED_GROUP = '';
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
   });
 });

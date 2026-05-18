@@ -48,8 +48,8 @@ OIDC_ISSUER=http://localhost:7080/realms/caipe
 OIDC_CLIENT_ID=caipe-ui
 OIDC_CLIENT_SECRET=caipe-ui-dev-secret
 
-# Admin group (must match a group in your IdP or Keycloak)
-OIDC_REQUIRED_ADMIN_GROUP=eti_sre_admin
+# Optional Web UI admission group (must match a group in your IdP)
+OIDC_REQUIRED_GROUP=<your-web-ui-access-group>
 
 # Bootstrap admin (for initial setup before group mapping works)
 BOOTSTRAP_ADMIN_EMAILS=your.email@example.com
@@ -177,12 +177,13 @@ Use a user with **no** `chat_user`, `team_member`, `kb_admin`, or `admin` (seed 
 
 ## Troubleshooting
 
-### "User role: user" even with OIDC_REQUIRED_ADMIN_GROUP set
+### "User role: user" after login
 
-Your OIDC token may not contain the admin group in its claims. Check:
+Product admin is granted through OpenFGA relationships, not the legacy OIDC admin-group flag. Check:
 1. Server logs for `[Auth JWT] User groups count:` — if 0, the groups claim is missing
 2. Add a **Group Membership** mapper on the `caipe-ui` client in Keycloak
-3. Alternatively, use `BOOTSTRAP_ADMIN_EMAILS=your.email@example.com` as a temporary workaround
+3. Map your enterprise admin group to a CAIPE admin team through Identity Group Sync
+4. Use `BOOTSTRAP_ADMIN_EMAILS=your.email@example.com` only as a temporary workaround
 
 ### Supervisor tests fail with "async def functions are not natively supported"
 

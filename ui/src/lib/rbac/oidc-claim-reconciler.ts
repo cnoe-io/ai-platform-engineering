@@ -111,6 +111,7 @@ export async function reconcileOidcClaimGroupsForUser(input: {
     existingMembershipSources: existingMembershipSources as TeamMembershipSource[],
     now,
     actor,
+    allowTeamCreation: false,
   });
 
   await applyIdentityGroupSyncPlan({ plan, actor, now });

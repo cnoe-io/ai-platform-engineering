@@ -35,6 +35,16 @@ jest.mock('next/navigation', () => ({
   usePathname: () => '/admin',
 }));
 
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) =>
+    ({
+      auditLogsEnabled: true,
+      feedbackEnabled: true,
+      npsEnabled: false,
+      ssoEnabled: false,
+    })[key] ?? true,
+}));
+
 jest.mock('@/components/auth-guard', () => ({
   AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -80,6 +90,14 @@ jest.mock('@/components/admin/CheckpointStatsSection', () => ({
 
 jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
   OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
+}));
+
+jest.mock('@/components/admin/AuditLogsTab', () => ({
+  AuditLogsTab: () => <div data-testid="audit-logs-tab">AuditLogsTab</div>,
+}));
+
+jest.mock('@/components/admin/UnifiedAuditTab', () => ({
+  UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
 jest.mock('@/components/admin/CreateTeamDialog', () => ({
@@ -198,7 +216,7 @@ const mockNpsResponse = {
 
 const mockConfigResponse = {
   success: true,
-  data: { npsEnabled: false },
+  data: { auditLogsEnabled: true, npsEnabled: false },
 };
 
 const allGatesOpen = {
@@ -395,17 +413,17 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText('Remove Admin')).not.toBeInTheDocument();
     });
 
-    it('shows user table column headers in users tab', async () => {
+    it('shows user table without Keycloak role filters or columns', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
         expect(screen.getByText('Email')).toBeInTheDocument();
         expect(screen.getByText('Name')).toBeInTheDocument();
-        expect(screen.getAllByText('Roles').length).toBeGreaterThan(0);
       });
 
-      // Roles filter uses a button summary (MultiSelectFilter), not an input placeholder
-      expect(screen.getByText('All roles')).toBeInTheDocument();
+      const table = screen.getByRole('table');
+      expect(within(table).queryByText('Roles')).not.toBeInTheDocument();
+      expect(screen.queryByText('All roles')).not.toBeInTheDocument();
     });
   });
 
@@ -447,23 +465,63 @@ describe('Admin Dashboard Page', () => {
       const table = screen.getByRole('table');
       expect(within(table).getByText('Name')).toBeInTheDocument();
       expect(within(table).getByText('Email')).toBeInTheDocument();
-      expect(within(table).getByText('Roles')).toBeInTheDocument();
+      expect(within(table).queryByText('Roles')).not.toBeInTheDocument();
     });
 
-    it('does not expose the retired CEL Policy tab', async () => {
+    it('exposes Slack pending as a user table filter', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=users&umSlack=pending');
+      const fetchMock = setupFetchMock();
+
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+        expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+      });
+
+      const slackSelect = screen
+        .getAllByRole('combobox')
+        .find((select) => within(select).queryByRole('option', { name: 'Pending' }));
+      expect(slackSelect).toBeDefined();
+      expect(slackSelect).toHaveValue('pending');
+      expect(within(slackSelect!).getByRole('option', { name: 'Pending' })).toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining('/api/admin/users?page=1&pageSize=20&slackStatus=pending')
+        );
+      });
+
+      fireEvent.change(slackSelect!, { target: { value: 'linked' } });
+      expect(replaceMock).toHaveBeenCalledWith(
+        expect.stringContaining('umSlack=linked'),
+        { scroll: false }
+      );
+    });
+
+    it('orders Security & Policy tabs with OpenFGA ReBAC as the default', async () => {
+      currentSearchParams = new URLSearchParams('cat=security');
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Security & Policy')).toBeInTheDocument();
       });
 
       fireEvent.click(screen.getByText('Security & Policy'));
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'OpenFGA ReBAC',
+        'RBAC Audit',
+        'Chat Audit',
+      ]);
+      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
       expect(screen.getByRole('tab', { name: /^RBAC Audit$/i })).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /^Policy$/i })).not.toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toBeInTheDocument();
     });
 
-    it('shows Keycloak role badges for listed users', async () => {
+    it('does not show Keycloak role badges for listed users', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=users');
 
       render(<AdminPage />);
@@ -473,8 +531,24 @@ describe('Admin Dashboard Page', () => {
       });
 
       const table = screen.getByRole('table');
-      expect(within(table).getByText('admin')).toBeInTheDocument();
-      expect(within(table).getByText('user')).toBeInTheDocument();
+      expect(within(table).queryByText('admin')).not.toBeInTheDocument();
+      expect(within(table).queryByText('user')).not.toBeInTheDocument();
+    });
+
+    it('does not expose the retired Roles tab in Users & Teams', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=users');
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Users & Teams')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Users & Teams' }));
+      expect(screen.getByRole('tab', { name: /^Users$/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /^Teams$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Slack$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Roles$/i })).not.toBeInTheDocument();
     });
 
     it('groups admin tabs by category and moves system tabs into the first category', async () => {
@@ -536,6 +610,33 @@ describe('Admin Dashboard Page', () => {
         'true'
       );
       expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
+    });
+
+    it('opens an in-app modal before deleting a team', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /delete platform team/i }));
+
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/delete the team "Platform Team"/i)
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /^delete team$/i }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/admin/teams/team-1', {
+          method: 'DELETE',
+        });
+      });
+
+      confirmSpy.mockRestore();
     });
   });
 

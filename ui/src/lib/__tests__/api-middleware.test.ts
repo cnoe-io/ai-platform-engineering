@@ -31,8 +31,9 @@ jest.mock('@/lib/jwt-validation', () => ({
   validateLocalSkillsJWT: jest.fn().mockResolvedValue(null),
 }));
 
+const mockGetConfig = jest.fn((key: string) => key === 'ssoEnabled');
 jest.mock('@/lib/config', () => ({
-  getConfig: (key: string) => key === 'ssoEnabled',
+  getConfig: (...args: unknown[]) => mockGetConfig(...args),
 }));
 
 jest.mock('@/lib/rbac/openfga', () => ({
@@ -46,6 +47,10 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
+
+beforeEach(() => {
+  mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+});
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -568,6 +573,93 @@ describe('getAuthenticatedUser', () => {
     });
   });
 
+  it('returns a non-admin anonymous fallback only when explicitly allowed and SSO is disabled', async () => {
+    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+    mockGetServerSession.mockResolvedValue(null);
+
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    const result = await getAuthenticatedUser(req, { allowAnonymous: true });
+
+    expect(result.user).toEqual({
+      email: 'anonymous@local',
+      name: 'Anonymous',
+      role: 'user',
+    });
+    expect(result.session).toEqual({
+      role: 'user',
+      canViewAdmin: false,
+    });
+  });
+
+  it('can promote the anonymous fallback only behind the local dev admin flag', async () => {
+    const previous = process.env.ALLOW_ANONYMOUS_ADMIN;
+    process.env.ALLOW_ANONYMOUS_ADMIN = 'true';
+    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+    mockGetServerSession.mockResolvedValue(null);
+
+    try {
+      const req = new Request('http://test.com') as unknown as NextRequest;
+      const result = await getAuthenticatedUser(req, { allowAnonymous: true });
+
+      expect(result.user.role).toBe('admin');
+      expect(result.session.canViewAdmin).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.ALLOW_ANONYMOUS_ADMIN;
+      else process.env.ALLOW_ANONYMOUS_ADMIN = previous;
+    }
+  });
+
+  it('throws 403 when the session failed the Web UI admission group check', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'blocked@test.com', name: 'Blocked User' },
+      role: 'user',
+      isAuthorized: false,
+    });
+
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    await expect(getAuthenticatedUser(req)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'WEB_UI_ACCESS_DENIED',
+      reason: 'missing_required_group',
+      action: 'contact_admin',
+    });
+  });
+
+  it('does not persist or inspect profile data for sessions denied by the admission gate', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'blocked@test.com', name: 'Blocked User' },
+      sub: 'blocked-sub',
+      isAuthorized: false,
+    });
+
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    await expect(getAuthenticatedUser(req)).rejects.toMatchObject({
+      code: 'WEB_UI_ACCESS_DENIED',
+    });
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale isAuthorized=false when SSO is disabled for local development', async () => {
+    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'local@test.com', name: 'Local User' },
+      role: 'user',
+      isAuthorized: false,
+    });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+    });
+
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    const result = await getAuthenticatedUser(req);
+
+    expect(result.user).toEqual({
+      email: 'local@test.com',
+      name: 'Local User',
+      role: 'user',
+    });
+  });
+
   it('returns user when session has email', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { email: 'user@test.com', name: 'Test User' },
@@ -673,6 +765,23 @@ describe('withAuth', () => {
     await expect(withAuth(req, handler)).rejects.toMatchObject({
       statusCode: 401,
       reason: 'not_signed_in',
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('does not call handler when the session failed the Web UI admission gate', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'blocked@test.com', name: 'Blocked User' },
+      role: 'user',
+      isAuthorized: false,
+    });
+
+    const handler = jest.fn();
+    const req = new Request('http://test.com') as unknown as NextRequest;
+
+    await expect(withAuth(req, handler)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'WEB_UI_ACCESS_DENIED',
     });
     expect(handler).not.toHaveBeenCalled();
   });

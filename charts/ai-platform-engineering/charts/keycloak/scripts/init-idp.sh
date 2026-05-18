@@ -1266,6 +1266,49 @@ else
   echo "[init-idp]   WARNING: caipe-ui client not found — skipping audience and groups mappers."
 fi
 
+echo "[init-idp] Ensuring shared 'groups' client scope keeps AD groups out of access tokens ..."
+GROUPS_SCOPE_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/client-scopes" 2>/dev/null \
+  | python3 -c "import sys,json
+data=json.load(sys.stdin)
+print(next((s.get('id','') for s in data if s.get('name') == 'groups'), ''))" 2>/dev/null || true)
+
+if [ -n "${GROUPS_SCOPE_ID}" ]; then
+  GROUPS_SCOPE_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/client-scopes/${GROUPS_SCOPE_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+  GROUPS_SCOPE_MAPPER_ID=$(echo "${GROUPS_SCOPE_MAPPERS}" | python3 -c "import sys,json
+data=json.load(sys.stdin)
+print(next((m.get('id','') for m in data if m.get('name') == 'idp-groups'), ''))" 2>/dev/null || true)
+  if [ -n "${GROUPS_SCOPE_MAPPER_ID}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/client-scopes/${GROUPS_SCOPE_ID}/protocol-mappers/models/${GROUPS_SCOPE_MAPPER_ID}" \
+      -d "$(cat <<ENDJSON
+{
+  "id":"${GROUPS_SCOPE_MAPPER_ID}",
+  "name":"idp-groups",
+  "protocol":"openid-connect",
+  "protocolMapper":"oidc-usermodel-attribute-mapper",
+  "config":{
+    "user.attribute":"idp_groups",
+    "claim.name":"groups",
+    "multivalued":"true",
+    "aggregate.attrs":"true",
+    "jsonType.label":"String",
+    "userinfo.token.claim":"true",
+    "id.token.claim":"true",
+    "access.token.claim":"false",
+    "introspection.token.claim":"false"
+  }
+}
+ENDJSON
+)" && echo "[init-idp]   Shared groups scope mapper updated."
+  else
+    echo "[init-idp]   Mapper 'idp-groups' not found on shared groups scope — skipping."
+  fi
+else
+  echo "[init-idp]   Shared groups client scope not found — skipping."
+fi
+
 
 # -------------------------------------------------------------------
 # Spec 103 / dev unblock — first-party service callers (Slack bot today,

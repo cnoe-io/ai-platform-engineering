@@ -207,7 +207,7 @@ interface DynamicAgentConfig {
   "realm_access": {
     "roles": ["chat_user", "team_member", "kb_reader:kb-team-a", "agent_user:agent-123"]
   },
-  "groups": ["eti_sre_admin", "backstage-access"],
+  "groups": ["caipe-admins", "caipe-users"],
   "org": "cisco",
   "email": "user@example.com",
   "iss": "https://keycloak.example.com/realms/caipe",

@@ -107,6 +107,23 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     );
   });
 
+  it("rejects materialized can_* relations on tuple writes", async () => {
+    process.env.OPENFGA_RECONCILE_ENABLED = "true";
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      writeOpenFgaTupleDiff({
+        writes: [{ user: "team:platform#member", relation: "can_use", object: "agent:a1" }],
+        deletes: [],
+      })
+    ).rejects.toThrow("Materialized relation can_use is not writable");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("caps tuple reads at OpenFGA's maximum page size", async () => {
     process.env.OPENFGA_HTTP = "http://openfga:8080";
     process.env.OPENFGA_STORE_NAME = "caipe-openfga";

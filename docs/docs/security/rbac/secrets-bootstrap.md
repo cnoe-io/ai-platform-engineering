@@ -111,8 +111,8 @@ keycloak:
     displayName: "Okta SSO"
     issuer: "https://example.okta.com"
     clientId: caipe-okta
-    accessGroup: caipe-users
-    adminGroup: caipe-admins
+    accessGroup: ""
+    adminGroup: ""
     secretRef: caipe-keycloak-idp
   tokenExchange:
     enabled: true
@@ -178,8 +178,8 @@ keycloak:
     displayName: "Okta SSO"
     issuer: "https://example.okta.com"
     clientId: caipe-okta
-    accessGroup: caipe-users
-    adminGroup: caipe-admins
+    accessGroup: ""
+    adminGroup: ""
     externalSecret:
       enabled: true
       secretStoreRef:

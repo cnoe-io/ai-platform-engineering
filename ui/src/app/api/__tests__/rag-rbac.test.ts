@@ -284,11 +284,11 @@ describe('RAG RBAC Integration', () => {
     });
 
     it('should handle multiple group names separated by commas', async () => {
-      process.env.RBAC_ADMIN_GROUPS = 'admins,platform-admins,super-admins';
+      process.env.RBAC_ADMIN_GROUPS = 'admins,caipe-admins,super-admins';
 
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
-        groups: ['platform-admins'],
+        groups: ['caipe-admins'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
         ok: true,

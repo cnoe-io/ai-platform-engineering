@@ -1,21 +1,102 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { ensureRouteOwnedAgentGrants } from "@/lib/rbac/slack-channel-grant-store";
+import { readOpenFgaTuples, writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import {
+  deleteSlackChannelAgentRoute,
   listSlackChannelAgentRoutes,
   replaceSlackChannelAgentRoutes,
   type SlackChannelAgentRouteInput,
 } from "@/lib/rbac/slack-channel-route-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
-import type { SlackRouteEscalationConfig, SlackRouteSideConfig } from "@/types/slack-rebac";
+import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import type {
+  SlackChannelAgentRoute,
+  SlackRouteEscalationConfig,
+  SlackRouteSideConfig,
+} from "@/types/slack-rebac";
 
 import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;
+}
+
+function agentIdFromObject(object: string): string | null {
+  if (!object.startsWith("agent:")) return null;
+  const agentId = object.slice("agent:".length).trim();
+  return agentId || null;
+}
+
+async function listOpenFgaChannelAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
+  const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
+  const seen = new Set<string>();
+  let continuationToken: string | undefined;
+  do {
+    const result = await readOpenFgaTuples({
+      tuple: { user: subject, relation: "user" },
+      pageSize: 100,
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    for (const tuple of result.tuples) {
+      const agentId = agentIdFromObject(tuple.key.object);
+      if (agentId) seen.add(agentId);
+    }
+    continuationToken = result.continuationToken;
+  } while (continuationToken);
+  return Array.from(seen);
+}
+
+async function writeRequiredOpenFgaTuples(
+  writes: UniversalRebacRelationship[],
+  deletes: UniversalRebacRelationship[]
+) {
+  try {
+    const result = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes }));
+    if (!result.enabled) {
+      throw new Error("OpenFGA is not configured");
+    }
+    return result;
+  } catch (error) {
+    throw new ApiError(
+      error instanceof Error ? `OpenFGA tuple write failed: ${error.message}` : "OpenFGA tuple write failed",
+      502
+    );
+  }
+}
+
+function defaultRouteForAgent(
+  workspaceId: string,
+  channelId: string,
+  agentId: string
+): SlackChannelAgentRoute {
+  const now = new Date().toISOString();
+  return {
+    workspace_id: workspaceId,
+    channel_id: channelId,
+    agent_id: agentId,
+    enabled: true,
+    priority: 100,
+    users: { enabled: true, listen: "mention" },
+    source_type: "manual",
+    status: "active",
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+function mergeOpenFgaAgentsWithMetadata(
+  workspaceId: string,
+  channelId: string,
+  agentIds: string[],
+  metadataRoutes: SlackChannelAgentRoute[]
+): SlackChannelAgentRoute[] {
+  const metadataByAgentId = new Map(metadataRoutes.map((route) => [route.agent_id, route]));
+  return agentIds
+    .map((agentId) => metadataByAgentId.get(agentId) ?? defaultRouteForAgent(workspaceId, channelId, agentId))
+    .sort((left, right) => left.priority - right.priority || left.agent_id.localeCompare(right.agent_id));
 }
 
 function parseSideConfig(value: unknown, field: string): SlackRouteSideConfig | undefined {
@@ -99,7 +180,11 @@ function parseRoute(
 export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
   withSlackChannelRebacViewAuth(request, async () => {
     const { workspaceId, channelId } = await context.params;
-    const routes = await listSlackChannelAgentRoutes(workspaceId, channelId);
+    const [agentIds, metadataRoutes] = await Promise.all([
+      listOpenFgaChannelAgentIds(workspaceId, channelId),
+      listSlackChannelAgentRoutes(workspaceId, channelId),
+    ]);
+    const routes = mergeOpenFgaAgentsWithMetadata(workspaceId, channelId, agentIds, metadataRoutes);
     return successResponse({ routes });
   })
 );
@@ -116,23 +201,51 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const routes = body.routes.map((route, index) =>
       parseRoute(route, index, workspaceId, channelId)
     );
-    const saved = await replaceSlackChannelAgentRoutes(workspaceId, channelId, routes, actor);
-    const enabledAgentIds = saved
+    const existingAgentIds = await listOpenFgaChannelAgentIds(workspaceId, channelId);
+    const enabledAgentIds = routes
       .filter((route) => route.enabled)
       .map((route) => route.agent_id);
+    const uniqueEnabledAgentIds = Array.from(new Set(enabledAgentIds));
 
-    await ensureRouteOwnedAgentGrants(workspaceId, channelId, enabledAgentIds, actor);
-    const writes = enabledAgentIds.map((agentId) =>
+    const writes = uniqueEnabledAgentIds.map((agentId) =>
       slackChannelGrantRelationship(workspaceId, channelId, { type: "agent", id: agentId }, "use")
     );
-    const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] }))
-      .catch((error) => ({
-        enabled: false,
-        writes: 0,
-        deletes: 0,
-        error: error instanceof Error ? error.message : "OpenFGA tuple write failed",
-      }));
+    const deletes = existingAgentIds
+      .filter((agentId) => !uniqueEnabledAgentIds.includes(agentId))
+      .map((agentId) =>
+        slackChannelGrantRelationship(workspaceId, channelId, { type: "agent", id: agentId }, "use")
+      );
+    const openfga = await writeRequiredOpenFgaTuples(writes, deletes);
+    const saved = await replaceSlackChannelAgentRoutes(workspaceId, channelId, routes, actor);
 
     return successResponse({ routes: saved, openfga });
+  })
+);
+
+export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
+  withSlackChannelRebacManageAuth(request, async () => {
+    const { workspaceId, channelId } = await context.params;
+    const body = (await request.json()) as { agent_id?: unknown };
+    const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
+    if (!agentId) {
+      throw new ApiError("agent_id is required", 400);
+    }
+
+    const relationship = slackChannelGrantRelationship(
+      workspaceId,
+      channelId,
+      { type: "agent", id: agentId },
+      "use"
+    );
+    const openfga = await writeRequiredOpenFgaTuples([], [relationship]);
+    const routeMetadataDeleted = await deleteSlackChannelAgentRoute(workspaceId, channelId, agentId);
+
+    return successResponse({
+      deleted: {
+        agent_id: agentId,
+        route_metadata_deleted: routeMetadataDeleted,
+      },
+      openfga,
+    });
   })
 );

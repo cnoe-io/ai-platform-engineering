@@ -10,20 +10,17 @@ import React, {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { isCuratedUserListRole } from "@/lib/rbac/keycloak-transition";
 
 const PAGE_SIZE = 20;
 
 const UM_SEARCH = "umSearch";
 const UM_PAGE = "umPage";
-const UM_ROLES = "umRoles";
 const UM_TEAMS = "umTeams";
 const UM_IDP = "umIdp";
 const UM_SLACK = "umSlack";
@@ -35,7 +32,7 @@ const IDP_OPTIONS = [
   { value: "local", label: "local" },
 ];
 
-type SlackFilter = "all" | "linked" | "unlinked";
+type SlackFilter = "all" | "linked" | "pending" | "unlinked";
 type EnabledFilter = "all" | "enabled" | "disabled";
 
 interface AdminUserRow {
@@ -46,15 +43,7 @@ interface AdminUserRow {
   lastName: string;
   enabled: boolean;
   attributes: Record<string, string[]>;
-  roles: string[];
-  raw_roles?: string[];
-  hidden_role_count?: number;
-}
-
-interface KeycloakRole {
-  id: string;
-  name: string;
-  clientRole: boolean;
+  slack_link_status?: "linked" | "pending" | "unlinked";
 }
 
 interface TeamListItem {
@@ -76,9 +65,16 @@ function parseListParam(raw: string | null): string[] {
 }
 
 function isSlackLinked(u: AdminUserRow): boolean {
+  return slackStatusForUser(u) !== "unlinked";
+}
+
+function slackStatusForUser(u: AdminUserRow): "linked" | "pending" | "unlinked" {
+  if (u.slack_link_status === "linked" || u.slack_link_status === "pending") {
+    return u.slack_link_status;
+  }
   const sid = u.attributes?.slack_user_id;
   const v = Array.isArray(sid) ? sid[0] : sid;
-  return Boolean(v != null && String(v).trim() !== "");
+  return v != null && String(v).trim() !== "" ? "linked" : "unlinked";
 }
 
 function emailKey(email: string): string {
@@ -112,55 +108,6 @@ function buildEmailToTeamNames(teams: TeamListItem[]): Map<string, string[]> {
     }
   }
   return m;
-}
-
-const ROLE_BADGE_CLASSES = [
-  "border-violet-500/40 text-violet-700 dark:text-violet-300",
-  "border-sky-500/40 text-sky-700 dark:text-sky-300",
-  "border-amber-500/40 text-amber-800 dark:text-amber-300",
-  "border-emerald-500/40 text-emerald-700 dark:text-emerald-300",
-  "border-rose-500/40 text-rose-700 dark:text-rose-300",
-];
-
-function RoleBadges({
-  roles,
-  hiddenRoleCount = 0,
-}: {
-  roles: string[];
-  hiddenRoleCount?: number;
-}) {
-  const maxShow = 3;
-  if (!roles.length && hiddenRoleCount === 0) {
-    return <span className="text-muted-foreground text-xs">—</span>;
-  }
-  const shown = roles.slice(0, maxShow);
-  const more = roles.length - shown.length;
-  return (
-    <div className="flex flex-wrap gap-1">
-      {shown.map((r, i) => (
-        <Badge
-          key={r}
-          variant="outline"
-          className={`text-[10px] px-1.5 py-0 font-normal ${ROLE_BADGE_CLASSES[i % ROLE_BADGE_CLASSES.length]}`}
-        >
-          {r}
-        </Badge>
-      ))}
-      {more > 0 && (
-        <span className="text-[10px] text-muted-foreground self-center">
-          +{more} more
-        </span>
-      )}
-      {hiddenRoleCount > 0 && (
-        <span
-          className="text-[10px] text-muted-foreground self-center"
-          title="System, team-membership, and legacy resource roles are hidden from this table. Open the user detail view for raw Keycloak role debugging."
-        >
-          +{hiddenRoleCount} raw hidden
-        </span>
-      )}
-    </div>
-  );
 }
 
 function MultiSelectFilter({
@@ -245,10 +192,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     1,
     parseInt(searchParams.get(UM_PAGE) ?? "1", 10) || 1
   );
-  const rolesFilter = useMemo(
-    () => parseListParam(searchParams.get(UM_ROLES)),
-    [searchParams]
-  );
   const teamsFilter = useMemo(
     () => parseListParam(searchParams.get(UM_TEAMS)),
     [searchParams]
@@ -303,13 +246,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     patchUrl({ [UM_PAGE]: next <= 1 ? null : String(next) });
   };
 
-  const setRolesFilter = (next: string[]) => {
-    patchUrl({
-      [UM_ROLES]: next.length ? next.join(",") : null,
-      [UM_PAGE]: null,
-    });
-  };
-
   const setTeamsFilter = (next: string[]) => {
     patchUrl({
       [UM_TEAMS]: next.length ? next.join(",") : null,
@@ -335,35 +271,11 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     });
   };
 
-  const [realmRoles, setRealmRoles] = useState<KeycloakRole[]>([]);
   const [teams, setTeams] = useState<TeamListItem[]>([]);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/admin/roles");
-        const json = await res.json();
-        if (!json.success) return;
-        if (!cancelled) {
-          setRealmRoles(
-            (json.data?.roles as KeycloakRole[] | undefined)?.filter(
-              (r) => !r.clientRole && isCuratedUserListRole(r.name)
-            ) ?? []
-          );
-        }
-      } catch {
-        if (!cancelled) setRealmRoles([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -386,15 +298,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
 
   const emailToTeams = useMemo(() => buildEmailToTeamNames(teams), [teams]);
 
-  const roleOptions = useMemo(
-    () =>
-      realmRoles
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((r) => ({ value: r.name, label: r.name })),
-    [realmRoles]
-  );
-
   const teamOptions = useMemo(
     () =>
       teams
@@ -404,7 +307,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     [teams]
   );
 
-  const rolesFilterKey = rolesFilter.join("\u0001");
   const teamsFilterKey = teamsFilter.join("\u0001");
 
   useEffect(() => {
@@ -418,10 +320,9 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
         qs.set("pageSize", String(PAGE_SIZE));
         const q = searchFromUrl.trim();
         if (q) qs.set("search", q);
-        if (rolesFilter.length >= 1) qs.set("role", rolesFilter[0]);
         if (teamsFilter.length >= 1) qs.set("team", teamsFilter[0]);
         if (idpFilter.trim()) qs.set("idp", idpFilter.trim());
-        if (slackFilter === "linked" || slackFilter === "unlinked") {
+        if (slackFilter === "linked" || slackFilter === "pending" || slackFilter === "unlinked") {
           qs.set("slackStatus", slackFilter);
         }
         if (enabledFilter === "enabled") qs.set("enabled", "true");
@@ -437,11 +338,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
           );
         }
         let rows = (data.users as AdminUserRow[] | undefined) ?? [];
-        if (rolesFilter.length > 1) {
-          rows = rows.filter((u) =>
-            rolesFilter.every((r) => u.roles.includes(r))
-          );
-        }
         if (teamsFilter.length > 1) {
           rows = rows.filter((u) =>
             userInAllTeamsByMembership(u.email, teamsFilter, teams)
@@ -467,7 +363,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
   }, [
     page,
     searchFromUrl,
-    rolesFilterKey,
     teamsFilterKey,
     idpFilter,
     slackFilter,
@@ -507,13 +402,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
           />
         </div>
         <MultiSelectFilter
-          label="Roles"
-          options={roleOptions}
-          selected={rolesFilter}
-          onChange={setRolesFilter}
-          placeholder="All roles"
-        />
-        <MultiSelectFilter
           label="Teams"
           options={teamOptions}
           selected={teamsFilter}
@@ -545,6 +433,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
           >
             <option value="all">All</option>
             <option value="linked">Linked</option>
+            <option value="pending">Pending</option>
             <option value="unlinked">Unlinked</option>
           </select>
         </div>
@@ -573,7 +462,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               <tr className="border-b bg-muted/40 text-left text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Roles</th>
                 <th className="px-4 py-3">Teams</th>
                 <th className="px-4 py-3">IdP</th>
                 <th className="px-4 py-3">Slack</th>
@@ -583,7 +471,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-16 text-center">
+                  <td colSpan={6} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-8 w-8 animate-spin" />
                       <span>Loading…</span>
@@ -593,7 +481,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No users match the current filters.
@@ -607,6 +495,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                     "—";
                   const teamNames =
                     emailToTeams.get(emailKey(u.email)) ?? [];
+                  const slackStatus = slackStatusForUser(u);
                   const linked = isSlackLinked(u);
                   return (
                     <tr
@@ -620,12 +509,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                       <td className="px-4 py-2.5 text-muted-foreground">
                         {u.email || "—"}
                       </td>
-                      <td className="px-4 py-2.5 align-top">
-                        <RoleBadges
-                          roles={u.roles}
-                          hiddenRoleCount={u.hidden_role_count ?? 0}
-                        />
-                      </td>
                       <td className="px-4 py-2.5 text-muted-foreground max-w-[180px]">
                         {teamNames.length ? (
                           <span className="line-clamp-2">
@@ -637,7 +520,11 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground">—</td>
                       <td className="px-4 py-2.5">
-                        {linked ? (
+                        {slackStatus === "pending" ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/25">
+                            Pending
+                          </span>
+                        ) : linked ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
                             Linked
                           </span>

@@ -8,7 +8,6 @@ import {
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  listRealmRoleMappingsForUser,
   listRealmUsersPage,
 } from "@/lib/rbac/keycloak-admin";
 
@@ -28,7 +27,6 @@ type SlackUserRow = {
   slack_user_id: string;
   link_status: "linked" | "pending" | "unlinked";
   enabled?: boolean;
-  roles: string[];
   teams: string[];
   last_interaction: string | null;
   obo_success_count: number;
@@ -157,7 +155,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             keycloak_user_id: "",
             slack_user_id: row.slack_user_id,
             link_status: "unlinked" as const,
-            roles: [],
             teams: [],
             last_interaction: metrics.last_interaction_at?.toISOString() ?? null,
             obo_success_count: metrics.obo_success_count ?? 0,
@@ -167,14 +164,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }
 
         const r = row as (typeof linked)[number];
-        let roles: string[] = [];
-        try {
-          const rm = await listRealmRoleMappingsForUser(r.keycloak_user_id);
-          roles = rm.map((x) => x.name);
-        } catch {
-          roles = [];
-        }
-
         let teamNames: string[] = [];
         if (teamsColl && r.email) {
           const t = await teamsColl
@@ -200,7 +189,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           slack_user_id: r.slack_user_id,
           link_status: isPending ? ("pending" as const) : ("linked" as const),
           enabled: r.enabled,
-          roles,
           teams: teamNames,
           last_interaction: metrics.last_interaction_at?.toISOString() ?? null,
           obo_success_count: metrics.obo_success_count ?? 0,

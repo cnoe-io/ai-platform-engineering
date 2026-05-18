@@ -67,7 +67,6 @@ function roleFromCapture(
 export function evaluateIdentityGroupRules(
   input: EvaluateIdentityGroupRulesInput
 ): EvaluateIdentityGroupRulesResult {
-  const existingSlugs = new Set(input.existingTeamSlugs.map((slug) => normalizeTeamSlug(slug)));
   const matches: IdentityGroupRuleMatch[] = [];
   const ignored: IgnoredIdentityGroup[] = [];
   const conflicts: IdentityGroupRuleConflict[] = [];
@@ -99,17 +98,7 @@ export function evaluateIdentityGroupRules(
 
         const teamName = renderTemplate(rule.team_name_template, captured).trim();
         const teamSlug = normalizeTeamSlug(renderTemplate(rule.team_slug_template, captured));
-        if (existingSlugs.has(teamSlug)) {
-          conflicts.push({
-            group,
-            reason: `Generated team slug "${teamSlug}" already exists`,
-            ruleId: rule.id,
-            teamSlug,
-          });
-        } else {
-          matches.push({ group, rule, captured, relationship, teamName, teamSlug });
-          existingSlugs.add(teamSlug);
-        }
+        matches.push({ group, rule, captured, relationship, teamName, teamSlug });
         resolved = true;
         break;
       }
