@@ -175,6 +175,57 @@ class TestAddComment:
         assert "read-only" in result_dict["error"].lower()
 
 
+class TestAddInternalComment:
+    """Tests for add_internal_comment function."""
+
+    @pytest.mark.asyncio
+    async def test_add_internal_comment_uses_jsm_private_comment(self, monkeypatch):
+        """Test adding a Jira Service Management internal note."""
+        captured_request = {}
+
+        async def mock_request(path, method="GET", **kwargs):
+            captured_request["path"] = path
+            captured_request["method"] = method
+            captured_request["data"] = kwargs.get("data")
+            return (
+                True,
+                {
+                    "id": "10003",
+                    "body": "Initial investigation: test",
+                    "public": False,
+                },
+            )
+
+        monkeypatch.setattr("mcp_jira.tools.jira.comments.MCP_JIRA_READ_ONLY", False)
+        monkeypatch.setattr("mcp_jira.tools.jira.comments.make_api_request", mock_request)
+
+        from mcp_jira.tools.jira.comments import add_internal_comment
+
+        result = await add_internal_comment("PROJ-123", "Initial investigation: test")
+        result_dict = json.loads(result)
+
+        assert result_dict["id"] == "10003"
+        assert captured_request["path"] == "rest/servicedeskapi/request/PROJ-123/comment"
+        assert captured_request["method"] == "POST"
+        assert captured_request["data"] == {
+            "body": "Initial investigation: test",
+            "public": False,
+        }
+
+    @pytest.mark.asyncio
+    async def test_add_internal_comment_read_only(self, monkeypatch):
+        """Test that add_internal_comment returns error JSON in read-only mode."""
+        monkeypatch.setattr("mcp_jira.tools.jira.comments.MCP_JIRA_READ_ONLY", True)
+
+        from mcp_jira.tools.jira.comments import add_internal_comment
+
+        result = await add_internal_comment("PROJ-123", "Test internal note")
+        result_dict = json.loads(result)
+
+        assert result_dict["success"] is False
+        assert "read-only" in result_dict["error"].lower()
+
+
 class TestUpdateComment:
     """Tests for update_comment function."""
 
