@@ -338,6 +338,8 @@ The bulk action is explicit and idempotent:
 
 If the Team or Dynamic Agent dropdown is empty, create the missing object in the admin UI and click **Refresh lists** before applying defaults.
 
+For runtime onboarding of new Slack channels, set `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true` on the Slack bot together with `SLACK_DEFAULT_TEAM_SLUG` and `SLACK_DEFAULT_AGENT_ID`. On the first message from an unmapped group channel, the bot creates the same channel-team mapping, OpenFGA channel-agent tuple, and route metadata for the configured defaults. Keep this off unless the default team and agent are intentionally broad enough for newly invited channels.
+
 ---
 
 ## Running the Test Suite

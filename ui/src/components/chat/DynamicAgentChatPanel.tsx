@@ -14,7 +14,7 @@ import { createStreamAdapter, StreamError, type StreamCallbacks } from "@/lib/st
 import { authErrorToastTitle, type AuthError } from "@/lib/auth-error";
 import { APIClientError } from "@/lib/api-client";
 import { signIn } from "next-auth/react";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/lib/streaming/types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";

@@ -11,11 +11,11 @@
  *   POST /api/v1/chat/stream/cancel
  */
 
-import type { StreamAdapter } from "./adapter";
-import type { StreamCallbacks, StreamParams, RawStreamEvent } from "./callbacks";
-import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
-import { parseSSEStream, type RawSSEEvent } from "./parse-sse";
-import { buildStreamErrorFromResponse } from "./stream-error";
+import type { StreamAdapter } from "../adapter";
+import type { StreamCallbacks, StreamParams, RawStreamEvent } from "../callbacks";
+import type { InputFieldDefinition } from "@/lib/streaming/types";
+import { parseSSEStream, type RawSSEEvent } from "../parse-sse";
+import { buildStreamErrorFromResponse } from "../stream-error";
 
 /** Flat API route prefix for chat streaming. */
 const STREAM_BASE = "/api/v1/chat/stream";

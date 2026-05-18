@@ -1403,7 +1403,7 @@ function SlackChannelsPanel({
                   className="h-3 w-3"
                 />
                 <span>Only channels the bot is a member of</span>
-                {discovery && !discoveryMemberOnly && (
+                {!discoveryMemberOnly && (
                   <span className="text-amber-600 dark:text-amber-400">
                     · including {discovery.total_visible} workspace channels
                   </span>

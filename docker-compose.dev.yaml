@@ -1356,6 +1356,8 @@ services:
       - PREVIEW_MODE=${PREVIEW_MODE:-}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
+      # Workflows tab - set WORKFLOWS_ENABLED=true to show the top-level Workflows UI
+      - WORKFLOWS_ENABLED=${WORKFLOWS_ENABLED:-false}
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
@@ -2308,6 +2310,10 @@ services:
       - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
       # Prefer UI-managed Slack channel routes, falling back to static bot config.
       - SLACK_AGENT_ROUTES_MODE=${SLACK_AGENT_ROUTES_MODE:-db_prefer}
+      # Opt-in runtime onboarding for Slack channels that have no team/agent mapping yet.
+      - SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=${SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS:-false}
+      - SLACK_DEFAULT_TEAM_SLUG=${SLACK_DEFAULT_TEAM_SLUG:-}
+      - SLACK_DEFAULT_AGENT_ID=${SLACK_DEFAULT_AGENT_ID:-}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}

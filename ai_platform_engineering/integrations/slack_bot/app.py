@@ -70,6 +70,7 @@ if RBAC_ENABLED:
         is_dm_channel,
         PERSONAL_ACTIVE_TEAM,
     )
+    from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
     from utils.obo_exchange import impersonate_user, OboExchangeError
     from utils.slack_rebac import get_slack_channel_rebac_evaluator
     from utils.rbac_middleware import format_slack_channel_rebac_denial
@@ -120,6 +121,24 @@ if RBAC_ENABLED:
             )
         else:
             team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+            if not team_resolution.team_slug:
+                auto_assign = await asyncio.to_thread(
+                    get_slack_channel_auto_assigner().assign_channel,
+                    workspace_id=context["slack_workspace_id"],
+                    channel_id=channel_id,
+                    channel_name=body.get("event", {}).get("channel_name"),
+                )
+                if auto_assign.assigned:
+                    get_slack_agent_route_resolver().invalidate(
+                        context["slack_workspace_id"], channel_id
+                    )
+                    team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+                elif auto_assign.reason not in {"disabled", "existing_mapping"}:
+                    logger.warning(
+                        "Slack channel auto-assignment skipped channel=%s reason=%s",
+                        channel_id,
+                        auto_assign.reason,
+                    )
             if not team_resolution.team_slug:
                 # Group channel without a team mapping (or user isn't in the
                 # mapped team). Hard reject — we never want to silently fall

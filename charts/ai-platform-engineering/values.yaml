@@ -1016,6 +1016,9 @@ slack-bot:
     # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
     # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
     SLACK_AGENT_ROUTES_MODE: "db_prefer"       # Prefer UI-managed Slack routes, fallback to static config
+    SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false" # Opt-in first-message channel onboarding
+    SLACK_DEFAULT_TEAM_SLUG: ""                # Required when auto-assignment is enabled
+    SLACK_DEFAULT_AGENT_ID: ""                 # Required when auto-assignment is enabled
 
   # -- Reference to a pre-existing Kubernetes Secret.
   # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,

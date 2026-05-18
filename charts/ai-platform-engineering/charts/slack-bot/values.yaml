@@ -40,6 +40,11 @@ serviceAccount:
 #   SLACK_INTEGRATION_PROMPT_AI_ALERTS:       Override AI alerts prompt
 #   SLACK_AGENT_ROUTES_MODE:                  Route source: "db_prefer" (default),
 #                                             "config", or "db_only"
+#   SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS:      "true" to map first-message channels
+#                                             to SLACK_DEFAULT_TEAM_SLUG and
+#                                             SLACK_DEFAULT_AGENT_ID
+#   SLACK_DEFAULT_TEAM_SLUG:                  Team slug used for auto-assignment
+#   SLACK_DEFAULT_AGENT_ID:                   Agent id used for auto-assignment
 #
 # Spec 103 (Just-In-Time Keycloak user creation):
 #   SLACK_JIT_CREATE_USER:               "true" (default) auto-creates a
@@ -67,6 +72,9 @@ config:
   MONGODB_DATABASE: "caipe"
   SLACK_WORKSPACE_ALIAS: "CAIPE"
   SLACK_AGENT_ROUTES_MODE: "db_prefer"
+  SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false"
+  SLACK_DEFAULT_TEAM_SLUG: ""
+  SLACK_DEFAULT_AGENT_ID: ""
   SLACK_JIT_CREATE_USER: "true"
   SLACK_JIT_ALLOWED_EMAIL_DOMAINS: ""
 
