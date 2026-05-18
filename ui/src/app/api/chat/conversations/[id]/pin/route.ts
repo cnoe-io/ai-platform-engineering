@@ -10,6 +10,7 @@ import {
   requireOwnership,
   validateUUID,
 } from '@/lib/api-middleware';
+import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 import type { Conversation } from '@/types/mongodb';
 
 // POST /api/chat/conversations/[id]/pin
@@ -17,7 +18,7 @@ export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -33,6 +34,11 @@ export const POST = withErrorHandler(async (
     }
 
     requireOwnership(conversation.owner_id, user.email);
+    await requireResourcePermission(session, {
+      type: 'conversation',
+      id: conversationId,
+      action: 'write',
+    });
 
     // Toggle pin status
     const newStatus = !conversation.is_pinned;

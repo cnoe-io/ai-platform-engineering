@@ -25,6 +25,10 @@ export interface MCPServerConfig {
   env?: Record<string, string>;  // For stdio transport
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  source?: 'manual' | 'config' | 'agentgateway';
+  agentgateway_discovered?: boolean;
+  agentgateway_endpoint?: string;
+  agentgateway_target_endpoint?: string;
   created_at: string;
   updated_at: string;
 }
@@ -326,6 +330,9 @@ export interface DynamicAgentConfig {
   interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
+  owner_subject?: string;
+  owner_team_slug?: string;
+  owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   /** Compact AI Review verdict from the last save. Drives the Grade column
@@ -346,6 +353,8 @@ export interface DynamicAgentConfigCreate {
   model: ModelConfig;  // Required: LLM model configuration
   visibility?: VisibilityType;
   shared_with_teams?: string[];
+  owner_team_slug: string;
+  owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
   ui?: AgentUIConfig;

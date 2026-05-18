@@ -91,6 +91,15 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
   },
 ];
 
+interface TeamOption {
+  _id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  user_role?: string | null;
+  can_own_agents?: boolean;
+}
+
 // Step definitions for the wizard
 const STEPS = [
   { 
@@ -342,6 +351,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
     source?.shared_with_teams || []
   );
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
@@ -407,7 +417,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
   const [availableTeams, setAvailableTeams] = React.useState<
-    { _id: string; name: string; description?: string }[]
+    TeamOption[]
   >([]);
 
   // AI suggestion state
@@ -607,6 +617,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -622,6 +633,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -829,6 +841,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       setLoading(false);
       return;
     }
+    if (!isEditing && !ownerTeamSlug) {
+      setError("Owner team is required");
+      setLoading(false);
+      return;
+    }
 
     // Validate ID for new agents
     if (!isEditing) {
@@ -896,6 +913,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
+          owner_team_slug: ownerTeamSlug,
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -936,7 +954,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
+  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0 && (isEditing || ownerTeamSlug);
 
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
@@ -1335,6 +1353,37 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="ownerTeam">
+                  Owner Team {!isEditing && <span className="text-destructive">*</span>}
+                </Label>
+                <select
+                  id="ownerTeam"
+                  value={ownerTeamSlug}
+                  onChange={(e) => setOwnerTeamSlug(e.target.value)}
+                  disabled={loading || isEditing}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select a team that will own this agent</option>
+                  {availableTeams
+                    .filter((team) => team.slug)
+                    .map((team) => (
+                      <option key={team._id} value={team.slug} disabled={!team.can_own_agents}>
+                        {team.name}
+                        {team.user_role ? ` (${team.user_role})` : ""}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Owner-team members can use the agent; owner-team admins can manage it.
+                </p>
+                {!isEditing && availableTeams.every((team) => !team.can_own_agents) && (
+                  <p className="text-xs text-destructive">
+                    You need to be a platform admin or a team admin to create a team-owned agent.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label>Visibility</Label>
                 <div className="grid grid-cols-3 gap-2">
                   {VISIBILITY_OPTIONS.map((opt) => (
@@ -1658,6 +1707,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   disabled={loading}
                 />
               </div>
+
+              {/* Advanced: Middleware */}
+              <div className="border-t pt-4">
+                <MiddlewarePicker
+                  value={features}
+                  onChange={setFeatures}
+                  disabled={loading}
+                  availableModels={availableModels}
+                />
+              </div>
             </div>
           )}
 
@@ -1749,7 +1808,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
+          <Button onClick={handleSubmit} disabled={loading || !isValid}>
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -17,9 +17,13 @@ import { decodeJwt } from "jose";
  *     - Single value: "memberOf"
  *     - Comma-separated: "groups,members,roles" (all checked, results combined)
  *     - Empty/unset: auto-detect from common claim names
- * - OIDC_REQUIRED_GROUP: Group name required for access (default: "backstage-access")
- * - OIDC_REQUIRED_ADMIN_GROUP: Group name for admin access (default: none)
+ * - OIDC_REQUIRED_GROUP: Group name required for access (unset or empty disables the group gate)
+ * - OIDC_REQUIRED_ADMIN_GROUP: Deprecated; upstream groups now sync to CAIPE teams
+ * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
+ * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
+ * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: Set to "false" to disable signed-in user's OIDC group claim reconciliation
+ * - IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: Provider id for claim-derived sync rules (default: "oidc-claims")
  */
 
 // Check if refresh token support should be enabled
@@ -33,20 +37,48 @@ export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
 
 // Required group for authorization.
 // Use ?? (nullish coalescing) so that setting OIDC_REQUIRED_GROUP="" disables
-// the group check. || would treat "" as falsy and fall back to "backstage-access".
-export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "backstage-access";
+// the group check. Do not bake deployment-specific group names into source.
+export const REQUIRED_GROUP = process.env.OIDC_REQUIRED_GROUP ?? "";
 
-// Required admin group for admin access
+// Deprecated: product admin access is an OpenFGA organization relationship.
 export const REQUIRED_ADMIN_GROUP = process.env.OIDC_REQUIRED_ADMIN_GROUP || "";
 
-// Required group for dynamic agents (custom agents) access
-// If not set, falls back to requiring admin group membership
+// Required group for dynamic agents (custom agents) access.
+// This is an identity admission hint only; durable access is OpenFGA-backed.
 export const REQUIRED_DYNAMIC_AGENTS_GROUP = process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP || "";
 
 // Required group for read-only admin dashboard access
 // Users in this group can view admin data but cannot make changes
 // Leave empty to allow all authenticated users to view admin dashboard
 export const REQUIRED_ADMIN_VIEW_GROUP = process.env.OIDC_REQUIRED_ADMIN_VIEW_GROUP || "";
+
+// Bootstrap admin emails — solves the chicken-and-egg problem where the first
+// operator needs to create durable OpenFGA organization admin relationships.
+// Comma-separated list of emails treated as break-glass admins on login.
+function bootstrapAdminEmails(): Set<string> {
+  return new Set(
+    (process.env.BOOTSTRAP_ADMIN_EMAILS || "")
+    .split(",")
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
+  );
+}
+
+const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
+
+if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
+  console.log(
+    `[Auth] 🔑 Bootstrap admins configured (${BOOTSTRAP_ADMIN_EMAILS.size}):`,
+    Array.from(BOOTSTRAP_ADMIN_EMAILS).join(", ")
+  );
+}
+
+export function isBootstrapAdmin(email: string | undefined | null): boolean {
+  if (!email) return false;
+  const emails = bootstrapAdminEmails();
+  if (emails.size === 0) return false;
+  return emails.has(email.toLowerCase());
+}
 
 // Default group claim names to check (in order of priority)
 // Note: Duo SSO uses "members" for full group list, "groups" for limited set
@@ -75,7 +107,7 @@ function addGroupsFromValue(value: unknown, groups: Set<string>): void {
  * @param profile - OIDC profile/claims object
  * @returns Array of unique group names
  */
-function extractGroups(profile: Record<string, unknown>): string[] {
+export function extractGroups(profile: Record<string, unknown>): string[] {
   const allGroups = new Set<string>();
 
   // If specific claim(s) configured, use only those
@@ -106,34 +138,49 @@ function extractGroups(profile: Record<string, unknown>): string[] {
   return Array.from(allGroups);
 }
 
+function reconcileLoginGroupsFromClaims(input: {
+  subject?: string;
+  email?: string;
+  displayName?: string;
+  groups: string[];
+}): void {
+  if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED === "false") return;
+  if (!input.subject || input.groups.length === 0) return;
+
+  void import("@/lib/rbac/oidc-claim-reconciler")
+    .then(({ reconcileOidcClaimGroupsForUser }) =>
+      reconcileOidcClaimGroupsForUser({
+        ...input,
+        providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
+      })
+    )
+    .catch((error) => {
+      console.warn("[Auth] OIDC claim identity sync reconciliation failed:", error);
+    });
+}
+
 // Helper to check if user has required group
 export function hasRequiredGroup(groups: string[]): boolean {
   if (!REQUIRED_GROUP) return true; // No group required
 
   return groups.some((group) => {
     // Handle both simple group names and full DN paths
-    // e.g., "backstage-access" or "CN=backstage-access,OU=Groups,DC=example,DC=com"
+    // e.g., "caipe-users" or "CN=caipe-users,OU=Groups,DC=example,DC=com"
     const groupLower = group.toLowerCase();
     const requiredLower = REQUIRED_GROUP.toLowerCase();
     return groupLower === requiredLower || groupLower.includes(`cn=${requiredLower}`);
   });
 }
 
-// Helper to check if user is in admin group
+// Deprecated: upstream groups map to teams; teams grant OpenFGA organization/admin relations.
 export function isAdminUser(groups: string[]): boolean {
-  if (!REQUIRED_ADMIN_GROUP) return false; // No admin group configured
-
-  return groups.some((group) => {
-    // Handle both simple group names and full DN paths
-    const groupLower = group.toLowerCase();
-    const adminGroupLower = REQUIRED_ADMIN_GROUP.toLowerCase();
-    return groupLower === adminGroupLower || groupLower.includes(`cn=${adminGroupLower}`);
-  });
+  void groups;
+  return false;
 }
 
 // Helper to check if user can access dynamic agents.
 // If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
-// (admin group membership does NOT automatically grant access in this case).
+// (organization/team relationships remain authoritative for protected APIs).
 // If unset, falls back to admin-only access.
 export function canAccessDynamicAgents(groups: string[]): boolean {
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
@@ -177,17 +224,19 @@ const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side token store
 // ─────────────────────────────────────────────────────────────────────────────
-// Large OAuth tokens (refreshToken, idToken) are kept in server memory instead
+// Large OAuth tokens (accessToken, refreshToken, idToken) are kept in server memory instead
 // of the JWT cookie.  This keeps the encrypted cookie under the 4096-byte
-// browser limit.  Only the accessToken and small metadata stay in the cookie.
+// browser limit.  Only small metadata stays in the cookie.
 //
-// Trade-off: tokens are lost on process restart.  The accessToken (still in the
-// cookie) remains valid until it expires; after that the user re-authenticates.
+// Trade-off: tokens are lost on process restart. After that the user re-authenticates.
 // For multi-replica deployments, use sticky sessions or a shared store (Redis).
 
 interface CachedTokens {
+  accessToken?: string;
   refreshToken?: string;
   idToken?: string;
+  claimGroups?: string[];
+  claimGroupsCheckedAt?: number;
   updatedAt: number;
 }
 
@@ -205,14 +254,38 @@ export function _getStoredTokens(sub: string | undefined): CachedTokens | undefi
   return entry;
 }
 
-function _storeTokens(sub: string | undefined, data: { refreshToken?: string; idToken?: string }): void {
+function _storeTokens(
+  sub: string | undefined,
+  data: { accessToken?: string; refreshToken?: string; idToken?: string }
+): void {
   if (!sub) return;
   const existing = _serverTokenStore.get(sub);
   _serverTokenStore.set(sub, {
+    accessToken: data.accessToken ?? existing?.accessToken,
     refreshToken: data.refreshToken ?? existing?.refreshToken,
     idToken: data.idToken ?? existing?.idToken,
+    claimGroups: existing?.claimGroups,
+    claimGroupsCheckedAt: existing?.claimGroupsCheckedAt,
     updatedAt: Math.floor(Date.now() / 1000),
   });
+}
+
+export function cacheOidcClaimGroups(sub: string | undefined, groups: string[]): void {
+  if (!sub) return;
+  const existing = _serverTokenStore.get(sub);
+  _serverTokenStore.set(sub, {
+    accessToken: existing?.accessToken,
+    refreshToken: existing?.refreshToken,
+    idToken: existing?.idToken,
+    claimGroups: [...groups],
+    claimGroupsCheckedAt: Math.floor(Date.now() / 1000),
+    updatedAt: Math.floor(Date.now() / 1000),
+  });
+}
+
+export function getCachedOidcClaimGroups(sub: string | undefined): string[] {
+  if (!sub) return [];
+  return _getStoredTokens(sub)?.claimGroups ?? [];
 }
 
 /** Reset server-side token store (for testing only). */
@@ -259,6 +332,10 @@ async function refreshAccessToken(token: {
 }) {
   try {
     const issuer = process.env.OIDC_ISSUER;
+    // Server-side calls (discovery + token refresh) prefer OIDC_DISCOVERY_URL so
+    // they can use the Docker-internal hostname while OIDC_ISSUER stays
+    // browser-facing. See provider config below for full rationale.
+    const serverIssuer = process.env.OIDC_DISCOVERY_URL || issuer;
     const clientId = process.env.OIDC_CLIENT_ID;
     const clientSecret = process.env.OIDC_CLIENT_SECRET;
 
@@ -306,7 +383,7 @@ async function refreshAccessToken(token: {
       // Falls back to Keycloak-style path if discovery fails.
       let tokenEndpoint: string;
       try {
-        const wellKnownUrl = `${issuer}/.well-known/openid-configuration`;
+        const wellKnownUrl = `${serverIssuer}/.well-known/openid-configuration`;
         const discoveryResponse = await fetch(wellKnownUrl, { next: { revalidate: 3600 } });
         if (discoveryResponse.ok) {
           const discoveryDoc = await discoveryResponse.json();
@@ -314,11 +391,11 @@ async function refreshAccessToken(token: {
           console.log("[Auth] Token endpoint from OIDC discovery:", tokenEndpoint);
         } else {
           console.warn("[Auth] OIDC discovery failed, falling back to Keycloak-style path");
-          tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+          tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
         }
       } catch (discoveryError) {
         console.warn("[Auth] OIDC discovery error, falling back to Keycloak-style path:", discoveryError);
-        tokenEndpoint = `${issuer}/protocol/openid-connect/token`;
+        tokenEndpoint = `${serverIssuer}/protocol/openid-connect/token`;
       }
 
       console.log("[Auth] Refreshing access token...");
@@ -414,16 +491,24 @@ export const authOptions: NextAuthOptions = {
       id: "oidc",
       name: "SSO",
       type: "oauth",
-      wellKnown: process.env.OIDC_ISSUER
-        ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
-        : undefined,
-      // Request offline_access to get refresh tokens (if enabled)
-      // Falls back to warning-only mode if refresh tokens not available
+      // OIDC_DISCOVERY_URL lets server-side discovery use a Docker-internal URL
+      // (e.g. http://keycloak:7080/realms/caipe) while OIDC_ISSUER stays as the
+      // browser-facing URL (e.g. http://localhost:7080/realms/caipe) so the
+      // "iss" claim in JWTs validates against what the browser was redirected to.
+      // Falls back to OIDC_ISSUER when not set (single-URL deployments).
+      wellKnown: process.env.OIDC_DISCOVERY_URL
+        ? `${process.env.OIDC_DISCOVERY_URL}/.well-known/openid-configuration`
+        : process.env.OIDC_ISSUER
+          ? `${process.env.OIDC_ISSUER}/.well-known/openid-configuration`
+          : undefined,
+      // Keycloak issues regular refresh tokens for confidential clients
+      // without needing offline_access scope. Requesting offline_access
+      // requires extra Keycloak config and causes login failures if not
+      // enabled on the client/realm. Regular refresh tokens are sufficient.
       authorization: {
         params: {
-          scope: ENABLE_REFRESH_TOKEN
-            ? "openid email profile groups offline_access"
-            : "openid email profile groups"
+          scope: "openid email profile groups",
+          ...(process.env.OIDC_IDP_HINT ? { kc_idp_hint: process.env.OIDC_IDP_HINT } : {}),
         }
       },
       idToken: true,
@@ -431,26 +516,58 @@ export const authOptions: NextAuthOptions = {
       clientId: process.env.OIDC_CLIENT_ID,
       clientSecret: process.env.OIDC_CLIENT_SECRET,
       profile(profile) {
-        // Handle various OIDC provider claim formats
-        // Duo uses: fullname, firstname, lastname, username
-        // Standard OIDC: name, preferred_username, email
+        // Build display name from available claims.
+        // Keycloak sends standard OIDC: name, given_name, family_name
+        // Duo SSO sends: fullname, firstname, lastname, username
+        const composedName =
+          `${profile.given_name || profile.firstname || ""} ${profile.family_name || profile.lastname || ""}`.trim();
+        const name =
+          profile.name || profile.fullname || composedName ||
+          profile.preferred_username || profile.username || profile.email;
+
+        console.log("[Auth profile] Claims:", {
+          name: profile.name,
+          given_name: profile.given_name,
+          family_name: profile.family_name,
+          fullname: profile.fullname,
+          preferred_username: profile.preferred_username,
+          resolved: name,
+        });
+
         return {
           id: profile.sub,
-          name: profile.fullname || profile.name || profile.preferred_username ||
-                `${profile.firstname || ""} ${profile.lastname || ""}`.trim() ||
-                profile.username || profile.email,
-          email: profile.email || profile.username, // Some providers use username as email
+          name,
+          email: profile.email || profile.username,
           image: profile.picture,
         };
       },
     },
   ],
   callbacks: {
-    async jwt({ token, account, profile, trigger }) {
-      // Initial sign in - persist the OAuth tokens
+    async jwt({ token, account, profile, trigger, session: updateData }) {
+      // Strip idToken from existing sessions — it adds ~1KB and pushes
+      // the cookie over the 4096-byte limit, causing chunking loops.
+      if (token.idToken) {
+        delete token.idToken;
+      }
+
+      // Force-refresh when admin changes roles/permissions and calls
+      // update({ forceRefresh: true }) from the client.
+      if (
+        trigger === "update" &&
+        updateData &&
+        typeof updateData === "object" &&
+        (updateData as Record<string, unknown>).forceRefresh &&
+        token.refreshToken
+      ) {
+        console.log("[Auth] Force-refreshing token");
+        const refreshed = await refreshAccessToken(token) as typeof token;
+        return refreshed;
+      }
+
+      // Initial sign in - persist the OAuth tokens (NOT id_token).
       if (account) {
         token.accessToken = account.access_token;
-        token.idToken = account.id_token;
         token.refreshToken = account.refresh_token;
         token.expiresAt = account.expires_at;
 
@@ -487,22 +604,50 @@ export const authOptions: NextAuthOptions = {
 
         // Extract groups for authorization check only (not stored in token)
         const groups = extractGroups(profileData);
+        const subject = (profileData.sub as string | undefined) ?? (token.sub as string | undefined);
+        cacheOidcClaimGroups(subject, groups);
 
         // Only store the authorization result and role (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes
         token.isAuthorized = hasRequiredGroup(groups);
-        token.role = isAdminUser(groups) ? 'admin' : 'user';
-        token.canViewAdmin = token.role === 'admin' || canViewAdminDashboard(groups);
+        token.role = 'user';
+        token.canViewAdmin = canViewAdminDashboard(groups);
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
+        // Only store the authorization result (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes.
+        token.isAuthorized = hasRequiredGroup(groups);
+
+        const email = profileData.email as string | undefined;
+        const adminViaBootstrap = isBootstrapAdmin(email);
+        token.role = adminViaBootstrap ? 'admin' : 'user';
+
+        if (adminViaBootstrap) {
+          console.log(`[Auth JWT] ✅ Bootstrap admin granted for ${email} (via BOOTSTRAP_ADMIN_EMAILS)`);
+        }
+
+        // Extract org claim for multi-tenant isolation (FR-020)
+        if (typeof profileData.org === "string") {
+          token.org = profileData.org;
+        }
+
         // Debug logging (groups array is NOT stored in token)
         console.log('[Auth JWT] User groups count:', groups.length);
-        console.log('[Auth JWT] Required admin group:', REQUIRED_ADMIN_GROUP);
-        console.log('[Auth JWT] Required admin view group:', REQUIRED_ADMIN_VIEW_GROUP);
         console.log('[Auth JWT] User role:', token.role);
-        console.log('[Auth JWT] Can view admin:', token.canViewAdmin);
         console.log('[Auth JWT] Is authorized:', token.isAuthorized);
+        if (token.org) {
+          console.log('[Auth JWT] Org (tenant):', token.org);
+        }
+
+        reconcileLoginGroupsFromClaims({
+          subject,
+          email,
+          displayName:
+            (profileData.name as string | undefined) ??
+            (profileData.preferred_username as string | undefined),
+          groups,
+        });
       }
 
       // NOTE: When trigger === "update" (from updateSession() or refetchInterval),
@@ -573,13 +718,13 @@ export const authOptions: NextAuthOptions = {
               try {
                 const claims = decodeJwt(refreshedToken.idToken as string);
                 const groups = extractGroups(claims as Record<string, unknown>);
-                const adminUser = isAdminUser(groups);
+                cacheOidcClaimGroups(token.sub as string | undefined, groups);
                 console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
                 return {
                   ...refreshedToken,
                   isAuthorized: hasRequiredGroup(groups),
-                  role: adminUser ? 'admin' : 'user',
-                  canViewAdmin: adminUser || canViewAdminDashboard(groups),
+                  role: refreshedToken.role === 'admin' ? 'admin' : 'user',
+                  canViewAdmin: canViewAdminDashboard(groups),
                   groupsCheckedAt: now,
                 };
               } catch (err) {
@@ -604,12 +749,14 @@ export const authOptions: NextAuthOptions = {
       // Don't store full tokens in session - they're huge (2KB+ each)
       // Only store what the client actually needs
 
+      if (!token.error && token.sub && !token.accessToken) {
+        token.error = "AccessTokenMissing";
+      }
+
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
-        // Store access token and ID token for client-side use
         session.accessToken = token.accessToken as string;
-        session.idToken = token.idToken as string; // Needed for decoding groups/claims client-side
-        session.hasRefreshToken = !!token.refreshToken; // Indicate if refresh token is available
+        session.hasRefreshToken = !!token.refreshToken;
       }
 
       session.error = token.error as string | undefined;
@@ -633,8 +780,13 @@ export const authOptions: NextAuthOptions = {
       session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
         || (session.role === 'admin');
 
-      // If token refresh failed, mark session as invalid and DON'T include tokens
-      if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
+      // If token refresh failed or the server-side token cache was lost,
+      // mark session as invalid and DON'T include tokens.
+      if (
+        token.error === "RefreshTokenExpired" ||
+        token.error === "RefreshTokenError" ||
+        token.error === "AccessTokenMissing"
+      ) {
         console.error(`[Auth] Session invalid due to: ${token.error}`);
         session.error = token.error;
         // Clear tokens from session to reduce cookie size
@@ -645,6 +797,9 @@ export const authOptions: NextAuthOptions = {
       // We don't store profile in token anymore (saves session cookie size)
       // Just pass through the sub if available
       session.sub = token.sub as string | undefined;
+
+      // Organization claim is tenant context only; authorization is OpenFGA-backed.
+      session.org = token.org as string | undefined;
 
       return session;
     },
@@ -665,11 +820,17 @@ export const authOptions: NextAuthOptions = {
     async encode({ token, secret, maxAge }) {
       if (token?.sub) {
         _storeTokens(token.sub, {
+          accessToken: token.accessToken as string | undefined,
           refreshToken: token.refreshToken as string | undefined,
           idToken: token.idToken as string | undefined,
         });
       }
-      const { refreshToken: _rt, idToken: _idt, ...slimToken } = (token ?? {}) as Record<string, unknown>;
+      const {
+        accessToken: _at,
+        refreshToken: _rt,
+        idToken: _idt,
+        ...slimToken
+      } = (token ?? {}) as Record<string, unknown>;
       // Dynamic import avoids top-level ESM/CJS conflict with jose in test environments
       const { encode } = await import("next-auth/jwt");
       return encode({ token: slimToken as any, secret, maxAge });
@@ -680,6 +841,7 @@ export const authOptions: NextAuthOptions = {
       if (decoded?.sub) {
         const stored = _getStoredTokens(decoded.sub);
         if (stored) {
+          if (stored.accessToken) decoded.accessToken = stored.accessToken;
           if (stored.refreshToken) decoded.refreshToken = stored.refreshToken;
           if (stored.idToken) decoded.idToken = stored.idToken;
         }
@@ -724,36 +886,32 @@ export const authOptions: NextAuthOptions = {
 declare module "next-auth" {
   interface Session {
     accessToken?: string;
-    idToken?: string; // Needed for client-side group extraction (not stored in cookie, fetched on demand)
-    hasRefreshToken?: boolean; // Whether refresh token is available
+    hasRefreshToken?: boolean;
     error?: string;
-    // groups removed from session - too large (40+ groups = 8KB cookie!)
-    // Instead, extract groups client-side from idToken when needed
     isAuthorized?: boolean;
-    sub?: string; // User subject ID from OIDC
-    expiresAt?: number; // Access token expiry (Unix timestamp)
-    refreshTokenExpiresAt?: number; // Refresh token expiry (Unix timestamp)
+    sub?: string;
+    expiresAt?: number;
+    refreshTokenExpiresAt?: number;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
     canAccessDynamicAgents?: boolean; // Whether user can access custom agents
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
-    idToken?: string;
     refreshToken?: string;
     expiresAt?: number;
     refreshTokenExpiresAt?: number;
     error?: string;
-    // groups removed - too large (40+ groups = 8KB cookie!)
-    // profile removed - not needed
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
     canAccessDynamicAgents?: boolean;
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
+    org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }

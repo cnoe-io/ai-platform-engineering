@@ -14,6 +14,11 @@ import type {
   SkillVisibility,
   ScanStatus,
 } from "@/types/agent-skill";
+import { syncSkillResource } from "@/lib/rbac/keycloak-resource-sync";
+import {
+  extractRealmRolesFromSession,
+  extractSkillAccessFromJwtRoles,
+} from "@/lib/rbac/task-skill-realm-access";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import {
@@ -22,11 +27,14 @@ import {
   snapshotsDiffer,
   type SkillSnapshotInput,
 } from "@/lib/skill-revisions";
-import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import {
   canMutateBuiltinSkill,
   BUILTIN_LOCKED_MESSAGE,
 } from "@/lib/builtin-skill-policy";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -210,11 +218,24 @@ async function deleteAgentSkillFromMongoDB(
   }
 
   await collection.deleteOne({ id });
+
+  await syncSkillResource("delete", id, existing.name);
 }
 
-async function getAgentSkillsFromMongoDB(ownerEmail: string): Promise<AgentSkill[]> {
+async function getAgentSkillsFromMongoDB(
+  ownerEmail: string,
+  opts: { isAdmin: boolean; realmRoles: string[] }
+): Promise<AgentSkill[]> {
   const collection = await getCollection<AgentSkill>("agent_skills");
+
+  if (opts.isAdmin) {
+    return collection.find({}).sort({ is_system: -1, created_at: -1 }).toArray();
+  }
+
   const userTeamIds = await getUserTeamIds(ownerEmail);
+  const { allGrantedSkillIds } = extractSkillAccessFromJwtRoles(opts.realmRoles);
+  const roleClause =
+    allGrantedSkillIds.length > 0 ? [{ id: { $in: allGrantedSkillIds } }] : [];
 
   const configs = await collection
     .find({
@@ -225,12 +246,44 @@ async function getAgentSkillsFromMongoDB(ownerEmail: string): Promise<AgentSkill
         ...(userTeamIds.length > 0
           ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
           : []),
+        ...roleClause,
       ],
     })
     .sort({ is_system: -1, created_at: -1 })
     .toArray();
 
   return configs;
+}
+
+async function getAgentSkillByIdFromMongoDB(
+  id: string,
+  ownerEmail: string,
+  opts: { isAdmin: boolean; realmRoles: string[] }
+): Promise<AgentSkill | null> {
+  const collection = await getCollection<AgentSkill>("agent_skills");
+
+  if (opts.isAdmin) {
+    return collection.findOne({ id });
+  }
+
+  const userTeamIds = await getUserTeamIds(ownerEmail);
+  const { allGrantedSkillIds } = extractSkillAccessFromJwtRoles(opts.realmRoles);
+  const grantedByRole = new Set(allGrantedSkillIds);
+
+  const config = await collection.findOne({
+    id,
+    $or: [
+      { is_system: true },
+      { owner_id: ownerEmail },
+      { visibility: "global" },
+      ...(userTeamIds.length > 0
+        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
+        : []),
+      ...(grantedByRole.has(id) ? [{ id }] : []),
+    ],
+  });
+
+  return config;
 }
 
 // POST /api/skills/configs
@@ -329,6 +382,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       `[AgentSkill] Created agent config "${body.name}" by ${user.email} (visibility: ${visibility}, scan_status: ${scanResult.scan_status})`,
     );
 
+    await syncSkillResource("create", id, body.name, visibility);
+
     triggerSupervisorRefresh();
 
     return successResponse(
@@ -353,14 +408,19 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
+    const realmRoles = extractRealmRolesFromSession(session);
+    const isAdmin = user.role === "admin";
+    const listOpts = { isAdmin, realmRoles };
+
     if (id) {
       console.log(`[API GET] Fetching single config: ${id} for user: ${user.email}`);
-      const config = await getAgentSkillVisibleToUser(id, user.email);
+      const config = await getAgentSkillByIdFromMongoDB(id, user.email, listOpts);
       if (!config) {
         console.log(`[API GET] Config not found: ${id}`);
         throw new ApiError("Agent config not found", 404);
       }
+      await requireResourcePermission(session, { type: "skill", id, action: "read" });
       console.log(`[API GET] Returning config:`, {
         id: config.id,
         name: config.name,
@@ -373,9 +433,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(config) as NextResponse;
     } else {
       console.log(`[API GET] Fetching all configs for user: ${user.email}`);
-      const configs = await getAgentSkillsFromMongoDB(user.email);
-      console.log(`[API GET] Returning ${configs.length} configs`);
-      return NextResponse.json(configs) as NextResponse;
+      const configs = await getAgentSkillsFromMongoDB(user.email, listOpts);
+      const visibleConfigs = await filterResourcesByPermission(session, configs, {
+        type: "skill",
+        action: "discover",
+        id: (config) => config.id,
+      });
+      console.log(`[API GET] Returning ${visibleConfigs.length} configs`);
+      return NextResponse.json(visibleConfigs) as NextResponse;
     }
   });
 });
@@ -396,7 +461,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent config ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     console.log(`[API PUT] User: ${user.email}, Role: ${user.role}, IsAdmin: ${isUserAdmin(user)}`);
 
     const body: UpdateAgentSkillInput = await request.json();
@@ -405,6 +470,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
     }
+    await requireResourcePermission(session, { type: "skill", id, action: "write" });
 
     if (body.visibility !== undefined) {
       if (!VALID_VISIBILITIES.includes(body.visibility)) {
@@ -516,7 +582,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent config ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
+    await requireResourcePermission(session, { type: "skill", id, action: "delete" });
     await deleteAgentSkillFromMongoDB(id, user);
     // Drop history rows for this skill so we don't leak orphaned
     // revision documents that nobody can render. Best-effort: a

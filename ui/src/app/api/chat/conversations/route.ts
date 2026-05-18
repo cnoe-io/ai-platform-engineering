@@ -12,11 +12,54 @@ import {
   validateRequired,
   getPaginationParams,
   getUserTeamIds,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
 import { buildParticipants } from '@/types/a2a';
 import packageJson from '../../../../../package.json';
+import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+
+type ConversationWithAgentDisplay = Conversation & {
+  agent_id?: string;
+  agent_name?: string;
+};
+
+function getConversationAgentId(conversation: Conversation): string | undefined {
+  return conversation.participants?.find((participant) => participant.type === 'agent')?.id;
+}
+
+async function enrichConversationAgentNames(
+  items: Conversation[],
+): Promise<ConversationWithAgentDisplay[]> {
+  const agentIds = Array.from(
+    new Set(items.map(getConversationAgentId).filter((id): id is string => Boolean(id))),
+  );
+
+  if (agentIds.length === 0) {
+    return items;
+  }
+
+  const agents = await getCollection<{ _id: string; name?: string }>('dynamic_agents');
+  const agentDocs = await agents
+    .find({ _id: { $in: agentIds } })
+    .project({ _id: 1, name: 1 })
+    .toArray();
+  const agentNames = new Map(agentDocs.map((agent) => [agent._id, agent.name]));
+
+  return items.map((conversation) => {
+    const agentId = getConversationAgentId(conversation);
+    if (!agentId) {
+      return conversation;
+    }
+
+    return {
+      ...conversation,
+      agent_id: agentId,
+      agent_name: agentNames.get(agentId) ?? agentId,
+    };
+  });
+}
 
 // GET /api/chat/conversations
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -31,7 +74,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const { page, pageSize, skip } = getPaginationParams(request);
   const url = new URL(request.url);
   const archived = url.searchParams.get('archived') === 'true';
@@ -110,7 +153,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .limit(pageSize)
     .toArray();
 
-  return paginatedResponse(items, total, page, pageSize);
+  const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+
+  return paginatedResponse(
+    await enrichConversationAgentNames(visibleItems),
+    visibleItems.length < items.length ? visibleItems.length : total,
+    page,
+    pageSize
+  );
 });
 
 // POST /api/chat/conversations
@@ -126,7 +176,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user } = await getAuthFromBearerOrSession(request);
+  // Combine release/0.4.0's dual-auth (bearer token | session) with comprehensive
+  // RBAC enforcement. The bearer path is required by the Slack bot and other
+  // first-party service callers; the RBAC check is required to enforce the
+  // 098-enterprise-rbac scope on supervisor invocations.
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'supervisor', 'invoke');
   const body: CreateConversationRequest = await request.json();
 
   validateRequired(body, ['title', 'client_type']);
@@ -179,6 +234,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     title: body.title,
     client_type: body.client_type,
     owner_id: ownerId,
+    ...(typeof session.sub === 'string' && session.sub.trim() && ownerId === user.email
+      ? { owner_subject: session.sub.trim(), owner_identity_version: 2 }
+      : {}),
     ...(body.idempotency_key && { idempotency_key: body.idempotency_key }),
     participants: buildParticipants(body.agent_id, ownerId),
     created_at: now,

@@ -9,6 +9,7 @@ import {
   paginatedResponse,
   getPaginationParams,
 } from '@/lib/api-middleware';
+import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 const ARCHIVE_RETENTION_DAYS = 7;
@@ -26,7 +27,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const conversations = await getCollection<Conversation>('conversations');
 
@@ -84,6 +85,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    return paginatedResponse(items, total, page, pageSize);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+
+    return paginatedResponse(
+      visibleItems,
+      visibleItems.length < items.length ? visibleItems.length : total,
+      page,
+      pageSize
+    );
   });
 });

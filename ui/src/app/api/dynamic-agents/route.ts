@@ -6,25 +6,51 @@
  */
 
 import { NextRequest } from "next/server";
-import { Collection } from "mongodb";
+import { Collection, ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
   getPaginationParams,
   paginatedResponse,
-  getUserTeamIds,
+  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import type {
   DynamicAgentConfig,
   VisibilityType,
   SubAgentRef,
 } from "@/types/dynamic-agent";
+import {
+  allowedToolsFromAgent,
+  deleteAllAgentToolTuples,
+  reconcileAgentRelationships,
+} from "@/lib/rbac/openfga-agent-tools";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
+import { caipeOrgKey } from "@/lib/rbac/organization";
 
 const COLLECTION_NAME = "dynamic_agents";
+
+interface TeamOwnershipDoc {
+  _id?: unknown;
+  slug?: string;
+  name?: string;
+  members?: Array<{ user_id?: string; email?: string; role?: string }>;
+}
+
+async function canManageOrganization(
+  session: Parameters<typeof requireResourcePermission>[0]
+): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -121,6 +147,42 @@ function pickMutableFields(
   return result;
 }
 
+function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeEmail(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function teamIdString(team: TeamOwnershipDoc): string | undefined {
+  if (team._id instanceof ObjectId) return team._id.toHexString();
+  return normalizeString(team._id);
+}
+
+function isTeamAdmin(team: TeamOwnershipDoc, userEmail: string): boolean {
+  const email = normalizeEmail(userEmail);
+  return Boolean(
+    email &&
+      team.members?.some((member) => {
+        const role = normalizeString(member.role)?.toLowerCase();
+        return normalizeEmail(member.user_id ?? member.email) === email && (role === "admin" || role === "owner");
+      }),
+  );
+}
+
+async function loadOwnerTeam(ownerTeam: { slug?: string | null; id?: string | null }): Promise<TeamOwnershipDoc | null> {
+  const teams = await getCollection<TeamOwnershipDoc>("teams");
+  const filters: Record<string, unknown>[] = [];
+  if (ownerTeam.slug) filters.push({ slug: ownerTeam.slug });
+  if (ownerTeam.id) {
+    filters.push({ _id: ownerTeam.id });
+    if (ObjectId.isValid(ownerTeam.id)) filters.push({ _id: new ObjectId(ownerTeam.id) });
+  }
+  if (filters.length === 0) return null;
+  return teams.findOne(filters.length === 1 ? filters[0] : { $or: filters });
+}
+
 /**
  * Validate that subagents have compatible visibility with parent.
  *
@@ -179,45 +241,17 @@ async function validateSubagentVisibility(
  * - enabled_only=true: Only return enabled agents (useful for subagent selection)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
+  const { session } = await getAuthFromBearerOrSession(request);
+
     const collection =
       await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
     const { searchParams } = new URL(request.url);
     const enabledOnly = searchParams.get("enabled_only") === "true";
 
-    // Build visibility filter
-    let query: any = {};
-
-    if (session.role !== "admin") {
-      // Non-admins see: their own, global, or team-shared agents
-      const userTeams = await getUserTeamIds(user.email);
-
-      query = {
-        $and: [
-          // enabled: true OR enabled field doesn't exist (defaults to true)
-          { $or: [{ enabled: true }, { enabled: { $exists: false } }] },
-          {
-            $or: [
-              { owner_id: user.email },
-              { visibility: "global" },
-              ...(userTeams.length > 0
-                ? [
-                    {
-                      visibility: "team",
-                      shared_with_teams: { $in: userTeams },
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ],
-      };
-    } else if (enabledOnly) {
-      // Admin with enabled_only flag (e.g., for subagent selection)
-      // enabled: true OR enabled field doesn't exist (defaults to true)
-      query = { $or: [{ enabled: true }, { enabled: { $exists: false } }] };
-    }
+    const query: Record<string, unknown> = enabledOnly
+      ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
+      : {};
 
     const [items, total] = await Promise.all([
       collection
@@ -233,9 +267,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const normalizedItems = items.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
     );
+    const visibleItems = await filterResourcesByPermission(session, normalizedItems, {
+      type: "agent",
+      action: enabledOnly ? "use" : "discover",
+      id: (agent) => String(agent._id),
+    });
 
-    return paginatedResponse(normalizedItems, total, page, pageSize);
-  });
+    return paginatedResponse(
+      visibleItems,
+      visibleItems.length < normalizedItems.length ? visibleItems.length : total,
+      page,
+      pageSize,
+    );
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -248,8 +291,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
  * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
     const body = await request.json();
 
@@ -271,8 +313,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!body.model?.provider || typeof body.model.provider !== "string") {
       throw new ApiError("Model provider is required (model.provider)", 400);
     }
+    const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
+    const requestedOwnerTeamId = normalizeString(body.owner_team_id);
+    if (!requestedOwnerTeamSlug && !requestedOwnerTeamId) {
+      throw new ApiError("Owner team is required", 400, "OWNER_TEAM_REQUIRED");
+    }
 
-    const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
+    const ownerTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug, id: requestedOwnerTeamId });
+    if (!ownerTeam) {
+      throw new ApiError("Owner team not found", 404, "OWNER_TEAM_NOT_FOUND");
+    }
+    const ownerTeamSlug = normalizeString(ownerTeam.slug);
+    if (!ownerTeamSlug) {
+      throw new ApiError("Owner team is missing a slug", 409, "OWNER_TEAM_INVALID");
+    }
+
+    const canManageAllAgents = await canManageOrganization(session);
+    if (!canManageAllAgents && !isTeamAdmin(ownerTeam, user.email)) {
+      throw new ApiError("You must be a platform admin or owner-team admin to create this agent", 403, "OWNER_TEAM_FORBIDDEN");
+    }
 
     // Generate slug from name with agent- prefix
     const agentId = `agent-${slugify(body.name)}`;
@@ -284,6 +343,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (RESERVED_AGENT_SLUGS.has(agentId) || agentId.startsWith("__")) {
       throw new ApiError(`Agent name "${body.name}" is reserved`, 409);
     }
+
+    const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
     // Uniqueness check
     const existing = await collection.findOne({ _id: agentId });
@@ -320,6 +381,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       model: body.model as { id: string; provider: string },
       visibility,
       shared_with_teams: (body.shared_with_teams as string[]) ?? [],
+      owner_team_slug: ownerTeamSlug,
+      owner_team_id: teamIdString(ownerTeam),
       subagents,
       skills: (body.skills as string[]) ?? [],
       ui: body.ui ?? undefined,
@@ -328,16 +391,32 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       enabled: (body.enabled as boolean) ?? true,
       // Server-controlled fields — never from request body
       owner_id: user.email,
+      owner_subject: (session.sub as string | undefined) ?? user.email,
       is_system: false,
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
 
-    await collection.insertOne(doc as any);
+    await reconcileAgentRelationships({
+      agentId,
+      previousAllowedTools: {},
+      nextAllowedTools: doc.allowed_tools,
+      ownerSubject: doc.owner_subject,
+      organizationId: caipeOrgKey(),
+      ownerTeamSlug,
+    });
+
+    try {
+      await collection.insertOne(doc as any);
+    } catch (error) {
+      await deleteAllAgentToolTuples(agentId).catch((cleanupError) => {
+        console.warn("[dynamic-agents] failed to clean up OpenFGA tuples after create failure:", cleanupError);
+      });
+      throw error;
+    }
 
     return successResponse(doc, 201);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -357,8 +436,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireResourcePermission(session, { type: "agent", id, action: "write" });
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -404,6 +483,18 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     updateData.updated_at = new Date().toISOString();
 
+    const finalAllowedTools = (updateData.allowed_tools ??
+      agent.allowed_tools ??
+      {}) as Record<string, string[]>;
+    await reconcileAgentRelationships({
+      agentId: id,
+      previousAllowedTools: allowedToolsFromAgent(agent),
+      nextAllowedTools: finalAllowedTools,
+      ownerSubject: agent.owner_subject ?? agent.owner_id,
+      organizationId: caipeOrgKey(),
+      ownerTeamSlug: agent.owner_team_slug,
+    });
+
     const updated = await collection.findOneAndUpdate(
       { _id: id },
       { $set: updateData },
@@ -415,7 +506,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     return successResponse(normalizeAgentDoc(updated as unknown as Record<string, unknown>));
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -435,8 +525,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireResourcePermission(session, { type: "agent", id, action: "delete" });
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -459,8 +549,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    await deleteAllAgentToolTuples(id);
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });
-  });
 });

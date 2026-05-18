@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import hashlib
+import inspect
 import logging
 import re
 import uuid
@@ -24,9 +25,11 @@ from a2a.types import (
     TextPart,
 )
 from a2a.utils import new_agent_text_message, new_task, new_text_artifact
+from ai_platform_engineering.multi_agents.platform_engineer.deep_agent import ENABLE_USER_INFO_TOOL
 from ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.agent import (
     AIPlatformEngineerA2ABinding
 )
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from cnoe_agent_utils.tracing import extract_trace_id_from_context
 from langchain_core.messages.base import message_to_dict
 from langgraph.types import Command
@@ -1071,21 +1074,92 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
                     query = None  # Don't use query when resuming
                     logger.info(f"📦 Constructed resume Command from form text for task {task.id}")
 
-        # Extract user email from "by user: email\n\n..." prefix injected by UI
+        # Extract user identity — prefer server-side JWT claims (ENABLE_USER_INFO_TOOL=true),
+        # fall back to the "by user: email" prefix injected by the UI.
         user_email = None
-        raw_query = context.get_user_input() or ""
-        if raw_query.startswith("by user: "):
-            first_line = raw_query.split("\n", 1)[0]
-            user_email = first_line.replace("by user: ", "").strip()
-            if user_email:
-                logger.info(f"📧 Extracted user email from message: {user_email}")
+        user_name = None
+        user_groups = None
+
+        if ENABLE_USER_INFO_TOOL:
+            jwt_ctx = get_jwt_user_context()
+            if jwt_ctx and jwt_ctx.email != "unknown":
+                user_email = jwt_ctx.email
+                user_name = jwt_ctx.name
+                user_groups = jwt_ctx.groups
+                logger.info(
+                    f"📧 User context from JWT: email={user_email}, "
+                    f"name={user_name}, groups_count={len(user_groups or [])}"
+                )
+
+        if not user_email:
+            raw_query = context.get_user_input() or ""
+            if raw_query.startswith("by user: "):
+                first_line = raw_query.split("\n", 1)[0]
+                user_email = first_line.replace("by user: ", "").strip()
+                if user_email:
+                    logger.info(f"📧 Extracted user email from message prefix: {user_email}")
+
+        # Extract user_id from A2A message metadata (set by client or gateway),
+        # falling back to the email extracted from the query prefix.
+        user_id = None
+        obo_token = None
+        if context.message and context.message.metadata:
+            meta = context.message.metadata
+            if isinstance(meta, dict):
+                user_id = meta.get("user_id") or meta.get("user_email")
+                obo_token = meta.get("obo_token") or meta.get("access_token")
+        if not user_id and user_email:
+            user_id = user_email
+
+        # OBO exchange: if we have a user access token but no OBO-specific token,
+        # exchange it via Keycloak for an OBO token (FR-038d).
+        if obo_token:
+            try:
+                from ai_platform_engineering.utils.obo_exchange import (
+                    exchange_token_for_supervisor,
+                )
+                import os
+                if os.getenv("AGENT_GATEWAY_URL"):
+                    obo_result = await exchange_token_for_supervisor(obo_token)
+                    if obo_result:
+                        obo_token = obo_result.access_token
+                        logger.info("OBO token exchange succeeded for user delegation")
+                    else:
+                        logger.warning(
+                            "OBO exchange failed — using original access token"
+                        )
+            except Exception as exc:
+                logger.warning("OBO exchange import/call error: %s", exc)
 
         # Initialize state
         state = StreamState()
         state.trace_id = trace_id
 
         try:
-            async for event in self.agent.stream(query, context_id, trace_id, command=resume_cmd, user_email=user_email):
+            # Smart-merge: combine RBAC's OBO/user_id propagation (PR #1257) with
+            # 1145's user_name/user_groups JWT-claim forwarding. RBAC's executor
+            # sets attributes on the agent for `obo_token`, then uses
+            # inspect.signature to safely pass `user_id`/`obo_token` only if the
+            # current `agent.stream` signature accepts them. We always pass
+            # `user_name`/`user_groups` because the merged `agent.stream`
+            # signature accepts them (verified at merge time).
+            self.agent._pending_user_email = user_email
+            if obo_token:
+                self.agent._obo_token = obo_token
+            stream_params = inspect.signature(self.agent.stream).parameters
+            stream_kwargs = {"user_id": user_id} if "user_id" in stream_params else {}
+            if "obo_token" in stream_params and obo_token:
+                stream_kwargs["obo_token"] = obo_token
+            async for event in self.agent.stream(
+                query,
+                context_id,
+                trace_id,
+                command=resume_cmd,
+                user_email=user_email,
+                user_name=user_name,
+                user_groups=user_groups,
+                **stream_kwargs,
+            ):
                 # Drain remaining events after the executor has finished
                 # processing to let the LangGraph generator close naturally.
                 if state.stream_finished:

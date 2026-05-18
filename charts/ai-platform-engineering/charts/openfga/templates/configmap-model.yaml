@@ -1,0 +1,66 @@
+{{- if .Values.init.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openfga.fullname" . }}-model
+  labels:
+    {{- include "openfga.labels" . | nindent 4 }}
+data:
+  authorization-model.json: |-
+{{ .Files.Get "authorization-model.json" | indent 4 }}
+  seed.py: |-
+    import json
+    import os
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    from pathlib import Path
+
+    OPENFGA = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
+    STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
+    SEED_SUB = os.environ.get("OPENFGA_SEED_SUB", "").strip()
+    SEED_OBJECT = os.environ.get("OPENFGA_SEED_OBJECT", "mcp_gateway:list").strip()
+    SEED_RELATION = os.environ.get("OPENFGA_SEED_RELATION", "caller").strip()
+
+    def request(method, path, body=None):
+        data = None
+        headers = {}
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(f"{OPENFGA}{path}", data=data, method=method, headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            payload = resp.read()
+            return json.loads(payload.decode("utf-8")) if payload else {}
+
+    def wait_ready():
+        for i in range(60):
+            try:
+                request("GET", "/stores")
+                return
+            except (urllib.error.URLError, TimeoutError):
+                print(f"waiting for OpenFGA ({i + 1}/60)...", file=sys.stderr)
+                time.sleep(1)
+        raise SystemExit("OpenFGA did not become ready")
+
+    wait_ready()
+    stores = request("GET", "/stores").get("stores", [])
+    store_id = next((store.get("id") for store in stores if store.get("name") == STORE_NAME), None)
+    if not store_id:
+        store_id = request("POST", "/stores", {"name": STORE_NAME})["id"]
+        print(f"created store_id={store_id}")
+    else:
+        print(f"reusing store_id={store_id}")
+
+    model = json.loads(Path("/model/authorization-model.json").read_text())
+    model_id = request("POST", f"/stores/{store_id}/authorization-models", model)["authorization_model_id"]
+    print(f"authorization_model_id={model_id}")
+
+    if SEED_SUB:
+        tuple_key = {"user": f"user:{SEED_SUB}", "relation": SEED_RELATION, "object": SEED_OBJECT}
+        allowed = request("POST", f"/stores/{store_id}/check", {"tuple_key": tuple_key}).get("allowed")
+        if not allowed:
+            request("POST", f"/stores/{store_id}/write", {"writes": {"tuple_keys": [tuple_key]}})
+            print(f"tuple written for user:{SEED_SUB} {SEED_RELATION} {SEED_OBJECT}")
+{{- end }}

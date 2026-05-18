@@ -1,0 +1,295 @@
+replicaCount: 1
+
+image:
+  repository: quay.io/keycloak/keycloak
+  tag: "26.3"
+  pullPolicy: IfNotPresent
+
+# Init container image used by post-install Jobs (init-idp + init-token-exchange).
+#
+# Default points at our project image — `build/Dockerfile.keycloak-init` —
+# which is wolfi-base + python-3.13 + curl + sed + grep + awk. We need
+# python3 because init-idp.sh does richer JSON munging on the realm user
+# profile (`alpine/curl` lacks python3 and the script exits 127).
+#
+# Override with --set initImage.repository=… for air-gapped registries.
+initImage:
+  repository: ghcr.io/cnoe-io/keycloak-init
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ---------- Admin credentials ----------
+# Three ways to provide:
+#   (1) DEV          — leave password empty ("") → chart generates a Secret
+#                      with username + random 32-char password.
+#   (2) PROD K8S     — pre-create a K8s Secret with keys "username" + "password"
+#                      and set `admin.secretRef: <secret-name>`. Chart will
+#                      not create its own Secret.
+#   (3) PROD ESO     — set `admin.externalSecret.enabled: true` and supply
+#                      `secretStoreRef` + `remoteRefs`. Chart emits an
+#                      ExternalSecret that reconciles a K8s Secret which
+#                      both init Jobs read from.
+admin:
+  username: admin
+  password: ""
+  secretRef: ""
+  # Optional master realm frontend URL used by private admin-console installs.
+  # Set to the private admin base, for example http://localhost:18080, when
+  # public ingress intentionally blocks /admin and /realms/master.
+  frontendUrl: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRefs:
+      username:
+        key: ""           # e.g. "secret/data/prod/keycloak"
+        property: ""      # e.g. "admin_username"
+      password:
+        key: ""
+        property: ""
+
+# ---------- Keycloak features ----------
+features:
+  tokenExchange: true
+  adminFineGrainedAuthz: true
+
+# ---------- Realm ----------
+realm:
+  name: caipe
+  # "none" for dev, "external" for prod (HTTPS terminated at ingress)
+  sslRequired: "external"
+
+# ---------- Demo/test users ----------
+# Disabled by default so production realms do not import sample password users or
+# seed spec test personas. Enable only for local dev/CI RBAC matrix runs.
+demoUsers:
+  enabled: false
+
+# Comma-separated emails that receive bootstrap admin roles when the IdP init
+# hook runs. Leave empty by default; set only for explicit initial admins.
+bootstrapAdminEmails: ""
+
+# ---------- CAIPE UI OIDC client ----------
+# The realm import renders these into the `caipe-ui` confidential client.
+# Production installs should override these to match NEXTAUTH_URL, for example:
+#   redirectUris:
+#     - https://caipe.example.com/api/auth/callback/oidc
+#     - https://caipe.example.com/*
+#   webOrigins:
+#     - https://caipe.example.com
+uiClient:
+  redirectUris:
+    - "http://localhost:3000/*"
+  webOrigins:
+    - "http://localhost:3000"
+
+# ---------- Upstream Identity Provider (generic OIDC) ----------
+# Configures an external IDP broker (e.g. Okta, Azure AD, Duo SSO).
+# Three ways to provide IDP_CLIENT_SECRET:
+#   (1) Skip entirely — `idp.enabled: false` (no broker, only local users).
+#   (2) PROD K8S      — set `idp.secretRef: <secret-name>` (key: IDP_CLIENT_SECRET).
+#   (3) PROD ESO      — `idp.externalSecret.enabled: true` + `secretStoreRef`
+#                       + `remoteRef`. Chart creates K8s Secret + ExternalSecret.
+idp:
+  enabled: false
+  alias: ""
+  displayName: ""
+  issuer: ""
+  clientId: ""
+  secretRef: ""
+  accessGroup: ""
+  adminGroup: ""
+  # When true, the realm browser flow requires the IdP redirector and disables
+  # the local username/password form so app users never see the Keycloak login page.
+  forceRedirect: true
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
+# ---------- Auth reconciliation ----------
+# Keycloak browser-flow, IdP broker, and required-action settings are stored in
+# Keycloak's database, not Kubernetes objects. This early upgrade hook reasserts
+# those settings before unrelated sync hooks can block. On a first install it
+# skips if Keycloak or the required secrets are not available yet; the regular
+# init-idp post-install hook still performs the first full configuration pass.
+authReconcile:
+  enabled: true
+  hook:
+    # Argo CD hook semantics. Downstream GitOps installs can set these to match
+    # their sync strategy while keeping the job chart-owned.
+    argocdHook: PreSync
+    argocdSyncWave: "-10"
+    argocdHookDeletePolicy: BeforeHookCreation,HookSucceeded
+    # Helm CLI hook semantics. `post-install` handles fresh Helm installs after
+    # Keycloak exists; `pre-upgrade` restores persisted settings before upgrades.
+    helmHook: post-install,pre-upgrade
+    helmHookWeight: "-10"
+    helmHookDeletePolicy: before-hook-creation,hook-succeeded
+
+# ---------- Token exchange (RFC 8693) for the Slack bot ----------
+# The init-token-exchange Job configures Keycloak's authorization service
+# so caipe-slack-bot can mint OBO tokens. If `botClientSecret` (or the
+# Secret it points at) is provided, the Job ALSO sets that value as the
+# client_secret on the caipe-slack-bot client in Keycloak — meaning the
+# slack-bot deployment and Keycloak share a single source of truth.
+#
+# Three ways to provide:
+#   (1) DEV       — leave botClientSecret empty → chart generates a random
+#                   32-char password Secret. The same Secret can be referenced
+#                   by the slack-bot subchart for `SLACK_INTEGRATION_AUTH_CLIENT_SECRET`.
+#   (2) PROD K8S  — set `tokenExchange.secretRef: <secret-name>` (key: KC_BOT_CLIENT_SECRET).
+#   (3) PROD ESO  — `tokenExchange.externalSecret.enabled: true` + `secretStoreRef`
+#                   + `remoteRef`. Same single-source-of-truth guarantee.
+tokenExchange:
+  enabled: true
+  botClientId: "caipe-slack-bot"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
+# ---------- User profile ----------
+userProfile:
+  unmanagedAttributePolicy: "ADMIN_EDIT"
+  customAttributes:
+    - name: slack_user_id
+      displayName: "Slack User ID"
+      permissions:
+        view: ["admin"]
+        edit: ["admin"]
+
+# ---------- ExternalSecrets API version ----------
+# Single knob shared by all per-secret blocks above. external-secrets.io
+# CRDs are at v1beta1 today; bump here when ESO promotes to v1.
+externalSecretsApiVersion: "v1beta1"
+
+# DEPRECATED — kept for back-compat with charts/values that pre-date the
+# per-secret `admin.externalSecret`/`idp.externalSecret`/`tokenExchange.externalSecret`
+# blocks. When `externalSecrets.enabled=true` the chart still emits a
+# legacy ExternalSecret targeting the admin Secret, but a NOTES.txt
+# warning is printed. New consumers SHOULD use the per-secret blocks.
+externalSecrets:
+  enabled: false
+  apiVersion: "v1beta1"
+  secretStoreRef:
+    name: "vault"
+    kind: "ClusterSecretStore"
+  data: []
+
+# ---------- Service ----------
+service:
+  type: ClusterIP
+  port: 8080
+
+# ---------- Ingress ----------
+# Browser-facing Keycloak URL used as the OIDC issuer when Keycloak brokers to
+# an upstream IdP such as Duo SSO. Keep disabled for local/dev installs.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: idp.local
+      paths:
+        # Public ingress should expose only the application realm and static
+        # login assets. Keep `/admin` and `/realms/master` private behind the
+        # ClusterIP service for `kubectl port-forward` or private networking.
+        - path: /realms/caipe
+          pathType: Prefix
+        - path: /resources
+          pathType: Prefix
+  tls: []
+  # - secretName: keycloak-tls
+  #   hosts:
+  #     - idp.local
+
+# ---------- Persistence ----------
+# Keycloak uses an embedded H2 database by default.
+# For prod, configure an external PostgreSQL via KC_DB_* env vars.
+persistence:
+  enabled: false
+
+# ---------- Extra env vars ----------
+env: {}
+  # KC_DB: postgres
+  # KC_DB_URL: "jdbc:postgresql://postgres:5432/keycloak"
+  # KC_DB_USERNAME: keycloak
+  # KC_DB_PASSWORD: changeme
+
+# ---------- Login theme ----------
+theme:
+  # The realm import sets loginTheme=caipe. Keep the packaged theme enabled
+  # when Keycloak is enabled so browser login never falls back to the default UI.
+  enabled: true
+  name: caipe
+  brandName: CAIPE
+  colors:
+    background: "linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%)"
+    primary: "#00bcd4"
+    primaryHover: "#00acc1"
+    cardShadow: "0 8px 32px rgba(0, 0, 0, 0.4)"
+    socialBackground: "#1e1e2e"
+    socialHoverBackground: "#2a2a3e"
+    socialBorder: "#333"
+    socialText: "#e0e0e0"
+    socialHoverText: "#fff"
+    inputBorder: "#333"
+    dividerText: "#888"
+    alertErrorBorder: "#ef5350"
+  # Set to an externally managed ConfigMap to override the packaged logo/CSS
+  # without forking the chart. The ConfigMap must provide the keys below.
+  existingConfigMap: ""
+  # Full file overrides for downstream branding. Leave empty to use the
+  # packaged theme files rendered with the values above.
+  files:
+    themeProperties: ""
+    css: ""
+    logoSvg: ""
+  items:
+    - key: theme.properties
+      path: login/theme.properties
+    - key: caipe.css
+      path: login/resources/css/caipe.css
+    - key: logo.svg
+      path: login/resources/img/logo.svg
+
+# ---------- Resources ----------
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+volumes: []
+volumeMounts: []

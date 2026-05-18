@@ -311,6 +311,7 @@ async def sync_argocd_entities(client: Client):
   # 1. Create/Update the datasource
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name=f"ArgoCD: {SERVER_URL}",
     ingestor_id=client.ingestor_id or "",
     description=f"ArgoCD v3 entities from {SERVER_URL}",
     source_type="argocdv3",

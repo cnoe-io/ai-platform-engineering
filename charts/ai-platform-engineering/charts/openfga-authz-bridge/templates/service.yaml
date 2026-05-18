@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openfga-authz-bridge.fullname" . }}
+  labels:
+    {{- include "openfga-authz-bridge.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: grpc
+      port: {{ .Values.service.port }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "openfga-authz-bridge.selectorLabels" . | nindent 4 }}

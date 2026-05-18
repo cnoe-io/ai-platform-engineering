@@ -22,6 +22,11 @@ WORKDIR /app
 # Copy only the necessary directories for the agent
 COPY --chown=root:root ./ai_platform_engineering/utils /app/ai_platform_engineering/utils/
 COPY --chown=root:root ./ai_platform_engineering/agents/${AGENT_NAME} /app/ai_platform_engineering/agents/agent/
+# Copy shared common/ packages (e.g. mcp-agent-auth) consumed by per-agent
+# `mcp/` workspaces via `[tool.uv.sources]` paths like `../../common/mcp-auth`.
+# uv resolves these relative to each pyproject.toml at build time, so the
+# directory tree must exist under /app/ai_platform_engineering/agents/common/.
+COPY --chown=root:root ./ai_platform_engineering/agents/common /app/ai_platform_engineering/agents/common/
 
 # Set working directory to the agent directory
 WORKDIR /app/ai_platform_engineering/agents/agent

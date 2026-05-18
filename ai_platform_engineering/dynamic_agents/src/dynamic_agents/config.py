@@ -74,15 +74,11 @@ class Settings(BaseSettings):
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
 
-    # CAIPE UI Server (for workflow tools, etc.)
-    caipe_api_url: str = ""  # e.g. "http://caipe-ui:3000"
+    # Seed configuration path (for MCP servers and agents loaded at startup)
+    seed_config_path: str | None = None
 
-    # OAuth2 client credentials for authenticating to the UI server
-    oauth2_token_url: str = ""
-    oauth2_client_id: str = ""
-    oauth2_client_secret: str = ""
-    oauth2_scope: str = ""
-    oauth2_audience: str = ""
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
 
 
 @lru_cache

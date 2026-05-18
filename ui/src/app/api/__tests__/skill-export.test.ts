@@ -23,7 +23,10 @@ const mockGetServerSession = jest.fn();
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
-jest.mock("@/lib/auth-config", () => ({ authOptions: {} }));
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+}));
 
 let mongoConfigured = true;
 jest.mock("@/lib/mongodb", () => ({

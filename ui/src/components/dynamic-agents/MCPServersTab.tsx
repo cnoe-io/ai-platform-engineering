@@ -31,6 +31,16 @@ interface ProbeResult {
   error?: string;
 }
 
+interface AgentGatewayDiscoveryTarget {
+  id: string;
+  name: string;
+  transport: "http";
+  endpoint: string;
+  enabled: true;
+  status: "new" | "existing" | "conflict";
+  existing_endpoint?: string;
+}
+
 export function MCPServersTab() {
   const [servers, setServers] = React.useState<MCPServerConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -38,6 +48,12 @@ export function MCPServersTab() {
   const [editingServer, setEditingServer] = React.useState<MCPServerConfig | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
+  const [agentGatewayTargets, setAgentGatewayTargets] = React.useState<AgentGatewayDiscoveryTarget[] | null>(null);
+  const [selectedAgentGatewayIds, setSelectedAgentGatewayIds] = React.useState<Set<string>>(new Set());
+  const [agentGatewayLoading, setAgentGatewayLoading] = React.useState(false);
+  const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
+  const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
+  const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
 
   const fetchServers = React.useCallback(async () => {
     setLoading(true);
@@ -157,6 +173,64 @@ export function MCPServersTab() {
     }
   };
 
+  const handleDiscoverAgentGateway = async () => {
+    setAgentGatewayLoading(true);
+    setAgentGatewayError(null);
+    setAgentGatewayMessage(null);
+    try {
+      const response = await fetch("/api/mcp-servers/agentgateway/discover");
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to discover AgentGateway MCP targets");
+      }
+      const targets: AgentGatewayDiscoveryTarget[] = data.data.targets || [];
+      setAgentGatewayTargets(targets);
+      setSelectedAgentGatewayIds(new Set(targets.filter((target) => target.status === "new").map((target) => target.id)));
+    } catch (err: any) {
+      setAgentGatewayError(err.message || "Failed to discover AgentGateway MCP targets");
+    } finally {
+      setAgentGatewayLoading(false);
+    }
+  };
+
+  const handleToggleAgentGatewayTarget = (targetId: string) => {
+    setSelectedAgentGatewayIds((current) => {
+      const next = new Set(current);
+      if (next.has(targetId)) {
+        next.delete(targetId);
+      } else {
+        next.add(targetId);
+      }
+      return next;
+    });
+  };
+
+  const handleSyncAgentGateway = async () => {
+    setAgentGatewaySyncing(true);
+    setAgentGatewayError(null);
+    setAgentGatewayMessage(null);
+    try {
+      const ids = Array.from(selectedAgentGatewayIds);
+      const response = await fetch("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
+      }
+      const addedCount = data.data.added?.length || 0;
+      setAgentGatewayMessage(`Added ${addedCount} MCP server${addedCount === 1 ? "" : "s"} from AgentGateway.`);
+      setSelectedAgentGatewayIds(new Set());
+      await fetchServers();
+    } catch (err: any) {
+      setAgentGatewayError(err.message || "Failed to sync AgentGateway MCP servers");
+    } finally {
+      setAgentGatewaySyncing(false);
+    }
+  };
+
   /**
    * Export server configuration as YAML file
    */
@@ -240,6 +314,14 @@ export function MCPServersTab() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleDiscoverAgentGateway} disabled={agentGatewayLoading}>
+              {agentGatewayLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
+              Sync with AgentGateway
+            </Button>
             <Button variant="outline" size="sm" onClick={fetchServers} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -252,6 +334,86 @@ export function MCPServersTab() {
         </div>
       </CardHeader>
       <CardContent>
+        {agentGatewayError && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-destructive">{agentGatewayError}</p>
+          </div>
+        )}
+
+        {agentGatewayMessage && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-green-500/10 border border-green-500/30 p-3">
+            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-green-700 dark:text-green-400">{agentGatewayMessage}</p>
+          </div>
+        )}
+
+        {agentGatewayTargets && (
+          <div className="mb-6 rounded-lg border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold">AgentGateway MCP targets</h3>
+                <p className="text-xs text-muted-foreground">
+                  Review discovered targets and add only the new servers you want to manage here.
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setAgentGatewayTargets(null)}>
+                Close
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {agentGatewayTargets.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No MCP targets were found in AgentGateway.</p>
+              ) : (
+                agentGatewayTargets.map((target) => (
+                  <label
+                    key={target.id}
+                    className={`flex items-start gap-3 rounded-md border bg-background p-3 ${
+                      target.status === "new" ? "cursor-pointer" : "opacity-75"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedAgentGatewayIds.has(target.id)}
+                      disabled={target.status !== "new"}
+                      onChange={() => handleToggleAgentGatewayTarget(target.id)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{target.name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{target.id}</span>
+                        <Badge variant={target.status === "new" ? "default" : "outline"}>
+                          {target.status === "new"
+                            ? "New"
+                            : target.status === "existing"
+                              ? "Already registered"
+                              : "Conflict"}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{target.endpoint}</p>
+                      {target.existing_endpoint && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 truncate">
+                          Existing endpoint: {target.existing_endpoint}
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                onClick={handleSyncAgentGateway}
+                disabled={agentGatewaySyncing || selectedAgentGatewayIds.size === 0}
+              >
+                {agentGatewaySyncing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Add selected servers
+              </Button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -301,7 +463,18 @@ export function MCPServersTab() {
                           <Server className="h-5 w-5 text-blue-500" />
                         </div>
                         <div>
-                          <div className="font-medium text-sm">{server.name}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-sm">{server.name}</div>
+                            {server.source === "agentgateway" && (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
+                                title="Registered from AgentGateway discovery"
+                              >
+                                AgentGateway
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-xs text-muted-foreground font-mono">
                             {server._id}
                           </div>
@@ -325,6 +498,11 @@ export function MCPServersTab() {
                           ? server.command
                           : server.endpoint}
                       </span>
+                      {server.source === "agentgateway" && server.agentgateway_target_endpoint && (
+                        <span className="text-xs text-muted-foreground truncate block max-w-[200px]">
+                          Target: {server.agentgateway_target_endpoint}
+                        </span>
+                      )}
                     </div>
 
                     <div className="col-span-2">
@@ -374,7 +552,7 @@ export function MCPServersTab() {
                       >
                         <Download className="h-4 w-4" />
                       </Button>
-                      {server.config_driven && (
+                      {server.config_driven && server.source !== "agentgateway" && (
                         <Badge
                           variant="outline"
                           className="gap-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"

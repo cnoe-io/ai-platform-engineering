@@ -5,13 +5,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
   ApiError,
   validateEmail,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
+import {
+  searchRealmUsers,
+  isValidTeamSlug,
+} from '@/lib/rbac/keycloak-admin';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
+import {
+  listActiveTeamMembershipSourcesForTeamUser,
+  markTeamMembershipSourceRemoved,
+  upsertTeamMembershipSource,
+} from '@/lib/rbac/team-membership-source-store';
+import type { TeamMembershipSource } from '@/types/identity-group-sync';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -34,6 +45,73 @@ function parseTeamId(id: string): ObjectId {
   return new ObjectId(id);
 }
 
+async function resolveKeycloakUserSubject(email: string, teamSlug: string): Promise<string | undefined> {
+  if (!isValidTeamSlug(teamSlug)) {
+    console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping OpenFGA tuple for ${email}`);
+    return undefined;
+  }
+  try {
+    const users = await searchRealmUsers({ search: email, first: 0, max: 1 });
+    const kcUser = users.find(u => (u.email as string)?.toLowerCase() === email.toLowerCase());
+    if (!kcUser?.id) {
+      console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping OpenFGA tuple`);
+      return undefined;
+    }
+    return String(kcUser.id);
+  } catch (err) {
+    console.warn(`[TeamSync] Failed to resolve Keycloak user for ${email}:`, err);
+    return undefined;
+  }
+}
+
+async function writeTeamMembershipTuple(
+  userSubject: string | undefined,
+  teamSlug: string,
+  action: 'assign' | 'remove'
+): Promise<void> {
+  if (!userSubject) return;
+  const tuple = {
+    user: `user:${userSubject}`,
+    relation: "member",
+    object: `team:${teamSlug}`,
+  };
+  const result = await writeOpenFgaTuples({
+    writes: action === 'assign' ? [tuple] : [],
+    deletes: action === 'remove' ? [tuple] : [],
+  });
+  console.log(
+    `[TeamSync] ${action === 'assign' ? 'Wrote' : 'Deleted'} OpenFGA team membership tuple ` +
+      `for user:${userSubject} team:${teamSlug} (enabled=${result.enabled})`
+  );
+}
+
+function manualMembershipSource(input: {
+  teamId: string;
+  teamSlug: string;
+  email: string;
+  relationship: 'member' | 'admin';
+  actor: string;
+  now: Date;
+  userSubject?: string;
+}): TeamMembershipSource {
+  const timestamp = input.now.toISOString();
+  return {
+    team_id: input.teamId,
+    team_slug: input.teamSlug,
+    user_subject: input.userSubject,
+    user_email: input.email,
+    relationship: input.relationship,
+    source_type: 'manual',
+    managed: false,
+    status: 'active',
+    first_seen_at: timestamp,
+    last_seen_at: timestamp,
+    last_applied_at: timestamp,
+    created_by: input.actor,
+    created_at: timestamp,
+  };
+}
+
 // POST /api/admin/teams/[id]/members
 export const POST = withErrorHandler(async (
   request: NextRequest,
@@ -42,9 +120,8 @@ export const POST = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
-
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const body = await request.json();
@@ -86,20 +163,45 @@ export const POST = withErrorHandler(async (
       added_by: user.email,
     };
 
-    await teams.updateOne(
-      { _id: teamId },
-      {
-        $push: { members: newMember } as any,
-        $set: { updated_at: now },
-      }
-    );
+    if (!existingMember) {
+      await teams.updateOne(
+        { _id: teamId },
+        {
+          $push: { members: newMember } as any,
+          $set: { updated_at: now, updated_by: user.email },
+        }
+      );
+    }
+
+    // Sync OpenFGA team membership tuple when the Keycloak subject is known.
+    const teamSlug = String(team.slug || "").trim();
+    let keycloakSubject: string | undefined;
+    if (teamSlug) {
+      keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
+      await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'assign');
+      await upsertTeamMembershipSource(
+        manualMembershipSource({
+          teamId: params.id,
+          teamSlug,
+          email,
+          relationship: role,
+          actor: user.email,
+          now,
+          userSubject: keycloakSubject,
+        })
+      );
+    } else {
+      console.warn(
+        `[TeamSync] Team ${teamId} has no slug; cannot write OpenFGA membership tuple for ${email}. ` +
+        `Restart caipe-ui to trigger backfill via syncTeamScopesOnStartup.`
+      );
+    }
 
     const updated = await teams.findOne({ _id: teamId });
 
     console.log(`[Admin] Member added to team ${team.name}: ${email} (${role}) by ${user.email}`);
 
-    return successResponse({ team: updated }, 201);
-  });
+  return successResponse({ team: updated }, 201);
 });
 
 // DELETE /api/admin/teams/[id]/members
@@ -110,9 +212,8 @@ export const DELETE = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
-
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const url = new URL(request.url);
@@ -144,18 +245,56 @@ export const DELETE = withErrorHandler(async (
       throw new ApiError('User is not a member of this team', 404);
     }
 
-    await teams.updateOne(
-      { _id: teamId },
-      {
-        $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
-        $set: { updated_at: new Date() },
-      }
-    );
+    const now = new Date();
+    const teamSlug = String(team.slug || "").trim();
+    const member = team.members?.find((m: any) => m.user_id.toLowerCase() === email);
+    const relationship = member?.role === 'admin' ? 'admin' : 'member';
+    if (teamSlug) {
+      await markTeamMembershipSourceRemoved(
+        manualMembershipSource({
+          teamId: params.id,
+          teamSlug,
+          email,
+          relationship,
+          actor: user.email,
+          now,
+        }),
+        user.email,
+        now.toISOString()
+      );
+    }
 
-    const updated = await teams.findOne({ _id: teamId });
+    const otherActiveSources = teamSlug
+      ? await listActiveTeamMembershipSourcesForTeamUser({
+          teamId: params.id,
+          teamSlug,
+          userEmail: email,
+          relationship,
+        })
+      : [];
+    const stillGranted = otherActiveSources.some((source) => source.source_type !== 'manual');
+
+    if (!stillGranted) {
+      await teams.updateOne(
+        { _id: teamId },
+        {
+          $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
+          $set: { updated_at: now, updated_by: user.email },
+        }
+      );
+    }
+
+    // Revoke OpenFGA membership only after the final granting source is gone.
+    if (teamSlug) {
+      if (!stillGranted) {
+        const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
+        await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'remove');
+      }
+    }
+
+    const updated = stillGranted ? team : await teams.findOne({ _id: teamId });
 
     console.log(`[Admin] Member removed from team ${team.name}: ${email} by ${user.email}`);
 
-    return successResponse({ team: updated });
-  });
+  return successResponse({ team: updated });
 });

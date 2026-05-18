@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { MessageSquare, Users2, Clock } from "lucide-react";
+import { Bot, MessageSquare, Users2, Clock } from "lucide-react";
 import { cn, formatRelativeTimeCompact } from "@/lib/utils";
 
 interface ConversationCardProps {
@@ -10,6 +10,7 @@ interface ConversationCardProps {
   title: string;
   updatedAt: Date | string;
   totalMessages?: number;
+  agentName?: string;
   isShared?: boolean;
   sharedBy?: string;
   teamName?: string;
@@ -20,6 +21,7 @@ export function ConversationCard({
   title,
   updatedAt,
   totalMessages,
+  agentName,
   isShared,
   sharedBy,
   teamName,
@@ -53,6 +55,14 @@ export function ConversationCard({
               </span>
             )}
           </div>
+          {agentName && (
+            <div className="flex items-center gap-1 mt-1.5 text-xs text-primary/90 min-w-0">
+              <Bot className="h-3 w-3 shrink-0" />
+              <span className="truncate" title={agentName}>
+                {agentName}
+              </span>
+            </div>
+          )}
           {isShared && (
             <div className="flex items-center gap-1 mt-1.5">
               <Users2 className="h-3 w-3 text-blue-400" />

@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openfga-authz-bridge.fullname" . }}
+  labels:
+    {{- include "openfga-authz-bridge.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "openfga-authz-bridge.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openfga-authz-bridge.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "openfga-authz-bridge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: openfga-authz-bridge
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: OPENFGA_HTTP
+              value: {{ tpl .Values.openfga.httpUrl . | quote }}
+            - name: OPENFGA_STORE_NAME
+              value: {{ .Values.openfga.storeName | quote }}
+            {{- if .Values.openfga.storeId }}
+            - name: OPENFGA_STORE_ID
+              value: {{ .Values.openfga.storeId | quote }}
+            {{- end }}
+            - name: OPENFGA_RELATION
+              value: {{ .Values.openfga.relation | quote }}
+            - name: OPENFGA_OBJECT
+              value: {{ .Values.openfga.object | quote }}
+            {{- if .Values.openfga.bypassSubs }}
+            - name: OPENFGA_BYPASS_SUBS
+              value: {{ .Values.openfga.bypassSubs | quote }}
+            {{- end }}
+            {{- if .Values.agentContext.existingSecret.name }}
+            - name: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agentContext.existingSecret.name | quote }}
+                  key: {{ .Values.agentContext.existingSecret.key | quote }}
+            {{- end }}
+            - name: JWT_JWKS_URL
+              value: {{ tpl .Values.tokenValidation.jwksUrl . | quote }}
+            {{- if .Values.tokenValidation.issuer }}
+            - name: JWT_ISSUER
+              value: {{ tpl .Values.tokenValidation.issuer . | quote }}
+            {{- end }}
+            {{- if .Values.tokenValidation.audiences }}
+            - name: JWT_AUDIENCES
+              value: {{ join "," .Values.tokenValidation.audiences | quote }}
+            {{- end }}
+            - name: JWT_ALGORITHMS
+              value: {{ join "," .Values.tokenValidation.algorithms | quote }}
+            {{- if .Values.audit.enabled }}
+            - name: MONGODB_DATABASE
+              value: {{ .Values.audit.mongodbDatabase | quote }}
+            - name: TENANT_ID
+              value: {{ .Values.audit.tenantId | quote }}
+            - name: AUDIT_SUBJECT_SALT
+              value: {{ .Values.audit.subjectSalt | quote }}
+            {{- if .Values.audit.existingSecret.name }}
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.audit.existingSecret.name | quote }}
+                  key: {{ .Values.audit.existingSecret.key | quote }}
+            {{- else if .Values.audit.mongodbUri }}
+            - name: MONGODB_URI
+              value: {{ .Values.audit.mongodbUri | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: 9100
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

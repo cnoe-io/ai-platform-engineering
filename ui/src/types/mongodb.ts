@@ -10,6 +10,7 @@ export interface User {
   _id?: ObjectId;
   email: string;
   name: string;
+  keycloak_sub?: string;
   avatar_url?: string;
   created_at: Date;
   updated_at: Date;
@@ -18,6 +19,7 @@ export interface User {
   metadata: {
     sso_provider: string;
     sso_id: string;
+    keycloak_sub?: string;
     role: 'user' | 'admin';
   };
 }
@@ -54,6 +56,8 @@ export interface Conversation {
   title: string;
   client_type: ClientType; // Top-level: 'webui' | 'slack' (promoted from metadata)
   owner_id: string; // User email
+  owner_subject?: string; // Keycloak subject for schema-versioned ownership checks
+  owner_identity_version?: number; // 2 when owner_subject has been normalized
   idempotency_key?: string; // Maps integration-specific identity (e.g. Slack thread_ts) to conversation_id used by UI/checkpoints
   participants: Participant[]; // Agents and users involved in this conversation
   created_at: Date;
@@ -69,6 +73,12 @@ export interface Conversation {
     agent_version?: string;
     /** @deprecated Kept for backward compat with old conversations */
     model_used?: string;
+    owner_identity_migration?: {
+      migration_id: string;
+      migrated_at: string;
+      migrated_by: string;
+      source_field: 'owner_id';
+    };
   };
   sharing: {
     is_public: boolean;

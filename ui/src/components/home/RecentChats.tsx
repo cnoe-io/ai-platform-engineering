@@ -11,6 +11,7 @@ interface RecentChatsProps {
     title: string;
     updatedAt: Date | string;
     totalMessages?: number;
+    agentName?: string;
     isShared?: boolean;
   }>;
   loading: boolean;
@@ -77,6 +78,7 @@ export function RecentChats({
               title={conv.title}
               updatedAt={conv.updatedAt}
               totalMessages={conv.totalMessages}
+              agentName={conv.agentName}
               isShared={conv.isShared}
             />
           ))}

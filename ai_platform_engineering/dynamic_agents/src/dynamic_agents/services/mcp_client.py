@@ -1,57 +1,200 @@
 """MCP Client wrapper for Dynamic Agents."""
 
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import logging
-from typing import Any
+import os
+import ssl
+import time
+from typing import Any, Callable
 
+import httpx
 from langchain_core.tools import BaseTool, StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
 
 logger = logging.getLogger(__name__)
 
 
-def build_mcp_connection_config(server: MCPServerConfig) -> dict[str, Any]:
+def _gateway_mcp_server_ids() -> set[str]:
+    """Return MCP server IDs that should be reached through AgentGateway."""
+    raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
+    values = {item.strip() for item in raw.split(",") if item.strip()}
+    return values or {"jira"}
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def build_agent_context_headers(agent_id: str, *, now: int | None = None) -> dict[str, str]:
+    """Build signed AgentGateway context headers for per-agent tool policy.
+
+    The bridge only trusts this context when both Dynamic Agents and the bridge
+    share ``CAIPE_AGENT_CONTEXT_HMAC_SECRET``. Without that secret we omit the
+    headers and the gateway falls back to coarse user-level authorization.
+    """
+    secret = os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
+    if not secret:
+        return {}
+    issued_at = int(now if now is not None else time.time())
+    payload = {
+        "agent_id": agent_id,
+        "iat": issued_at,
+        "exp": issued_at + 300,
+    }
+    encoded = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
+    signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return {
+        "X-CAIPE-Agent-Context": encoded,
+        "X-CAIPE-Agent-Context-Signature": signature,
+    }
+
+
+def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
+    """Build an httpx.AsyncClient factory that injects the per-request user JWT.
+
+    Spec 102 Phase 8 / T106. Mirror of the supervisor's
+    ``base_langgraph_agent._build_httpx_client_factory``: each MCP HTTP
+    connection opened by ``langchain-mcp-adapters`` calls this factory,
+    which reads ``current_user_token`` (set by ``JwtAuthMiddleware``)
+    and forwards it as ``Authorization: Bearer <token>``. This is the
+    fix for the live HTTP 401 from agentgateway because the runtime no
+    longer relies on the (token-less) X-User-Context header for
+    outbound auth.
+
+    Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
+    ``SSL_CERT_FILE`` and ``SSL_VERIFY=false`` for parity with the
+    supervisor stack.
+    """
+    ca_bundle = (
+        os.getenv("CUSTOM_CA_BUNDLE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
+        or os.getenv("SSL_CERT_FILE")
+    )
+    ssl_verify = os.getenv("SSL_VERIFY", "true").lower()
+    if ca_bundle and os.path.exists(ca_bundle):
+        verify: Any = ssl.create_default_context(cafile=ca_bundle)
+    elif ssl_verify == "false":
+        logger.warning(
+            "SSL_VERIFY=false: disabling TLS verification for MCP HTTP transport. "
+            "Insecure; dev only."
+        )
+        verify = False
+    else:
+        verify = True
+
+    def _factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        merged = dict(headers or {})
+        token = current_user_token.get()
+        if token:
+            merged["Authorization"] = f"Bearer {token}"
+        return httpx.AsyncClient(
+            headers=merged,
+            timeout=timeout or httpx.Timeout(30.0),
+            auth=auth,
+            verify=verify,
+        )
+
+    return _factory
+
+
+def build_mcp_connection_config(
+    server: MCPServerConfig,
+    *,
+    agent_gateway_url: str | None = None,
+    auth_bearer: str | None = None,
+    agent_id: str | None = None,
+) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
     Args:
         server: MCP server configuration
+        agent_gateway_url: When set, HTTP/SSE targets use ``{base}/mcp/{server.id}`` instead of direct endpoints.
+        auth_bearer: Optional Bearer token for AG or upstream MCP.
 
     Returns:
         Connection config dict compatible with langchain_mcp_adapters
     """
+    headers: dict[str, str] = {}
+    if auth_bearer:
+        headers["Authorization"] = f"Bearer {auth_bearer}"
+    if agent_id:
+        headers.update(build_agent_context_headers(agent_id))
+
+    # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
+    # per-request user JWT (from current_user_token ContextVar) is injected
+    # on every outbound connection, even after this config is built.
+    factory = build_httpx_client_factory()
+    token = current_user_token.get()
+    if token and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {token}"
+
+    def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
+        cfg = {**cfg, "httpx_client_factory": factory}
+        if not headers:
+            return cfg
+        return {**cfg, "headers": {**cfg.get("headers", {}), **headers}}
+
     if server.transport == TransportType.SSE:
-        return {
-            "url": server.endpoint,
-            "transport": "sse",
-        }
-    elif server.transport == TransportType.HTTP:
-        return {
-            "url": server.endpoint,
-            "transport": "streamable_http",
-        }
-    else:  # stdio
-        config: dict[str, Any] = {
-            "command": server.command,
-            "transport": "stdio",
-        }
-        if server.args:
-            config["args"] = server.args
-        if server.env:
-            config["env"] = server.env
-        return config
+        url = (
+            f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
+            if agent_gateway_url and server.endpoint
+            else server.endpoint
+        )
+        return attach_headers(
+            {
+                "url": url,
+                "transport": "sse",
+            }
+        )
+    if server.transport == TransportType.HTTP:
+        url = (
+            f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
+            if agent_gateway_url and server.endpoint
+            else server.endpoint
+        )
+        return attach_headers(
+            {
+                "url": url,
+                "transport": "streamable_http",
+            }
+        )
+    config: dict[str, Any] = {
+        "command": server.command,
+        "transport": "stdio",
+    }
+    if server.args:
+        config["args"] = server.args
+    if server.env:
+        config["env"] = server.env
+    return config
 
 
 def build_mcp_connections(
     servers: list[MCPServerConfig],
     server_ids: list[str],
+    *,
+    agent_gateway_url: str | None = None,
+    auth_bearer: str | None = None,
+    agent_id: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
     Args:
         servers: List of all available MCP server configs
         server_ids: List of server IDs to include
+        agent_gateway_url: Optional Agent Gateway base URL for HTTP/SSE MCP routing.
+        auth_bearer: Optional OBO/user JWT for Authorization header on MCP requests.
 
     Returns:
         Dict mapping server_id to connection config
@@ -59,6 +202,8 @@ def build_mcp_connections(
     connections: dict[str, dict[str, Any]] = {}
 
     server_map = {s.id: s for s in servers}
+    gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
+    gateway_all = "all" in gateway_ids
 
     for server_id in server_ids:
         server = server_map.get(server_id)
@@ -69,7 +214,12 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
-        connections[server_id] = build_mcp_connection_config(server)
+        connections[server_id] = build_mcp_connection_config(
+            server,
+            agent_gateway_url=agent_gateway_url if (gateway_all or server_id in gateway_ids) else None,
+            auth_bearer=auth_bearer,
+            agent_id=agent_id,
+        )
 
     return connections
 

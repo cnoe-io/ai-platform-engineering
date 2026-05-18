@@ -3,10 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdminView,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
@@ -50,8 +50,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
@@ -838,5 +838,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...(slack ? { slack } : {}),
       available_channels: availableChannels.sort(),
     });
-  });
 });

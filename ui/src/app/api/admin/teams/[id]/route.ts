@@ -6,13 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
+  getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireAdmin,
-  requireAdminView,
+  requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
+import { deleteTeamClientScope } from '@/lib/rbac/keycloak-admin';
+import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
 import type { UpdateTeamRequest } from '@/types/teams';
 
 function requireMongoDB() {
@@ -44,19 +45,22 @@ export const GET = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'view');
 
-    const params = await context.params;
-    const teamId = parseTeamId(params.id);
-    const teams = await getCollection('teams');
-    const team = await teams.findOne({ _id: teamId });
+  const params = await context.params;
+  const teamId = parseTeamId(params.id);
+  const teams = await getCollection('teams');
+  const team = await teams.findOne({ _id: teamId });
 
-    if (!team) {
-      throw new ApiError('Team not found', 404);
-    }
+  if (!team) {
+    throw new ApiError('Team not found', 404);
+  }
 
-    return successResponse({ team });
+  const membershipSources = await listTeamMembershipSources(params.id);
+  return successResponse({
+    team: { ...team, membership_sources: membershipSources },
+    membership_sources: membershipSources,
   });
 });
 
@@ -68,12 +72,12 @@ export const PATCH = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
 
-    const params = await context.params;
-    const teamId = parseTeamId(params.id);
-    const body: UpdateTeamRequest = await request.json();
+  const params = await context.params;
+  const teamId = parseTeamId(params.id);
+  const body: UpdateTeamRequest = await request.json();
 
     const teams = await getCollection('teams');
     const team = await teams.findOne({ _id: teamId });
@@ -108,8 +112,7 @@ export const PATCH = withErrorHandler(async (
 
     console.log(`[Admin] Team updated: ${params.id} by ${user.email}`);
 
-    return successResponse({ team: updated });
-  });
+  return successResponse({ team: updated });
 });
 
 // DELETE /api/admin/teams/[id]
@@ -120,13 +123,13 @@ export const DELETE = withErrorHandler(async (
   const mongoCheck = requireMongoDB();
   if (mongoCheck) return mongoCheck;
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'manage');
 
-    const params = await context.params;
-    const teamId = parseTeamId(params.id);
-    const teams = await getCollection('teams');
-    const team = await teams.findOne({ _id: teamId });
+  const params = await context.params;
+  const teamId = parseTeamId(params.id);
+  const teams = await getCollection('teams');
+  const team = await teams.findOne({ _id: teamId });
 
     if (!team) {
       throw new ApiError('Team not found', 404);
@@ -145,11 +148,27 @@ export const DELETE = withErrorHandler(async (
 
     await teams.deleteOne({ _id: teamId });
 
-    console.log(`[Admin] Team deleted: ${team.name} (${params.id}) by ${user.email}`);
+    // Best-effort delete of the per-team Keycloak client scope. We don't
+    // roll the Mongo delete back if this fails — the team is gone, and a
+    // dangling scope only matters next time someone reuses the slug
+    // (`ensureTeamClientScope` will reuse-and-validate the existing scope).
+    // We do log loudly so an operator can clean up.
+    const slug = typeof team.slug === 'string' ? team.slug : '';
+    if (slug) {
+      try {
+        await deleteTeamClientScope(slug);
+      } catch (err) {
+        console.error(
+          `[Admin] Team ${params.id} (slug=${slug}) deleted from Mongo but Keycloak scope cleanup failed:`,
+          err
+        );
+      }
+    }
 
-    return successResponse({
-      message: 'Team deleted successfully',
-      deleted: true,
-    });
+    console.log(`[Admin] Team deleted: ${team.name} (${params.id}, slug=${slug}) by ${user.email}`);
+
+  return successResponse({
+    message: 'Team deleted successfully',
+    deleted: true,
   });
 });

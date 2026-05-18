@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
+from dynamic_agents.auth.openfga_authz import require_agent_use_permission
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
@@ -248,7 +249,9 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -362,7 +365,9 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -416,7 +421,9 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
