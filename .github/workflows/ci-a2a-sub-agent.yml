@@ -32,8 +32,7 @@ concurrency:
 jobs:
   load-config:
     runs-on: ubuntu-latest
-    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
-      (always())
+    if: always()
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
       agent_build_args: ${{ steps.read-config.outputs.agent_build_args }}
