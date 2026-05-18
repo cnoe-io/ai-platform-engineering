@@ -14,6 +14,9 @@ const mockGetDynamicAgentsConfig = jest.fn();
 const mockProxySSEStream = jest.fn();
 const mockProxyJSONRequest = jest.fn();
 const mockRequireAgentUsePermission = jest.fn();
+const mockRequireResourcePermission = jest.fn();
+const mockRequireConversationResourcePermission = jest.fn();
+const mockGetCollection = jest.fn();
 
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
@@ -24,6 +27,19 @@ jest.mock("@/lib/da-proxy", () => ({
 
 jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
   requireAgentUsePermission: (...args: unknown[]) => mockRequireAgentUsePermission(...args),
+}));
+
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+}));
+
+jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  requireConversationResourcePermission: (...args: unknown[]) =>
+    mockRequireConversationResourcePermission(...args),
+}));
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
 function jsonRequest(path: string, body: Record<string, unknown> = {}): NextRequest {
@@ -49,6 +65,15 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     });
     mockGetDynamicAgentsConfig.mockReturnValue({ dynamicAgentsUrl: "http://dynamic-agents:8000" });
     mockRequireAgentUsePermission.mockResolvedValue(null);
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockRequireConversationResourcePermission.mockResolvedValue(undefined);
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn(async () => ({
+        _id: "conv-1",
+        owner_id: "alice@example.com",
+        owner_subject: "alice-sub",
+      })),
+    });
     mockProxySSEStream.mockResolvedValue(new Response("event: done\n\n", { status: 200 }));
     mockProxyJSONRequest.mockResolvedValue(NextResponse.json({ success: true }));
   });
@@ -89,6 +114,12 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       }),
     );
     expect(proxy).toHaveBeenCalledTimes(1);
+    expect(mockRequireConversationResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub", user: { email: "alice@example.com" } }),
+      "alice@example.com",
+      expect.objectContaining({ _id: "conv-1" }),
+      "write",
+    );
     expect(proxy.mock.calls[0][2]).toEqual(
       expect.objectContaining({
         traceparent: expect.stringMatching(/^00-[a-f0-9]{32}-[a-f0-9]{16}-01$/),
@@ -134,6 +165,8 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
 
     expect(response.status).toBe(401);
     expect(mockRequireAgentUsePermission).not.toHaveBeenCalled();
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
     expect(mockProxySSEStream).not.toHaveBeenCalled();
   });
 
@@ -162,7 +195,42 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     expect(mockProxySSEStream).not.toHaveBeenCalled();
   });
 
-  it("keeps cancel authentication-only and does not call OpenFGA", async () => {
+  it.each([
+    ["start", startPost, "/api/v1/chat/stream/start", { message: "hi", agent_id: "agent-1" }],
+    ["invoke", invokePost, "/api/v1/chat/invoke", { message: "hi", conversation_id: "conv-1" }],
+    ["resume", resumePost, "/api/v1/chat/stream/resume", { conversation_id: "conv-1", agent_id: "agent-1" }],
+    ["cancel", cancelPost, "/api/v1/chat/stream/cancel", { conversation_id: "conv-1" }],
+  ])("returns 400 before any OpenFGA check when required %s fields are missing", async (_name, handler, path, body) => {
+    const response = await handler(jsonRequest(path, body));
+
+    expect(response.status).toBe(400);
+    expect(mockRequireAgentUsePermission).not.toHaveBeenCalled();
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxySSEStream).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not check conversation access when the agent use gate denies first", async () => {
+    mockRequireAgentUsePermission.mockResolvedValue(
+      NextResponse.json({ success: false, reason: "pdp_denied" }, { status: 403 }),
+    );
+
+    const response = await invokePost(
+      jsonRequest("/api/v1/chat/invoke", {
+        message: "hi",
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("checks conversation and agent permission before proxying cancel", async () => {
     const response = await cancelPost(
       jsonRequest("/api/v1/chat/stream/cancel", {
         conversation_id: "conv-1",
@@ -172,7 +240,81 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
 
     expect(response.status).toBe(200);
     expect(mockAuthenticateRequest).toHaveBeenCalledTimes(1);
-    expect(mockRequireAgentUsePermission).not.toHaveBeenCalled();
+    expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "alice-sub", agentId: "agent-1" }),
+    );
+    expect(mockRequireConversationResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub", user: { email: "alice@example.com" } }),
+      "alice@example.com",
+      expect.objectContaining({ _id: "conv-1" }),
+      "write",
+    );
     expect(mockProxyJSONRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns conversation denial before proxying", async () => {
+    mockRequireConversationResourcePermission.mockRejectedValue(
+      Object.assign(new Error("denied"), { statusCode: 403, code: "conversation#write" }),
+    );
+
+    const response = await invokePost(
+      jsonRequest("/api/v1/chat/invoke", {
+        message: "hi",
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await jsonBody(response)).toMatchObject({
+      success: false,
+      error: "denied",
+      code: "conversation#write",
+    });
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns conversation denial before proxying cancel", async () => {
+    mockRequireConversationResourcePermission.mockRejectedValue(
+      Object.assign(new Error("cancel denied"), { statusCode: 403, code: "conversation#write" }),
+    );
+
+    const response = await cancelPost(
+      jsonRequest("/api/v1/chat/stream/cancel", {
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await jsonBody(response)).toMatchObject({
+      success: false,
+      error: "cancel denied",
+      code: "conversation#write",
+    });
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 before proxying when the conversation does not exist", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn(async () => null),
+    });
+
+    const response = await startPost(
+      jsonRequest("/api/v1/chat/stream/start", {
+        message: "hi",
+        conversation_id: "missing-conv",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await jsonBody(response)).toMatchObject({
+      success: false,
+      error: "Conversation not found",
+      code: "conversation#write",
+    });
+    expect(mockRequireConversationResourcePermission).not.toHaveBeenCalled();
+    expect(mockProxySSEStream).not.toHaveBeenCalled();
   });
 });

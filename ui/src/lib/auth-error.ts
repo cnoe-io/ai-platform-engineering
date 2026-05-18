@@ -31,6 +31,8 @@ export type AuthFailureReason =
   | "bearer_invalid"
   | "audience_mismatch"
   | "missing_role"
+  | "missing_required_group"
+  | "missing_relationship"
   | "pdp_denied"
   | "pdp_unavailable"
   | "cel_denied"
@@ -54,6 +56,8 @@ const KNOWN_REASONS: ReadonlySet<string> = new Set([
   "bearer_invalid",
   "audience_mismatch",
   "missing_role",
+  "missing_required_group",
+  "missing_relationship",
   "pdp_denied",
   "pdp_unavailable",
   "cel_denied",
@@ -131,6 +135,8 @@ export function authErrorToastTitle(err: AuthError): string {
     case "audience_mismatch":
       return "Authentication failed";
     case "missing_role":
+    case "missing_required_group":
+    case "missing_relationship":
     case "pdp_denied":
     case "cel_denied":
     case "forbidden":
@@ -163,6 +169,8 @@ function defaultActionForReason(reason: AuthFailureReason): AuthFailureAction {
       return "sign_in";
     case "audience_mismatch":
     case "missing_role":
+    case "missing_required_group":
+    case "missing_relationship":
     case "pdp_denied":
     case "cel_denied":
     case "forbidden":

@@ -321,6 +321,9 @@ new env vars are the **feature flags** `SLACK_JIT_CREATE_USER` and
 
 ## Phase 7 — Live verification (runs last; depends on Phases 1–5)
 
+These tasks replace the former root-level `BLOCKERS.md` note for spec 103. Keep
+their live status here so verification remains attached to the feature spec.
+
 - [ ] **T031** [US1, US2] [verify] In a clean stack, send a Slack DM
       from a real corporate email that does NOT exist in the realm.
       Assert:
@@ -366,6 +369,19 @@ new env vars are the **feature flags** `SLACK_JIT_CREATE_USER` and
       to list all users with `q=created_by:slack-bot:jit`. Assert the
       list matches T031 + T034 expectations exactly.
 
+- [ ] **T036** [US3] [verify] Set `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` to
+      a restrictive value such as `cisco.com`, then send a DM from a
+      Slack user whose email domain is outside the allowlist. Assert the
+      bot falls back to the administrator/linking guidance and no
+      Keycloak user is created.
+
+- [ ] **T037** [US5] [verify] Run `slack-bot` with `LOG_LEVEL=DEBUG`,
+      send a JIT DM, and inspect `docker compose logs slack-bot`. Assert
+      every email is masked (for example, `s***y@example.com`) and no
+      plaintext email or Slack admin secret appears in logs. This is a
+      manual sanity pass over the unit coverage in
+      `test_email_masking.py` and `test_log_redaction.py`.
+
 ---
 
 ## Dependencies
@@ -385,7 +401,7 @@ T015,T016,T017,T018 ──► T019 (Phase 5 verify, runs after Phase 4)
 
 T023..T028 [P] ──► T029,T030 (Phase 6, parallel docs; can start as soon as plan is fixed)
 
-T004 + T019 + Phase 4 done ──► T031..T035 (Phase 7 live verify)
+T004 + T019 + Phase 4 done ──► T031..T037 (Phase 7 live verify)
 ```
 
 ## Parallelization opportunities
@@ -405,7 +421,7 @@ T004 + T019 + Phase 4 done ──► T031..T035 (Phase 7 live verify)
 - `make lint` clean.
 - `helm template` renders for default + JIT-off + allowedEmailDomains
   populated paths.
-- All five user stories have a verified [verify] task ticked.
+- All five user stories have every Phase 7 [verify] task ticked.
 - All six doc files updated in the same PR.
 - Conventional commit + DCO + `Assisted-by:` trailer present on every
   commit.

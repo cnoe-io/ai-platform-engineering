@@ -1364,6 +1364,9 @@ services:
       # If unreachable the UI gracefully reports "scanner unavailable" instead
       # of failing the skill save.
       - SKILL_SCANNER_URL=${SKILL_SCANNER_URL:-http://skill-scanner:8000}
+      # Skill Hub GitHub crawl/import token. Keep the value in .env or the shell;
+      # never hardcode tokens in compose.
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
       # MongoDB (when running with profile caipe-ui; mongodb service is in same profile)
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
@@ -1494,6 +1497,9 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
+      # AgentGateway currently fronts only these MCP target IDs. Other MCP
+      # servers use their direct endpoints so tool labels match real upstreams.
+      - AGENT_GATEWAY_MCP_SERVER_IDS=${AGENT_GATEWAY_MCP_SERVER_IDS:-jira}
       # Optional shared secret for signed Dynamic Agent -> AgentGateway agent_id context.
       # Leave unset to keep only the coarse user-level AgentGateway/OpenFGA gate.
       - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
@@ -1663,13 +1669,15 @@ services:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
       - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
     environment:
+      - PYTHONPATH=/app/common/src:/app/ingestors/src
       - INGESTOR_TYPE=webloader
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - REDIS_URL=redis://rag-redis:6379/0
       - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
       - SYNC_INTERVAL=${WEBLOADER_CHECK_INTERVAL:-86400}
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
-      - MAX_CONCURRENT_JOBS=${WEBLOADER_INGESTOR_MAX_CONCURRENT_JOBS:-10}
+      - SCRAPY_WORKER_POOL_SIZE=${SCRAPY_WORKER_POOL_SIZE:-3}
+      - WEBLOADER_MAX_INGESTION_TASKS=${WEBLOADER_MAX_INGESTION_TASKS:-3}
       # Ingestor OIDC (optional - uses trusted network if not set)
       - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER}
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
@@ -2300,6 +2308,9 @@ services:
       - SLACK_RBAC_ENABLED=${SLACK_RBAC_ENABLED:-true}
       # Prefer UI-managed Slack channel routes, falling back to static bot config.
       - SLACK_AGENT_ROUTES_MODE=${SLACK_AGENT_ROUTES_MODE:-db_prefer}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
       # Slack bot's Admin REST API credentials (user lookup by slack_user_id).

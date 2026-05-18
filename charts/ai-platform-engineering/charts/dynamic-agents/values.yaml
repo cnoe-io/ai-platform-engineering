@@ -125,6 +125,9 @@ config:
   AGENT_RUNTIME_TTL_SECONDS: "60"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
+  # MCP server IDs routed through the shared AgentGateway backend.
+  # Other MCP servers keep direct endpoints so tool names reflect real upstreams.
+  AGENT_GATEWAY_MCP_SERVER_IDS: "jira"
   # Tracing disabled by default
   ENABLE_TRACING: "false"
   # Strip skill payloads (SKILL.md bodies, ancillary files,

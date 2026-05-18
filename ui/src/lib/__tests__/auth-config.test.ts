@@ -765,6 +765,21 @@ describe('auth-config', () => {
       expect(result.error).toBe('RefreshTokenExpired')
     })
 
+    it('should mark SSO sessions invalid when the server-side access token cache is missing', async () => {
+      const result = await (authOptions.callbacks!.session! as Function)({
+        session: { user: { name: 'Test', email: 'test@example.com' } },
+        token: {
+          sub: 'user-sub',
+          isAuthorized: true,
+          role: 'admin',
+          expiresAt: 9999999999,
+        },
+      })
+
+      expect(result.accessToken).toBeUndefined()
+      expect(result.error).toBe('AccessTokenMissing')
+    })
+
     it('should propagate isAuthorized=false into the browser session', async () => {
       const result = await (authOptions.callbacks!.session! as Function)({
         session: { user: { name: 'Blocked', email: 'blocked@example.com' } },

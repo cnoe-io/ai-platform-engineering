@@ -92,6 +92,10 @@ jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
   OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
 }));
 
+jest.mock('@/components/admin/MigrationTab', () => ({
+  MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
+}));
+
 jest.mock('@/components/admin/AuditLogsTab', () => ({
   AuditLogsTab: () => <div data-testid="audit-logs-tab">AuditLogsTab</div>,
 }));
@@ -233,6 +237,7 @@ const allGatesOpen = {
   audit_logs: true,
   action_audit: true,
   openfga: true,
+  migrations: true,
 };
 
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
@@ -567,6 +572,7 @@ describe('Admin Dashboard Page', () => {
         'Default Agent',
         'AI Review',
         'Skills',
+        'Migrations',
       ]);
       expect(screen.getByRole('tab', { name: /skills/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /ai review/i })).toBeInTheDocument();
@@ -610,6 +616,27 @@ describe('Admin Dashboard Page', () => {
         'true'
       );
       expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
+    });
+
+    it('canonicalizes legacy Slack deep links to the OpenFGA Slack tab', async () => {
+      currentSearchParams = new URLSearchParams(
+        'cat=system&tab=settings&subtab=slack&openfgaTab=slack'
+      );
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /openfga rebac/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('openfga-rebac-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=openfga&subtab=slack&openfgaTab=slack',
+        { scroll: false }
+      );
     });
 
     it('opens an in-app modal before deleting a team', async () => {

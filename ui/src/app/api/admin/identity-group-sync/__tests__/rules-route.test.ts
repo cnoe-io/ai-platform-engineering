@@ -118,7 +118,7 @@ beforeEach(() => {
 
 describe("Identity Group Sync provider and rule routes", () => {
   it("lists configured identity providers for callers with admin_ui#view", async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
+    mockGetServerSession.mockResolvedValue({ ...adminSession(), role: "user" });
     const { GET } = await import("../providers/route");
 
     const response = await GET(makeRequest("/api/admin/identity-group-sync/providers"));
@@ -157,7 +157,7 @@ describe("Identity Group Sync provider and rule routes", () => {
   });
 
   it("creates disabled draft-by-default rules through admin_ui#admin", async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
+    mockGetServerSession.mockResolvedValue({ ...adminSession(), role: "user" });
     const { POST } = await import("../rules/route");
 
     const response = await POST(

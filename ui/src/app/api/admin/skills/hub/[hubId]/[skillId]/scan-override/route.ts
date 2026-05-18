@@ -46,6 +46,7 @@ import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { HubSkillDoc, SkillHubDoc } from "@/lib/hub-crawl";
 import type { ScanOverride } from "@/types/agent-skill";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
@@ -136,6 +137,11 @@ export const POST = withErrorHandler(
 
     const { user, session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: `hub-${hubId}-${skillId}`,
+      action: "admin",
+    });
 
       // Body validation — same shape as the agent_skills route.
       let body: unknown;
@@ -315,6 +321,11 @@ export const DELETE = withErrorHandler(
 
     const { user, session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: `hub-${hubId}-${skillId}`,
+      action: "admin",
+    });
 
       // Optional reason on clear. Same parser as the agent_skills
       // route — tolerate "no body" and "body but no reason field"

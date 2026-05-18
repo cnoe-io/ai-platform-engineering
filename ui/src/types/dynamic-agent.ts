@@ -321,6 +321,9 @@ export interface DynamicAgentConfig {
   interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
+  owner_subject?: string;
+  owner_team_slug?: string;
+  owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
   /** Compact AI Review verdict from the last save. Drives the Grade column
@@ -341,6 +344,8 @@ export interface DynamicAgentConfigCreate {
   model: ModelConfig;  // Required: LLM model configuration
   visibility?: VisibilityType;
   shared_with_teams?: string[];
+  owner_team_slug: string;
+  owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
   ui?: AgentUIConfig;

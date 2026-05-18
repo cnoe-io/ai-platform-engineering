@@ -48,6 +48,7 @@ import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkil
 import { UserManagementTab } from "@/components/admin/UserManagementTab";
 import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
+import { MigrationTab } from "@/components/admin/MigrationTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
@@ -210,7 +211,8 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'ai-review', 'settings'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'migrations', 'ai-review', 'settings'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'slack', 'graph', 'tuples'] as const;
 
 type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
 const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'system';
@@ -238,6 +240,7 @@ const CATEGORIES: Category[] = [
       { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
+      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
   },
   {
@@ -294,6 +297,10 @@ function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
 
 function isValidCategory(category: string | null): category is CategoryKey {
   return Boolean(category && CATEGORIES.some((c) => c.key === category));
+}
+
+function isValidOpenFgaSubtab(tab: string | null): tab is typeof VALID_OPENFGA_SUBTABS[number] {
+  return Boolean(tab && (VALID_OPENFGA_SUBTABS as readonly string[]).includes(tab));
 }
 
 function AdminPage() {
@@ -361,7 +368,11 @@ function AdminPage() {
 
     const requestedTab = searchParams.get('tab');
     const requestedCategory = searchParams.get('cat');
-    const tabFromUrl = isValidTab(requestedTab) ? requestedTab : null;
+    const requestedOpenFgaSubtab = searchParams.get('subtab') ?? searchParams.get('openfgaTab');
+    const shouldOpenOpenFgaDeepLink = isValidOpenFgaSubtab(requestedOpenFgaSubtab);
+    const tabFromUrl = shouldOpenOpenFgaDeepLink
+      ? 'openfga'
+      : isValidTab(requestedTab) ? requestedTab : null;
     const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
     const defaultCategory = categoryForTab(defaultTab);
 
@@ -2581,6 +2592,12 @@ function AdminPage() {
               {tabGateValues.openfga && (
                 <TabsContent value="openfga" className="space-y-4">
                   <OpenFgaRebacTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.migrations && (
+                <TabsContent value="migrations" className="space-y-4">
+                  <MigrationTab isAdmin={tabGateValues.migrations} />
                 </TabsContent>
               )}
 

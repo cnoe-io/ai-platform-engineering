@@ -53,6 +53,7 @@ class Role:
 class UserContext(BaseModel):
   """User authentication and authorization context"""
 
+  subject: Optional[str] = None
   email: str
   groups: List[str]
   role: str

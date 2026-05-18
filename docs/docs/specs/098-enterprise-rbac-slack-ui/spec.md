@@ -11,6 +11,7 @@
 |----------|---------|------|
 | Operator guide | FR-017 | [operator-guide.md](./operator-guide.md) |
 | Permission matrix | FR-008, FR-014, SC-001 | [permission-matrix.md](./permission-matrix.md) |
+| Dynamic agent + Slack flow notes | FR-025, FR-028, FR-030, FR-031 | [rbac-dynamic-agent-flows.md](./rbac-dynamic-agent-flows.md) |
 | Security review checklist | FR-002, FR-013, FR-019 | [security-review.md](./security-review.md) |
 | Quickstart + persona validation | SC-003 | [quickstart.md](./quickstart.md) §7 |
 

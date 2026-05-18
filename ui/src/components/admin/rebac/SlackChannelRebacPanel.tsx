@@ -34,6 +34,34 @@ interface SlackChannelAgentRoute {
   };
 }
 
+interface SlackRuntimeDiagnosticRoute {
+  agent_id: string;
+  openfga_tuple: boolean;
+  route_metadata: boolean;
+  listen: "message" | "mention" | "all" | "unknown";
+  runtime_matches: {
+    mention: boolean;
+    message: boolean;
+  };
+  warnings: string[];
+}
+
+interface SlackRuntimeDiagnostics {
+  openfga: {
+    reachable: boolean;
+    tuple_count: number;
+    error?: string;
+  };
+  routes: SlackRuntimeDiagnosticRoute[];
+  warnings: string[];
+  last_runtime_error?: {
+    ts?: string;
+    reason_code?: string;
+    message?: string;
+    action?: string;
+  } | null;
+}
+
 interface DynamicAgentOption {
   _id: string;
   name: string;
@@ -58,6 +86,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   const [channels, setChannels] = useState<SlackChannelSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [routes, setRoutes] = useState<SlackChannelAgentRoute[]>([]);
+  const [diagnostics, setDiagnostics] = useState<SlackRuntimeDiagnostics | null>(null);
   const [dynamicAgents, setDynamicAgents] = useState<DynamicAgentOption[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [routeAgentId, setRouteAgentId] = useState("");
@@ -109,6 +138,16 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     setRoutes(data.routes ?? []);
   }, [selected]);
 
+  const loadDiagnostics = useCallback(async () => {
+    if (!selected) return;
+    const response = await fetch(
+      `/api/admin/slack/channels/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.channel_id)}/diagnostics`
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const data = apiData<SlackRuntimeDiagnostics>(await response.json());
+    setDiagnostics(data);
+  }, [selected]);
+
   const loadDynamicAgents = useCallback(async () => {
     const response = await fetch("/api/dynamic-agents?enabled_only=true");
     if (!response.ok) throw new Error(await response.text());
@@ -144,6 +183,13 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       setMessage(error instanceof Error ? error.message : "Failed to load Slack channel routes")
     );
   }, [loadRoutes]);
+
+  useEffect(() => {
+    setDiagnostics(null);
+    void loadDiagnostics().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "Failed to load Slack runtime diagnostics")
+    );
+  }, [loadDiagnostics]);
 
   const resetRouteForm = () => {
     setRouteAgentId("");
@@ -193,7 +239,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           ? "Slack channel-agent association updated."
           : "Slack channel-agent association created."
       );
-      await loadChannels();
+      await Promise.all([loadChannels(), loadDiagnostics()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to save Slack association");
     } finally {
@@ -220,7 +266,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
       }
       setRoutePendingDelete(null);
       setMessage("Slack channel-agent association deleted.");
-      await Promise.all([loadChannels(), loadRoutes()]);
+      await Promise.all([loadChannels(), loadRoutes(), loadDiagnostics()]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to delete Slack association");
     } finally {
@@ -269,13 +315,62 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           routes_ensured: number;
         };
       }>(await response.json());
-      await Promise.all([loadChannels(), loadRoutes()]);
+      await Promise.all([loadChannels(), loadRoutes(), loadDiagnostics()]);
       setMessage(
         `Migration defaults applied: assigned ${data.summary.channels_assigned_team} channels, ensured ${data.summary.channel_grants_ensured} channel grants, ensured ${data.summary.routes_ensured} routes.`
       );
       setMigrationConfirmOpen(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to apply migration defaults");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const diagnosticRouteIsFixable = (route: SlackRuntimeDiagnosticRoute) =>
+    (route.route_metadata && !route.openfga_tuple) ||
+    (route.openfga_tuple && route.listen !== "all");
+
+  const fixDiagnosticRoute = async (route: SlackRuntimeDiagnosticRoute) => {
+    if (!selected) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const routeUrl = `/api/admin/slack/channels/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.channel_id)}/routes`;
+      if (route.route_metadata && !route.openfga_tuple) {
+        const response = await fetch(routeUrl, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: route.agent_id }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        setMessage(`Removed stale route metadata for agent:${route.agent_id}.`);
+        await Promise.all([loadChannels(), loadRoutes(), loadDiagnostics()]);
+        return;
+      }
+
+      const currentRoute = routes.find((candidate) => candidate.agent_id === route.agent_id);
+      const nextRoutes = [
+        ...routes.filter((candidate) => candidate.agent_id !== route.agent_id),
+        {
+          agent_id: route.agent_id,
+          enabled: true,
+          priority: currentRoute?.priority ?? 100,
+          users: { enabled: true, listen: "all" as const },
+        },
+      ];
+      const response = await fetch(routeUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routes: nextRoutes }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const data = apiData<{ routes: SlackChannelAgentRoute[] }>(await response.json());
+      setRoutes(data.routes ?? []);
+      setMessage(`Updated agent:${route.agent_id} to listen to mentions and plain messages.`);
+      await Promise.all([loadChannels(), loadDiagnostics()]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `Failed to fix agent:${route.agent_id}`);
     } finally {
       setLoading(false);
     }
@@ -455,6 +550,90 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
               )}
             </div>
           </div>
+        </div>
+
+        <div className="rounded-md border p-4 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <Label>Slack Runtime Diagnostics</Label>
+              <p className="text-xs text-muted-foreground">
+                Preflight checks for the selected channel using the same OpenFGA tuple and route metadata shape the Slack bot depends on.
+              </p>
+            </div>
+            {diagnostics && (
+              <Badge variant={diagnostics.warnings.length > 0 ? "outline" : "default"}>
+                {diagnostics.warnings.length > 0 ? `${diagnostics.warnings.length} warning${diagnostics.warnings.length === 1 ? "" : "s"}` : "healthy"}
+              </Badge>
+            )}
+          </div>
+          {!selected ? (
+            <p className="text-sm text-muted-foreground">Select a Slack channel to run diagnostics.</p>
+          ) : !diagnostics ? (
+            <p className="text-sm text-muted-foreground">Loading diagnostics...</p>
+          ) : (
+            <>
+              <div className="grid gap-2 text-sm md:grid-cols-3">
+                <div className="rounded-md border p-3">
+                  <div className="text-xs text-muted-foreground">OpenFGA</div>
+                  <div className="font-medium">{diagnostics.openfga.reachable ? "reachable" : "unreachable"}</div>
+                  <div className="text-xs text-muted-foreground">{diagnostics.openfga.tuple_count} channel-agent tuples</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-xs text-muted-foreground">Runtime Routes</div>
+                  <div className="font-medium">{diagnostics.routes.length}</div>
+                  <div className="text-xs text-muted-foreground">OpenFGA-backed candidates</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-xs text-muted-foreground">Last Error</div>
+                  <div className="font-medium">{diagnostics.last_runtime_error?.reason_code ?? "none"}</div>
+                  <div className="text-xs text-muted-foreground">{diagnostics.last_runtime_error?.ts ?? "No recent runtime error"}</div>
+                </div>
+              </div>
+              {diagnostics.warnings.length > 0 && (
+                <div className="space-y-1 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+                  {diagnostics.warnings.map((warning) => (
+                    <div key={warning}>{warning}</div>
+                  ))}
+                </div>
+              )}
+              {diagnostics.last_runtime_error?.message && (
+                <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">
+                  {diagnostics.last_runtime_error.message}
+                </div>
+              )}
+              {diagnostics.routes.length > 0 && (
+                <div className="space-y-2">
+                  {diagnostics.routes.map((route) => (
+                    <div key={route.agent_id} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
+                      <span className="font-medium">agent:{route.agent_id}</span>
+                      <Badge variant={route.openfga_tuple ? "default" : "outline"}>
+                        {route.openfga_tuple ? "OpenFGA tuple" : "missing tuple"}
+                      </Badge>
+                      <Badge variant={route.route_metadata ? "secondary" : "outline"}>
+                        {route.route_metadata ? `listen:${route.listen}` : "default metadata"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        mention {route.runtime_matches.mention ? "yes" : "no"} / message {route.runtime_matches.message ? "yes" : "no"}
+                      </span>
+                      {diagnosticRouteIsFixable(route) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="ml-auto"
+                          onClick={() => void fixDiagnosticRoute(route)}
+                          disabled={disabled || loading}
+                          aria-label={`Fix agent:${route.agent_id} routing`}
+                        >
+                          Fix it
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <div className="rounded-md border p-4 space-y-3">

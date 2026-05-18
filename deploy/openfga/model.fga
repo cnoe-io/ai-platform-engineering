@@ -66,12 +66,13 @@ type agent
     define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
     define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel]
     define writer: [user, service_account, team#member, team#admin]
-    define manager: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
     define can_read: reader or can_use or can_manage or owner
     define can_use: user or can_write or can_manage or owner
     define can_write: writer or can_manage or owner
+    define can_delete: can_manage
     define can_manage: manager or owner
     define can_audit: auditor or can_manage
 
@@ -188,7 +189,7 @@ type admin_surface
   relations
     define reader: [user, service_account, team#admin]
     define writer: [user, service_account, team#admin]
-    define manager: [user, service_account, team#admin]
+    define manager: [user, service_account, team#member, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
     define can_read: reader or can_write or can_manage

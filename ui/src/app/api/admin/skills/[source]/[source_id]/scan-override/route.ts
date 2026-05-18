@@ -59,6 +59,7 @@ import {
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
@@ -178,6 +179,11 @@ export const POST = withErrorHandler(
 
     const { user, session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: source_id,
+      action: "admin",
+    });
 
       // Body validation. We accept reason up to 4096 chars — long
       // enough for a paragraph, short enough that an accidental
@@ -356,6 +362,11 @@ export const DELETE = withErrorHandler(
 
     const { user, session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "admin_ui", "admin");
+    await requireResourcePermission(session, {
+      type: "skill",
+      id: source_id,
+      action: "admin",
+    });
 
       // Optional reason on clear. Tolerate "no body" and "body but
       // no reason field" cleanly.

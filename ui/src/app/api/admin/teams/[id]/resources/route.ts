@@ -59,6 +59,18 @@ interface SkillLite {
   enabled?: boolean;
 }
 
+interface SkillHubLite {
+  id?: string;
+  enabled?: boolean;
+}
+
+interface HubSkillLite {
+  hub_id?: string;
+  skill_id?: string;
+  name?: string;
+  description?: string;
+}
+
 interface TaskLite {
   _id?: string;
   id?: string;
@@ -120,12 +132,14 @@ export const GET = withErrorHandler(
       const agentsCol = await getCollection<DynamicAgentLite>("dynamic_agents");
       const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
       const skillsCol = await getCollection<SkillLite>("skills");
+      const skillHubsCol = await getCollection<SkillHubLite>("skill_hubs");
+      const hubSkillsCol = await getCollection<HubSkillLite>("hub_skills");
       const tasksCol = await getCollection<TaskLite>("task_configs");
       const ownershipCol = await getCollection<{ kb_ids?: string[]; kb_permissions?: Record<string, string> }>(
         "team_kb_ownership"
       );
 
-      const [allAgents, allServers, allSkills, allTasks, ownership] = await Promise.all([
+      const [allAgents, allServers, allSkills, enabledHubs, allHubSkills, allTasks, ownership] = await Promise.all([
         agentsCol
           .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1, visibility: 1 } })
           .sort({ name: 1 })
@@ -141,6 +155,16 @@ export const GET = withErrorHandler(
           .sort({ name: 1 })
           .toArray()
           .catch(() => [] as SkillLite[]),
+        skillHubsCol
+          .find({ enabled: { $ne: false } } as never, { projection: { id: 1, enabled: 1 } })
+          .sort({ id: 1 })
+          .toArray()
+          .catch(() => [] as SkillHubLite[]),
+        hubSkillsCol
+          .find({}, { projection: { hub_id: 1, skill_id: 1, name: 1, description: 1 } })
+          .sort({ name: 1 })
+          .toArray()
+          .catch(() => [] as HubSkillLite[]),
         tasksCol
           .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, id: 1, name: 1, title: 1, description: 1 } })
           .sort({ name: 1 })
@@ -157,6 +181,23 @@ export const GET = withErrorHandler(
         for (const id of row.kb_ids ?? []) kbIds.add(id);
         for (const id of Object.keys(row.kb_permissions ?? {})) kbIds.add(id);
       }
+      const enabledHubIds = new Set(
+        enabledHubs.map((hub) => hub.id).filter((id): id is string => Boolean(id))
+      );
+      const hubSkillOptions = allHubSkills
+        .filter((skill) => skill.hub_id && skill.skill_id && enabledHubIds.has(skill.hub_id))
+        .map((skill) => ({
+          id: `hub-${skill.hub_id}-${skill.skill_id}`,
+          name: skill.name ?? skill.skill_id ?? "",
+          description: skill.description ?? "",
+        }));
+      const configuredSkillOptions = allSkills.map((s) => {
+        const id = String(s.id ?? s._id ?? s.name);
+        return { id, name: s.name ?? s.title ?? id, description: s.description ?? "" };
+      });
+      const skillOptions = [...configuredSkillOptions, ...hubSkillOptions].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
 
       const resources = team.resources ?? {};
 
@@ -183,10 +224,7 @@ export const GET = withErrorHandler(
             description: allServers[i].description ?? "",
           })),
           knowledge_bases: Array.from(kbIds).sort().map((id) => ({ id, name: id, description: "" })),
-          skills: allSkills.map((s) => {
-            const id = String(s.id ?? s._id ?? s.name);
-            return { id, name: s.name ?? s.title ?? id, description: s.description ?? "" };
-          }),
+          skills: skillOptions,
           tasks: allTasks.map((t) => {
             const id = String(t.id ?? t._id ?? t.name);
             return { id, name: t.name ?? t.title ?? id, description: t.description ?? "" };

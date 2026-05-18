@@ -36,11 +36,11 @@ async function listOpenFgaChannelAgentIds(workspaceId: string, channelId: string
   let continuationToken: string | undefined;
   do {
     const result = await readOpenFgaTuples({
-      tuple: { user: subject, relation: "user" },
       pageSize: 100,
       ...(continuationToken ? { continuationToken } : {}),
     });
     for (const tuple of result.tuples) {
+      if (tuple.key.user !== subject || tuple.key.relation !== "user") continue;
       const agentId = agentIdFromObject(tuple.key.object);
       if (agentId) seen.add(agentId);
     }

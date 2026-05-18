@@ -9,6 +9,7 @@ import {
   ApiError,
 } from '@/lib/api-middleware';
 import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
+import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -64,6 +65,70 @@ function isTeamAdminOrOwner(
 }
 
 const VALID_PERMISSIONS: KbPermission[] = ['read', 'ingest', 'admin'];
+
+const KB_PERMISSION_TO_OPENFGA_RELATION: Record<KbPermission, string> = {
+  read: 'reader',
+  ingest: 'ingestor',
+  admin: 'manager',
+};
+
+function uniqueTupleKeys(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
+  const seen = new Set<string>();
+  const unique: OpenFgaTupleKey[] = [];
+  for (const tuple of tuples) {
+    const key = `${tuple.user}\n${tuple.relation}\n${tuple.object}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(tuple);
+  }
+  return unique;
+}
+
+function kbTuple(teamSlug: string, datasourceId: string, permission: KbPermission): OpenFgaTupleKey {
+  return {
+    user: `team:${teamSlug}#member`,
+    relation: KB_PERMISSION_TO_OPENFGA_RELATION[permission],
+    object: `knowledge_base:${datasourceId}`,
+  };
+}
+
+function buildKnowledgeBaseTupleDiff(
+  teamSlug: string,
+  previous: Pick<TeamKbOwnership, 'kb_ids' | 'kb_permissions'> | null | undefined,
+  nextKbIds: string[],
+  nextPermissions: Record<string, KbPermission>
+): TeamResourceTupleDiff {
+  const previousIds = new Set(previous?.kb_ids ?? []);
+  const nextIds = new Set(nextKbIds);
+  const writes: OpenFgaTupleKey[] = [];
+  const deletes: OpenFgaTupleKey[] = [];
+
+  for (const datasourceId of nextIds) {
+    const nextPermission = nextPermissions[datasourceId] ?? 'read';
+    writes.push(kbTuple(teamSlug, datasourceId, nextPermission));
+  }
+
+  for (const datasourceId of previousIds) {
+    const previousPermission = previous?.kb_permissions?.[datasourceId] ?? 'read';
+    const nextPermission = nextPermissions[datasourceId] ?? 'read';
+    if (!nextIds.has(datasourceId) || previousPermission !== nextPermission) {
+      deletes.push(kbTuple(teamSlug, datasourceId, previousPermission));
+    }
+  }
+
+  return {
+    writes: uniqueTupleKeys(writes),
+    deletes: uniqueTupleKeys(deletes),
+  };
+}
+
+async function writeRequiredKnowledgeBaseTuples(diff: TeamResourceTupleDiff): Promise<void> {
+  if (diff.writes.length === 0 && diff.deletes.length === 0) return;
+  const result = await writeOpenFgaTuples(diff);
+  if (!result.enabled) {
+    throw new ApiError('OpenFGA is not configured; KB assignments cannot be persisted safely', 503);
+  }
+}
 
 // GET /api/admin/teams/[id]/kb-assignments
 export const GET = withErrorHandler(
@@ -133,6 +198,7 @@ export const PUT = withErrorHandler(
 
       const params = await context.params;
       validateTeamId(params.id);
+      let teamSlug = params.id;
 
       if (params.id === GLOBAL_PSEUDO_TEAM) {
         if (user.role !== 'admin') {
@@ -152,6 +218,7 @@ export const PUT = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
+        teamSlug = (team.slug as string | undefined) || params.id;
       }
 
       const body: PutKbAssignmentsBody = await request.json();
@@ -176,6 +243,7 @@ export const PUT = withErrorHandler(
       }
 
       const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
+      const previous = await ownership.findOne({ team_id: params.id });
       const now = new Date();
 
       const doc: TeamKbOwnership = {
@@ -188,6 +256,10 @@ export const PUT = withErrorHandler(
         updated_at: now,
         updated_by: user.email,
       };
+
+      await writeRequiredKnowledgeBaseTuples(
+        buildKnowledgeBaseTupleDiff(teamSlug, previous, doc.kb_ids, doc.kb_permissions)
+      );
 
       await ownership.updateOne(
         { team_id: params.id },
@@ -224,6 +296,7 @@ export const DELETE = withErrorHandler(
 
       const params = await context.params;
       validateTeamId(params.id);
+      let teamSlug = params.id;
 
       if (params.id === GLOBAL_PSEUDO_TEAM) {
         if (user.role !== 'admin') {
@@ -237,6 +310,12 @@ export const DELETE = withErrorHandler(
         if (!canAdmin && !isTeamAdminOrOwner(session, params.id, user.role)) {
           throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
+        const teams = await getCollection('teams');
+        const team = await teams.findOne({ _id: new ObjectId(params.id) });
+        if (!team) {
+          throw new ApiError('Team not found', 404);
+        }
+        teamSlug = (team.slug as string | undefined) || params.id;
       }
 
       const { searchParams } = new URL(request.url);
@@ -259,6 +338,11 @@ export const DELETE = withErrorHandler(
       const updatedPermissions = { ...record.kb_permissions };
       delete updatedPermissions[datasourceId];
       const updatedAllowed = record.allowed_datasource_ids.filter((id) => id !== datasourceId);
+
+      await writeRequiredKnowledgeBaseTuples({
+        writes: [],
+        deletes: [kbTuple(teamSlug, datasourceId, record.kb_permissions[datasourceId] ?? 'read')],
+      });
 
       await ownership.updateOne(
         { team_id: params.id },

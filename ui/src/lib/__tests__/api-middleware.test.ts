@@ -47,6 +47,7 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
+const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkPermission;
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
@@ -229,6 +230,8 @@ describe('withErrorHandler', () => {
 describe('requireRbacPermission organization ReBAC', () => {
   beforeEach(() => {
     mockCheckOpenFgaTuple.mockReset();
+    mockCheckPermission.mockReset();
+    mockCheckPermission.mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     delete process.env.BOOTSTRAP_ADMIN_EMAILS;
     delete process.env.CAIPE_ORG_KEY;
   });
@@ -276,6 +279,54 @@ describe('requireRbacPermission organization ReBAC', () => {
     });
   });
 
+  it('allows RAG datasource admin through the RAG admin surface tuple', async () => {
+    mockCheckOpenFgaTuple
+      .mockResolvedValueOnce({ allowed: true })
+      .mockResolvedValueOnce({ allowed: false });
+
+    await expect(
+      requireRbacPermission(
+        {
+          accessToken: 'token',
+          sub: 'rag-admin-sub',
+          user: { email: 'rag-admin@example.com' },
+        },
+        'rag',
+        'admin'
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:rag-admin-sub',
+      relation: 'can_manage',
+      object: 'admin_surface:rag_datasources',
+    });
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies RAG datasource admin when the RAG admin surface tuple is absent', async () => {
+    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: false });
+
+    await expect(
+      requireRbacPermission(
+        {
+          accessToken: 'token',
+          sub: 'rag-reader-sub',
+          user: { email: 'rag-reader@example.com' },
+        },
+        'rag',
+        'admin'
+      )
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:rag-reader-sub',
+      relation: 'can_manage',
+      object: 'admin_surface:rag_datasources',
+    });
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+  });
+
   it('does not allow legacy realm role fallback when OpenFGA denies', async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
 
@@ -288,6 +339,68 @@ describe('requireRbacPermission organization ReBAC', () => {
         },
         'admin_ui',
         'admin'
+      )
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('uses legacy mocked PDP only in tests when OpenFGA is unconfigured', async () => {
+    mockCheckOpenFgaTuple.mockRejectedValue(new Error('OPENFGA_HTTP is not set'));
+    mockCheckPermission.mockResolvedValue({ allowed: true });
+
+    await expect(
+      requireRbacPermission(
+        {
+          accessToken: 'token',
+          sub: 'legacy-test-sub',
+          user: { email: 'legacy-test@example.com' },
+        },
+        'admin_ui',
+        'view'
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mockCheckPermission).toHaveBeenCalledWith({
+      accessToken: 'token',
+      resource: 'admin_ui',
+      scope: 'view',
+    });
+  });
+
+  it('uses legacy mocked PDP in tests when a legacy session has no subject', async () => {
+    mockCheckPermission.mockResolvedValue({ allowed: true });
+
+    await expect(
+      requireRbacPermission(
+        {
+          accessToken: 'legacy-token-without-sub',
+          user: { email: 'legacy-session@example.com' },
+        },
+        'supervisor',
+        'invoke'
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockCheckPermission).toHaveBeenCalledWith({
+      accessToken: 'legacy-token-without-sub',
+      resource: 'supervisor',
+      scope: 'invoke',
+    });
+  });
+
+  it('denies through legacy mocked PDP in tests when OpenFGA is unconfigured', async () => {
+    mockCheckOpenFgaTuple.mockRejectedValue(new Error('OPENFGA_HTTP is not set'));
+    mockCheckPermission.mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
+
+    await expect(
+      requireRbacPermission(
+        {
+          accessToken: 'token',
+          sub: 'legacy-denied-sub',
+          user: { email: 'legacy-denied@example.com' },
+        },
+        'admin_ui',
+        'view'
       )
     ).rejects.toMatchObject({ statusCode: 403 });
   });

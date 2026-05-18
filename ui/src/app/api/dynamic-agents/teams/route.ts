@@ -9,13 +9,35 @@ import {
   withErrorHandler,
   successResponse,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 interface Team {
-  _id: string;
+  _id: unknown;
   name: string;
+  slug?: string;
   description?: string;
+  members?: Array<{ user_id?: string; email?: string; role?: string }>;
+}
+
+function normalizeEmail(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function userTeamRole(team: Team, userEmail: string): string | null {
+  const email = normalizeEmail(userEmail);
+  const member = team.members?.find((entry) => normalizeEmail(entry.user_id ?? entry.email) === email);
+  return member?.role ?? null;
+}
+
+async function canManageOrganization(session: Parameters<typeof requireResourcePermission>[0]): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -24,20 +46,27 @@ interface Team {
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "dynamic_agent", "view");
 
     const teamsCollection = await getCollection<Team>("teams");
 
-    // Admins can see all teams (to share agents with any team);
-    // non-admins only see teams they belong to.
-    const isAdmin = user.role === "admin";
+    // Organization admins can see all teams; team-scoped users see memberships only.
+    const isAdmin = await canManageOrganization(session);
     const query = isAdmin ? {} : { "members.user_id": user.email };
 
-    const teams = await teamsCollection
+    const teams = (await teamsCollection
       .find(query)
-      .project({ _id: 1, name: 1, description: 1 })
+      .project({ _id: 1, name: 1, slug: 1, description: 1, members: 1 })
       .sort({ name: 1 })
-      .toArray();
+      .toArray()) as Team[];
 
-    return successResponse(teams);
+    return successResponse(
+      teams.map((team) => ({
+        _id: String(team._id),
+        name: team.name,
+        slug: team.slug,
+        description: team.description,
+        user_role: isAdmin ? "admin" : userTeamRole(team, user.email),
+        can_own_agents: isAdmin || ["admin", "owner"].includes(userTeamRole(team, user.email) ?? ""),
+      })),
+    );
 });

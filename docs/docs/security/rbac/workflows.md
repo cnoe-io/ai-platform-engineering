@@ -70,7 +70,7 @@ sequenceDiagram
 
       note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>and refresh upstream groups into idp_groups
       KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users]
-      note over UI: NextAuth stores JWT in<br/>encrypted server-side session cookie
+      note over UI: NextAuth stores slim session metadata<br/>in encrypted httpOnly cookie;<br/>OAuth tokens stay in UI server cache
       opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED is not false
         UI->>MDB: Best-effort reconcile Alice's<br/>memberOf/groups claims into managed<br/>team_membership_sources + OpenFGA tuples
       end
@@ -115,7 +115,7 @@ sequenceDiagram
 
 1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
 > **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once per day". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
@@ -124,10 +124,13 @@ sequenceDiagram
 
 ## Dynamic Agent Invocation
 
-Dynamic Agent start, invoke, and resume requests have two OpenFGA enforcement
-points. The Web UI backend blocks denied callers before any backend proxy call, and the
-Dynamic Agents runtime repeats the same check before agent lookup or runtime
-work. Cancellation is deliberately auth-only because it stops work.
+Dynamic Agent start, invoke, resume, and cancel requests have two authorization
+layers. The Web UI backend blocks denied callers before any backend proxy call by
+checking agent use plus conversation write access. Conversation write uses the
+hybrid model: implicit MongoDB ownership (`owner_subject` or legacy `owner_id`)
+is accepted for private conversations, while shared or delegated writes fall
+through to explicit OpenFGA `conversation:<id>` relationships. The Dynamic
+Agents runtime repeats the agent-use check before agent lookup or runtime work.
 
 ```mermaid
 sequenceDiagram
@@ -141,11 +144,17 @@ sequenceDiagram
     participant MDB as MongoDB audit_events
 
     Client->>WebUIBackend: POST /api/v1/chat/stream/start
-    WebUIBackend->>WebUIBackend: authenticate session or bearer
+    WebUIBackend->>WebUIBackend: authenticate session or bearer<br/>and require cached Keycloak access token
     WebUIBackend->>WebUIBackend: create authz traceparent
     WebUIBackend->>FGA: Check user:<sub> can_use agent:<agent_id><br/>traceparent
     opt subject tuple absent and email claim present
         WebUIBackend->>FGA: Check user:<email> can_use agent:<agent_id><br/>traceparent
+    end
+    WebUIBackend->>MDB: Load conversation:<conversation_id>
+    alt implicit owner via owner_subject or owner_id
+        WebUIBackend->>WebUIBackend: allow conversation write
+    else not implicit owner
+        WebUIBackend->>FGA: Check user:<sub> can_write conversation:<conversation_id>
     end
     alt denied or OpenFGA unavailable
         WebUIBackend->>MDB: write openfga_rebac audit event
@@ -179,14 +188,97 @@ sequenceDiagram
     end
 ```
 
-The same sequence applies to `POST /api/v1/chat/invoke` and
-`POST /api/v1/chat/stream/resume`. `POST /api/v1/chat/stream/cancel` still
-requires authentication, but it skips the `can_use` check. The RBAC Audit tab
+The same sequence applies to `POST /api/v1/chat/invoke`,
+`POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel` (cancel
+does not start runtime work, but it still requires agent use and conversation write authorization). The RBAC Audit tab
 surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
 `pdp=openfga` and the checked tuple in `resource_ref`. MongoDB `audit_events`
 is authoritative for compliance and history; Jaeger/OTel can still be enabled
 for request-flow debugging, but the Admin UI does not need it to show authz
 decisions.
+
+Slack follow-up bookkeeping uses `PATCH /api/chat/conversations/[id]/metadata`
+after a response is posted. That endpoint uses the same implicit-owner-or-explicit
+conversation write check, so a Slack OBO token for the conversation owner can
+update thread metadata such as `last_processed_ts` without a separate
+`conversation:<id>#writer` tuple.
+
+### Dynamic Agent Creation Ownership
+
+New Dynamic Agents must be assigned to an owner team during creation. The Web UI
+backend validates the selected team before writing any agent document: platform
+admins can choose any team, while scoped team admins can choose only teams where
+they are `admin` or `owner`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as Creator
+    participant UI as Dynamic Agent Wizard
+    participant BFF as Next.js Web UI backend
+    participant FGA as OpenFGA
+    participant MDB as MongoDB
+
+    Admin->>UI: Choose owner team + agent config
+    UI->>BFF: POST /api/dynamic-agents owner_team_slug
+    BFF->>MDB: Load team by slug/id
+    alt platform admin or owner-team admin
+        BFF->>FGA: Write user:<sub> owner agent:<id>
+        BFF->>FGA: Write organization:<org>#admin manager agent:<id>
+        BFF->>FGA: Write team:<slug>#member user agent:<id>
+        BFF->>FGA: Write team:<slug>#admin manager agent:<id>
+        BFF->>FGA: Write agent:<id> caller tool:<server>/<tool>
+        BFF->>MDB: Insert dynamic_agents owner_team_slug/owner_subject
+        BFF-->>UI: 201 created
+    else missing team or unauthorized team
+        BFF-->>UI: 400/404/403
+    end
+```
+
+---
+
+## 0.5.1 Schema Migration Tab
+
+Admins run release migrations from Admin → System → Migrations. The tab loads the
+0.5.1 migration manifest, lets the admin select and dry-run each migration, and
+requires typing the exact confirmation string before applying writes.
+
+Dynamic Agent migrations include both tool tuple reconciliation and
+`agent_org_admin_inheritance_v1`, which backfills
+`organization:<org>#admin manager agent:<id>` for existing agents so
+organization admins inherit `can_manage` without assigning owner teams to legacy
+records.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant UI as Admin Migration Tab
+    participant BFF as Next.js Admin ReBAC API
+    participant MDB as MongoDB
+
+    Admin->>UI: Open Migrations tab
+    UI->>BFF: GET /api/admin/rebac/migrations
+    BFF->>BFF: require admin_ui#admin
+    BFF->>MDB: Read data_schema_versions + schema_migrations
+    BFF-->>UI: Manifest + current schema status
+    Admin->>UI: Select a migration and Dry run
+    UI->>BFF: POST /migrations/{id}/plan
+    BFF->>BFF: require admin_ui#admin
+    BFF->>MDB: Read source collections for selected migration
+    BFF-->>UI: Counts, warnings, sample diffs, confirmation text
+    Admin->>UI: Type exact confirmation and Apply
+    UI->>BFF: POST /migrations/{id}/apply
+    BFF->>MDB: Update Mongo documents or ensure RBAC indexes
+    BFF->>BFF: Write OpenFGA tuples for explicit ReBAC migrations
+    BFF->>MDB: Upsert schema_migrations + data_schema_versions
+    BFF-->>UI: Applied counts
+```
+
+Conversation authorization after the migration remains hybrid: if the caller owns
+the conversation by `owner_subject` or legacy `owner_id`, the Web UI backend allows
+the private owner path without a per-conversation OpenFGA owner tuple. Non-owners
+must still pass explicit OpenFGA checks for shared conversation access.
 
 ---
 
@@ -337,6 +429,10 @@ Slack channel routing now separates "which team owns this channel?" from "which 
 
 The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association.
 
+The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from `audit_events`.
+
+Slack route misses are user-visible. If OpenFGA route reads fail, or if a channel has route metadata but none of the routes listen to the incoming message type, the bot sends the sender an ephemeral Slack notice instead of silently returning. This keeps channel dispatch fail-closed while giving the user and admin an actionable next step. Diagnostics also provides one-click fixes for common operator errors: stale metadata without an OpenFGA tuple can be removed, and mention-only/message-only routes can be updated to `listen: all`.
+
 ## Keycloak Role → ReBAC Transition Check
 
 The transition comparison API is intentionally read-only and engineer-facing:
@@ -353,6 +449,7 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
 - Channel/agent associations are many-to-many OpenFGA tuples: a channel can have multiple Dynamic Agent associations.
 - Removing an association deletes the OpenFGA tuple and its saved Mongo listen/priority metadata, denying that resource in the channel even if the user has access elsewhere.
 - UI-managed route dispatch is the default with static YAML fallback (`SLACK_AGENT_ROUTES_MODE=db_prefer`). Set `config` only for static YAML routing, and use `db_only` only after the channel's OpenFGA-backed UI routes are complete.
+- Deep links that include `subtab=slack` or `openfgaTab=slack` canonicalize to **Security & Policy → OpenFGA ReBAC → Slack Channels**, even if an older link still carries `cat=system&tab=settings`.
 
 ### MongoDB Collection: `channel_team_mappings`
 
@@ -395,6 +492,35 @@ The channel-agent association lives in OpenFGA. The `agent:<id>` value is the Dy
 ```
 
 This row is metadata for a matching OpenFGA tuple. It does not authorize dispatch by itself, and it is deleted when the channel-agent association is deleted.
+
+---
+
+## Web UI Object-Level Checks
+
+For UI-owned resource surfaces, the BFF performs the coarse session or legacy scope gate first and then checks the concrete OpenFGA object before returning or proxying data.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant BFF as CAIPE UI BFF
+    participant FGA as OpenFGA
+    participant Store as MongoDB / Backend
+
+    User->>BFF: request resource action
+    BFF->>BFF: authenticate session / bearer token
+    BFF->>BFF: coarse route gate when present
+    BFF->>FGA: Check user:<sub> can_* resource:<id>
+    alt allowed
+      BFF->>Store: read, mutate, or proxy
+      Store-->>BFF: result
+      BFF-->>User: 2xx response
+    else denied or no subject
+      BFF-->>User: 401/403 without backend access
+    end
+```
+
+Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `tool:dynamic-agents-builtin` for built-in tool discovery, and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. Task Builder routes are intentionally excluded from this pass because they are scheduled for refactor.
 
 ---
 

@@ -90,7 +90,7 @@ routes:
     relation: can_use
     object_type: agent
     migration_status: migrated
-    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents streaming start proxy.
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents streaming start proxy.
     expectations:
       alice_admin:
         status: 200
@@ -118,7 +118,7 @@ routes:
     relation: can_use
     object_type: agent
     migration_status: migrated
-    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents non-streaming invoke proxy.
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents non-streaming invoke proxy.
     expectations:
       alice_admin:
         status: 200
@@ -146,7 +146,7 @@ routes:
     relation: can_use
     object_type: agent
     migration_status: migrated
-    notes: OpenFGA user:<sub> can_use agent:<agent_id> gate before Dynamic Agents stream resume proxy.
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents stream resume proxy.
     expectations:
       alice_admin:
         status: 200
@@ -279,6 +279,84 @@ routes:
     scope: admin
     migration_status: migrated
     notes: dual-auth admin_ui#admin PDP gate for staged ReBAC policy change-set creation.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-get-api-admin-rebac-migrations
+    surface: ui_bff
+    method: GET
+    path: /api/admin/rebac/migrations
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Lists the 0.5.1 schema-versioned migration manifest and stored migration status.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-rebac-migrations-plan
+    surface: ui_bff
+    method: POST
+    path: /api/admin/rebac/migrations/conversation_owner_identity_v1/plan
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Dry-runs a schema migration after the organization-level admin_ui#admin gate.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-rebac-migrations-apply
+    surface: ui_bff
+    method: POST
+    path: /api/admin/rebac/migrations/conversation_owner_identity_v1/apply
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Applies a schema migration only after exact typed confirmation.
     expectations:
       alice_admin:
         status: 200
@@ -2534,6 +2612,164 @@ routes:
     scope: admin
     migration_status: migrated
     notes: dual-auth admin_ui#admin PDP gate for task config seeding
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-v1-chat-stream-cancel-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/v1/chat/stream/cancel
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before Dynamic Agents cancel proxy.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-get-api-admin-platform-config-openfga-system-config-read
+    surface: ui_bff
+    method: GET
+    path: /api/admin/platform-config
+    resource: system_config
+    scope: read
+    migration_status: migrated
+    notes: Object-level system_config:platform_settings read gate for platform settings.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-patch-api-admin-platform-config-openfga-system-config-manage
+    surface: ui_bff
+    method: PATCH
+    path: /api/admin/platform-config
+    resource: system_config
+    scope: admin
+    migration_status: migrated
+    notes: Object-level system_config:platform_settings manage gate for platform settings updates.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-get-api-mcp-servers-agentgateway-discover-openfga
+    surface: ui_bff
+    method: GET
+    path: /api/mcp-servers/agentgateway/discover
+    resource: mcp_server
+    scope: view
+    migration_status: migrated
+    notes: AgentGateway discovery is a read/discover operation on mcp_server:agentgateway.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-mcp-servers-agentgateway-sync-openfga
+    surface: ui_bff
+    method: POST
+    path: /api/mcp-servers/agentgateway/sync
+    resource: mcp_server
+    scope: manage
+    migration_status: migrated
+    notes: AgentGateway sync/onboarding requires manage on mcp_server:agentgateway.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 403
+        reason: pdp_denied
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+  - id: ui-bff-post-api-task-configs-skill-configure
+    surface: ui_bff
+    method: POST
+    path: /api/task-configs
+    resource: skill
+    scope: configure
+    migration_status: migrated
+    notes: Legacy Task Builder route remains documented for matrix validation; Task Builder behavior is excluded from the strict object-level pass.
     expectations:
       alice_admin:
         status: 200

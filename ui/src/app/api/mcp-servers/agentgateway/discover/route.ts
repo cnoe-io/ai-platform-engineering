@@ -6,11 +6,17 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { fetchAgentGatewayMcpDiscovery } from "../_lib";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
+  await requireRbacPermission(session, "mcp_server", "view");
+  await requireResourcePermission(session, {
+    type: "mcp_server",
+    id: "agentgateway",
+    action: "discover",
+  });
 
   const discovery = await fetchAgentGatewayMcpDiscovery();
   return successResponse(discovery);

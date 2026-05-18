@@ -30,6 +30,8 @@ export interface AuthResult {
   subject?: string;
   /** Human-readable email for privacy-aware audit display. */
   email?: string;
+  /** Product role resolved by the UI auth middleware. */
+  role?: string;
   /** Tenant/org context for audit scoping. */
   tenantId?: string;
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
@@ -103,7 +105,19 @@ export async function authenticateRequest(
     const bearerToken = (s?.accessToken as string | undefined) || undefined;
     const subject = (s?.sub as string | undefined) || user.email;
     const tenantId = (s?.org as string | undefined) || "default";
-    return { subject, email: user.email, tenantId, userContextHeader: encoded, bearerToken };
+    if (!bearerToken) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "A Keycloak access token is required for Dynamic Agents access. Please sign in again.",
+          code: "MISSING_ACCESS_TOKEN",
+          reason: "missing_bearer",
+          action: "sign_in",
+        },
+        { status: 401 },
+      );
+    }
+    return { subject, email: user.email, role: user.role, tenantId, userContextHeader: encoded, bearerToken };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

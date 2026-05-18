@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal, Optional
 
 import requests
@@ -20,9 +21,11 @@ from pydantic import ValidationError
 from .config_models import AgentBinding, BotsConfig, EscalationConfig, UsersConfig
 
 logger = logging.getLogger("caipe.slack_bot.slack_agent_routes")
+DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 SlackAgentRouteMode = Literal["config", "db_prefer", "db_only"]
 CollectionFactory = Callable[[], Optional[Collection[Any]]]
+AuditCollectionFactory = Callable[[], Optional[Collection[Any]]]
 OpenFgaAgentIdsFactory = Callable[[str, str], list[str]]
 
 
@@ -72,19 +75,19 @@ class SlackAgentRouteResolver:
         *,
         ttl_seconds: Optional[int] = None,
         collection_factory: Optional[CollectionFactory] = None,
+        audit_collection_factory: Optional[AuditCollectionFactory] = None,
         openfga_agent_ids_factory: Optional[OpenFgaAgentIdsFactory] = None,
     ) -> None:
         self._ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         self._collection_factory = collection_factory
+        self._audit_collection_factory = audit_collection_factory
         self._openfga_agent_ids_factory = openfga_agent_ids_factory
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
         self._cache: dict[tuple[str, str], tuple[list[dict[str, Any]], float]] = {}
+        self._last_errors: dict[tuple[str, str], str] = {}
 
-    def _get_collection(self) -> Optional[Collection[Any]]:
-        if self._collection_factory is not None:
-            return self._collection_factory()
-
+    def _get_client(self) -> Optional[MongoClient]:
         uri = os.environ.get("MONGODB_URI", "").strip()
         if not uri:
             return None
@@ -98,12 +101,62 @@ class SlackAgentRouteResolver:
             except PyMongoError as exc:
                 logger.warning("SlackAgentRouteResolver: MongoDB client init failed: %s", exc)
                 return None
-        return self._client[self._db_name]["slack_channel_agent_routes"]
+        return self._client
+
+    def _get_collection(self) -> Optional[Collection[Any]]:
+        if self._collection_factory is not None:
+            return self._collection_factory()
+
+        client = self._get_client()
+        if client is None:
+            return None
+        return client[self._db_name]["slack_channel_agent_routes"]
+
+    def _get_audit_collection(self) -> Optional[Collection[Any]]:
+        if self._audit_collection_factory is not None:
+            return self._audit_collection_factory()
+
+        client = self._get_client()
+        if client is None:
+            return None
+        return client[self._db_name]["audit_events"]
+
+    def _record_runtime_error(
+        self,
+        *,
+        workspace_id: str,
+        channel_id: str,
+        reason_code: str,
+        action: str,
+        message: str,
+    ) -> None:
+        collection = self._get_audit_collection()
+        if collection is None:
+            return
+        try:
+            collection.insert_one(
+                {
+                    "type": "slack_runtime",
+                    "component": "slack_bot",
+                    "outcome": "error",
+                    "action": action,
+                    "reason_code": reason_code,
+                    "resource_ref": f"slack_channel:{slack_workspace_ref(workspace_id)}--{channel_id}",
+                    "message": message,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except PyMongoError as exc:
+            logger.warning("SlackAgentRouteResolver: failed to write runtime audit event: %s", exc)
 
     def _load_routes(self, workspace_id: str, channel_id: str) -> list[dict[str, Any]]:
         agent_ids = self._load_openfga_agent_ids(workspace_id, channel_id)
+        if agent_ids is None:
+            return []
         if not agent_ids and workspace_id != "unknown":
             agent_ids = self._load_openfga_agent_ids("unknown", channel_id)
+            if agent_ids is None:
+                return []
         if not agent_ids:
             return []
 
@@ -120,13 +173,11 @@ class SlackAgentRouteResolver:
             logger.warning("SlackAgentRouteResolver: route query failed: %s", exc)
             return [_default_route(agent_id) for agent_id in agent_ids]
 
-    def _load_openfga_agent_ids(self, workspace_id: str, channel_id: str) -> list[str]:
+    def _load_openfga_agent_ids(self, workspace_id: str, channel_id: str) -> list[str] | None:
         if self._openfga_agent_ids_factory is not None:
             return self._openfga_agent_ids_factory(workspace_id, channel_id)
 
-        base_url = os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
-        if not base_url:
-            return []
+        base_url = (os.environ.get("OPENFGA_HTTP", "").strip() or DEFAULT_OPENFGA_HTTP).rstrip("/")
 
         try:
             store_id = _openfga_store_id(base_url)
@@ -135,13 +186,8 @@ class SlackAgentRouteResolver:
             seen: set[str] = set()
             continuation_token: str | None = None
             while True:
-                body: dict[str, Any] = {
-                    "tuple_key": {
-                        "user": f"slack_channel:{workspace_ref}--{channel_id}",
-                        "relation": "user",
-                    },
-                    "page_size": 100,
-                }
+                channel_subject = f"slack_channel:{workspace_ref}--{channel_id}"
+                body: dict[str, Any] = {"page_size": 100}
                 if continuation_token:
                     body["continuation_token"] = continuation_token
                 response = requests.post(
@@ -152,16 +198,30 @@ class SlackAgentRouteResolver:
                 )
                 response.raise_for_status()
                 payload = response.json()
-                for agent_id in _agent_ids_from_openfga_read(payload):
+                for agent_id in _agent_ids_from_openfga_read(payload, channel_subject):
                     if agent_id not in seen:
                         seen.add(agent_id)
                         agent_ids.append(agent_id)
                 continuation_token = payload.get("continuation_token") or None
                 if not continuation_token:
+                    self._last_errors.pop((workspace_id, channel_id), None)
                     return agent_ids
         except requests.RequestException as exc:
             logger.warning("SlackAgentRouteResolver: OpenFGA tuple read failed: %s", exc)
-            return []
+            self._last_errors[(workspace_id, channel_id)] = str(exc)
+            self._record_runtime_error(
+                workspace_id=workspace_id,
+                channel_id=channel_id,
+                action="slack.route.openfga_read",
+                reason_code="OPENFGA_READ_FAILED",
+                message=str(exc),
+            )
+            return None
+
+    def last_error(self, workspace_id: str, channel_id: str) -> str | None:
+        """Return the latest route-loading error for a channel, if any."""
+
+        return self._last_errors.get((workspace_id, channel_id))
 
     def _query_routes(
         self,
@@ -216,6 +276,60 @@ class SlackAgentRouteResolver:
                 matches.append(binding)
         return matches
 
+    def explain_no_route_match(
+        self,
+        *,
+        workspace_id: str,
+        channel_id: str,
+        is_bot: bool,
+        bot_username: Optional[str] = None,
+        user_id: Optional[str] = None,
+        listen: Optional[str] = None,
+        app_name: str = "CAIPE",
+        route_required: bool = False,
+    ) -> str | None:
+        """Return a user-facing explanation when a routed Slack message has no match."""
+
+        if self.last_error(workspace_id, channel_id):
+            return (
+                f"{app_name} could not read Slack routing relationships from OpenFGA, "
+                "so I cannot safely dispatch this message. Please try again shortly "
+                "or ask an admin to check Slack Runtime Diagnostics."
+            )
+
+        candidates = self.match_routes(
+            workspace_id=workspace_id,
+            channel_id=channel_id,
+            is_bot=is_bot,
+            bot_username=bot_username,
+            user_id=user_id,
+            listen=None,
+        )
+        if self.last_error(workspace_id, channel_id):
+            return (
+                f"{app_name} could not read Slack routing relationships from OpenFGA, "
+                "so I cannot safely dispatch this message. Please try again shortly "
+                "or ask an admin to check Slack Runtime Diagnostics."
+            )
+        if candidates and listen == "message":
+            return (
+                f"This Slack channel has {app_name} agent routes, but none are configured "
+                f"to listen to plain channel messages. Mention @{app_name}, or set the route "
+                "Listen mode to `message` or `all` in Admin > OpenFGA ReBAC > Slack Channels."
+            )
+        if candidates and listen == "mention":
+            return (
+                f"This Slack channel has {app_name} agent routes, but none are configured "
+                "to listen to mentions. Set the route Listen mode to `mention` or `all` "
+                "in Admin > OpenFGA ReBAC > Slack Channels."
+            )
+        if route_required:
+            return (
+                "No OpenFGA channel-agent association is configured for this Slack channel. "
+                "Ask an admin to add one in Admin > OpenFGA ReBAC > Slack Channels."
+            )
+        return None
+
     def invalidate(self, workspace_id: str, channel_id: str) -> None:
         """Drop cached routes for a channel."""
 
@@ -243,11 +357,15 @@ def _openfga_store_id(base_url: str) -> str:
     raise requests.RequestException(f"OpenFGA store {store_name!r} was not found")
 
 
-def _agent_ids_from_openfga_read(payload: dict[str, Any]) -> list[str]:
+def _agent_ids_from_openfga_read(payload: dict[str, Any], channel_subject: str) -> list[str]:
     agent_ids: list[str] = []
     seen: set[str] = set()
     for tuple_row in payload.get("tuples", []):
         key = tuple_row.get("key") if isinstance(tuple_row, dict) else None
+        if not isinstance(key, dict):
+            continue
+        if key.get("user") != channel_subject or key.get("relation") != "user":
+            continue
         object_id = key.get("object") if isinstance(key, dict) else None
         if not isinstance(object_id, str) or not object_id.startswith("agent:"):
             continue

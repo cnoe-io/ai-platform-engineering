@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import {
   buildTeamResourceTupleDiff,
   buildUniversalRebacTupleDiff,
@@ -7,7 +10,31 @@ import {
   writeOpenFgaTupleDiff,
   writeUniversalRebacTupleDiff,
 } from "../openfga";
-import { buildAgentToolTupleDiff } from "../openfga-agent-tools";
+import {
+  buildAgentRelationshipTupleDiff,
+  buildAgentToolTupleDiff,
+  deleteAllAgentToolTuples,
+} from "../openfga-agent-tools";
+
+function agentUserTypes(modelPath: string): Array<Record<string, unknown>> {
+  const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
+    type_definitions?: Array<{
+      type?: string;
+      metadata?: { relations?: { user?: { directly_related_user_types?: Array<Record<string, unknown>> } } };
+    }>;
+  };
+  return (
+    model.type_definitions?.find((definition) => definition.type === "agent")?.metadata?.relations?.user
+      ?.directly_related_user_types ?? []
+  );
+}
+
+function agentRelationNames(modelPath: string): string[] {
+  const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
+    type_definitions?: Array<{ type?: string; relations?: Record<string, unknown> }>;
+  };
+  return Object.keys(model.type_definitions?.find((definition) => definition.type === "agent")?.relations ?? {});
+}
 
 describe("OpenFGA team resource tuple reconciliation", () => {
   const originalFetch = global.fetch;
@@ -53,6 +80,28 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         object: "tool:github_*",
       },
     ]);
+  });
+
+  it("allows typed user wildcards on agent user relation in shipped authorization models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(agentUserTypes(modelPath)).toContainEqual({ type: "user", wildcard: {} });
+    }
+  });
+
+  it("defines agent can_delete in shipped authorization models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(agentRelationNames(modelPath)).toContain("can_delete");
+    }
   });
 
   it("requires explicit opt-in and an OpenFGA URL", () => {
@@ -280,6 +329,82 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         user: "agent:agent-test-april-2025",
         relation: "caller",
         object: "tool:github/*",
+      },
+    ]);
+  });
+
+  it("maps dynamic agent ownership to creator, organization, team, and tool tuples", () => {
+    const diff = buildAgentRelationshipTupleDiff({
+      agentId: "agent-platform-helper",
+      organizationId: "default",
+      ownerTeamSlug: "platform",
+      ownerSubject: "admin-sub",
+      previousAllowedTools: {},
+      nextAllowedTools: {
+        jira: ["search"],
+      },
+    });
+
+    expect(diff.writes).toEqual([
+      { user: "user:admin-sub", relation: "owner", object: "agent:agent-platform-helper" },
+      { user: "organization:default#admin", relation: "manager", object: "agent:agent-platform-helper" },
+      { user: "team:platform#member", relation: "user", object: "agent:agent-platform-helper" },
+      { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
+      { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
+    ]);
+    expect(diff.deletes).toEqual([]);
+  });
+
+  it("deletes all agent relationships across paginated OpenFGA tuple reads", async () => {
+    process.env.OPENFGA_RECONCILE_ENABLED = "true";
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+
+    const readPages = [
+      {
+        tuples: [
+          { key: { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" } },
+          { key: { user: "user:someone-else", relation: "owner", object: "agent:other" } },
+        ],
+        continuation_token: "page-2",
+      },
+      {
+        tuples: [
+          { key: { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" } },
+        ],
+      },
+    ];
+    const writes: unknown[] = [];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/stores")) {
+        return { ok: true, json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }) };
+      }
+      if (url.endsWith("/read")) {
+        return { ok: true, json: async () => readPages.shift() };
+      }
+      if (url.endsWith("/check")) {
+        return { ok: true, json: async () => ({ allowed: true }) };
+      }
+      if (url.endsWith("/write")) {
+        writes.push(JSON.parse(String(init?.body)));
+        return { ok: true, text: async () => "" };
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(deleteAllAgentToolTuples("agent-platform-helper")).resolves.toMatchObject({
+      enabled: true,
+      deletes: 2,
+    });
+    expect(writes).toEqual([
+      {
+        deletes: {
+          tuple_keys: [
+            { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
+            { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
+          ],
+        },
       },
     ]);
   });

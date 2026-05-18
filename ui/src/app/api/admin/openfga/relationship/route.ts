@@ -4,13 +4,14 @@ import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { validateTupleKey, withOpenFgaAdminAuth } from "../_lib";
 
-type ResourceType = "agent" | "tool" | "knowledge_base";
+type ResourceType = "agent" | "tool" | "knowledge_base" | "admin_surface";
 type Operation = "grant" | "revoke";
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
   agent: ["user", "manager"],
   tool: ["caller"],
   knowledge_base: ["reader", "ingestor", "manager"],
+  admin_surface: ["manager"],
 };
 
 function parseBody(body: unknown): {
@@ -35,7 +36,7 @@ function parseBody(body: unknown): {
   if (!teamSlug || !resourceType || !resourceId || !relation) {
     throw new ApiError("teamSlug, resourceType, resourceId, and relation are required", 400);
   }
-  if (!["agent", "tool", "knowledge_base"].includes(resourceType)) {
+  if (!["agent", "tool", "knowledge_base", "admin_surface"].includes(resourceType)) {
     throw new ApiError("unsupported resourceType", 400);
   }
   if (!RELATIONS_BY_TYPE[resourceType].includes(relation)) {

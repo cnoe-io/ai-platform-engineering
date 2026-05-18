@@ -85,6 +85,40 @@ beforeEach(() => {
         },
       });
     }
+    if (url.endsWith("/diagnostics")) {
+      return response({
+        data: {
+          openfga: { reachable: true, tuple_count: 1 },
+          warnings: [
+            "agent:foo-bar has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.",
+            "Route agent:incident-agent only listens to mentions. Plain channel messages will be ignored.",
+          ],
+          routes: [
+            {
+              agent_id: "foo-bar",
+              openfga_tuple: false,
+              route_metadata: true,
+              listen: "message",
+              runtime_matches: { mention: false, message: true },
+              warnings: ["OpenFGA tuple is missing."],
+            },
+            {
+              agent_id: "incident-agent",
+              openfga_tuple: true,
+              route_metadata: true,
+              listen: "mention",
+              runtime_matches: { mention: true, message: false },
+              warnings: ["Plain channel messages will be ignored."],
+            },
+          ],
+          last_runtime_error: {
+            ts: "2026-05-18T07:50:00.000Z",
+            reason_code: "OPENFGA_READ_FAILED",
+            message: "OpenFGA tuple read failed",
+          },
+        },
+      });
+    }
     return response({});
   });
 });
@@ -126,11 +160,51 @@ it("uses enabled Dynamic Agents dropdown for Slack channel-agent associations", 
   );
 });
 
+it("fixes stale Slack runtime diagnostics by deleting orphaned route metadata", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:foo-bar routing/i }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/routes",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ agent_id: "foo-bar" }),
+      })
+    )
+  );
+});
+
+it("surfaces Slack runtime diagnostics warnings", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByText("Slack Runtime Diagnostics")).toBeInTheDocument();
+  expect(await screen.findByText(/Plain channel messages will be ignored/i)).toBeInTheDocument();
+  expect(screen.getByText(/OpenFGA tuple read failed/i)).toBeInTheDocument();
+});
+
+it("fixes mention-only Slack runtime diagnostics by enabling all listen modes", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("button", { name: /Fix agent:incident-agent routing/i }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels/T123456789/C123456789/routes",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"listen":"all"'),
+      })
+    )
+  );
+});
+
 it("edits and deletes Slack channel-agent associations with metadata warning", async () => {
   const confirmSpy = jest.spyOn(window, "confirm");
   render(<SlackChannelRebacPanel />);
 
-  expect(await screen.findByText("agent:incident-agent")).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: /edit agent:incident-agent/i })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /edit agent:incident-agent/i }));
   fireEvent.change(screen.getByRole("combobox", { name: "Listen" }), {
     target: { value: "message" },
@@ -178,6 +252,7 @@ it("applies migration defaults for Slack channels", async () => {
   const confirmSpy = jest.spyOn(window, "confirm");
   render(<SlackChannelRebacPanel />);
 
+  await screen.findByText("Slack Runtime Diagnostics");
   fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
     target: { value: "platform-engineering" },
   });

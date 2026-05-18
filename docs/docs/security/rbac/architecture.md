@@ -68,6 +68,14 @@ Keycloak realm roles are **not created for CAIPE permissions**. New deployments 
 
 Rule of thumb: **Keycloak owns identity and JWT claims; OpenFGA owns who is related to which organization, team, or resource.**
 
+The Web UI backend now uses shared object-level OpenFGA checks for UI-owned resource surfaces whenever the authorization model has a concrete resource type. `list` and `discover` map to `can_discover`, runtime/content access maps to `can_read` or `can_use`, mutations map to `can_write`, sharing maps to `can_share`, and platform configuration maps to `can_manage` on `system_config:<key>`. Dynamic Agent create requires an explicit owner team: platform admins may select any team, while scoped team admins may create agents only for teams they administer. Creation writes durable relationships before MongoDB persistence: `user:<creator_sub> owner agent:<id>`, `organization:<org>#admin manager agent:<id>`, `team:<slug>#member user agent:<id>`, `team:<slug>#admin manager agent:<id>`, and the agent-to-tool caller tuples. Dynamic Agent update/delete paths check the concrete `agent:<id>` object before MongoDB writes or tuple reconciliation. Dynamic Agent built-in tool metadata is guarded as pseudo-resource `tool:dynamic-agents-builtin#can_discover`; platform admins use the local admin bypass while non-admin callers still need an explicit OpenFGA relationship. Task Builder is intentionally excluded from this pass because it is scheduled for a separate refactor.
+
+Conversations use a hybrid ownership model to avoid creating high-cardinality owner tuples for every private chat. Private ownership is implicit from MongoDB (`owner_subject` for normalized records, legacy `owner_id` email fallback for old records). Explicit OpenFGA relationships remain the enforcement store for cross-boundary sharing and admin surfaces. The Web UI backend applies the same implicit-or-explicit conversation check on chat list/detail routes, Dynamic Agent v1 stream/invoke/resume/cancel proxy routes, and conversation metadata updates. This lets Slack OBO requests write their own thread conversations and bookkeeping metadata without requiring explicit owner tuples. The Admin → System → Migrations tab runs the 0.5.1 release migrations, including `conversation_owner_identity_v1` for `owner_subject`/`owner_identity_version=2`, universal team-resource OpenFGA backfill, Dynamic Agent tool tuple reconciliation, Dynamic Agent organization-admin inheritance backfill, and RBAC index creation. Migration runs are recorded in `schema_migrations`, and collection schema state is recorded in `data_schema_versions`.
+
+Knowledge Base UI routes are enforced at the Web UI backend before proxying to the RAG server. `caipe-ui` authenticates the browser session, applies the coarse `rag` route gate, requires `admin_surface:rag_datasources#can_manage` for the Data Sources admin surface, checks concrete `knowledge_base:<id>` operations for non-admin callers, filters datasource list responses by `knowledge_base#can_read`, constrains search/MCP invocations to the caller's readable datasource IDs for non-admin callers, and then forwards the Keycloak bearer token to RAG. Platform admins keep the BFF admin bypass for concrete datasource operations such as re-ingest, matching datasource list/search behavior. RAG validates the token signature, issuer, audience, and expiry against Keycloak, then repeats OpenFGA checks for direct API/MCP requests using the caller's Keycloak `sub`. The default authenticated RAG role no longer grants access by itself; team-derived tuples such as `team:<slug>#member reader knowledge_base:<id>` are the source of truth for per-datasource access, while **OpenFGA ReBAC → RAG Team Access** grants team admin access to the Data Sources surface.
+
+RAG accepts both browser user tokens and ingestor client-credentials tokens from Keycloak. For local Docker Compose, `OIDC_DISCOVERY_URL` and `INGESTOR_OIDC_DISCOVERY_URL` may be either the realm base URL (`http://keycloak:7080/realms/caipe`) or the full `.well-known/openid-configuration` URL; the server normalizes both forms before fetching metadata. Keycloak service-account tokens use `preferred_username=service-account-<client>`, so RAG treats that token shape as machine-to-machine and assigns `RBAC_CLIENT_CREDENTIALS_ROLE` instead of running the human userinfo/group lookup path.
+
 #### User-facing Role Cleanup
 
 The Admin UI intentionally separates **team/resource authorization** from **raw Keycloak plumbing**:
@@ -200,7 +208,7 @@ The full sequence (including HMAC URL shape, TTL enforcement, JIT request body, 
 7. Large OAuth tokens (access, refresh, ID token) stay in the UI server's in-process token cache and are rehydrated server-side
 ```
 
-**Security note:** The session cookie is httpOnly, Secure, SameSite=Lax, and encrypted with `NEXTAUTH_SECRET`. Large OAuth tokens are kept out of the browser cookie to avoid oversized request headers when Keycloak emits RBAC scopes, groups, or relationship-derived claims. For multi-replica deployments, use sticky sessions or replace the in-process token cache with a shared store.
+**Security note:** The session cookie is httpOnly, Secure, SameSite=Lax, and encrypted with `NEXTAUTH_SECRET`. Large OAuth tokens are kept out of the browser cookie to avoid oversized request headers when Keycloak emits RBAC scopes, groups, or relationship-derived claims. If the UI process restarts and the in-process token cache is lost while a browser still has a valid slim session cookie, the session is marked `AccessTokenMissing` and the token-expiry guard sends the user back through login instead of allowing tokenless backend proxy calls. For multi-replica deployments, use sticky sessions or replace the in-process token cache with a shared store.
 
 ### Server-Side Authorization (`api-middleware.ts`)
 
@@ -238,11 +246,14 @@ MongoDB `users.keycloak_sub` and `users.metadata.keycloak_sub` during session or
 bearer authentication. This gives migrations and admin tooling a durable
 email-to-sub mapping without depending on transient session cookies.
 
-`POST /api/v1/chat/stream/start`, `POST /api/v1/chat/invoke`, and
-`POST /api/v1/chat/stream/resume` fail closed with `pdp_denied` or
-`pdp_unavailable` before any backend call. `POST /api/v1/chat/stream/cancel`
-stays authentication-only so authenticated callers can stop in-flight work even
-if their agent-use grant changes mid-run.
+`POST /api/v1/chat/stream/start`, `POST /api/v1/chat/invoke`,
+`POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel`
+fail closed before any backend call unless the caller can use the selected
+agent and can write the target conversation through implicit ownership or an
+explicit OpenFGA relationship. The older plain SSE proxy at
+`POST /api/chat/stream` also forwards the authenticated session access token to
+the supervisor backend and applies the same implicit-or-explicit conversation
+write check before proxying.
 
 The Web UI backend emits a unified RBAC Audit event for every OpenFGA agent-use decision,
 and the Dynamic Agents runtime persists the same structured `openfga_rebac`
@@ -291,6 +302,17 @@ team:<slug>#member user skill:<skill_id>
 team:<slug>#member user task:<task_id>
 ```
 
+Skill Hub imports use the same `skill:<id>` resource model as locally-authored
+skills. Hub skills are projected into stable catalog ids
+`hub-<hub_id>-<hub_skill_id>`, so team grants write
+`team:<slug>#member user skill:hub-<hub_id>-<hub_skill_id>`. The skills catalog
+filters non-admin list responses with `can_read skill:<id>` and content-bearing
+runtime responses with `can_use skill:<id>`; admins keep full catalog visibility.
+GitHub Skill Hub crawl/import uses the hub's validated `credentials_ref` when
+configured, otherwise falls back to the server-side `GITHUB_TOKEN` environment
+variable on `caipe-ui`. In dev compose, `caipe-ui` receives `GITHUB_TOKEN` from
+`.env` or the shell, with `GITHUB_PERSONAL_ACCESS_TOKEN` as a local fallback.
+
 To preserve the default chat path after Dynamic Agent PDP enforcement, the
 OpenFGA model allows a typed wildcard subject on `agent.user`, and the
 migration writes this tuple when a dynamic default agent is configured:
@@ -316,6 +338,16 @@ agent:<agent_id> caller tool:<server_id>/*
 Run it after enabling signed agent context so existing agents have the same
 AgentGateway/OpenFGA enforcement as newly-created or edited agents. Apply mode
 also removes stale agent-tool tuples that no longer match `allowed_tools`.
+
+Schema-versioned migration `agent_org_admin_inheritance_v1` backfills the
+organization-admin inheritance tuple for existing Dynamic Agents:
+
+```text
+organization:<org>#admin manager agent:<agent_id>
+```
+
+This grants organization admins `can_manage` through the OpenFGA model without
+guessing owner teams for legacy agents. New agents get this tuple during create.
 
 ### Token Refresh
 
@@ -366,7 +398,7 @@ Graph and access explanation APIs read OpenFGA tuples and join them with `rebac_
 
 Slack channel ReBAC is managed through `/api/admin/slack/channels` and the per-channel resources/routes/access-check routes under `/api/admin/slack/channels/[workspaceId]/[channelId]`. The `[workspaceId]` value is the configured workspace alias from `SLACK_WORKSPACE_ALIAS` (for example, `CAIPE`), not Slack's opaque `team_id`. The admin UI exposes the currently enforced Slack runtime path: channel-agent associations write base OpenFGA tuples such as `slack_channel:CAIPE--C0123456789 user agent:<id>`; runtime checks ask for derived `can_use`.
 
-OpenFGA is the source of truth for whether a Slack channel may invoke a Dynamic Agent. `slack_channel_agent_routes` is retained only for dependent dispatch metadata such as listen mode and priority, and a metadata row is valid only while the matching OpenFGA tuple exists. The Slack bot resolves candidate agents from OpenFGA first, joins optional Mongo route metadata for ordering/listen filters, and never lets a stale Mongo route keep a deleted OpenFGA association alive. Deleting a channel-agent association removes both the OpenFGA tuple and the saved route metadata row.
+OpenFGA is the source of truth for whether a Slack channel may invoke a Dynamic Agent. `slack_channel_agent_routes` is retained only for dependent dispatch metadata such as listen mode and priority, and a metadata row is valid only while the matching OpenFGA tuple exists. The Slack bot resolves candidate agents from OpenFGA first, joins optional Mongo route metadata for ordering/listen filters, and never lets a stale Mongo route keep a deleted OpenFGA association alive. Deleting a channel-agent association removes both the OpenFGA tuple and the saved route metadata row. Route misses fail closed but are not silent: the bot sends an ephemeral Slack notice when OpenFGA route reads fail or when routes exist but do not listen to the incoming message type. The Admin Slack Channels panel exposes runtime diagnostics for the selected channel so operators can see OpenFGA read failures, stale Mongo metadata, missing tuples, listen-mode mismatches, and the latest Slack runtime audit error without checking container logs. Fix buttons in diagnostics repair common drift by removing stale route metadata when its OpenFGA tuple is gone, or by switching a tuple-backed route to listen to both mentions and plain messages.
 
 Slack bot deployments now default to `SLACK_AGENT_ROUTES_MODE=db_prefer`, so OpenFGA-backed UI-managed routes are preferred when present and static Slack bot config remains the fallback; `config` remains available for static-only environments and `db_only` is available for canaries that should ignore static route bindings. At runtime, the Slack bot maps any incoming Slack `team_id` to `SLACK_WORKSPACE_ALIAS`, resolves the channel's team from `channel_team_mappings`, mints the user's team-scoped OBO token, selects an OpenFGA-backed channel agent, and authorizes the selected agent before dispatch. The request is denied unless both the channel association and the user's team/resource relationship allow the selected agent.
 
@@ -382,7 +414,7 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | Variable                                                      | Purpose                                                                                                                                                            | Security note                                                                                                                                                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `OPENFGA_RECONCILE_ENABLED`                                   | Enables Team Resources → OpenFGA tuple reconciliation in the Web UI backend                                                                                        | Defaults to `false` so non-RBAC local UI runs do not require OpenFGA; enable only when the OpenFGA profile is healthy.                                                                                                                           |
-| `OPENFGA_HTTP`                                                | Docker-internal OpenFGA HTTP API URL used by the Web UI backend tuple writer                                                                                       | Keep this on the private service network; do not point browser clients at OpenFGA.                                                                                                                                                               |
+| `OPENFGA_HTTP`                                                | Docker-internal OpenFGA HTTP API URL used by the Web UI backend tuple writer and Slack bot route resolver                                                          | Keep this on the private service network; do not point browser clients at OpenFGA.                                                                                                                                                               |
 | `OPENFGA_STORE_NAME` / `OPENFGA_STORE_ID`                     | Selects the OpenFGA store for tuple writes                                                                                                                         | Prefer `OPENFGA_STORE_ID` in locked-down deployments to avoid discovery ambiguity.                                                                                                                                                               |
 | `AGENT_GATEWAY_ADMIN_URL`                                     | Optional Web UI backend URL for AgentGateway admin config discovery; defaults to `http://agentgateway:15000/config`                                                | Keep the AgentGateway admin port on the private service network. The browser calls only the Web UI backend discovery/sync APIs, which require `mcp_server#manage`.                                                                               |
 | `AGENT_GATEWAY_URL`                                           | AgentGateway data-plane base URL used when onboarding discovered MCP targets; defaults to `http://agentgateway:4000` and the UI backend appends `/mcp` when needed | AgentGateway-discovered MCP server records should route through this URL so JWT/authz enforcement remains on the gateway path. The backend target URL from AgentGateway config is stored only as operator metadata.                              |
@@ -706,7 +738,11 @@ The dev PDP model keeps the coarse AgentGateway gate and adds admin-configured t
 | `team:<slug>`                  | `member: [user]`                                      | Team Resources save, using Keycloak `sub` values resolved from team member emails                      |
 | `agent:<agent_id>`             | base `user`, `manager`; derived `can_use`, `can_manage` | Team Resources agent Use / Manage checkboxes write base relations                                      |
 | `tool:<server>_`* and `tool:*` | base `caller`; derived `can_call`                     | Team Resources MCP-server prefix checkboxes and the All Tools wildcard write base relations            |
-| `knowledge_base:<id>`          | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_admin` | Model support is present for the next KB admin surface. |
+| `knowledge_base:<id>`          | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_admin` | Team Knowledge Bases/Data Sources assignments and **OpenFGA ReBAC → RAG Team Access** write `reader`, `ingestor`, or `manager` relationships before persisting Mongo assignment metadata. BFF and RAG server list/search/MCP paths filter or deny using derived OpenFGA checks unless the caller is an admin. |
+| `skill:<id>`                   | base `reader`, `user`, `writer`, `manager`; derived `can_read`, `can_use`, `can_write`, `can_manage` | Team Resources skill selection writes `user` relationships for local and Skill Hub catalog ids; `/api/skills` filters by `can_read`/`can_use`. |
+| `conversation:<id>`            | base `owner`, `reader`, `writer`, `sharer`, `manager`; derived `can_read`, `can_write`, `can_share`, `can_delete` | Chat list/read/write/share and Dynamic Agent stream/invoke/resume/cancel paths check implicit Mongo ownership first, then explicit OpenFGA conversation access. |
+| `mcp_server:agentgateway`      | base `reader`, `writer`, `manager`; derived `can_discover`, `can_read`, `can_manage` | AgentGateway discovery uses `can_discover`; selected-server sync/onboarding uses `can_manage`. |
+| `system_config:platform_settings` | base `reader`, `manager`; derived `can_read`, `can_manage` | Platform config GET/PATCH checks the concrete system config object in addition to admin session gates. |
 
 
 The Web UI backend tuple writer is idempotent: it checks tuples before writes/deletes to avoid duplicate-write failures and to tolerate missing tuples during removals. It intentionally rejects writable `can_*` tuples; callers must write base relationships and let OpenFGA derive the `can_*` permissions.
@@ -804,6 +840,13 @@ The `UserContext.obo_jwt` (set from `X-OBO-JWT` header) or `UserContext.access_t
 
 Dynamic Agents also forwards the validated per-request bearer when probing MCP servers for tool manifests. The MCP client connection config carries an explicit `Authorization` header in addition to the HTTP client factory hook, because AgentGateway denies tokenless probe traffic before any upstream MCP server can return tools.
 
+Only MCP server IDs listed in `AGENT_GATEWAY_MCP_SERVER_IDS` are rewritten to
+`AGENT_GATEWAY_URL/mcp/<server_id>`. Other HTTP MCP servers keep their stored
+endpoint, so a shared AgentGateway backend cannot accidentally return Jira tool
+schemas under a Knowledge Base connection name. In the dev stack the default is
+`jira`, matching the current AgentGateway config where RAG is intentionally not
+registered as a gateway target.
+
 For runtime `tools/call` requests, Dynamic Agents can also attach a signed
 `X-CAIPE-Agent-Context` header containing the calling `agent_id`. The OpenFGA
 bridge verifies this header with `CAIPE_AGENT_CONTEXT_HMAC_SECRET`, then checks
@@ -833,6 +876,7 @@ allowlist and the enforcement graph use the same wildcard semantics.
 | `OPENFGA_HTTP`                    | — (`http://openfga:8080` in Docker Compose dev) | OpenFGA API base URL used for runtime `can_use` checks                                                                                                                                         |
 | `OPENFGA_STORE_ID`                | —                                               | Optional explicit OpenFGA store id; takes precedence over store-name discovery                                                                                                                 |
 | `OPENFGA_STORE_NAME`              | `caipe-openfga`                                 | Store name used when discovering the OpenFGA store id; Docker Compose dev wires this into Dynamic Agents alongside the Web UI backend                                                          |
+| `AGENT_GATEWAY_MCP_SERVER_IDS`    | `jira`                                          | Comma-separated MCP server IDs that Dynamic Agents should reach through `AGENT_GATEWAY_URL`; all other MCP servers keep direct endpoints to preserve accurate tool names and upstream routing. |
 | `CAIPE_AGENT_CONTEXT_HMAC_SECRET` | —                                               | Optional shared secret for signing Dynamic Agents → AgentGateway `agent_id` context used by the OpenFGA bridge for per-agent MCP tool enforcement. Use a secret manager; do not commit values. |
 
 

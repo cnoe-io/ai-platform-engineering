@@ -264,6 +264,7 @@ export default function IngestView() {
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
   const [isReIngesting, setIsReIngesting] = useState(false)
   const [isCleaningUp, setIsCleaningUp] = useState(false)
+  const [reIngestError, setReIngestError] = useState<string | null>(null)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -947,13 +948,14 @@ export default function IngestView() {
 
   const handleReloadDataSource = async (datasourceId: string) => {
     setIsReIngesting(true)
+    setReIngestError(null)
     try {
       await reloadDataSource(datasourceId)
       await fetchDataSources()
       await fetchJobsForDataSource(datasourceId)
     } catch (error: any) {
       console.error('Error re-ingesting data source:', error)
-      alert(`❌ Re-ingest failed: ${error?.message || 'unknown error'}`)
+      setReIngestError(error?.message || 'unknown error')
     } finally {
       setIsReIngesting(false)
       setShowReIngestConfirm(null)
@@ -2719,6 +2721,27 @@ export default function IngestView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Re-ingest Error Dialog */}
+      <Dialog open={Boolean(reIngestError)} onOpenChange={(open) => !open && setReIngestError(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Re-ingest failed
+            </DialogTitle>
+            <DialogDescription>
+              The data source could not be re-ingested. Check your ReBAC assignment for this knowledge base and try again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {reIngestError}
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setReIngestError(null)}>OK</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Cleanup Confirmation Dialog */}
       <AnimatePresence>

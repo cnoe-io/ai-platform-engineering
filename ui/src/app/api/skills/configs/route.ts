@@ -31,6 +31,10 @@ import {
   canMutateBuiltinSkill,
   BUILTIN_LOCKED_MESSAGE,
 } from "@/lib/builtin-skill-policy";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -416,6 +420,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         console.log(`[API GET] Config not found: ${id}`);
         throw new ApiError("Agent config not found", 404);
       }
+      await requireResourcePermission(session, { type: "skill", id, action: "read" });
       console.log(`[API GET] Returning config:`, {
         id: config.id,
         name: config.name,
@@ -429,8 +434,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     } else {
       console.log(`[API GET] Fetching all configs for user: ${user.email}`);
       const configs = await getAgentSkillsFromMongoDB(user.email, listOpts);
-      console.log(`[API GET] Returning ${configs.length} configs`);
-      return NextResponse.json(configs) as NextResponse;
+      const visibleConfigs = await filterResourcesByPermission(session, configs, {
+        type: "skill",
+        action: "discover",
+        id: (config) => config.id,
+      });
+      console.log(`[API GET] Returning ${visibleConfigs.length} configs`);
+      return NextResponse.json(visibleConfigs) as NextResponse;
     }
   });
 });
@@ -451,7 +461,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent config ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     console.log(`[API PUT] User: ${user.email}, Role: ${user.role}, IsAdmin: ${isUserAdmin(user)}`);
 
     const body: UpdateAgentSkillInput = await request.json();
@@ -460,6 +470,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
     }
+    await requireResourcePermission(session, { type: "skill", id, action: "write" });
 
     if (body.visibility !== undefined) {
       if (!VALID_VISIBILITIES.includes(body.visibility)) {
@@ -571,7 +582,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent config ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
+    await requireResourcePermission(session, { type: "skill", id, action: "delete" });
     await deleteAgentSkillFromMongoDB(id, user);
     // Drop history rows for this skill so we don't leak orphaned
     // revision documents that nobody can render. Best-effort: a

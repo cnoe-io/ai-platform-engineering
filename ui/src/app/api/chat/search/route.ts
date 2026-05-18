@@ -8,11 +8,12 @@ import {
   paginatedResponse,
   getPaginationParams,
 } from '@/lib/api-middleware';
+import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 // GET /api/chat/search
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const url = new URL(request.url);
     const query = url.searchParams.get('q') || '';
     const tagsParam = url.searchParams.get('tags');
@@ -58,6 +59,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    return paginatedResponse(items, total, page, pageSize);
+    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
+
+    return paginatedResponse(
+      visibleItems,
+      visibleItems.length < items.length ? visibleItems.length : total,
+      page,
+      pageSize
+    );
   });
 });

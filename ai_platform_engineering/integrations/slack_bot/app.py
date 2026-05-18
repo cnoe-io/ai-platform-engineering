@@ -404,6 +404,19 @@ def _match_channel_agents(
   return config_matches
 
 
+def _post_route_miss_notice(client, channel_id: str, user_id: str | None, text: str) -> None:
+  """Tell the sender why Slack routing did not dispatch an agent."""
+  if not channel_id or not text:
+    return
+  try:
+    if user_id:
+      client.chat_postEphemeral(channel=channel_id, user=user_id, text=text)
+    else:
+      client.chat_postMessage(channel=channel_id, text=text)
+  except Exception as exc:
+    logger.warning("Slack route miss notice failed for channel=%s user=%s: %s", channel_id, user_id, exc)
+
+
 def _resolve_escalation(channel_config, agent_id: str | None = None):
   """Return the escalation config for a specific agent binding, or None."""
   if not channel_config or not agent_id:
@@ -1314,6 +1327,22 @@ def handle_message_events(body, say, client, context=None):
     workspace_id=_event_workspace_id(event),
   )
   if not matches:
+    mode = slack_agent_route_mode()
+    if mode != "config":
+      workspace_id = _event_workspace_id(event)
+      resolver = get_slack_agent_route_resolver()
+      notice = resolver.explain_no_route_match(
+        workspace_id=workspace_id,
+        channel_id=channel_id,
+        is_bot=is_bot,
+        bot_username=bot_username,
+        user_id=sender_user_id,
+        listen="message",
+        app_name=APP_NAME,
+        route_required=mode == "db_only" or not utils.is_configured_channel(channel_id),
+      )
+      if notice:
+        _post_route_miss_notice(client, channel_id, sender_user_id, notice)
     return
 
   # First-match wins: config order is the priority order. Only one agent responds

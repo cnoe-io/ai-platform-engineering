@@ -23,6 +23,7 @@ from dynamic_agents.services.mcp_client import (
     build_agent_context_headers,
     build_httpx_client_factory,
     build_mcp_connection_config,
+    build_mcp_connections,
 )
 
 
@@ -162,3 +163,33 @@ def test_agent_context_headers_are_omitted_without_shared_secret(monkeypatch):
     monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
 
     assert build_agent_context_headers("agent-test-april-2025") == {}
+
+
+def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
+    """A shared AgentGateway MCP backend must not relabel Jira tools as KB tools."""
+    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
+    servers = [
+        MCPServerConfig(
+            id="jira",
+            name="Jira",
+            transport=TransportType.HTTP,
+            endpoint="http://mcp-jira:8000/mcp",
+            enabled=True,
+        ),
+        MCPServerConfig(
+            id="knowledge-base",
+            name="Knowledge Base",
+            transport=TransportType.HTTP,
+            endpoint="http://rag-server:9446/mcp",
+            enabled=True,
+        ),
+    ]
+
+    connections = build_mcp_connections(
+        servers,
+        ["jira", "knowledge-base"],
+        agent_gateway_url="http://agentgateway:4000",
+    )
+
+    assert connections["jira"]["url"] == "http://agentgateway:4000/mcp/jira"
+    assert connections["knowledge-base"]["url"] == "http://rag-server:9446/mcp"

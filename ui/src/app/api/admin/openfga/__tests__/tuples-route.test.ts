@@ -71,6 +71,31 @@ describe("/api/admin/openfga/tuples", () => {
     );
   });
 
+  it("applies tuple inspector relation filters after a valid OpenFGA read", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        { key: { user: "user:alice", relation: "member", object: "team:platform" } },
+        { key: { user: "team:platform#member", relation: "user", object: "agent:incident" } },
+      ],
+      continuationToken: undefined,
+    });
+    const { GET } = await import("../tuples/route");
+
+    const response = await GET(request("/api/admin/openfga/tuples?relation=m&limit=25"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({ pageSize: 25 }),
+    );
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
+      expect.not.objectContaining({ tuple: expect.objectContaining({ relation: "m" }) }),
+    );
+    expect(body.data.tuples).toEqual([
+      { key: { user: "user:alice", relation: "member", object: "team:platform" } },
+    ]);
+  });
+
   it("audits raw tuple writes", async () => {
     const { POST } = await import("../tuples/route");
 

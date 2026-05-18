@@ -440,12 +440,120 @@ describe("Slack channel ReBAC APIs", () => {
       }),
     ]);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
-      tuple: {
-        user: `slack_channel:${workspaceAlias}--${channelId}`,
-        relation: "user",
-      },
       pageSize: 100,
     });
+  });
+
+  it("reports Slack runtime diagnostics for tuple-backed routes and stale metadata", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `slack_channel:${workspaceAlias}--${channelId}`,
+            relation: "user",
+            object: "agent:incident-agent",
+          },
+        },
+      ],
+    });
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 25,
+        status: "active",
+        users: { enabled: true, listen: "mention" },
+      },
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "stale-mongo-agent",
+        enabled: true,
+        priority: 1,
+        status: "active",
+        users: { enabled: true, listen: "message" },
+      },
+    ]);
+    mockCollections.audit_events = createMockCollection([
+      {
+        type: "slack_runtime",
+        component: "slack_bot",
+        outcome: "error",
+        action: "slack.route",
+        resource_ref: `slack_channel:${workspaceAlias}--${channelId}`,
+        reason_code: "OPENFGA_READ_FAILED",
+        message: "OpenFGA tuple read failed",
+        ts: "2026-05-18T07:50:00.000Z",
+      },
+    ]);
+    const { GET } = await import("../[workspaceId]/[channelId]/diagnostics/route");
+
+    const response = await GET(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/diagnostics`),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      openfga: { reachable: true, tuple_count: 1 },
+      routes: [
+        expect.objectContaining({
+          agent_id: "incident-agent",
+          openfga_tuple: true,
+          route_metadata: true,
+          listen: "mention",
+          runtime_matches: { mention: true, message: false },
+        }),
+        expect.objectContaining({
+          agent_id: "stale-mongo-agent",
+          openfga_tuple: false,
+          route_metadata: true,
+        }),
+      ],
+      last_runtime_error: expect.objectContaining({
+        reason_code: "OPENFGA_READ_FAILED",
+      }),
+    });
+    expect(body.data.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/Plain channel messages will be ignored/i),
+        expect.stringMatching(/stale-mongo-agent.*OpenFGA tuple is missing/i),
+      ])
+    );
+  });
+
+  it("reports OpenFGA read failures in Slack runtime diagnostics", async () => {
+    mockReadOpenFgaTuples.mockRejectedValue(new Error("OpenFGA tuple read failed: 400"));
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: channelId,
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 25,
+        status: "active",
+        users: { enabled: true, listen: "mention" },
+      },
+    ]);
+    const { GET } = await import("../[workspaceId]/[channelId]/diagnostics/route");
+
+    const response = await GET(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/diagnostics`),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.openfga).toMatchObject({
+      reachable: false,
+      error: "OpenFGA tuple read failed: 400",
+    });
+    expect(body.data.warnings).toEqual(
+      expect.arrayContaining([expect.stringMatching(/Slack bot cannot read OpenFGA tuples/i)])
+    );
   });
 
   it("deletes Slack agent associations from OpenFGA and dependent Mongo route metadata", async () => {

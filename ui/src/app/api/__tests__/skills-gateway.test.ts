@@ -85,7 +85,7 @@ function makeRequest(
 function sessionWith(email: string) {
   return {
     user: { email, name: 'Test User' },
-    role: 'user',
+    role: 'admin',
   };
 }
 

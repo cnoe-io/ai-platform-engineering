@@ -27,7 +27,24 @@ deployment-specific access/admin group settings, and the RAG ingestor
 `INGESTOR_OIDC_*` client-credentials settings. The compose `keycloak-init` service passes
 `KEYCLOAK_FORCE_IDP_REDIRECT` through to `deploy/keycloak/init-idp.sh`, so a
 fresh `rbac` profile start configures the same IdP-only app-realm login path as
-the Helm deployment.
+the Helm deployment. `OIDC_GROUP_CLAIM` and upstream access/admin group settings
+feed identity sync and team membership reconciliation; RAG runtime authorization
+does not map AD/OIDC groups directly to datasource roles.
+
+For local ReBAC testing, the browser authenticates to the Web UI backend, the
+backend enforces OpenFGA for KB/Data Sources/RAG MCP screens, and then
+`caipe-ui` forwards the Keycloak bearer token to RAG. RAG validates the token
+against Keycloak and repeats OpenFGA checks for direct API/MCP requests. Non-admin
+datasource lists and search/MCP invocations are constrained to the caller's
+readable `knowledge_base:<id>` relationships before the proxy call and again in
+RAG. Grant Data Sources tab administration through **Security & Policy → OpenFGA
+ReBAC → RAG Team Access**, which writes
+`team:<slug>#member manager admin_surface:rag_datasources`. Configure individual
+datasource read/ingest/admin grants through the Team Knowledge Base assignment
+or Data Sources UI for non-admin callers. Platform admins can administer concrete
+datasource operations such as re-ingest through the BFF admin bypass.
+`RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
+access by itself.
 
 > **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) and supervisor (`28000`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
 
@@ -164,11 +181,17 @@ OPENFGA_STORE_NAME=caipe-openfga
 
 Use `OPENFGA_STORE_ID` instead of store-name discovery when your environment
 pins the store id. With these settings, `POST /api/v1/chat/stream/start`,
-`POST /api/v1/chat/invoke`, and `POST /api/v1/chat/stream/resume` require
-`user:<sub> can_use agent:<agent_id>` at both the Web UI backend and runtime layers.
+`POST /api/v1/chat/invoke`, `POST /api/v1/chat/stream/resume`, and
+`POST /api/v1/chat/stream/cancel` require `user:<sub> can_use agent:<agent_id>`
+at the Web UI backend, and runtime start/invoke/resume repeat that check inside
+Dynamic Agents.
 If existing team data was seeded with email principals, both layers fallback to
 `user:<email> can_use agent:<agent_id>` after the subject check fails.
-`POST /api/v1/chat/stream/cancel` remains authentication-only.
+The v1 chat routes and plain `/api/chat/stream` proxy also require write access
+to the target conversation using implicit Mongo owner identity first and explicit
+OpenFGA `conversation:<id>` relationships for non-owner access. Browser cookie
+sessions are converted back into `Authorization: Bearer <accessToken>` when the
+plain SSE proxy calls the supervisor backend.
 
 The RBAC Audit tab records OpenFGA results as `OpenFGA ReBAC`. Filter by type
 `OpenFGA ReBAC` to see `webui_backend` `dynamic_agent#use` checks, Dynamic Agents
@@ -178,6 +201,15 @@ reads MongoDB `audit_events`, so this view works without Jaeger. To keep the
 default feed useful, routine `admin_ui#view` checks are hidden unless the user
 explicitly selects the `Authorization` type filter. The same default filter
 applies to `admin_ui#audit.view` checks generated while viewing the audit page.
+
+Use **Admin → Security & Policy → OpenFGA ReBAC → Relationship Builder** as the
+operator-facing permission cheatsheet. The top card shows subjects and usersets
+(`user:<sub>`, `team:<slug>#member`, service accounts, external groups, Slack
+channels), resource object names (`agent:<id>`, `knowledge_base:<id>`,
+`conversation:<id>`, `system_config:<key>`, and more), the base relationships
+admins write, and the derived `can_*` permissions OpenFGA checks at runtime. This
+is the quickest UI reference when deciding whether to grant `user`, `manager`,
+`caller`, `reader`, or `ingestor`.
 
 ### Authz Audit Storage
 
@@ -331,6 +363,12 @@ make test-rbac-down
 ```
 
 Full details — port band rationale, the `E2E_COMPOSE_ENV` contract, and how the rules-as-data matrix in `tests/rbac/rbac-matrix.yaml` flows into both pytest and Jest — are in [spec 102 quickstart](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md).
+
+For `caipe-ui` unit coverage, run `npm test -- --coverage --runInBand` from
+`ui/`. The Jest coverage scope tracks the UI/BFF code that can be exercised
+deterministically in unit tests and excludes heavyweight browser-only graph,
+timeline, task-builder, RAG ingestion, and external admin-client shells that
+belong in integration or browser tests.
 
 ---
 

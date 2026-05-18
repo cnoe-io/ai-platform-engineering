@@ -11,6 +11,11 @@ import { AlertCircle, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
+const SESSION_CREDENTIAL_ERRORS = new Set([
+  "RefreshTokenExpired",
+  "RefreshTokenError",
+  "AccessTokenMissing",
+]);
 
 /**
  * TokenExpiryGuard Component
@@ -145,9 +150,9 @@ export function TokenExpiryGuard() {
       return; // Not authenticated
     }
 
-    // Check if token refresh failed
-    if (session.error === "RefreshTokenExpired" || session.error === "RefreshTokenError") {
-      console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
+    // Check if token refresh failed or the server-side token cache was lost.
+    if (SESSION_CREDENTIAL_ERRORS.has(session.error ?? "")) {
+      console.error(`[TokenExpiryGuard] Session credentials unavailable: ${session.error}`);
       beginLoginCountdown("refresh_failed");
       return;
     }

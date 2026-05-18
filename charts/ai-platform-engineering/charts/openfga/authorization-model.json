@@ -593,6 +593,11 @@
             ]
           }
         },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
         "can_manage": {
           "union": {
             "child": [
@@ -669,6 +674,10 @@
                 "type": "user"
               },
               {
+                "type": "user",
+                "wildcard": {}
+              },
+              {
                 "type": "service_account"
               },
               {
@@ -716,6 +725,10 @@
               },
               {
                 "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
                 "relation": "admin"
               }
             ]
@@ -2445,6 +2458,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

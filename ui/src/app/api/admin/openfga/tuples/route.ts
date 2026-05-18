@@ -15,6 +15,11 @@ function limitFromQuery(request: NextRequest): number {
   return Math.min(Math.max(parsed, 1), 200);
 }
 
+function matchesFilter(value: string, filter: string | undefined): boolean {
+  if (!filter) return true;
+  return value.toLowerCase().includes(filter.toLowerCase());
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) =>
   withOpenFgaViewAuth(request, async ({ user: actor, session }) => {
     const params = request.nextUrl.searchParams;
@@ -22,15 +27,18 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
     const user = params.get("user")?.trim();
     const relation = params.get("relation")?.trim();
     const object = params.get("object")?.trim();
-    if (user) tuple.user = user;
-    if (relation) tuple.relation = relation;
-    if (object) tuple.object = object;
 
     const result = await readOpenFgaTuples({
       tuple,
       pageSize: limitFromQuery(request),
       continuationToken: params.get("continuation_token") || undefined,
     });
+    const tuples = result.tuples.filter(
+      (entry) =>
+        matchesFilter(entry.key.user, user) &&
+        matchesFilter(entry.key.relation, relation) &&
+        matchesFilter(entry.key.object, object),
+    );
 
     logOpenFgaRebacAuditEvent({
       tenantId: session?.org ?? "default",
@@ -41,7 +49,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
     });
 
     return successResponse({
-      tuples: result.tuples,
+      tuples,
       continuation_token: result.continuationToken,
     });
   })

@@ -456,4 +456,51 @@ describe("GET /api/admin/teams/[id]/resources", () => {
       "github_*",
     ]);
   });
+
+  it("includes enabled Skill Hub skills in the skills picker using catalog ids", async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(teamWith({ agents: [], tools: [] }));
+    mockCollections["teams"] = teamsCol;
+
+    const hubsCol = createMockCollection();
+    hubsCol.find = jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([{ id: "hub-1", enabled: true }]),
+      }),
+    });
+    mockCollections["skill_hubs"] = hubsCol;
+
+    const hubSkillsCol = createMockCollection();
+    hubSkillsCol.find = jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            hub_id: "hub-1",
+            skill_id: "incident-triage",
+            name: "Incident Triage",
+            description: "Triage incidents from a shared hub",
+          },
+        ]),
+      }),
+    });
+    mockCollections["hub_skills"] = hubSkillsCol;
+
+    const { GET } = await loadRoute();
+
+    const res = await GET(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.available.skills).toContainEqual({
+      id: "hub-hub-1-incident-triage",
+      name: "Incident Triage",
+      description: "Triage incidents from a shared hub",
+    });
+  });
 });

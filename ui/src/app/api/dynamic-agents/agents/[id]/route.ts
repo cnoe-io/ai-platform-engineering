@@ -11,24 +11,12 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  getUserTeamIds,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
-
-async function canManageDynamicAgents(
-  session: Parameters<typeof requireRbacPermission>[0]
-): Promise<boolean> {
-  try {
-    await requireRbacPermission(session, "dynamic_agent", "manage");
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * GET /api/dynamic-agents/agents/[id]
@@ -46,9 +34,7 @@ export const GET = withErrorHandler(
       throw new ApiError("Agent ID is required", 400);
     }
 
-    const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "dynamic_agent", "view");
-    const canManageAllAgents = await canManageDynamicAgents(session);
+    const { session } = await getAuthFromBearerOrSession(request);
 
       const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -59,27 +45,12 @@ export const GET = withErrorHandler(
         throw new ApiError("Agent not found", 404);
       }
 
-      // Check access permissions (unless admin)
-      if (!canManageAllAgents) {
-        const userTeams = await getUserTeamIds(user.email);
-
-        const hasAccess =
-          // Owner always has access
-          agent.owner_id === user.email ||
-          // Global agents are accessible to everyone
-          agent.visibility === "global" ||
-          // Team agents are accessible to team members
-          (agent.visibility === "team" &&
-            agent.shared_with_teams?.some((team) => userTeams.includes(team)));
-
-        if (!hasAccess) {
-          throw new ApiError("Agent not found", 404); // Return 404 to not leak existence
-        }
-
-        // Non-admins can only see enabled agents
-        if (!agent.enabled) {
-          throw new ApiError("Agent not found", 404);
-        }
+      try {
+        await requireResourcePermission(session, { type: "agent", id, action: "read" });
+      } catch (error) {
+        const statusCode = (error as { statusCode?: number }).statusCode;
+        if (!statusCode || (statusCode !== 403 && statusCode !== 404)) throw error;
+        throw new ApiError("Agent not found", 404);
       }
 
       // Normalize legacy model_id/model_provider → model

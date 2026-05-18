@@ -53,7 +53,6 @@ import { SlackChannelRebacPanel } from "./rebac/SlackChannelRebacPanel";
 import type { UniversalRebacRelationship, UniversalRebacResourceAction } from "@/types/rbac-universal";
 
 type ResourceType = "agent" | "tool" | "knowledge_base";
-
 interface CatalogTeam {
   id: string;
   slug: string;
@@ -122,7 +121,7 @@ const RESOURCE_LABELS: Record<ResourceType, string> = {
 const RESOURCE_TYPES = new Set<ResourceType>(["agent", "tool", "knowledge_base"]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["builder", "explorer", "slack", "graph", "tuples"]);
+const OPENFGA_TABS = new Set(["builder", "explorer", "rag", "slack", "graph", "tuples"]);
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   user: "use",
   manager: "manage",
@@ -130,6 +129,76 @@ const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   reader: "read",
   ingestor: "ingest",
 };
+
+const BASE_RELATIONSHIP_CHEATSHEET = [
+  {
+    label: "Agent use",
+    tuple: "team:<slug>#member user agent:<id>",
+    meaning: "Team members can use or invoke agent.",
+  },
+  {
+    label: "Agent manage",
+    tuple: "team:<slug>#admin manager agent:<id>",
+    meaning: "Team admins can edit, delete, and administer agent.",
+  },
+  {
+    label: "Tool call",
+    tuple: "agent:<id> caller tool:<server>/<tool>",
+    meaning: "Agent may call that MCP tool through AgentGateway.",
+  },
+  {
+    label: "Knowledge base read",
+    tuple: "team:<slug>#member reader knowledge_base:<id>",
+    meaning: "Team members can search/read that datasource.",
+  },
+  {
+    label: "Knowledge base ingest",
+    tuple: "team:<slug>#member ingestor knowledge_base:<id>",
+    meaning: "Team members can ingest/update that datasource.",
+  },
+  {
+    label: "Admin surface",
+    tuple: "team:<slug>#member manager admin_surface:<name>",
+    meaning: "Team can administer a protected UI surface.",
+  },
+] as const;
+
+const DERIVED_PERMISSION_CHEATSHEET = [
+  ["can_discover", "show in lists and pickers"],
+  ["can_read", "read metadata or content"],
+  ["can_use", "use or invoke agent"],
+  ["can_write", "edit resource configuration"],
+  ["can_delete", "remove lifecycle-managed resource"],
+  ["can_manage", "administer resource"],
+  ["can_call", "call MCP gateway/tool"],
+] as const;
+
+const SUBJECT_CHEATSHEET = [
+  ["user:<sub>", "single Keycloak user"],
+  ["user:*", "all authenticated users for typed-wildcard grants"],
+  ["service_account:<id>", "machine principal"],
+  ["team:<slug>", "team object for membership tuples"],
+  ["team:<slug>#member", "all members of a team"],
+  ["team:<slug>#admin", "team owners/admins"],
+  ["external_group:<provider>/<id>#member", "synced IdP group members"],
+  ["slack_channel:<workspace>--<channel>", "Slack channel route principal"],
+] as const;
+
+const RESOURCE_OBJECT_CHEATSHEET = [
+  ["organization:<org>", "platform-wide organization scope"],
+  ["team:<slug>", "team membership container"],
+  ["agent:<id>", "Dynamic Agent config/runtime target"],
+  ["tool:<server>/<tool>", "specific MCP tool"],
+  ["tool:<server>/*", "all tools from an MCP server"],
+  ["mcp_server:<id>", "MCP server discovery/sync target"],
+  ["knowledge_base:<id>", "RAG datasource or KB resource"],
+  ["conversation:<id>", "chat history and sharing target"],
+  ["skill:<id>", "skill catalog/runtime target"],
+  ["task:<id>", "task template or task execution target"],
+  ["admin_surface:<name>", "protected admin UI surface"],
+  ["system_config:<key>", "platform configuration key"],
+  ["slack_channel:<workspace>--<channel>", "Slack channel association target"],
+] as const;
 
 interface RebacNodeData {
   label: string;
@@ -164,6 +233,95 @@ function statusBadge(catalog: CatalogResponse | null) {
     return <Badge variant="secondary">Tuple writes available, team-save reconciliation disabled</Badge>;
   }
   return <Badge variant="default">OpenFGA reconciliation enabled</Badge>;
+}
+
+function OpenFgaPermissionCheatsheet() {
+  return (
+    <Card className="border-cyan-500/25 bg-cyan-500/[0.04]">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">OpenFGA Permission Cheatsheet</CardTitle>
+            <CardDescription>
+              Use base relationships in the builder; OpenFGA derives the checked `can_*` permissions at runtime.
+            </CardDescription>
+          </div>
+          <Badge variant="outline" className="border-cyan-500/40 text-cyan-700 dark:text-cyan-300">
+            Relationship Builder reference
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <div className="space-y-2">
+          <div className="text-sm font-medium">Base relationships you write</div>
+          <div className="grid gap-2">
+            {BASE_RELATIONSHIP_CHEATSHEET.map((item) => (
+              <div key={item.tuple} className="rounded-md border bg-background/70 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{item.label}</Badge>
+                  <code className="break-all text-xs">{item.tuple}</code>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{item.meaning}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+          <div className="space-y-2">
+          <div className="text-sm font-medium">Derived permissions OpenFGA checks</div>
+          <div className="rounded-md border bg-background/70 p-3">
+            <dl className="space-y-2">
+              {DERIVED_PERMISSION_CHEATSHEET.map(([permission, meaning]) => (
+                <div key={permission} className="grid grid-cols-[auto_1fr] gap-3 text-xs">
+                  <dt>
+                    <code>{permission}</code>
+                  </dt>
+                  <dd className="text-muted-foreground">{meaning}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Tip: tuple writes use relations like <code>user</code>, <code>manager</code>, <code>caller</code>,
+            <code> reader</code>, and <code>ingestor</code>. Avoid writing derived <code>can_*</code> relations directly.
+          </p>
+        </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Subjects and usersets</div>
+            <div className="rounded-md border bg-background/70 p-3">
+              <dl className="grid gap-2 sm:grid-cols-2">
+                {SUBJECT_CHEATSHEET.map(([subject, meaning]) => (
+                  <div key={subject} className="space-y-0.5">
+                    <dt>
+                      <code className="break-all text-xs">{subject}</code>
+                    </dt>
+                    <dd className="text-xs text-muted-foreground">{meaning}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Resource objects</div>
+            <div className="rounded-md border bg-background/70 p-3">
+              <dl className="grid gap-2 sm:grid-cols-2">
+                {RESOURCE_OBJECT_CHEATSHEET.map(([resource, meaning]) => (
+                  <div key={resource} className="space-y-0.5">
+                    <dt>
+                      <code className="break-all text-xs">{resource}</code>
+                    </dt>
+                    <dd className="text-xs text-muted-foreground">{meaning}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function tupleKey(tuple: TupleKey): string {
@@ -279,6 +437,9 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [tupleFilter, setTupleFilter] = useState<Partial<TupleKey>>({});
   const [pendingGraphWrites, setPendingGraphWrites] = useState<TupleKey[]>([]);
   const [pendingGraphDeletes, setPendingGraphDeletes] = useState<TupleKey[]>([]);
+  const [teamAccessTeamId, setTeamAccessTeamId] = useState("");
+  const [ragAdminEnabled, setRagAdminEnabled] = useState(false);
+  const [teamAccessLoading, setTeamAccessLoading] = useState(false);
   const activeTab = useMemo(() => {
     const tab = searchParams.get("subtab") ?? searchParams.get("openfgaTab") ?? DEFAULT_OPENFGA_TAB;
     return OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
@@ -301,6 +462,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     const data = apiData<CatalogResponse>(payload);
     setCatalog(data);
     setTeamSlug((prev) => prev || data.teams[0]?.slug || "");
+    setTeamAccessTeamId((prev) => prev || data.teams[0]?.id || "");
     setResourceId((prev) => prev || data.resources.agents[0]?.id || "");
   }, []);
 
@@ -361,6 +523,66 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     },
     [pathname, router, searchParams]
   );
+
+  const loadTeamAccess = useCallback(async () => {
+    if (!teamAccessTeamId) return;
+    setTeamAccessLoading(true);
+    setError(null);
+    try {
+      const selectedTeam = catalog?.teams.find((team) => team.id === teamAccessTeamId);
+      const teamAccessSlug = selectedTeam?.slug ?? teamAccessTeamId;
+      const params = new URLSearchParams({
+        user: `team:${teamAccessSlug}#member`,
+        relation: "manager",
+        object: "admin_surface:rag_datasources",
+        limit: "1",
+      });
+      const res = await fetch(`/api/admin/openfga/tuples?${params.toString()}`);
+      if (!res.ok) throw new Error(`Failed to load RAG team access: ${res.status}`);
+      const payload = await res.json();
+      const data = apiData<{ tuples: TupleRecord[] }>(payload);
+      setRagAdminEnabled((data.tuples ?? []).length > 0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load RAG team access");
+    } finally {
+      setTeamAccessLoading(false);
+    }
+  }, [catalog?.teams, teamAccessTeamId]);
+
+  useEffect(() => {
+    if (activeTab === "rag") {
+      loadTeamAccess();
+    }
+  }, [activeTab, loadTeamAccess]);
+
+  async function saveTeamAccess() {
+    if (!teamAccessTeamId || !isAdmin) return;
+    const selectedTeam = catalog?.teams.find((team) => team.id === teamAccessTeamId);
+    const teamAccessSlug = selectedTeam?.slug ?? teamAccessTeamId;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/admin/openfga/relationship", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamSlug: teamAccessSlug,
+          resourceType: "admin_surface",
+          resourceId: "rag_datasources",
+          relation: "manager",
+          operation: ragAdminEnabled ? "grant" : "revoke",
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed to save RAG team access: ${res.status}`);
+      setMessage("RAG team access saved to OpenFGA");
+      await Promise.all([loadTeamAccess(), loadTuples(), loadGraph()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "RAG team access save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function applyChangeSet(
     name: string,
@@ -558,35 +780,42 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         <TabsList>
           <TabsTrigger value="builder" onClick={() => setActiveTab("builder")}>Relationship Builder</TabsTrigger>
           <TabsTrigger value="explorer" onClick={() => setActiveTab("explorer")}>Effective Access</TabsTrigger>
+          <TabsTrigger value="rag" onClick={() => setActiveTab("rag")}>RAG Team Access</TabsTrigger>
           <TabsTrigger value="slack" onClick={() => setActiveTab("slack")}>Slack Channels</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
         </TabsList>
 
         <TabsContent value="builder">
-          <RebacPolicyBuilder
-            selectedGrant={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
-            selectedRevocation={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
-            disabled={!isAdmin}
-            busy={busy}
-            onGrant={() => mutateRelationship("grant")}
-            onRevoke={() => mutateRelationship("revoke")}
+          <div
+            data-testid="openfga-builder-stacked-layout"
+            className="space-y-4"
           >
-              <RelationshipForm
-                catalog={catalog}
-                teamSlug={teamSlug}
-                resourceType={resourceType}
-                resourceId={resourceId}
-                relation={relation}
-                resources={resources}
-                onTeamSlug={setTeamSlug}
-                onResourceType={setResourceType}
-                onResourceId={setResourceId}
-                onRelation={setRelation}
-              />
-              {selectedTuple && <TuplePreview tuple={selectedTuple} />}
-              {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
-          </RebacPolicyBuilder>
+            <RebacPolicyBuilder
+              selectedGrant={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+              selectedRevocation={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+              disabled={!isAdmin}
+              busy={busy}
+              onGrant={() => mutateRelationship("grant")}
+              onRevoke={() => mutateRelationship("revoke")}
+            >
+                <RelationshipForm
+                  catalog={catalog}
+                  teamSlug={teamSlug}
+                  resourceType={resourceType}
+                  resourceId={resourceId}
+                  relation={relation}
+                  resources={resources}
+                  onTeamSlug={setTeamSlug}
+                  onResourceType={setResourceType}
+                  onResourceId={setResourceId}
+                  onRelation={setRelation}
+                />
+                {selectedTuple && <TuplePreview tuple={selectedTuple} />}
+                {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
+            </RebacPolicyBuilder>
+            <OpenFgaPermissionCheatsheet />
+          </div>
         </TabsContent>
 
         <TabsContent value="explorer">
@@ -617,6 +846,71 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 busy={busy}
                 onCheck={checkAccess}
               />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="rag">
+          <Card>
+            <CardHeader>
+              <CardTitle>RAG Team Access</CardTitle>
+              <CardDescription>
+                Grant explicit RAG admin access to the Data Sources surface. Individual Knowledge Base
+                datasource grants stay in the Data Sources team access UI and remain deny-by-default.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 md:max-w-sm">
+                <Label htmlFor="rag-team-access-team">Team</Label>
+                <select
+                  id="rag-team-access-team"
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={teamAccessTeamId}
+                  disabled={!isAdmin || teamAccessLoading}
+                  onChange={(event) => setTeamAccessTeamId(event.target.value)}
+                >
+                  {(catalog?.teams ?? []).map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name || team.slug}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-md border p-4">
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={ragAdminEnabled}
+                    disabled={!isAdmin || teamAccessLoading}
+                    onChange={(event) => setRagAdminEnabled(event.target.checked)}
+                  />
+                  <span>
+                    <span className="block font-medium">Data Sources admin</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Writes <code className="rounded bg-muted px-1">team:&lt;slug&gt;#member manager admin_surface:rag_datasources</code>.
+                      Teams without this grant cannot administer the Data Sources tab. Readonly access comes from explicit per-datasource grants.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={loadTeamAccess}
+                  disabled={!teamAccessTeamId || teamAccessLoading}
+                >
+                  {teamAccessLoading ? "Refreshing..." : "Refresh Team Access"}
+                </Button>
+                <Button
+                  onClick={saveTeamAccess}
+                  disabled={!isAdmin || busy || teamAccessLoading || !teamAccessTeamId}
+                >
+                  Save RAG Team Access
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

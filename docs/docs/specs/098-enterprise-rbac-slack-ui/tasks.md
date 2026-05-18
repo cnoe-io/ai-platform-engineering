@@ -605,3 +605,118 @@ With multiple developers:
 - [x] T139: Add FR-037 to `spec.md`
 - [x] T140: Document `GET /api/admin/audit-events` endpoint in `docs/docs/api/rbac-roles.md`
 - [x] T141: Append Phase 17 tasks to `tasks.md`
+
+---
+
+## Appendix: Next Implementation Checks
+
+This appendix replaces the former root-level `NEXT_STEPS.md` scratch tracker.
+Keep follow-up work here so the 098 task list remains the source of truth.
+
+### MCP tools in the Dynamic Agent editor
+
+Current context:
+
+- `AllowedToolsPicker.tsx` is imported into the Dynamic Agent editor and fetches
+  MCP servers from `/api/mcp-servers?page_size=100`.
+- The picker probes enabled MCP servers to discover available tools.
+- The local seed config includes GitHub, ArgoCD, Jira, PagerDuty, and Knowledge
+  Base MCP servers.
+
+Verification tasks:
+
+- [ ] Start the UI with `cd ui && npm run dev` so
+  `instrumentation.ts -> applySeedConfig()` runs.
+- [ ] Wait for the seed log line:
+  `[seed-config] Applied: X models, Y MCP servers, Z agents`.
+- [ ] Verify MCP servers exist in MongoDB:
+  ```bash
+  docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe \
+    --eval "db.mcp_servers.find().count()"
+  ```
+- [ ] If the count is zero, debug seed-config loading in
+  `ui/src/lib/seed-config.ts` and startup logs.
+- [ ] If the API returns `401`, verify the editor request is authenticated and
+  the user has access to `/api/mcp-servers`.
+- [ ] If the dropdown is present but empty, inspect MCP probe and health-check
+  failures for the configured servers.
+- [ ] Confirm the Agent editor shows a "Select MCP Server" dropdown, expands a
+  server, lists tools, and persists selected tools into the agent
+  `allowed_tools` map.
+
+### Slack ReBAC channel/resource checks
+
+Current context:
+
+- Legacy channel-to-agent mapping UI/API is retired.
+- Channel-to-team ownership is managed from each team's Slack Channels tab.
+- Channel-to-agent, channel-to-tool, and channel-to-KB grants are managed from
+  **Admin UI -> Security & Policy -> OpenFGA ReBAC -> Slack Channels**.
+
+Verification tasks:
+
+- [ ] Verify dynamic agents exist in MongoDB:
+  ```bash
+  docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe \
+    --eval "db.dynamic_agents.find({}, {name: 1, visibility: 1}).toArray()"
+  ```
+- [ ] Verify active Slack channel grants exist:
+  ```bash
+  docker exec caipe-mongodb-dev mongosh admin -u admin -p changeme caipe \
+    --eval "db.slack_channel_grants.find({status:'active'}).toArray()"
+  ```
+- [ ] Verify the admin user can access the relevant Admin UI tabs and OpenFGA
+  ReBAC Slack Channels surface.
+- [ ] Verify slack-bot/supervisor logs show Slack ReBAC checks during a test
+  message:
+  ```bash
+  docker compose -f docker-compose.dev.yaml logs caipe-supervisor 2>&1 | grep "Slack ReBAC"
+  ```
+- [ ] Create a test agent, grant a Slack channel access to it through OpenFGA
+  ReBAC, and verify the Slack bot resolves and uses the grant.
+
+### Slack-bot conversation API proposal
+
+Current context:
+
+- Slack bot currently calls the supervisor directly through `SSEClient`.
+- Next.js already has chat streaming and Dynamic Agent conversation endpoints,
+  including `/api/v1/chat/stream/start` and
+  `/api/dynamic-agents/conversations`.
+- A dedicated Slack-facing BFF API may be useful if the bot should rely on
+  Next.js for conversation creation, RBAC context resolution, and stream
+  lifecycle management.
+
+Proposed endpoint tasks:
+
+- [ ] Define and implement `POST /api/slack/conversation` to start or resume a
+  conversation. Request shape: `{ slack_user_id, slack_channel_id, agent_id?,
+  message? }`. Response shape: `{ conversation_id, thread_ts, status }`.
+  The route should resolve Slack identity, channel/team/resource access, RBAC,
+  and OBO context without returning raw secrets to Slack.
+- [ ] Define and implement `GET /api/slack/conversation/:id` to fetch
+  conversation state for a Slack thread.
+- [ ] Define and implement `POST /api/slack/turns` to submit a Slack turn or
+  message into the selected conversation.
+- [ ] Define and implement `GET /api/slack/start-stream` as an SSE endpoint for
+  streaming agent responses by `conversation_id` and `turn_id`.
+- [ ] Define and implement `POST /api/slack/resume-stream` for Slack stream
+  resumption after reconnects.
+- [ ] Update `ai_platform_engineering/integrations/slack_bot/app.py` handlers
+  such as `handle_dm_message()` and `handle_qanda_message()` to call the BFF
+  endpoints instead of calling the supervisor directly.
+- [ ] Add tests covering a Slack message that creates or resumes a
+  conversation, starts a stream, posts streamed events to Slack, and submits a
+  follow-up turn.
+
+Example flow:
+
+```text
+Slack user -> Bot receives @mention
+  -> POST /api/slack/conversation
+  <- { conversation_id, keycloak_user_id, agent_id, stream handle/context }
+  -> GET /api/slack/start-stream?conversation_id=...&turn_id=...
+  <- SSE events { type, data }
+  -> Bot posts streamed events to Slack
+  -> POST /api/slack/turns for follow-up messages
+```

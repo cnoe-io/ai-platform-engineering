@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { requireRbacPermission, handleApiError } from "@/lib/api-middleware";
 import type { RbacScope } from "@/lib/rbac/types";
+import { requireResourcePermission, type ResourcePermissionAction } from "@/lib/rbac/resource-authz";
 
 /**
  * KB admin/ingest/query proxy with 098 RBAC enforcement (FR-015).
@@ -33,9 +34,36 @@ function scopeForMethod(method: string): RbacScope {
       return "kb.query";
     case "POST":
       return "kb.ingest";
+    case "PATCH":
+      return "kb.admin";
     default:
       return "kb.admin";
   }
+}
+
+function actionForKbRequest(method: string, pathSegments: string[]): ResourcePermissionAction {
+  const path = pathSegments.join("/").toLowerCase();
+  if (method === "GET") return path.includes("query") || path.includes("search") ? "read" : "discover";
+  if (method === "POST") return path.includes("query") || path.includes("search") ? "read" : "ingest";
+  return "admin";
+}
+
+function extractKnowledgeBaseId(
+  request: NextRequest,
+  pathSegments: string[],
+  body?: unknown,
+): string | null {
+  for (const key of ["kb_id", "knowledge_base_id", "knowledgeBaseId", "datasource_id", "datasourceId"]) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (value) return value;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const bodyValue = (body as Record<string, unknown>)[key];
+      if (typeof bodyValue === "string" && bodyValue.trim()) return bodyValue.trim();
+    }
+  }
+  return pathSegments[0] && !["query", "search", "ingest", "upload", "datasources"].includes(pathSegments[0])
+    ? pathSegments[0]
+    : null;
 }
 
 async function proxyToRag(
@@ -48,12 +76,31 @@ async function proxyToRag(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  let body: unknown = undefined;
+  if (method === "POST" || method === "PUT" || method === "PATCH") {
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > 0) {
+      try {
+        body = await request.json();
+      } catch {
+        /* empty body is ok for some endpoints */
+      }
+    }
+  }
+
   const scope = scopeForMethod(method);
   await requireRbacPermission(
     { accessToken: session.accessToken, sub: session.sub, org: session.org, user: session.user },
     "rag",
     scope,
   );
+  const kbId = extractKnowledgeBaseId(request, pathSegments, body);
+  if (kbId) {
+    await requireResourcePermission(
+      { sub: session.sub, role: session.role, user: session.user },
+      { type: "knowledge_base", id: kbId, action: actionForKbRequest(method, pathSegments) },
+    );
+  }
 
   const ragServerUrl = getRagServerUrl();
   const targetPath = pathSegments.join("/");
@@ -79,16 +126,8 @@ async function proxyToRag(
 
   const fetchOptions: RequestInit = { method, headers };
 
-  if (method === "POST" || method === "PUT") {
-    const contentLength = request.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) > 0) {
-      try {
-        const body = await request.json();
-        fetchOptions.body = JSON.stringify(body);
-      } catch {
-        /* empty body is ok for some endpoints */
-      }
-    }
+  if (body !== undefined) {
+    fetchOptions.body = JSON.stringify(body);
   }
 
   const response = await fetch(targetUrl.toString(), fetchOptions);
@@ -144,6 +183,18 @@ export async function DELETE(
   try {
     const { path } = await params;
     return await proxyToRag(request, path, "DELETE");
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  try {
+    const { path } = await params;
+    return await proxyToRag(request, path, "PATCH");
   } catch (error) {
     return handleApiError(error);
   }

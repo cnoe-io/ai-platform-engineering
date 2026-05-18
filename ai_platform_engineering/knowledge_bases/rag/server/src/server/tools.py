@@ -75,7 +75,9 @@ class AgentTools:
     if user.email.startswith("client:"):
       return None
 
-    team_id = self._extract_team_id(user)
+    team_id = user.active_team or self._extract_team_id(user)
+    if team_id == "__personal__":
+      team_id = None
     accessible = await get_accessible_kb_ids(
       user, scope, "default", team_id=team_id,
     )

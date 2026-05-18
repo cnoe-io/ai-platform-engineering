@@ -1,0 +1,204 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import { MigrationTab } from "../MigrationTab";
+
+function jsonResponse(payload: unknown, ok = true, status = 200): Response {
+  return {
+    ok,
+    status,
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  } as Response;
+}
+
+describe("MigrationTab", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href === "/api/admin/rebac/migrations") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            migrations: [
+              {
+                id: "conversation_owner_identity_v1",
+                title: "Conversation owner identity v2",
+                description: "Normalize conversations",
+                kind: "implicit",
+                schema_area: "conversations",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE conversations TO v2",
+                required: true,
+              },
+              {
+                id: "universal_rebac_relationship_backfill_v1",
+                title: "Universal ReBAC team resources",
+                description: "Expose existing grants",
+                kind: "explicit",
+                schema_area: "team_resources",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE team_resources TO v2",
+                required: true,
+              },
+            ],
+          },
+        });
+      }
+      if (href.endsWith("/plan")) {
+        const migrationId = href.split("/").at(-2);
+        return jsonResponse({
+          success: true,
+          data: {
+            migration_id: migrationId,
+            confirmation:
+              migrationId === "universal_rebac_relationship_backfill_v1"
+                ? "MIGRATE team_resources TO v2"
+                : "MIGRATE conversations TO v2",
+            counts: {
+              total_conversations: 12,
+              resolvable: 10,
+              unresolved: 2,
+              tuple_writes_planned: 0,
+            },
+            warnings: ["2 conversation owner email(s) could not be resolved to Keycloak subjects."],
+            sample_diffs: [
+              {
+                collection: "conversations",
+                id: "c1",
+                before: { owner_id: "alice@example.com", owner_subject: null },
+                after: { owner_id: "alice@example.com", owner_subject: "alice-sub", owner_identity_version: 2 },
+              },
+            ],
+          },
+        });
+      }
+      if (href.endsWith("/apply")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        return jsonResponse({
+          success: true,
+          data: {
+            applied_counts: { conversations_updated: body.confirmation ? 10 : 0, tuple_writes_applied: 0 },
+          },
+        });
+      }
+      return jsonResponse({ success: false }, false, 404);
+    }) as jest.Mock;
+  });
+
+  it("loads release migrations and previews a dry run", async () => {
+    render(<MigrationTab isAdmin />);
+
+    expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
+    expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[0]);
+
+    expect(await screen.findByText("total_conversations")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText(/tuple_writes_planned/i)).toBeInTheDocument();
+    expect(screen.getByText("MIGRATE conversations TO v2")).toBeInTheDocument();
+  });
+
+  it("allows registered migrations to be selected and dry-run", async () => {
+    render(<MigrationTab isAdmin />);
+
+    fireEvent.click(await screen.findByText("Universal ReBAC team resources"));
+    expect(screen.getByText("Selected migration:")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[1]);
+
+    expect(await screen.findByText("MIGRATE team_resources TO v2")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/universal_rebac_relationship_backfill_v1/plan",
+        { method: "POST" },
+      );
+    });
+  });
+
+  it("requires the typed confirmation before applying", async () => {
+    render(<MigrationTab isAdmin />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Dry run/i }))[0]);
+    await screen.findByText("MIGRATE conversations TO v2");
+
+    expect(screen.getByRole("button", { name: /^Apply$/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Type confirmation/i), {
+      target: { value: "MIGRATE conversations TO v2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Apply$/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/conversation_owner_identity_v1/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirmation: "MIGRATE conversations TO v2" }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/conversations_updated: 10/i)).toBeInTheDocument();
+  });
+
+  it("refreshes the migration manifest in-page", async () => {
+    render(<MigrationTab isAdmin />);
+
+    expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /Refresh migrations/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/admin/rebac/migrations");
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("shows a checked migration complete indicator for completed migrations", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
+      if (String(url) === "/api/admin/rebac/migrations") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            migrations: [
+              {
+                id: "conversation_owner_identity_v1",
+                title: "Conversation owner identity v2",
+                description: "Normalize conversations",
+                kind: "implicit",
+                schema_area: "conversations",
+                current_version: 2,
+                target_version: 2,
+                status: "completed",
+                implemented: true,
+                confirmation: "MIGRATE conversations TO v2",
+                required: true,
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse({ success: false }, false, 404);
+    });
+
+    render(<MigrationTab isAdmin />);
+
+    const completeCheckbox = await screen.findByRole("checkbox", { name: /Migration complete/i });
+    expect(completeCheckbox).toBeChecked();
+    expect(screen.getByText(/Migration complete/i)).toBeInTheDocument();
+  });
+
+  it("does not allow read-only users to run migrations", async () => {
+    render(<MigrationTab isAdmin={false} />);
+
+    expect(await screen.findByText(/Admin access required/i)).toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

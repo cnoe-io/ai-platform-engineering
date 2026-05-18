@@ -498,3 +498,85 @@ Sequential phases in priority order; expect 1–1.5 days per phase except Phase 
 - **Single-PR mandate (FR-015)**: every commit lands on `prebuild/feat/comprehensive-rbac` and rolls into PR `#1257`. Do not branch off this branch for individual phases.
 - Stop at any checkpoint to validate the story independently. Each story IS independently testable per `spec.md`.
 - Avoid: cross-story dependencies that break independence (e.g., a US5 task that requires US8's doc to exist), same-file conflicts in `[P]` tasks, vague tasks without file paths.
+
+---
+
+## Appendix: Deferred/Operator Follow-Ups
+
+This appendix replaces the former root-level `BLOCKERS.md` scratch tracker. Keep
+new deferred RBAC work in this spec so the task list remains the source of
+truth; completed historical notes stay in git history instead of being copied
+forward.
+
+### Operator verification
+
+- [ ] Verify the Dynamic Agents to AgentGateway MCP chain after the bearer
+  forwarding fix. Restart `dynamic-agents`, send a web chat to an agent that
+  uses Jira/Confluence/Argo MCP tools, and confirm `dynamic-agents` no longer
+  logs `HTTP 401 error connecting to http://agentgateway:4000/mcp/...`.
+  Confirm AgentGateway logs show MCP-bound requests carrying
+  `Authorization: Bearer ...`. For a negative check, set
+  `DA_REQUIRE_BEARER=true`, restart Dynamic Agents, and verify requests without
+  BFF bearer propagation fail with `code: missing_bearer`; then restore the
+  previous environment.
+- [ ] Verify the supervisor PDP gate in a live stack. Set
+  `SUPERVISOR_PDP_GATE_ENABLED=true`, restart the supervisor, and confirm a
+  `chat_user` can chat while a user without `chat_user` receives the
+  standardized RBAC denial:
+  `{"code":"rbac_denied","reason":"missing_role","action":"contact_admin"}`.
+  Stop Keycloak and confirm a non-bootstrap-admin receives
+  `code: pdp_unavailable`, then restart Keycloak and unset the gate flag.
+- [ ] Run Slack OBO live verification against a running stack with
+  `scripts/verify-slack-obo.sh`. Confirm the decoded access token has the
+  expected `sub`, `azp`, and `act.sub` claims, and use the script's inline
+  failure hints for missing token-exchange policy, missing impersonation
+  permission, or disabled Keycloak token-exchange support. This verifies the
+  implementation behind T117/T118; Slack JIT-specific live checks remain in
+  spec 103 Phase 7.
+  ```bash
+  KEYCLOAK_URL=http://localhost:7080 \
+  KEYCLOAK_REALM=caipe \
+  KEYCLOAK_BOT_CLIENT_ID=caipe-slack-bot \
+  KEYCLOAK_BOT_CLIENT_SECRET=... \
+  TARGET_USER=admin \
+  ./scripts/verify-slack-obo.sh
+  ```
+- [ ] Wire the RBAC Playwright harness into GitHub Actions once the live stack
+  can be provisioned in CI. The harness already exists under `ui/e2e/rbac/`
+  with `npm run test:e2e:rbac`; the remaining work is infrastructure
+  provisioning for Keycloak, supervisor, Dynamic Agents, and the BFF, either via
+  kind + Helm or a hosted preview stack.
+- [ ] Run the RAG document ACL migration before enabling
+  `RBAC_DOC_ACL_TAGS_ENABLED=true` in any environment with existing data:
+  first dry-run `python3 scripts/rag-doc-acl-migration.py --milvus-uri
+  http://localhost:19530 --dry-run`, inspect the JSON summary, then run the
+  command without `--dry-run`. Verify representative rows now contain
+  `metadata.acl_tags=["__public__"]`, restart `rag-server` with the feature
+  flag enabled, and smoke-test a RAG chat query. Optionally tag a small subset
+  with a real tag such as `team:platform-eng` and verify users outside that team
+  no longer see those documents.
+- [ ] Tune the PDP cache TTL after `rbac_pdp_*` metrics have enough production
+  signal. This depends on the decision-cache observability added in Phase 11.
+- [ ] After live verification, rerun `make lint` and `make test` from the repo
+  root before opening or updating the PR.
+
+### Product follow-ups
+
+- [ ] Add UI support for assigning RAG `metadata.acl_tags` at ingest time. The
+  current safe default is `["__public__"]`.
+- [ ] Add connector-side ACL tag automation so ingestors populate
+  `document_metadata.metadata["acl_tags"]` from source permissions such as
+  Confluence space permissions, Jira project permissions, and Slack channel
+  membership.
+- [ ] Remove `X-User-Context` forwarding entirely after one release cycle of
+  soak on `DA_REQUIRE_BEARER=true`. The header is no longer authoritative, but
+  is still forwarded temporarily for Dynamic Agents claim-hint compatibility.
+
+### Known pre-existing failures
+
+- [ ] Track and fix the pre-existing
+  `ai_platform_engineering/dynamic_agents/tests/test_sse_error_sanitization.py`
+  failures caused by `_generate_resume_sse_events` signature drift.
+- [ ] Track and fix the pre-existing
+  `ai_platform_engineering/multi_agents/tests/...test_ai.py` failures confirmed
+  during the RBAC branch validation cycle.

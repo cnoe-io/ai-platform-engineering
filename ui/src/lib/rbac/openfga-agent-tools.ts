@@ -16,6 +16,8 @@ export interface AgentToolTupleDiffInput {
   previousAllowedTools?: Record<string, string[]>;
   nextAllowedTools: Record<string, string[]>;
   ownerSubject?: string | null;
+  organizationId?: string | null;
+  ownerTeamSlug?: string | null;
 }
 
 export interface ReconcileAgentToolTuplesInput extends AgentToolTupleDiffInput {
@@ -71,7 +73,7 @@ function agentToolTuple(agentId: string, serverId: string, toolName: string): Op
   };
 }
 
-export function buildAgentToolTupleDiff(input: AgentToolTupleDiffInput): TeamResourceTupleDiff {
+export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput): TeamResourceTupleDiff {
   if (!isValidOpenFgaId(input.agentId)) {
     throw new Error(`Invalid OpenFGA agent id: ${input.agentId}`);
   }
@@ -87,6 +89,27 @@ export function buildAgentToolTupleDiff(input: AgentToolTupleDiffInput): TeamRes
       relation: "owner",
       object: `agent:${input.agentId}`,
     });
+  }
+  if (input.organizationId && isValidOpenFgaId(input.organizationId)) {
+    writes.push({
+      user: `organization:${input.organizationId}#admin`,
+      relation: "manager",
+      object: `agent:${input.agentId}`,
+    });
+  }
+  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+    writes.push(
+      {
+        user: `team:${input.ownerTeamSlug}#member`,
+        relation: "user",
+        object: `agent:${input.agentId}`,
+      },
+      {
+        user: `team:${input.ownerTeamSlug}#admin`,
+        relation: "manager",
+        object: `agent:${input.agentId}`,
+      },
+    );
   }
 
   for (const [serverId, tools] of next) {
@@ -113,10 +136,20 @@ export function buildAgentToolTupleDiff(input: AgentToolTupleDiffInput): TeamRes
   };
 }
 
+export function buildAgentToolTupleDiff(input: AgentToolTupleDiffInput): TeamResourceTupleDiff {
+  return buildAgentRelationshipTupleDiff(input);
+}
+
 export async function reconcileAgentToolTuples(
   input: ReconcileAgentToolTuplesInput,
 ): Promise<OpenFgaReconcileResult> {
-  const diff = buildAgentToolTupleDiff(input);
+  return reconcileAgentRelationships(input);
+}
+
+export async function reconcileAgentRelationships(
+  input: ReconcileAgentToolTuplesInput,
+): Promise<OpenFgaReconcileResult> {
+  const diff = buildAgentRelationshipTupleDiff(input);
   try {
     return await writeOpenFgaTupleDiff(diff);
   } catch (error) {
@@ -136,12 +169,17 @@ export async function deleteAllAgentToolTuples(agentId: string): Promise<OpenFga
     return { enabled: false, writes: 0, deletes: 0 };
   }
 
-  const tuples = await readOpenFgaTuples({
-    tuple: { user: `agent:${agentId}`, relation: "caller" },
-  });
+  const allTuples: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({ continuationToken });
+    allTuples.push(...page.tuples.map((tuple) => tuple.key));
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+
   return writeOpenFgaTupleDiff({
     writes: [],
-    deletes: tuples.tuples.map((tuple) => tuple.key),
+    deletes: allTuples.filter((tuple) => tuple.user === `agent:${agentId}` || tuple.object === `agent:${agentId}`),
   });
 }
 

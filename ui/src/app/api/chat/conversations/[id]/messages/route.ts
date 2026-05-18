@@ -19,6 +19,7 @@ import {
   validateRequired,
   getPaginationParams,
 } from '@/lib/api-middleware';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Message, AddMessageRequest, Conversation } from '@/types/mongodb';
 
 // GET /api/chat/conversations/[id]/messages
@@ -35,7 +36,10 @@ export const GET = withErrorHandler(async (
     }
 
     // Verify user has access (admins get read-only audit access)
-    await requireConversationAccess(conversationId, user.email, getCollection, session);
+    const { conversation } = await requireConversationAccess(
+      conversationId, user.email, getCollection, session
+    );
+    await requireConversationResourcePermission(session, user.email, conversation, 'read');
 
     const { page, pageSize, skip } = getPaginationParams(request);
 
@@ -76,9 +80,10 @@ export const POST = withErrorHandler(async (
     validateRequired(body, ['role', 'content']);
 
     // Verify user has access and get conversation for owner_id
-    const { access_level } = await requireConversationAccess(
+    const { access_level, conversation } = await requireConversationAccess(
       conversationId, user.email, getCollection, session
     );
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Read-only access — block writes
     if (access_level === 'admin_audit' || access_level === 'shared_readonly') {
@@ -86,7 +91,6 @@ export const POST = withErrorHandler(async (
     }
 
     const conversations = await getCollection<Conversation>('conversations');
-    const conversation = await conversations.findOne({ _id: conversationId });
     const ownerId = conversation?.owner_id || user.email;
 
     const messages = await getCollection<Message>('messages');

@@ -67,6 +67,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       slack: true,
       action_audit: true,
       openfga: true,
+      migrations: true,
     });
     expect(body.gates).not.toHaveProperty("policy");
   });
@@ -93,6 +94,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       slack: false,
       action_audit: false,
       openfga: false,
+      migrations: false,
     });
   });
 });

@@ -245,6 +245,9 @@ function routeFileForPath(routePath: string): string {
   const canonicalRoutePath = routePath.replace(
     /^\/api\/agent-skills\//,
     '/api/skills/',
+  ).replace(
+    /^\/api\/admin\/rebac\/migrations\/[^/]+\/(plan|apply)$/,
+    '/api/admin/rebac/migrations/[migrationId]/$1',
   );
   const trimmed = canonicalRoutePath.replace(/^\//, '');
   return path.resolve(__dirname, '../app', trimmed, 'route.ts');

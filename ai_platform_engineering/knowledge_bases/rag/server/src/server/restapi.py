@@ -47,12 +47,11 @@ from common.models.rbac import Role, UserContext, UserInfoResponse
 from contextvars import ContextVar
 from server.rbac import (
   get_user_or_anonymous,
+  require_authenticated_user,
   require_role,
   has_permission,
   get_permissions,
   is_trusted_request,
-  UserInfoCache,
-  set_userinfo_cache,
   get_auth_manager,
   _authenticate_from_token,
   check_kb_datasource_access,
@@ -61,8 +60,6 @@ from server.rbac import (
   RBAC_TEAM_SCOPE_ENABLED,
   TRUSTED_NETWORK_DEFAULT_ROLE,
 )
-
-mcp_user_context_var: ContextVar[Optional[UserContext]] = ContextVar("mcp_user_context", default=None)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -77,6 +74,8 @@ from server.query_service import VectorDBQueryService
 from langchain_core.globals import set_verbose as set_langchain_verbose
 from server.ingestion import DocumentProcessor
 from common.utils import get_fresh_until, sanitize_url
+
+mcp_user_context_var: ContextVar[Optional[UserContext]] = ContextVar("mcp_user_context", default=None)
 
 metadata_storage: Optional[MetadataStorage] = None
 vector_db: Optional[Milvus] = None
@@ -276,10 +275,6 @@ async def app_lifespan(app: FastAPI):
   redis_client = redis.from_url(redis_url, decode_responses=True)
   metadata_storage = MetadataStorage(redis_client=redis_client)
   jobmanager = JobManager(redis_client=redis_client)
-
-  # Initialize userinfo cache for RBAC (caches email/groups fetched from OIDC userinfo)
-  userinfo_cache = UserInfoCache(redis_client=redis_client)
-  set_userinfo_cache(userinfo_cache)
 
   # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
   embeddings = EmbeddingsFactory.get_embeddings()
@@ -605,7 +600,7 @@ async def delete_ingestor(ingestor_id: str, user: UserContext = Depends(require_
 async def upsert_datasource(
   datasource_info: DataSourceInfo,
   request: Request,
-  user: UserContext = Depends(require_role(Role.INGESTONLY)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """Create or update datasource metadata entry."""
   if not metadata_storage:
@@ -635,7 +630,7 @@ async def rename_datasource(
   datasource_id: str,
   body: DatasourceRenameRequest,
   request: Request,
-  user: UserContext = Depends(require_role(Role.ADMIN)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """Rename a datasource's display label. The ``datasource_id`` is immutable."""
   if not metadata_storage:
@@ -665,7 +660,7 @@ async def rename_datasource(
 async def delete_datasource(
   datasource_id: str,
   request: Request,
-  user: UserContext = Depends(require_role(Role.ADMIN)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """Delete datasource from vector storage and metadata."""
 
@@ -789,7 +784,7 @@ async def cleanup_all_stale(
 async def list_datasources(
   request: Request,
   ingestor_id: Optional[str] = None,
-  user: UserContext = Depends(require_role(Role.READONLY)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """List all stored datasources, filtered by team-KB access when enabled."""
   if not metadata_storage:
@@ -1159,7 +1154,7 @@ async def add_job_errors(job_id: str, error_messages: List[str], user: UserConte
 async def query_documents(
   query_request: QueryRequest,
   request: Request,
-  user: UserContext = Depends(require_role(Role.READONLY)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """Query for relevant documents using semantic search in the unified collection."""
 
@@ -2089,7 +2084,7 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
 
 
 @app.post("/v1/mcp/invoke", response_model=MCPToolInvokeResponse, tags=["MCP Tools"])
-async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Depends(require_authenticated_user)):
   """
   Invoke an MCP tool via REST API.
 
@@ -2113,7 +2108,11 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
 
   try:
     # Invoke the tool using tool.run()
-    result = await tool.run(request.arguments)
+    token = mcp_user_context_var.set(user)
+    try:
+      result = await tool.run(request.arguments)
+    finally:
+      mcp_user_context_var.reset(token)
 
     # Extract the raw result from ToolResult.content
     # Each content block has a .text attribute containing JSON-encoded data

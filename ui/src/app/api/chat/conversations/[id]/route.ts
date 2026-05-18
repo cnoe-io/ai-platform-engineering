@@ -10,9 +10,9 @@ import {
   successResponse,
   ApiError,
   requireConversationAccess,
-  requireOwnership,
   validateUUID,
 } from '@/lib/api-middleware';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation, UpdateConversationRequest } from '@/types/mongodb';
 
 // GET /api/chat/conversations/[id]
@@ -46,6 +46,7 @@ export const GET = withErrorHandler(async (
       getCollection,
       session
     );
+    await requireConversationResourcePermission(session, user.email, conversation, 'read');
 
     return successResponse({ ...conversation, access_level });
   });
@@ -68,7 +69,7 @@ export const PUT = withErrorHandler(async (
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const body: UpdateConversationRequest = await request.json();
@@ -84,8 +85,7 @@ export const PUT = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    // Only owner can update conversation
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Build update
     const update: any = {
@@ -127,7 +127,7 @@ export const DELETE = withErrorHandler(async (
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const url = new URL(request.url);
@@ -144,8 +144,7 @@ export const DELETE = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    // Only owner can delete conversation
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'delete');
 
     if (permanent) {
       // Hard delete: remove conversation and all messages permanently

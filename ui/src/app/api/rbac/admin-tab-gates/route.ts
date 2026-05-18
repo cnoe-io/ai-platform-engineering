@@ -21,6 +21,7 @@ const ALL_TABS: AdminTabKey[] = [
   "audit_logs",
   "action_audit",
   "openfga",
+  "migrations",
 ];
 
 function decodeJwtPayload(token: string): Record<string, unknown> {

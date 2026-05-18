@@ -21,6 +21,13 @@ from dynamic_agents.models import MCPServerConfig, TransportType
 logger = logging.getLogger(__name__)
 
 
+def _gateway_mcp_server_ids() -> set[str]:
+    """Return MCP server IDs that should be reached through AgentGateway."""
+    raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
+    values = {item.strip() for item in raw.split(",") if item.strip()}
+    return values or {"jira"}
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
@@ -195,6 +202,8 @@ def build_mcp_connections(
     connections: dict[str, dict[str, Any]] = {}
 
     server_map = {s.id: s for s in servers}
+    gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
+    gateway_all = "all" in gateway_ids
 
     for server_id in server_ids:
         server = server_map.get(server_id)
@@ -207,7 +216,7 @@ def build_mcp_connections(
 
         connections[server_id] = build_mcp_connection_config(
             server,
-            agent_gateway_url=agent_gateway_url,
+            agent_gateway_url=agent_gateway_url if (gateway_all or server_id in gateway_ids) else None,
             auth_bearer=auth_bearer,
             agent_id=agent_id,
         )

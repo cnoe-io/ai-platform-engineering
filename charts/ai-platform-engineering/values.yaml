@@ -967,6 +967,9 @@ dynamic-agents:
   config:
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
+    # MCP server IDs routed through the shared AgentGateway backend.
+    # Other MCP servers keep direct endpoints so tool names reflect real upstreams.
+    AGENT_GATEWAY_MCP_SERVER_IDS: "jira"
     # LLM configuration (override if needed)
     # LLM_PROVIDER: "openai"
     # LLM_MODEL: "gpt-4o"

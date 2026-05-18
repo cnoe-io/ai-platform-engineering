@@ -21,10 +21,52 @@ jest.mock('@/lib/auth-config', () => ({
 }));
 
 import { getServerSession } from 'next-auth';
+import { NextRequest } from 'next/server';
+
+const mockRequireRbacPermission = jest.fn();
+const mockRequireResourcePermission = jest.fn();
+const mockFilterResourcesByPermission = jest.fn();
+
+jest.mock('@/lib/api-middleware', () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public statusCode = 500,
+      public code?: string,
+    ) {
+      super(message);
+    }
+  }
+  return {
+    ApiError,
+    requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
+    handleApiError: (error: unknown) =>
+      Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'error',
+          code: (error as { code?: string }).code,
+        },
+        { status: (error as { statusCode?: number }).statusCode ?? 500 },
+      ),
+  };
+});
+
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
+}));
+
+function ragRequest(path: string, init?: RequestInit): NextRequest {
+  return new NextRequest(new URL(path, 'http://localhost:3000'), init);
+}
 
 describe('RAG RBAC Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRequireRbacPermission.mockResolvedValue(undefined);
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockFilterResourcesByPermission.mockImplementation(async (_session, resources) => resources);
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
@@ -307,6 +349,373 @@ describe('RAG RBAC Integration', () => {
       const data = await response.json();
 
       expect(data.role).toBe('ADMIN');
+    });
+  });
+
+  describe('Object-level OpenFGA checks for RAG proxies', () => {
+    beforeEach(async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'alice-sub',
+        role: 'kb_admin',
+        org: 'team-alpha',
+        accessToken: 'access-token',
+        user: { email: 'alice@example.com' },
+      } as any);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true }),
+      } as Response);
+    });
+
+    it('requires knowledge_base discover when listing generic datasource details from query params', async () => {
+      const { GET } = await import('@/app/api/rag/[...path]/route');
+
+      const response = await GET(
+        ragRequest('/api/rag/v1/datasources?datasource_id=kb-alpha'),
+        { params: Promise.resolve({ path: ['v1', 'datasources'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub', org: 'team-alpha' }),
+        'rag',
+        'admin',
+      );
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub', role: 'kb_admin' }),
+        { type: 'knowledge_base', id: 'kb-alpha', action: 'discover' },
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:9446/v1/datasources?datasource_id=kb-alpha',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer access-token',
+            'X-Tenant-Id': 'team-alpha',
+          }),
+        }),
+      );
+    });
+
+    it('requires RAG admin and filters datasource lists through OpenFGA for datasource tab callers', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'alice-sub',
+        role: 'user',
+        org: 'team-alpha',
+        accessToken: 'browser-token',
+        user: { email: 'alice@example.com' },
+      } as any);
+      mockFilterResourcesByPermission.mockResolvedValue([
+        { datasource_id: 'kb-allowed', name: 'Allowed KB' },
+      ]);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          datasources: [
+            { datasource_id: 'kb-allowed', name: 'Allowed KB' },
+            { datasource_id: 'kb-denied', name: 'Denied KB' },
+          ],
+          count: 2,
+        }),
+      } as Response);
+      const { GET } = await import('@/app/api/rag/[...path]/route');
+
+      const response = await GET(
+        ragRequest('/api/rag/v1/datasources'),
+        { params: Promise.resolve({ path: ['v1', 'datasources'] }) },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub', org: 'team-alpha' }),
+        'rag',
+        'admin',
+      );
+      expect(body.datasources).toEqual([{ datasource_id: 'kb-allowed', name: 'Allowed KB' }]);
+      expect(body.count).toBe(1);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:9446/v1/datasources',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ Authorization: 'Bearer browser-token' }),
+        }),
+      );
+      expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub', role: 'user' }),
+        expect.any(Array),
+        expect.objectContaining({ type: 'knowledge_base', action: 'read' }),
+        expect.objectContaining({ allowAdminBypass: true }),
+      );
+    });
+
+    it('forwards the Keycloak bearer for MCP tool config discovery after BFF RBAC passes', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'admin-sub',
+        role: 'admin',
+        org: 'team-alpha',
+        accessToken: 'browser-token',
+        user: { email: 'admin@example.com' },
+      } as any);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ([]),
+      } as Response);
+      const { GET } = await import('@/app/api/rag/[...path]/route');
+
+      const response = await GET(
+        ragRequest('/api/rag/v1/mcp/custom-tools'),
+        { params: Promise.resolve({ path: ['v1', 'mcp', 'custom-tools'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:9446/v1/mcp/custom-tools',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ Authorization: 'Bearer browser-token' }),
+        }),
+      );
+    });
+
+    it('constrains MCP search invocation to OpenFGA-readable datasources before RAG validates the bearer', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'alice-sub',
+        role: 'user',
+        org: 'team-alpha',
+        accessToken: 'browser-token',
+        user: { email: 'alice@example.com' },
+      } as any);
+      mockFilterResourcesByPermission.mockResolvedValue([
+        { datasource_id: 'kb-allowed', name: 'Allowed KB' },
+      ]);
+      (global.fetch as jest.Mock)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            datasources: [
+              { datasource_id: 'kb-allowed', name: 'Allowed KB' },
+              { datasource_id: 'kb-denied', name: 'Denied KB' },
+            ],
+            count: 2,
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ tool_name: 'search', success: true, result: {}, error: null }),
+        } as Response);
+      const { POST } = await import('@/app/api/rag/[...path]/route');
+      const body = { tool_name: 'search', arguments: { query: 'deployments', limit: 5 } };
+
+      const response = await POST(
+        ragRequest('/api/rag/v1/mcp/invoke', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'mcp', 'invoke'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        2,
+        'http://localhost:9446/v1/mcp/invoke',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer browser-token' }),
+          body: JSON.stringify({
+            tool_name: 'search',
+            arguments: {
+              query: 'deployments',
+              limit: 5,
+              filters: { datasource_id: 'kb-allowed' },
+            },
+          }),
+        }),
+      );
+    });
+
+    it('requires knowledge_base ingest for generic datasource writes from request body', async () => {
+      const { POST } = await import('@/app/api/rag/[...path]/route');
+      const body = { datasource_id: 'kb-beta', url: 's3://bucket/docs' };
+
+      const response = await POST(
+        ragRequest('/api/rag/v1/datasource', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'datasource'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        { type: 'knowledge_base', id: 'kb-beta', action: 'ingest' },
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:9446/v1/datasource',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      );
+    });
+
+    it('allows admin sessions to re-ingest a datasource via the admin bypass option', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'admin-sub',
+        role: 'admin',
+        org: 'team-alpha',
+        accessToken: 'admin-token',
+        user: { email: 'admin@example.com' },
+      } as any);
+      mockRequireResourcePermission.mockImplementation(async (_session, _target, options) => {
+        if ((options as { allowAdminBypass?: boolean } | undefined)?.allowAdminBypass) return;
+        throw Object.assign(new Error('no ingest'), { statusCode: 403, code: 'knowledge_base#ingest' });
+      });
+      const { POST } = await import('@/app/api/rag/[...path]/route');
+      const body = { datasource_id: 'kb-reload' };
+
+      const response = await POST(
+        ragRequest('/api/rag/v1/ingest/webloader/reload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'ingest', 'webloader', 'reload'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
+        { type: 'knowledge_base', id: 'kb-reload', action: 'ingest' },
+        { allowAdminBypass: true },
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:9446/v1/ingest/webloader/reload',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      );
+    });
+
+    it('requires knowledge_base admin for generic PATCH updates using path ids', async () => {
+      const { PATCH } = await import('@/app/api/rag/[...path]/route');
+      const body = { display_name: 'Renamed KB' };
+
+      const response = await PATCH(
+        ragRequest('/api/rag/v1/datasources/kb-gamma', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'datasources', 'kb-gamma'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        'rag',
+        'admin',
+      );
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        { type: 'knowledge_base', id: 'kb-gamma', action: 'admin' },
+      );
+    });
+
+    it('requires knowledge_base read for KB-scoped query posts', async () => {
+      const { POST } = await import('@/app/api/rag/kb/[...path]/route');
+      const body = { kb_id: 'kb-delta', query: 'what changed?' };
+
+      const response = await POST(
+        ragRequest('/api/rag/kb/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['query'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        'rag',
+        'kb.ingest',
+      );
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        { type: 'knowledge_base', id: 'kb-delta', action: 'read' },
+      );
+    });
+
+    it('requires knowledge_base admin for KB-scoped PATCH updates', async () => {
+      const { PATCH } = await import('@/app/api/rag/kb/[...path]/route');
+      const body = { retention_days: 30 };
+
+      const response = await PATCH(
+        ragRequest('/api/rag/kb/kb-epsilon/settings', {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['kb-epsilon', 'settings'] }) },
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        { type: 'knowledge_base', id: 'kb-epsilon', action: 'admin' },
+      );
+    });
+
+    it('does not proxy KB requests when the object-level check fails', async () => {
+      mockRequireResourcePermission.mockRejectedValue(
+        Object.assign(new Error('kb denied'), { statusCode: 403, code: 'knowledge_base#read' }),
+      );
+      const { GET } = await import('@/app/api/rag/kb/[...path]/route');
+
+      const response = await GET(
+        ragRequest('/api/rag/kb/kb-zeta/query'),
+        { params: Promise.resolve({ path: ['kb-zeta', 'query'] }) },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(body).toMatchObject({ success: false, error: 'kb denied', code: 'knowledge_base#read' });
+      expect(global.fetch).not.toHaveBeenCalled();
     });
   });
 });

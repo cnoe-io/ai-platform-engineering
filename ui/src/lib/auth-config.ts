@@ -749,6 +749,10 @@ export const authOptions: NextAuthOptions = {
       // Don't store full tokens in session - they're huge (2KB+ each)
       // Only store what the client actually needs
 
+      if (!token.error && token.sub && !token.accessToken) {
+        token.error = "AccessTokenMissing";
+      }
+
       // Only pass tokens if they're valid (not expired)
       if (!token.error) {
         session.accessToken = token.accessToken as string;
@@ -776,8 +780,13 @@ export const authOptions: NextAuthOptions = {
       session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
         || (session.role === 'admin');
 
-      // If token refresh failed, mark session as invalid and DON'T include tokens
-      if (token.error === "RefreshTokenExpired" || token.error === "RefreshTokenError") {
+      // If token refresh failed or the server-side token cache was lost,
+      // mark session as invalid and DON'T include tokens.
+      if (
+        token.error === "RefreshTokenExpired" ||
+        token.error === "RefreshTokenError" ||
+        token.error === "AccessTokenMissing"
+      ) {
         console.error(`[Auth] Session invalid due to: ${token.error}`);
         session.error = token.error;
         // Clear tokens from session to reduce cookie size
