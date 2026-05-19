@@ -73,9 +73,9 @@ Lists dynamic agent documents from MongoDB (`dynamic_agents`) with visibility ru
 
 ### POST `/api/dynamic-agents`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `POST {DYNAMIC_AGENTS_URL}/api/v1/agents`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
-Creates an agent. The backend generates `_id` (e.g. `dynamic-agent-<timestamp>`). Body is forwarded to FastAPI as JSON.
+Creates an agent. The BFF generates `_id` (e.g. `dynamic-agent-<timestamp>`) and owns configuration persistence plus OpenFGA relationship reconciliation.
 
 **Request body:**
 
@@ -123,7 +123,7 @@ Creates an agent. The backend generates `_id` (e.g. `dynamic-agent-<timestamp>`)
 
 ### PUT `/api/dynamic-agents?id={agent_id}`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `PATCH /api/v1/agents/{id}`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
 Partial update. Query param `id` is required.
 
@@ -156,7 +156,7 @@ Partial update. Query param `id` is required.
 
 ### DELETE `/api/dynamic-agents?id={agent_id}`
 
-**Auth:** Session (**admin**) | **Service:** UI Backend API → `DELETE /api/v1/agents/{id}`
+**Auth:** Session (**admin**) | **Service:** UI Backend API (MongoDB + OpenFGA)
 
 **Response `200`:**
 
@@ -1016,28 +1016,13 @@ Service banner.
 
 ---
 
-### Agents (`/api/v1/agents`)
+### Agents configuration
 
-| Method | Path | Auth | Notes |
-|--------|------|------|--------|
-| GET | `/api/v1/agents` | User | Paginated: `page`, `limit` — `items`, `total`, `page`, `limit`, `total_pages` |
-| POST | `/api/v1/agents` | Admin | Body: `DynamicAgentConfigCreate` |
-| GET | `/api/v1/agents/{agent_id}` | User | `ApiResponse` with agent |
-| PATCH | `/api/v1/agents/{agent_id}` | Admin | Partial update |
-| DELETE | `/api/v1/agents/{agent_id}` | Admin | System / config-driven rules apply |
-| GET | `/api/v1/agents/{agent_id}/available-subagents` | Admin | `{ "agents": [...] }` inside `data` |
-
-**Example paginated response:**
-
-```json
-{
-  "items": [{ "_id": "dynamic-agent-1730000000000", "name": "Helper" }],
-  "total": 1,
-  "page": 1,
-  "limit": 20,
-  "total_pages": 1
-}
-```
+Dynamic Agents no longer exposes `/api/v1/agents` CRUD routes. The Web UI BFF owns agent
+configuration writes through `/api/dynamic-agents` and persists agent metadata directly,
+including OpenFGA relationship reconciliation. The Dynamic Agents service remains the
+runtime reader for chat, conversation, file, MCP, built-in tool, assistant, and middleware
+routes.
 
 ---
 
