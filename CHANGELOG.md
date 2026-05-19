@@ -1,7 +1,21 @@
-## 0.5.1 (2026-05-18)
+## 0.5.1 (2026-05-19)
 
 ### Fix
 
+- **webex-bot**: remove unused WDM typing import
+
+## 0.5.1-rc.9 (2026-05-19)
+
+### Feat
+
+- **rbac**: add Webex ReBAC access management
+
+## 0.5.1-rc.8 (2026-05-18)
+
+### Fix
+
+- **litellm**: start FastMCP with runtime host binding
+- **ci**: add dynamic agent conversation file routes
 - **ci**: resolve release UI build and RBAC lint failures
 
 ## 0.5.1-rc.7 (2026-05-18)
