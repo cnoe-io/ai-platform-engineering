@@ -43,6 +43,7 @@ init:
     pullPolicy: IfNotPresent
   storeName: caipe-openfga
   seedSub: ""
+  seedTuples: []
   backoffLimit: 6
 
 resources:
