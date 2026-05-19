@@ -339,6 +339,8 @@ def handle_mention(event, say, client):
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
 
+    overthink = agent_match.users.overthink if agent_match and agent_match.users else None
+
     # Build thread context: full on first interaction, delta on follow-ups
     context_message = message_text
     if event.get("thread_ts"):
@@ -352,6 +354,8 @@ def handle_mention(event, say, client):
     if is_humble_followup:
       logger.info(f"[{thread_ts}] Detected humble followup - thread was previously skipped")
       session_manager.clear_skipped(thread_ts)
+      if overthink and overthink.followup_prompt:
+        context_message = f"{overthink.followup_prompt}\n\n{context_message}"
 
     channel_info = utils.get_channel_context(client, channel_id, session_manager)
     team_id = event.get("team")
@@ -380,7 +384,6 @@ def handle_mention(event, say, client):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
-      overthink_config=None,
       escalation_config=esc_config,
       client_context=client_context,
     )
