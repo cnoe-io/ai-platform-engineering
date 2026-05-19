@@ -223,8 +223,8 @@ def extract_message_text(event: Dict[str, Any]) -> str:
           field_value = field.get("value", "")
           if field_title or field_value:
             content_parts.append(f"{field_title}: {field_value}")
-      # Some integrations (e.g. Splunk Observability Cloud) post with text=""
-      # and all content inside attachment.blocks (nested Block Kit).
+      # Some integrations post with text="" and all content inside
+      # attachment.blocks (nested Block Kit).
       for block in attachment.get("blocks", []):
         if block.get("type") == "section" and block.get("text"):
           block_text = block["text"].get("text", "")
