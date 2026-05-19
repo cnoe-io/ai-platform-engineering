@@ -208,7 +208,9 @@ export async function consumeAgentStream(options: ConsumeOptions): Promise<Consu
       await flush();
       return { text: accumulatedText, interrupted: false, error: "Cancelled" };
     }
-    const msg = (err as Error).message || "Unknown error";
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    const causeInfo = cause?.code ? ` (${cause.code})` : cause?.message ? ` (${cause.message})` : "";
+    const msg = `${(err as Error).message || "Unknown error"}${causeInfo} — target: ${url}`;
     error = error || msg;
 
     // Create an error event so the UI timeline shows what went wrong
