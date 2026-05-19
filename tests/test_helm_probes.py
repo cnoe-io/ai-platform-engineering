@@ -11,8 +11,6 @@ No cluster required.
 
 import subprocess
 from pathlib import Path
-from typing import Any
-
 import pytest
 import yaml
 
@@ -230,7 +228,7 @@ class TestDynamicAgentsProbes:
         assert _startup(dynamic_agents_container)["failureThreshold"] == 30
 
     def test_liveness_path_is_health(self, dynamic_agents_container):
-        # liveness must not check dependencies — pod restart cannot fix a down MongoDB
+        # liveness must not check dependencies (pod restart cannot fix a down MongoDB)
         assert _liveness(dynamic_agents_container)["httpGet"]["path"] == "/health"
 
     def test_readiness_path_is_readyz(self, dynamic_agents_container):
@@ -292,7 +290,7 @@ class TestRagServerProbes:
         assert _startup(rag_server_container)["failureThreshold"] == 30
 
     def test_liveness_path_is_health(self, rag_server_container):
-        # liveness must not check deps — pod restart cannot fix a down Milvus/Redis/Neo4j
+        # liveness must not check deps (pod restart cannot fix a down Milvus/Redis/Neo4j)
         assert _liveness(rag_server_container)["httpGet"]["path"] == "/health"
 
     def test_readiness_path_is_healthz(self, rag_server_container):
@@ -353,7 +351,7 @@ class TestRagRedisProbes:
         assert "ping" in cmd
 
     def test_startup_failure_threshold_is_12(self, rag_redis_container):
-        # Redis starts quickly — 12×5s = 60s window is sufficient
+        # Redis starts quickly (12×5s = 60s window is sufficient)
         assert _startup(rag_redis_container)["failureThreshold"] == 12
 
     def test_liveness_uses_exec(self, rag_redis_container):
@@ -366,3 +364,77 @@ class TestRagRedisProbes:
         assert "httpGet" not in _startup(rag_redis_container)
         assert "httpGet" not in _liveness(rag_redis_container)
         assert "httpGet" not in _readiness(rag_redis_container)
+
+
+# ---------------------------------------------------------------------------
+# skill-scanner subchart
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def skill_scanner_container():
+    docs = _helm_template(
+        CHARTS / "ai-platform-engineering/charts/skill-scanner",
+        _GLOBAL_BASE,
+    )
+    return _main_container(_deployments(docs)[0])
+
+
+class TestSkillScannerProbes:
+    def test_startup_uses_httpget(self, skill_scanner_container):
+        assert "httpGet" in _startup(skill_scanner_container)
+
+    def test_startup_path_is_health(self, skill_scanner_container):
+        assert _startup(skill_scanner_container)["httpGet"]["path"] == "/health"
+
+    def test_startup_failure_threshold_is_18(self, skill_scanner_container):
+        # 18×10s = 180s startup window
+        assert _startup(skill_scanner_container)["failureThreshold"] == 18
+
+    def test_liveness_path_is_health(self, skill_scanner_container):
+        assert _liveness(skill_scanner_container)["httpGet"]["path"] == "/health"
+
+    def test_readiness_path_is_health(self, skill_scanner_container):
+        assert _readiness(skill_scanner_container)["httpGet"]["path"] == "/health"
+
+    def test_no_tcpsocket(self, skill_scanner_container):
+        assert "tcpSocket" not in _startup(skill_scanner_container)
+        assert "tcpSocket" not in _liveness(skill_scanner_container)
+        assert "tcpSocket" not in _readiness(skill_scanner_container)
+
+
+# ---------------------------------------------------------------------------
+# langgraph-redis subchart
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def langgraph_redis_container():
+    docs = _helm_template(
+        CHARTS / "ai-platform-engineering/charts/langgraph-redis",
+        _GLOBAL_BASE,
+    )
+    return _main_container(_deployments(docs)[0])
+
+
+class TestLanggraphRedisProbes:
+    def test_startup_uses_exec(self, langgraph_redis_container):
+        assert "exec" in _startup(langgraph_redis_container)
+
+    def test_startup_command_is_redis_cli_ping(self, langgraph_redis_container):
+        cmd = _startup(langgraph_redis_container)["exec"]["command"]
+        assert "redis-cli" in cmd
+        assert "ping" in cmd
+
+    def test_startup_failure_threshold_is_12(self, langgraph_redis_container):
+        # Redis starts quickly (12×5s = 60s window is sufficient)
+        assert _startup(langgraph_redis_container)["failureThreshold"] == 12
+
+    def test_liveness_uses_exec(self, langgraph_redis_container):
+        assert "exec" in _liveness(langgraph_redis_container)
+
+    def test_readiness_uses_exec(self, langgraph_redis_container):
+        assert "exec" in _readiness(langgraph_redis_container)
+
+    def test_no_httpget(self, langgraph_redis_container):
+        assert "httpGet" not in _startup(langgraph_redis_container)
+        assert "httpGet" not in _liveness(langgraph_redis_container)
+        assert "httpGet" not in _readiness(langgraph_redis_container)
