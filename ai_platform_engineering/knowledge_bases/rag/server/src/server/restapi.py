@@ -1626,6 +1626,12 @@ if graph_rag_enabled:  # Only add reverse proxy if graph RAG is enabled
 # ============================================================================
 
 
+@app.get("/health")
+async def liveness():
+  """Liveness probe — process health only, no dependency checks."""
+  return {"status": "ok"}
+
+
 @app.get("/healthz")
 async def health_check():
   """Health check endpoint."""

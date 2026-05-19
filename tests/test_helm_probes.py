@@ -222,14 +222,16 @@ def dynamic_agents_container():
 
 
 class TestDynamicAgentsProbes:
-    def test_startup_path_is_healthz(self, dynamic_agents_container):
-        assert _startup(dynamic_agents_container)["httpGet"]["path"] == "/healthz"
+    def test_startup_path_is_health(self, dynamic_agents_container):
+        # startup/liveness use /health (process-only); /healthz checks MongoDB
+        assert _startup(dynamic_agents_container)["httpGet"]["path"] == "/health"
 
     def test_startup_failure_threshold_is_30(self, dynamic_agents_container):
         assert _startup(dynamic_agents_container)["failureThreshold"] == 30
 
-    def test_liveness_path_is_healthz(self, dynamic_agents_container):
-        assert _liveness(dynamic_agents_container)["httpGet"]["path"] == "/healthz"
+    def test_liveness_path_is_health(self, dynamic_agents_container):
+        # liveness must not check dependencies — pod restart cannot fix a down MongoDB
+        assert _liveness(dynamic_agents_container)["httpGet"]["path"] == "/health"
 
     def test_readiness_path_is_readyz(self, dynamic_agents_container):
         # readiness uses /readyz which checks MongoDB connectivity
@@ -282,16 +284,19 @@ def rag_server_container():
 
 
 class TestRagServerProbes:
-    def test_startup_path_is_healthz(self, rag_server_container):
-        assert _startup(rag_server_container)["httpGet"]["path"] == "/healthz"
+    def test_startup_path_is_health(self, rag_server_container):
+        # startup/liveness use /health (process-only); /healthz checks all deps
+        assert _startup(rag_server_container)["httpGet"]["path"] == "/health"
 
     def test_startup_failure_threshold_is_30(self, rag_server_container):
         assert _startup(rag_server_container)["failureThreshold"] == 30
 
-    def test_liveness_path_is_healthz(self, rag_server_container):
-        assert _liveness(rag_server_container)["httpGet"]["path"] == "/healthz"
+    def test_liveness_path_is_health(self, rag_server_container):
+        # liveness must not check deps — pod restart cannot fix a down Milvus/Redis/Neo4j
+        assert _liveness(rag_server_container)["httpGet"]["path"] == "/health"
 
     def test_readiness_path_is_healthz(self, rag_server_container):
+        # readiness uses /healthz which checks all dependency connectivity
         assert _readiness(rag_server_container)["httpGet"]["path"] == "/healthz"
 
 

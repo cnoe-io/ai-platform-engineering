@@ -75,7 +75,7 @@ resources: {}
 # Health probes
 startupProbe:
   httpGet:
-    path: /healthz
+    path: /health
     port: http
   initialDelaySeconds: 10
   periodSeconds: 10
@@ -84,7 +84,7 @@ startupProbe:
 
 livenessProbe:
   httpGet:
-    path: /healthz
+    path: /health
     port: http
   periodSeconds: 10
   timeoutSeconds: 5
