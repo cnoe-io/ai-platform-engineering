@@ -46,7 +46,7 @@ def test_space_agent_check_posts_resource_and_subject() -> None:
     assert decision.allowed is True
     assert calls == [
         (
-            "/api/admin/webex/spaces/CAIPE-WEBEX/space-abc/access-check",
+            "/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check",
             {
                 "user_subject": "team:platform-engineering#member",
                 "resource": {"type": "agent", "id": "incident-agent"},

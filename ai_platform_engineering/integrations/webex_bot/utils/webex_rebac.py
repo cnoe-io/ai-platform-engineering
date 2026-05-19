@@ -129,7 +129,7 @@ class WebexRebacEvaluator:
         obo_token: str,
     ) -> WebexSpaceRebacDecision:
         path = (
-            "/api/admin/webex/spaces/"
+            "/api/integrations/webex/spaces/"
             f"{urllib.parse.quote(workspace_id, safe='')}/"
             f"{urllib.parse.quote(space_id, safe='')}/access-check"
         )

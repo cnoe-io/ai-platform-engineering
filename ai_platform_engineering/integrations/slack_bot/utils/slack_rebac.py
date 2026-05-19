@@ -127,7 +127,7 @@ class SlackChannelRebacEvaluator:
         """Check whether a Slack channel and user can use an agent."""
 
         path = (
-            "/api/admin/slack/channels/"
+            "/api/integrations/slack/channels/"
             f"{urllib.parse.quote(workspace_id, safe='')}/"
             f"{urllib.parse.quote(channel_id, safe='')}/access-check"
         )

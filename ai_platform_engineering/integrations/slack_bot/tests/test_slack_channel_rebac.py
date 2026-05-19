@@ -40,7 +40,7 @@ def test_channel_agent_check_posts_resource_and_subject(monkeypatch) -> None:
     assert decision.allowed is True
     assert calls == [
         (
-            "/api/admin/slack/channels/T123456789/C123456789/access-check",
+            "/api/integrations/slack/channels/T123456789/C123456789/access-check",
             {
                 "user_subject": "team:platform-engineering#member",
                 "resource": {"type": "agent", "id": "incident-agent"},
