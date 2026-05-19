@@ -1,6 +1,7 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
 import logging
+from contextlib import AsyncExitStack
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
+from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -419,26 +421,45 @@ async def chat_invoke(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (deep merge, validated)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
-    logger.info(f"Invoke request: agent={agent.name}, user={user.email}, trace_id={request.trace_id or 'auto'}")
+    settings = get_settings()
+    persist_history = settings.invoke_persist_history
 
-    # Collect all content from streaming
+    logger.info(
+        f"Invoke request: agent={agent.name}, user={user.email}, "
+        f"trace_id={request.trace_id or 'auto'}, persist_history={persist_history}"
+    )
+
     cache = get_runtime_cache()
-
-    # Set MongoDB service for subagent resolution
     cache.set_mongo_service(mongo)
 
     try:
-        async with cache.ephemeral(
-            agent,
-            mcp_servers,
-            request.conversation_id,
-            user=user,
-            client_context=request.client_context,
-        ) as runtime:
-            # Use custom encoder for invoke — we just need accumulated content
+        async with AsyncExitStack() as stack:
+            if persist_history:
+                runtime = await cache.get_or_create(
+                    agent,
+                    mcp_servers,
+                    request.conversation_id,
+                    user=user,
+                    client_context=request.client_context,
+                )
+            else:
+                runtime = await stack.enter_async_context(
+                    cache.ephemeral(
+                        agent,
+                        mcp_servers,
+                        request.conversation_id,
+                        user=user,
+                        client_context=request.client_context,
+                    )
+                )
+
             encoder = get_encoder("custom")
 
             async for _frame in runtime.stream(
@@ -446,7 +467,6 @@ async def chat_invoke(
             ):
                 pass  # Frames are SSE strings, we don't need them for invoke
 
-            # Check if the agent was interrupted (HITL: tool approval or user input form)
             interrupt = await runtime.has_pending_interrupt(request.conversation_id)
             if interrupt:
                 interrupt_type = interrupt.get("type", "unknown")
@@ -475,6 +495,18 @@ async def chat_invoke(
                 "trace_id": request.trace_id,
             }
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity for invoke: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error": "This agent is at capacity right now. Please try again in a moment.",
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
     except Exception as e:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return JSONResponse(

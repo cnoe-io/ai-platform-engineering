@@ -27,12 +27,9 @@ jobs:
   determine-changes:
     runs-on: ubuntu-latest
     if: |
-      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
-      (
-        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-        (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
-        (github.event_name == 'workflow_dispatch')
-      )
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
+      (github.event_name == 'workflow_dispatch')
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
