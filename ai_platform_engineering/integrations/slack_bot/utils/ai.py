@@ -1180,6 +1180,9 @@ def _post_final_response(
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   final_text = _strip_confidence_markers(final_text)
+  if not final_text:
+    logger.warning(f"[{thread_ts}] _post_final_response: empty text after stripping — suppressing post")
+    return []
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
   content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]
