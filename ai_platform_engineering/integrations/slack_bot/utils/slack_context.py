@@ -184,6 +184,25 @@ def build_delta_context(
   return "\n".join(lines)
 
 
+def _extract_blocks_text(blocks: list, content_parts: list) -> None:
+  """Extract text from a list of Slack Block Kit blocks into content_parts."""
+  for block in blocks:
+    if block.get("type") == "section" and block.get("text"):
+      block_text = block["text"].get("text", "")
+      if block_text and block_text not in content_parts:
+        content_parts.append(block_text)
+    elif block.get("type") == "context":
+      for element in block.get("elements", []):
+        if element.get("type") == "mrkdwn":
+          elem_text = element.get("text", "")
+          if elem_text and elem_text not in content_parts:
+            content_parts.append(elem_text)
+    elif block.get("type") == "header" and block.get("text"):
+      header_text = block["text"].get("text", "")
+      if header_text and header_text not in content_parts:
+        content_parts.append(f"**{header_text}**")
+
+
 def extract_message_text(event: Dict[str, Any]) -> str:
   """Extract comprehensive message text from a Slack event."""
   content_parts = []
@@ -193,21 +212,7 @@ def extract_message_text(event: Dict[str, Any]) -> str:
     content_parts.append(text)
 
   if event.get("blocks"):
-    for block in event.get("blocks", []):
-      if block.get("type") == "section" and block.get("text"):
-        block_text = block["text"].get("text", "")
-        if block_text and block_text not in content_parts:
-          content_parts.append(block_text)
-      elif block.get("type") == "context":
-        for element in block.get("elements", []):
-          if element.get("type") == "mrkdwn":
-            elem_text = element.get("text", "")
-            if elem_text and elem_text not in content_parts:
-              content_parts.append(elem_text)
-      elif block.get("type") == "header" and block.get("text"):
-        header_text = block["text"].get("text", "")
-        if header_text and header_text not in content_parts:
-          content_parts.append(f"**{header_text}**")
+    _extract_blocks_text(event.get("blocks", []), content_parts)
 
   if event.get("attachments"):
     for attachment in event.get("attachments", []):
@@ -225,20 +230,7 @@ def extract_message_text(event: Dict[str, Any]) -> str:
             content_parts.append(f"{field_title}: {field_value}")
       # Some integrations post with text="" and all content inside
       # attachment.blocks (nested Block Kit).
-      for block in attachment.get("blocks", []):
-        if block.get("type") == "section" and block.get("text"):
-          block_text = block["text"].get("text", "")
-          if block_text and block_text not in content_parts:
-            content_parts.append(block_text)
-        elif block.get("type") == "context":
-          for element in block.get("elements", []):
-            if element.get("type") == "mrkdwn":
-              elem_text = element.get("text", "")
-              if elem_text and elem_text not in content_parts:
-                content_parts.append(elem_text)
-        elif block.get("type") == "header" and block.get("text"):
-          header_text = block["text"].get("text", "")
-          if header_text and header_text not in content_parts:
-            content_parts.append(f"**{header_text}**")
+      if attachment.get("blocks"):
+        _extract_blocks_text(attachment.get("blocks", []), content_parts)
 
   return "\n".join(content_parts).strip()
