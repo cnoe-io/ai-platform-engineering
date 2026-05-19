@@ -75,7 +75,7 @@ resources: {}
 # Health probes
 startupProbe:
   httpGet:
-    path: /health
+    path: /readyz
     port: http
   initialDelaySeconds: 10
   periodSeconds: 10

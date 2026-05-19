@@ -2,7 +2,7 @@
 
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 
 from dynamic_agents.config import Settings, get_settings
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -39,12 +39,13 @@ async def health_check(
 @router.get("/readyz")
 async def readiness_check(
     mongo: MongoDBService = Depends(get_mongo_service),
+    response: Response = None,
 ) -> dict:
-    """Readiness probe — returns 200 if the service is ready to accept traffic."""
+    """Readiness probe — returns 200 if ready, 503 if MongoDB is not connected."""
     if mongo._client is not None:
         return {"ready": True}
-    else:
-        return {"ready": False, "error": "MongoDB not connected"}
+    response.status_code = 503
+    return {"ready": False, "error": "MongoDB not connected"}
 
 
 @router.get("/debug/config")
