@@ -534,7 +534,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
       "overthink": bool(overthink and overthink.enabled),
-      "is_overthink_message": True,
+      "is_overthink_message": bool(overthink and overthink.enabled),
       "timestamp": thread_ts,
     }
     if overthink and overthink.enabled:
