@@ -25,6 +25,7 @@ from ai_platform_engineering.skills_middleware.entitlement import (
 
 logger = logging.getLogger(__name__)
 
+# assisted-by Codex Codex-sonnet-4-6
 CATALOG_API_KEY_HEADER = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key").strip() or "X-Caipe-Catalog-Key"
 
 
@@ -71,6 +72,17 @@ def _is_gitlab_host(host: str, configured: str) -> bool:
     if configured and host.endswith(f".{configured}"):
         return True
     return False
+
+
+def _scan_summary_for_response(result: dict[str, Any]) -> str:
+    """Return scanner status without exposing raw process output."""
+    exit_code = result.get("exit_code")
+    max_severity = result.get("max_severity")
+    if exit_code not in (0, None):
+        if max_severity:
+            return f"skill-scanner reported findings up to {max_severity} severity"
+        return "skill-scanner reported findings"
+    return "skill-scanner completed successfully"
 
 
 def detect_hub_provider_from_url(location: str) -> str | None:
@@ -565,5 +577,5 @@ async def scan_skill_content(
         "scan_status": scan_status,
         "max_severity": result.get("max_severity"),
         "exit_code": result.get("exit_code"),
-        "summary": (result.get("stdout") or "")[:4000],
+        "summary": _scan_summary_for_response(result),
     }

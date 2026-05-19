@@ -16,7 +16,9 @@ from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
 
+# assisted-by Codex Codex-sonnet-4-6
 router = APIRouter(prefix="/chat", tags=["chat"])
+GENERIC_AGENT_ERROR = "Agent execution failed. Check server logs for details."
 
 
 class RestartRuntimeRequest(BaseModel):
@@ -79,9 +81,9 @@ async def _generate_sse_events(
         logger.warning(f"Agent runtime at capacity: {e}")
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
             yield frame
 
 
@@ -194,9 +196,9 @@ async def _generate_resume_sse_events(
         logger.warning(f"Agent runtime at capacity: {e}")
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
             yield frame
 
 
@@ -332,13 +334,13 @@ async def chat_invoke(
                 "trace_id": request.trace_id,
             }
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return JSONResponse(
             status_code=500,
             content={
                 "success": False,
-                "error": str(e),
+                "error": GENERIC_AGENT_ERROR,
                 "agent_id": agent.id,
                 "conversation_id": request.conversation_id,
                 "trace_id": request.trace_id,
