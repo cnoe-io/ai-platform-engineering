@@ -1106,7 +1106,7 @@ async function applyRuntimePlan(input: {
       if (repair.webex_space) addToSet.webex_spaces = repair.webex_space;
       if (Object.keys(addToSet).length === 0) continue;
       await teams.updateOne(
-        { _id: repair.team_id },
+        { _id: repair.team_id } as never,
         {
           $addToSet: addToSet,
           $set: { updated_at: input.now, updated_by: input.actor },

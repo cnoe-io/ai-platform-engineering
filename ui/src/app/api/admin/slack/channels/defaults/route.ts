@@ -393,11 +393,13 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           );
         }
       ),
-      ...Array.from(teamAgentPairs.values()).map(({ team: targetTeam, agent_id: targetAgentId }) => ({
-        subject: { type: "team", id: String(targetTeam.slug), relation: "member" },
-        action: "use",
-        resource: { type: "agent", id: targetAgentId },
-      })),
+      ...Array.from(teamAgentPairs.values()).map(
+        ({ team: targetTeam, agent_id: targetAgentId }): UniversalRebacRelationship => ({
+          subject: { type: "team", id: String(targetTeam.slug), relation: "member" },
+          action: "use",
+          resource: { type: "agent", id: targetAgentId },
+        })
+      ),
     ];
 
     const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] })).catch(

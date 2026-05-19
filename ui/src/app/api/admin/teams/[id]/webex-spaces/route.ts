@@ -238,9 +238,9 @@ export const PUT = withErrorHandler(
       {
         $set: {
           webex_spaces: next.map((s) => ({
-            webex_space_id: s.webex_space_id,
+            space_id: s.webex_space_id,
             space_name: s.space_name,
-            webex_workspace_id: webexWorkspaceRef(s.webex_workspace_id),
+            workspace_id: webexWorkspaceRef(s.webex_workspace_id),
           })),
           updated_at: now,
         },

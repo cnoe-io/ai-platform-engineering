@@ -132,6 +132,12 @@ interface WebexSpaceImportRow extends DiscoveredWebexSpace {
   is_existing: boolean;
 }
 
+function isWebexSpaceImportRow(
+  space: ManualWebexSpaceInput | WebexSpaceImportRow
+): space is WebexSpaceImportRow {
+  return "selected" in space && "team_slug" in space && "agent_id" in space;
+}
+
 interface WebexSpaceDiscoveryPayload {
   spaces: DiscoveredWebexSpace[];
   next_cursor?: string | null;
@@ -683,12 +689,12 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     manualSpaces: ManualWebexSpaceInput[] | WebexSpaceImportRow[] = []
   ) => {
     const selectedImports = manualSpaces.filter((space) =>
-      "selected" in space ? space.selected : true
+      isWebexSpaceImportRow(space) ? space.selected : true
     );
-    const hasDiscoveredImports = selectedImports.some((space) => "selected" in space);
+    const hasDiscoveredImports = selectedImports.some(isWebexSpaceImportRow);
     const hasRowDefaults = selectedImports.every(
       (space) =>
-        !("selected" in space) || (Boolean(space.team_slug) && Boolean(space.agent_id))
+        !isWebexSpaceImportRow(space) || (Boolean(space.team_slug) && Boolean(space.agent_id))
     );
     if (hasDiscoveredImports) {
       if (!hasRowDefaults || selectedImports.length === 0) return;
@@ -700,8 +706,10 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     try {
       const groupedImports = new Map<string, ManualWebexSpaceInput[]>();
       selectedImports.forEach((space) => {
-        const teamSlug = "team_slug" in space && space.team_slug ? space.team_slug : defaultTeamSlug;
-        const agentId = "agent_id" in space && space.agent_id ? space.agent_id : defaultAgentId;
+        const teamSlug =
+          isWebexSpaceImportRow(space) && space.team_slug ? space.team_slug : defaultTeamSlug;
+        const agentId =
+          isWebexSpaceImportRow(space) && space.agent_id ? space.agent_id : defaultAgentId;
         const groupKey = `${teamSlug}\u0000${agentId}`;
         const current = groupedImports.get(groupKey) ?? [];
         current.push({
