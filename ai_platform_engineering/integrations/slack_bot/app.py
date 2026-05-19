@@ -12,6 +12,7 @@ import re
 import sys
 import time
 import requests as _requests
+from jinja2.sandbox import SandboxedEnvironment as _JinjaSandbox
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -371,7 +372,7 @@ def handle_mention(event, say, client):
       "is_overthink_message": not is_thread_reply,
     }
     if overthink and overthink.enabled:
-      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
+      client_context["overthink_boilerplate"] = _JinjaSandbox().from_string(ai.OVERTHINK_BOILERPLATE).render(client_context=client_context)
     if user_email:
       client_context["user_email"] = user_email
 
@@ -533,10 +534,11 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
       "overthink": bool(overthink and overthink.enabled),
+      "is_overthink_message": True,
       "timestamp": thread_ts,
     }
     if overthink and overthink.enabled:
-      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
+      client_context["overthink_boilerplate"] = _JinjaSandbox().from_string(ai.OVERTHINK_BOILERPLATE).render(client_context=client_context)
     if user_email:
       client_context["user_email"] = user_email
     if bot_username:
