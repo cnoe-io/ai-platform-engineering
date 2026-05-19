@@ -1256,6 +1256,7 @@ openfga:
   init:
     enabled: true
     storeName: caipe-openfga
+    seedTuples: []
   datastore:
     engine: memory
     uriSecretRef:

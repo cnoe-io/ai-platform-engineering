@@ -36,6 +36,10 @@ spec:
             - name: OPENFGA_SEED_SUB
               value: {{ .Values.init.seedSub | quote }}
             {{- end }}
+            {{- if .Values.init.seedTuples }}
+            - name: OPENFGA_SEED_TUPLES
+              value: {{ .Values.init.seedTuples | toJson | quote }}
+            {{- end }}
           volumeMounts:
             - name: openfga-model
               mountPath: /model

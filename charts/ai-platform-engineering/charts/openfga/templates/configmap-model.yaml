@@ -22,6 +22,7 @@ data:
     SEED_SUB = os.environ.get("OPENFGA_SEED_SUB", "").strip()
     SEED_OBJECT = os.environ.get("OPENFGA_SEED_OBJECT", "mcp_gateway:list").strip()
     SEED_RELATION = os.environ.get("OPENFGA_SEED_RELATION", "caller").strip()
+    SEED_TUPLES = os.environ.get("OPENFGA_SEED_TUPLES", "").strip()
 
     def request(method, path, body=None):
         data = None
@@ -44,6 +45,26 @@ data:
                 time.sleep(1)
         raise SystemExit("OpenFGA did not become ready")
 
+    def configured_seed_tuples():
+        if not SEED_TUPLES:
+            return []
+        tuples = json.loads(SEED_TUPLES)
+        if not isinstance(tuples, list):
+            raise SystemExit("OPENFGA_SEED_TUPLES must be a JSON list")
+        out = []
+        for index, tuple_key in enumerate(tuples):
+            if not isinstance(tuple_key, dict):
+                raise SystemExit(f"OPENFGA_SEED_TUPLES[{index}] must be an object")
+            normalized = {
+                "user": str(tuple_key.get("user", "")).strip(),
+                "relation": str(tuple_key.get("relation", "")).strip(),
+                "object": str(tuple_key.get("object", "")).strip(),
+            }
+            if not all(normalized.values()):
+                raise SystemExit(f"OPENFGA_SEED_TUPLES[{index}] requires user, relation, and object")
+            out.append(normalized)
+        return out
+
     wait_ready()
     stores = request("GET", "/stores").get("stores", [])
     store_id = next((store.get("id") for store in stores if store.get("name") == STORE_NAME), None)
@@ -57,10 +78,14 @@ data:
     model_id = request("POST", f"/stores/{store_id}/authorization-models", model)["authorization_model_id"]
     print(f"authorization_model_id={model_id}")
 
+    seed_tuples = []
     if SEED_SUB:
-        tuple_key = {"user": f"user:{SEED_SUB}", "relation": SEED_RELATION, "object": SEED_OBJECT}
+        seed_tuples.append({"user": f"user:{SEED_SUB}", "relation": SEED_RELATION, "object": SEED_OBJECT})
+    seed_tuples.extend(configured_seed_tuples())
+
+    for tuple_key in seed_tuples:
         allowed = request("POST", f"/stores/{store_id}/check", {"tuple_key": tuple_key}).get("allowed")
         if not allowed:
             request("POST", f"/stores/{store_id}/write", {"writes": {"tuple_keys": [tuple_key]}})
-            print(f"tuple written for user:{SEED_SUB} {SEED_RELATION} {SEED_OBJECT}")
+            print(f"tuple written for {tuple_key['user']} {tuple_key['relation']} {tuple_key['object']}")
 {{- end }}
