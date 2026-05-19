@@ -10,7 +10,7 @@ import logging
 import os
 import threading
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
 from .app import handle_webex_message
