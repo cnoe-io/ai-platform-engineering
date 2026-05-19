@@ -32,7 +32,7 @@ The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) a
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `WEBEX_BOT_TOKEN` | Yes | — | Bot access token from developer.webex.com |
+| `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN` | Yes | — | Integration bot access token from developer.webex.com |
 | `CAIPE_URL` | No | `http://caipe-supervisor:8000` | CAIPE supervisor URL |
 | `WEBEX_INTEGRATION_ENABLE_AUTH` | No | `false` | Enable OAuth2 for A2A requests |
 | `WEBEX_INTEGRATION_AUTH_TOKEN_URL` | If auth enabled | — | OAuth2 token URL |
@@ -52,8 +52,8 @@ The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) a
 ### Running with Docker Compose
 
 ```bash
-# Add WEBEX_BOT_TOKEN to your .env file
-echo "WEBEX_BOT_TOKEN=your-bot-token-here" >> .env
+# Add WEBEX_INTEGRATION_BOT_ACCESS_TOKEN to your .env file
+echo "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=your-bot-token-here" >> .env
 
 # Start the Webex bot
 docker compose --profile webex-bot up -d
@@ -64,7 +64,7 @@ docker compose --profile webex-bot up -d
 ```bash
 cd ai_platform_engineering/integrations/webex_bot
 pip install -r requirements.txt
-WEBEX_BOT_TOKEN=your-token CAIPE_URL=http://localhost:8000 python -m app
+WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=your-token CAIPE_URL=http://localhost:8000 python -m app
 ```
 
 ## Space Authorization
@@ -81,7 +81,9 @@ Group spaces must be authorized before the bot responds. 1:1 direct messages are
 ### Via Admin Dashboard
 
 1. Go to the CAIPE Admin Dashboard → Integrations tab
-2. Click "Add Space" and enter the Webex Room ID
+2. Click "Add Space" and enter the raw Webex room UUID. If you copied a public
+   Webex room ID that starts with `Y2lz`, decode it first; it contains
+   `ciscospark://us/ROOM/<uuid>`.
 
 ## Architecture
 
@@ -104,7 +106,7 @@ A Helm chart is included at `charts/ai-platform-engineering/charts/webex-bot`. C
 webex-bot:
   enabled: true
   env:
-    WEBEX_BOT_TOKEN: ""
+    WEBEX_INTEGRATION_BOT_ACCESS_TOKEN: ""
     CAIPE_URL: "http://caipe-supervisor:8000"
 ```
 
@@ -112,6 +114,6 @@ webex-bot:
 
 | Symptom | Check |
 |---------|-------|
-| Bot not responding | Verify `WEBEX_BOT_TOKEN` is valid; check logs for WebSocket errors |
+| Bot not responding | Verify `WEBEX_INTEGRATION_BOT_ACCESS_TOKEN` is valid; check logs for WebSocket errors |
 | Space authorization denied | Verify space is authorized in admin dashboard; check MongoDB connectivity |
 | Rate limiting | Bot throttles updates to every 3 seconds; long responses split at 7000 chars |

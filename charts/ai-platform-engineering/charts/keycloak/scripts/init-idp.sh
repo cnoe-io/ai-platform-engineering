@@ -322,6 +322,96 @@ json.dump(client, sys.stdout)
 
 _ensure_caipe_ui_slack_admin_client_credentials
 
+# Web UI BFF → Webex bot admin API (parallel to Slack; audience caipe-webex-bot-admin).
+_ensure_caipe_ui_webex_admin_client_credentials() {
+  local BFF_CLIENT_ID="${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}"
+  local WEBEX_ADMIN_AUDIENCE="${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}"
+  local AUDIENCE_MAPPER_NAME="webex-bot-admin-audience"
+
+  echo "[init-idp] Ensuring ${BFF_CLIENT_ID} supports client_credentials for Webex bot admin API ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token — skipping ${BFF_CLIENT_ID} Webex admin client_credentials setup."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  local UI_CLIENT_UUID
+  UI_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BFF_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${UI_CLIENT_UUID}" ]; then
+    echo "[init-idp]   WARNING: client ${BFF_CLIENT_ID} not found — skipping Webex bot admin client_credentials setup."
+    return 0
+  fi
+
+  local UI_CLIENT_JSON
+  UI_CLIENT_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" 2>/dev/null || echo "")
+  if [ -z "${UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   WARNING: could not fetch client ${BFF_CLIENT_ID} — skipping Webex bot admin setup."
+    return 0
+  fi
+
+  local UPDATED_UI_CLIENT_JSON
+  UPDATED_UI_CLIENT_JSON=$(printf '%s' "${UI_CLIENT_JSON}" | \
+    WEBEX_ADMIN_AUDIENCE="${WEBEX_ADMIN_AUDIENCE}" \
+    AUDIENCE_MAPPER_NAME="${AUDIENCE_MAPPER_NAME}" \
+    python3 -c '
+import json
+import os
+import sys
+
+client = json.load(sys.stdin)
+client["serviceAccountsEnabled"] = True
+client["publicClient"] = False
+client["bearerOnly"] = False
+client.setdefault("protocol", "openid-connect")
+
+mapper_name = os.environ["AUDIENCE_MAPPER_NAME"]
+audience = os.environ["WEBEX_ADMIN_AUDIENCE"]
+mappers = client.setdefault("protocolMappers", [])
+mapper = next((item for item in mappers if item.get("name") == mapper_name), None)
+mapper_payload = {
+    "name": mapper_name,
+    "protocol": "openid-connect",
+    "protocolMapper": "oidc-audience-mapper",
+    "consentRequired": False,
+    "config": {
+        "included.custom.audience": audience,
+        "id.token.claim": "false",
+        "access.token.claim": "true",
+        "introspection.token.claim": "true",
+    },
+}
+if mapper is None:
+    mappers.append(mapper_payload)
+else:
+    mapper.update(mapper_payload)
+
+json.dump(client, sys.stdout)
+' 2>/dev/null)
+
+  if [ -z "${UPDATED_UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   WARNING: failed to patch ${BFF_CLIENT_ID} for Webex admin API."
+    return 0
+  fi
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" \
+    -d "${UPDATED_UI_CLIENT_JSON}" && \
+    echo "[init-idp]   ${BFF_CLIENT_ID} Webex admin audience mapper (${AUDIENCE_MAPPER_NAME} → ${WEBEX_ADMIN_AUDIENCE}) ready." || \
+    echo "[init-idp]   WARNING: failed to update ${BFF_CLIENT_ID} for Webex bot admin client_credentials."
+}
+
+_ensure_caipe_ui_webex_admin_client_credentials
+
 if [ -n "${KEYCLOAK_ADMIN_FRONTEND_URL:-}" ]; then
   echo "[init-idp] Ensuring master realm frontendUrl for private admin console ..."
   ADMIN_FRONTEND_TOKEN_RESP=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
@@ -384,6 +474,43 @@ if [ -z "${ACCESS_TOKEN}" ]; then
   exit 1
 fi
 AUTH="Authorization: Bearer ${ACCESS_TOKEN}"
+
+kc_attach_policy_to_scope_permission() {
+  PERMISSION_REALM_MANAGEMENT_ID="$1"
+  PERMISSION_ID="$2"
+  POLICY_ID="$3"
+  ATTACH_LABEL="${4:-scope permission}"
+
+  PERMISSION_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" 2>/dev/null || echo "{}")
+  ASSOCIATED_POLICIES_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}/associatedPolicies" 2>/dev/null || echo "[]")
+  UPDATED_PERMISSION_JSON=$(PERMISSION_JSON="${PERMISSION_JSON}" ASSOCIATED_POLICIES_JSON="${ASSOCIATED_POLICIES_JSON}" POLICY_ID="${POLICY_ID}" python3 -c '
+import json
+import os
+
+permission = json.loads(os.environ["PERMISSION_JSON"])
+associated = json.loads(os.environ.get("ASSOCIATED_POLICIES_JSON") or "[]")
+policies = []
+for policy_id in permission.get("policies") or []:
+    if policy_id not in policies:
+        policies.append(policy_id)
+for policy in associated:
+    policy_id = policy.get("id") if isinstance(policy, dict) else None
+    if policy_id and policy_id not in policies:
+        policies.append(policy_id)
+if os.environ["POLICY_ID"] not in policies:
+    policies.append(os.environ["POLICY_ID"])
+permission["policies"] = policies
+print(json.dumps(permission))
+' 2>/dev/null)
+  if [ -n "${UPDATED_PERMISSION_JSON}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" \
+      -d "${UPDATED_PERMISSION_JSON}" >/dev/null \
+      && echo "[init-idp]   Attached policy to ${ATTACH_LABEL} ${PERMISSION_ID}."
+  fi
+}
 
 # --- disable SSL requirement on master realm (dev convenience) ---
 # The master realm defaults to sslRequired=external which blocks HTTP
@@ -454,10 +581,10 @@ fi
 # CAIPE business authorization is OpenFGA-backed. Do not add application roles
 # such as chat_user/admin/team_member to default-roles-caipe.
 
-# --- configure user profile: allow slack_user_id attribute and avoid profile prompts ---
+# --- configure user profile: allow slack_user_id / webex_user_id and avoid profile prompts ---
 # Keycloak 26+ silently drops custom attributes not in the user profile schema.
-# We add slack_user_id and enable unmanagedAttributePolicy=ADMIN_EDIT so that
-# the Admin API (used by identity linking and user management) can set attributes.
+# We add slack_user_id and webex_user_id and enable unmanagedAttributePolicy=ADMIN_EDIT
+# so the Admin API (identity linking, JIT, user management) can set attributes.
 # We also explicitly make firstName/lastName optional. Upstream enterprise IdPs
 # are the profile source of truth; CAIPE must not interrupt SSO to collect names.
 echo "[init-idp] Configuring user profile ..."
@@ -471,15 +598,19 @@ try:
     p = json.load(sys.stdin)
 except Exception:
     sys.exit(1)
-# Add slack_user_id if not already present
+# Add slack_user_id / webex_user_id if not already present
 names = [a['name'] for a in p.get('attributes', [])]
-if 'slack_user_id' not in names:
-    p.setdefault('attributes', []).append({
-        'name': 'slack_user_id',
-        'displayName': 'Slack User ID',
-        'permissions': {'view': ['admin'], 'edit': ['admin']},
-        'multivalued': False
-    })
+for attr_name, display in (
+    ('slack_user_id', 'Slack User ID'),
+    ('webex_user_id', 'Webex User ID'),
+):
+    if attr_name not in names:
+        p.setdefault('attributes', []).append({
+            'name': attr_name,
+            'displayName': display,
+            'permissions': {'view': ['admin'], 'edit': ['admin']},
+            'multivalued': False,
+        })
 # The VERIFY_PROFILE required action is triggered when Keycloak sees missing
 # required profile attributes. Ensure brokered users are never prompted for
 # first/last name during login.
@@ -495,7 +626,7 @@ json.dump(p, sys.stdout)
     curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/users/profile" \
       -d "${UPDATED_PROFILE}" && \
-      echo "[init-idp]   User profile updated (slack_user_id + optional firstName/lastName + unmanagedAttributePolicy=ADMIN_EDIT)." || \
+      echo "[init-idp]   User profile updated (slack_user_id, webex_user_id + optional firstName/lastName + unmanagedAttributePolicy=ADMIN_EDIT)." || \
       echo "[init-idp]   WARNING: failed to update user profile."
   else
     echo "[init-idp]   WARNING: failed to parse user profile JSON (python3 required)."
@@ -1106,22 +1237,11 @@ if [ -n "${AGW_CLIENT_ID}" ] && [ -n "${RM_CLIENT_ID_FOR_AGW}" ]; then
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
 
   if [ -n "${AGW_TE_PERM_ID}" ] && [ -n "${POL_ID_AGW}" ]; then
-    CUR_AGW=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/permission/scope/${AGW_TE_PERM_ID}" 2>/dev/null)
-    UPDATED_AGW=$(echo "${CUR_AGW}" | python3 -c "
-import sys, json
-p = json.load(sys.stdin)
-p.setdefault('policies', [])
-if '${POL_ID_AGW}' not in p['policies']:
-    p['policies'].append('${POL_ID_AGW}')
-print(json.dumps(p))
-" 2>/dev/null)
-    if [ -n "${UPDATED_AGW}" ]; then
-      curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/permission/scope/${AGW_TE_PERM_ID}" \
-        -d "${UPDATED_AGW}" >/dev/null \
-        && echo "[init-idp]   Attached token-exchange policy to agentgateway."
-    fi
+    kc_attach_policy_to_scope_permission \
+      "${RM_CLIENT_ID_FOR_AGW}" \
+      "${AGW_TE_PERM_ID}" \
+      "${POL_ID_AGW}" \
+      "agentgateway token-exchange permission"
   fi
 else
   echo "[init-idp]   WARNING: could not resolve agentgateway / realm-management client IDs; skipping AGW token-exchange perm."
@@ -1474,22 +1594,11 @@ if [ -n "${SB_CLIENT_ID}" ]; then
     # ---- (b) attach our policy to BOTH the client-token-exchange and users-impersonate scope perms ----
     if [ -n "${POL_ID}" ]; then
       for PERM_ID in "${TE_PERM_ID}" "${IMP_PERM_ID}"; do
-        CUR=$(curl -sf -H "${AUTH}" \
-          "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${PERM_ID}" 2>/dev/null)
-        UPDATED=$(echo "${CUR}" | python3 -c "
-import sys, json
-p = json.load(sys.stdin)
-p.setdefault('policies', [])
-if '${POL_ID}' not in p['policies']:
-    p['policies'].append('${POL_ID}')
-print(json.dumps(p))
-" 2>/dev/null)
-        if [ -n "${UPDATED}" ]; then
-          curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-            "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${PERM_ID}" \
-            -d "${UPDATED}" >/dev/null \
-            && echo "[init-idp]   Attached policy to scope permission ${PERM_ID}."
-        fi
+        kc_attach_policy_to_scope_permission \
+          "${RM_CLIENT_ID}" \
+          "${PERM_ID}" \
+          "${POL_ID}" \
+          "Slack OBO scope permission"
       done
     fi
   else
@@ -1497,6 +1606,111 @@ print(json.dumps(p))
   fi
 else
   echo "[init-idp]   WARNING: caipe-slack-bot client not found — RBAC/OBO setup skipped."
+fi
+
+# -------------------------------------------------------------------
+# Webex bot OBO — same least-privilege token-exchange + impersonate scope
+# as caipe-slack-bot, scoped to caipe-webex-bot only.
+# -------------------------------------------------------------------
+echo "[init-idp] Configuring caipe-webex-bot OBO permissions ..."
+
+WB_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=caipe-webex-bot" 2>/dev/null \
+  | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+if [ -n "${WB_CLIENT_ID}" ]; then
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${WB_CLIENT_ID}/management/permissions" \
+    -d '{"enabled": true}' >/dev/null \
+    && echo "[init-idp]   Enabled management permissions on caipe-webex-bot."
+
+  RM_CLIENT_ID_WB=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  TE_PERM_ID_WB=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${WB_CLIENT_ID}/management/permissions" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
+
+  IMP_PERM_ID_WB=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/users-management-permissions" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['impersonate'])" 2>/dev/null)
+
+  if [ -n "${RM_CLIENT_ID_WB}" ] && [ -n "${TE_PERM_ID_WB}" ] && [ -n "${IMP_PERM_ID_WB}" ]; then
+    POL_NAME_WB="caipe-webex-bot-token-exchange"
+    POL_ID_WB=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_WB}/authz/resource-server/policy?name=${POL_NAME_WB}" 2>/dev/null \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
+
+    if [ -z "${POL_ID_WB}" ]; then
+      POL_ID_WB=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_WB}/authz/resource-server/policy/client" \
+        -d "{
+          \"name\": \"${POL_NAME_WB}\",
+          \"description\": \"Allows caipe-webex-bot to perform token exchange / OBO impersonation. Scoped to ONLY this client.\",
+          \"clients\": [\"${WB_CLIENT_ID}\"]
+        }" 2>/dev/null \
+        | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+      [ -n "${POL_ID_WB}" ] && echo "[init-idp]   Created token-exchange policy ${POL_NAME_WB}."
+    else
+      echo "[init-idp]   token-exchange policy ${POL_NAME_WB} already exists."
+    fi
+
+    if [ -n "${POL_ID_WB}" ]; then
+      for PERM_ID in "${TE_PERM_ID_WB}" "${IMP_PERM_ID_WB}"; do
+        kc_attach_policy_to_scope_permission \
+          "${RM_CLIENT_ID_WB}" \
+          "${PERM_ID}" \
+          "${POL_ID_WB}" \
+          "Webex OBO scope permission"
+      done
+
+      # Token exchange is authorized on the target audience client too. The
+      # Webex bot requests audience=agentgateway, so attach the same Webex
+      # client policy to agentgateway's token-exchange permission.
+      AGW_CLIENT_ID_WB=$(curl -sf -H "${AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+        | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+      if [ -n "${AGW_CLIENT_ID_WB}" ]; then
+        AGW_TE_PERM_ID_WB=$(curl -sf -H "${AUTH}" \
+          "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID_WB}/management/permissions" 2>/dev/null \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
+        if [ -n "${AGW_TE_PERM_ID_WB}" ]; then
+          kc_attach_policy_to_scope_permission \
+            "${RM_CLIENT_ID_WB}" \
+            "${AGW_TE_PERM_ID_WB}" \
+            "${POL_ID_WB}" \
+            "agentgateway token-exchange permission"
+        fi
+      else
+        echo "[init-idp]   WARNING: agentgateway client not found — Webex OBO target-audience setup incomplete."
+      fi
+    fi
+  else
+    echo "[init-idp]   WARNING: realm-management / scope permissions not found — Webex OBO setup incomplete."
+  fi
+
+  WB_MAPPERS=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${WB_CLIENT_ID}/protocol-mappers/models" 2>/dev/null || echo "[]")
+  if echo "${WB_MAPPERS}" | grep -q '"name" *: *"aud-caipe-ui"'; then
+    echo "[init-idp]   Audience mapper 'aud-caipe-ui' already exists on caipe-webex-bot — skipping."
+  else
+    echo "[init-idp]   Creating audience mapper 'aud-caipe-ui' on caipe-webex-bot ..."
+    curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${WB_CLIENT_ID}/protocol-mappers/models" \
+      -d '{
+        "name":"aud-caipe-ui",
+        "protocol":"openid-connect",
+        "protocolMapper":"oidc-audience-mapper",
+        "config":{
+          "included.client.audience":"caipe-ui",
+          "id.token.claim":"false",
+          "access.token.claim":"true"
+        }
+      }' && echo "[init-idp]   Mapper created on caipe-webex-bot."
+  fi
+else
+  echo "[init-idp]   WARNING: caipe-webex-bot client not found — Webex RBAC/OBO setup skipped."
 fi
 
 echo "[init-idp] Done — IdP '${ALIAS}' is ready (auto-redirect enabled)."

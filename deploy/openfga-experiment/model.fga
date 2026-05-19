@@ -9,6 +9,7 @@
 #   team:<slug>#member can_manage agent:<agent_id>
 #   team:<slug>#member can_call tool:<tool_prefix>
 #   slack_channel:<workspace_id>--<channel_id> can_call tool:<tool_prefix>
+#   webex_space:<workspace_id>--<space_id> can_call tool:<tool_prefix>
 #   team:<slug>#member can_read knowledge_base:<kb_id>
 
 model
@@ -60,11 +61,35 @@ type slack_channel
     define can_manage: manager
     define can_audit: auditor or can_manage
 
+type webex_workspace
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type webex_space
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage
+    define can_use: user or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
 type agent
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
@@ -78,9 +103,9 @@ type agent
 
 type mcp_server
   relations
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define invoker: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define invoker: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
@@ -97,9 +122,9 @@ type mcp_gateway
 
 type tool
   relations
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define caller: [user, service_account, team#member, team#admin, external_group#member, slack_channel, agent]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, agent]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
@@ -112,7 +137,7 @@ type tool
 type knowledge_base
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define ingestor: [user, service_account, team#member, team#admin, external_group#member]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]
@@ -128,7 +153,7 @@ type knowledge_base
 type document
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define sharer: [user, service_account, team#member, team#admin]
@@ -143,8 +168,8 @@ type document
 type skill
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
-    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]

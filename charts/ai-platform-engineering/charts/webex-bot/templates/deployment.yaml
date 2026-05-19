@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "webex-bot.fullname" . }}
+  labels:
+    {{- include "webex-bot.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "webex-bot.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "webex-bot.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "webex-bot.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "webex-bot.appVersion" .) }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $kcBotSecretName := "" }}
+          {{- $kcBotSecretKey := "KC_WEBEX_BOT_CLIENT_SECRET" }}
+          {{- if and .Values.keycloakBot .Values.keycloakBot.clientSecretFromSecret .Values.keycloakBot.clientSecretFromSecret.name }}
+          {{- $kcBotSecretName = .Values.keycloakBot.clientSecretFromSecret.name }}
+          {{- $kcBotSecretKey = .Values.keycloakBot.clientSecretFromSecret.key | default "KC_WEBEX_BOT_CLIENT_SECRET" }}
+          {{- else if and .Values.oauth2 .Values.oauth2.clientSecretFromSecret .Values.oauth2.clientSecretFromSecret.name }}
+          {{- $kcBotSecretName = .Values.oauth2.clientSecretFromSecret.name }}
+          {{- $kcBotSecretKey = .Values.oauth2.clientSecretFromSecret.key | default "KC_WEBEX_BOT_CLIENT_SECRET" }}
+          {{- end }}
+          {{- $hasKcBotSecret := ne $kcBotSecretName "" }}
+          {{- $hasKcAdminSecret := and .Values.keycloakAdmin .Values.keycloakAdmin.clientSecretFromSecret .Values.keycloakAdmin.clientSecretFromSecret.name }}
+          {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
+          {{- $needEnv := or .Values.botConfig $hasKcBotSecret $hasKcAdminSecret $hasKcAdminClientId }}
+          {{- if $needEnv }}
+          env:
+            {{- if .Values.botConfig }}
+            - name: WEBEX_INTEGRATION_BOT_CONFIG
+              value: "/etc/caipe/bot-config.yaml"
+            {{- end }}
+            {{- if $hasKcBotSecret }}
+            - name: KEYCLOAK_WEBEX_BOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $kcBotSecretName | quote }}
+                  key: {{ $kcBotSecretKey | quote }}
+            {{- end }}
+            {{- if $hasKcAdminClientId }}
+            - name: KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID
+              value: {{ .Values.keycloakAdmin.clientId | quote }}
+            {{- end }}
+            {{- if $hasKcAdminSecret }}
+            - name: KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakAdmin.clientSecretFromSecret.name | quote }}
+                  key: {{ .Values.keycloakAdmin.clientSecretFromSecret.key | default "KC_PLATFORM_CLIENT_SECRET" | quote }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "webex-bot.fullname" . }}-config
+            {{- if .Values.existingSecret }}
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+            {{- end }}
+            {{- if .Values.externalSecrets.enabled }}
+            - secretRef:
+                name: {{ include "webex-bot.fullname" . }}-secret
+            {{- end }}
+          {{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
+          {{- if $adminApiEnabled }}
+          ports:
+            - name: admin
+              containerPort: {{ default "3002" (index .Values.config "WEBEX_ADMIN_API_PORT") | int }}
+              protocol: TCP
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.botConfig }}
+            - name: bot-config
+              mountPath: /etc/caipe
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if .Values.botConfig }}
+        - name: bot-config
+          configMap:
+            name: {{ include "webex-bot.fullname" . }}-bot-config
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

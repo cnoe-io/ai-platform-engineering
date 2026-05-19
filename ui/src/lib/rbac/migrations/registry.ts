@@ -15,7 +15,30 @@ const UNIVERSAL_REBAC_MIGRATION_ID = "universal_rebac_relationship_backfill_v1";
 const AGENT_TOOL_MIGRATION_ID = "agent_tool_openfga_backfill_v1";
 export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
+const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
+const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
+const MESSAGING_TEAM_MAPPING_MIGRATION_ID = "messaging_team_mapping_reconciliation_v1";
+const MESSAGING_REBAC_INDEXES_MIGRATION_ID = "messaging_rebac_indexes_v1";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+const ACTION_TO_BASE_RELATION: Record<string, string> = {
+  discover: "reader",
+  read: "reader",
+  use: "user",
+  write: "writer",
+  create: "owner",
+  delete: "manager",
+  manage: "manager",
+  administer: "manager",
+  audit: "auditor",
+  approve: "approver",
+  share: "sharer",
+  call: "caller",
+  invoke: "invoker",
+  map: "manager",
+  ingest: "ingestor",
+  "read-metadata": "metadata_reader",
+};
 
 export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
   {
@@ -86,6 +109,58 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
   },
+  {
+    id: SLACK_CHANNEL_REBAC_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "slack_channel_rebac",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Slack channel ReBAC grants",
+    description: "Backfill Slack channel resource grants and route-owned agent grants into OpenFGA provenance.",
+    confirmation: "MIGRATE slack_channel_rebac TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: WEBEX_SPACE_REBAC_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "webex_space_rebac",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Webex space ReBAC grants",
+    description: "Backfill Webex space resource grants and route-owned agent grants into OpenFGA provenance.",
+    confirmation: "MIGRATE webex_space_rebac TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: MESSAGING_TEAM_MAPPING_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_team_mappings",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Messaging team mapping reconciliation",
+    description: "Reconcile Slack channel and Webex space team mappings into denormalized team documents.",
+    confirmation: "MIGRATE messaging_team_mappings TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: MESSAGING_REBAC_INDEXES_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_rebac_indexes",
+    from_version: 1,
+    to_version: 2,
+    kind: "index",
+    title: "Messaging ReBAC indexes",
+    description: "Ensure Webex messaging ReBAC collections have lookup and TTL indexes matching Slack coverage.",
+    confirmation: "MIGRATE messaging_rebac_indexes TO v2",
+    required: true,
+    implemented: true,
+  },
 ];
 
 interface SchemaVersionDoc {
@@ -115,6 +190,19 @@ interface MigrationRuntimePlan extends MigrationPlanResult {
     relationship: "member" | "admin";
   }>;
   indexes?: Array<{ collection: string; keys: Record<string, 1 | -1>; options?: Record<string, unknown> }>;
+  teamMappingRepairs?: Array<{
+    team_id: string;
+    slack_channel?: {
+      slack_channel_id: string;
+      channel_name: string;
+      slack_workspace_id?: string;
+    };
+    webex_space?: {
+      space_id: string;
+      space_name: string;
+      workspace_id?: string;
+    };
+  }>;
 }
 
 function normalizeString(value: unknown): string | null {
@@ -390,11 +478,260 @@ export function deriveAgentOrganizationInheritancePlan(
   };
 }
 
+type MessagingGrantSurface = {
+  migrationId: string;
+  schemaArea: string;
+  confirmation: string;
+  subjectType: "slack_channel" | "webex_space";
+  idField: "channel_id" | "space_id";
+  routeIdField: "channel_id" | "space_id";
+};
+
+function relationshipForAction(action: unknown): string | null {
+  if (typeof action !== "string") return null;
+  return ACTION_TO_BASE_RELATION[action] ?? null;
+}
+
+function addMessagingRelationship(
+  relationships: NonNullable<MigrationRuntimePlan["relationships"]>,
+  subjectType: "slack_channel" | "webex_space",
+  subjectId: string,
+  action: string,
+  resource: { type: string; id: string }
+): void {
+  addRelationship(relationships, { type: subjectType, id: subjectId }, action, resource);
+}
+
+export function deriveMessagingRebacPlan(input: {
+  surface: MessagingGrantSurface;
+  grants: Array<Record<string, any>>;
+  routes: Array<Record<string, any>>;
+}): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const relationships: NonNullable<MigrationRuntimePlan["relationships"]> = [];
+  const warnings: string[] = [];
+  let invalidIdentifiers = 0;
+  let unsupportedActions = 0;
+  let activeGrants = 0;
+  let activeRoutes = 0;
+
+  for (const grant of input.grants) {
+    if (grant.status && grant.status !== "active") continue;
+    activeGrants += 1;
+    const workspaceId = normalizeString(grant.workspace_id);
+    const resourceOwnerId = normalizeString(grant[input.surface.idField]);
+    const resourceType = normalizeString(grant.resource?.type);
+    const resourceId = normalizeString(grant.resource?.id);
+    if (!workspaceId || !resourceOwnerId || !resourceType || !resourceId) {
+      invalidIdentifiers += 1;
+      warnings.push(`Skipping ${input.surface.subjectType} grant with incomplete identifiers.`);
+      continue;
+    }
+    const subjectId = `${workspaceId}--${resourceOwnerId}`;
+    if (![workspaceId, resourceOwnerId, subjectId, resourceType, resourceId].every(isOpenFgaId)) {
+      invalidIdentifiers += 1;
+      warnings.push(`Skipping ${input.surface.subjectType} grant with invalid OpenFGA identifiers.`);
+      continue;
+    }
+
+    const actions = Array.isArray(grant.actions) ? grant.actions : [];
+    for (const action of actions) {
+      const relation = relationshipForAction(action);
+      if (!relation || typeof action !== "string") {
+        unsupportedActions += 1;
+        warnings.push(`Skipping unsupported ${input.surface.subjectType} action: ${String(action)}`);
+        continue;
+      }
+      tuples.push({
+        user: `${input.surface.subjectType}:${subjectId}`,
+        relation,
+        object: `${resourceType}:${resourceId}`,
+      });
+      addMessagingRelationship(relationships, input.surface.subjectType, subjectId, action, {
+        type: resourceType,
+        id: resourceId,
+      });
+    }
+  }
+
+  for (const route of input.routes) {
+    if (route.status && route.status !== "active") continue;
+    if (route.enabled === false) continue;
+    activeRoutes += 1;
+    const workspaceId = normalizeString(route.workspace_id);
+    const resourceOwnerId = normalizeString(route[input.surface.routeIdField]);
+    const agentId = normalizeString(route.agent_id);
+    if (!workspaceId || !resourceOwnerId || !agentId) {
+      invalidIdentifiers += 1;
+      warnings.push(`Skipping ${input.surface.subjectType} route with incomplete identifiers.`);
+      continue;
+    }
+    const subjectId = `${workspaceId}--${resourceOwnerId}`;
+    if (![workspaceId, resourceOwnerId, subjectId, agentId].every(isOpenFgaId)) {
+      invalidIdentifiers += 1;
+      warnings.push(`Skipping ${input.surface.subjectType} route with invalid OpenFGA identifiers.`);
+      continue;
+    }
+
+    tuples.push({
+      user: `${input.surface.subjectType}:${subjectId}`,
+      relation: "user",
+      object: `agent:${agentId}`,
+    });
+    addMessagingRelationship(relationships, input.surface.subjectType, subjectId, "use", {
+      type: "agent",
+      id: agentId,
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: input.surface.migrationId,
+    release: RELEASE_051,
+    schema_area: input.surface.schemaArea,
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      grants_scanned: activeGrants,
+      routes_scanned: activeRoutes,
+      tuples_planned: unique.length,
+      relationships_planned: relationships.length,
+      invalid_identifiers: invalidIdentifiers,
+      unsupported_actions: unsupportedActions,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${input.surface.migrationId}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: input.surface.confirmation,
+    tuples: unique,
+    relationships,
+  };
+}
+
+export function deriveMessagingTeamMappingPlan(input: {
+  teams: Array<Record<string, any>>;
+  slackMappings: Array<Record<string, any>>;
+  webexMappings: Array<Record<string, any>>;
+}): MigrationRuntimePlan {
+  const warnings: string[] = [];
+  const teamIds = new Set(input.teams.map((team) => normalizeString(team._id)).filter(Boolean));
+  const teamIdsBySlug = new Map(
+    input.teams
+      .map((team) => [normalizeString(team.slug), normalizeString(team._id)] as const)
+      .filter(([slug, id]) => Boolean(slug && id)),
+  );
+  const repairs: NonNullable<MigrationRuntimePlan["teamMappingRepairs"]> = [];
+  let missingTeams = 0;
+
+  const resolveTeamId = (mapping: Record<string, any>) => {
+    const id = normalizeString(mapping.team_id);
+    if (id && teamIds.has(id)) return id;
+    const slug = normalizeString(mapping.team_slug);
+    if (slug && teamIdsBySlug.has(slug)) return teamIdsBySlug.get(slug) ?? null;
+    return null;
+  };
+
+  for (const mapping of input.slackMappings) {
+    if (mapping.status && mapping.status !== "active") continue;
+    const teamId = resolveTeamId(mapping);
+    const workspaceId = normalizeString(mapping.slack_workspace_id) ?? normalizeString(mapping.workspace_id);
+    const channelId = normalizeString(mapping.slack_channel_id) ?? normalizeString(mapping.channel_id);
+    if (!teamId || !workspaceId || !channelId) {
+      missingTeams += teamId ? 0 : 1;
+      warnings.push("Skipping Slack channel mapping with missing team or channel identifiers.");
+      continue;
+    }
+    repairs.push({
+      team_id: teamId,
+      slack_channel: {
+        slack_channel_id: channelId,
+        channel_name: normalizeString(mapping.channel_name) ?? channelId,
+        slack_workspace_id: workspaceId,
+      },
+    });
+  }
+
+  for (const mapping of input.webexMappings) {
+    if (mapping.status && mapping.status !== "active") continue;
+    const teamId = resolveTeamId(mapping);
+    const workspaceId = normalizeString(mapping.workspace_id);
+    const spaceId = normalizeString(mapping.space_id);
+    if (!teamId || !workspaceId || !spaceId) {
+      missingTeams += teamId ? 0 : 1;
+      warnings.push("Skipping Webex space mapping with missing team or space identifiers.");
+      continue;
+    }
+    repairs.push({
+      team_id: teamId,
+      webex_space: {
+        space_id: spaceId,
+        space_name: normalizeString(mapping.space_name) ?? normalizeString(mapping.space_title) ?? spaceId,
+        workspace_id: workspaceId,
+      },
+    });
+  }
+
+  return {
+    migration_id: MESSAGING_TEAM_MAPPING_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_team_mappings",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      slack_mappings_scanned: input.slackMappings.length,
+      webex_mappings_scanned: input.webexMappings.length,
+      mapping_repairs_planned: repairs.length,
+      missing_teams: missingTeams,
+      tuple_writes_planned: 0,
+    },
+    warnings,
+    sample_diffs: repairs.slice(0, 10).map((repair, index) => ({
+      collection: "teams",
+      id: `${repair.team_id}:${index}`,
+      before: {},
+      after: repair,
+    })),
+    tuple_writes_planned: 0,
+    confirmation: "MIGRATE messaging_team_mappings TO v2",
+    teamMappingRepairs: repairs,
+  };
+}
+
 const RBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
   { collection: "schema_migrations", keys: { release: 1, status: 1 } },
   { collection: "rebac_relationships", keys: { "resource.type": 1, "resource.id": 1, action: 1, status: 1 } },
   { collection: "team_membership_sources", keys: { team_slug: 1, user_subject: 1, relationship: 1 } },
   { collection: "audit_events", keys: { type: 1, ts: -1 } },
+];
+
+const MESSAGING_REBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
+  {
+    collection: "webex_space_team_mappings",
+    keys: { workspace_id: 1, space_id: 1, status: 1 },
+    options: { name: "webex_space_team_lookup" },
+  },
+  {
+    collection: "webex_space_agent_routes",
+    keys: { workspace_id: 1, space_id: 1, agent_id: 1, status: 1 },
+    options: { name: "webex_space_agent_route_lookup" },
+  },
+  {
+    collection: "webex_space_grants",
+    keys: { workspace_id: 1, space_id: 1, "resource.type": 1, "resource.id": 1, status: 1 },
+    options: { name: "webex_space_grant_lookup" },
+  },
+  {
+    collection: "webex_link_nonces",
+    keys: { expires_at: 1 },
+    options: { expireAfterSeconds: 0, name: "webex_link_nonce_expiry" },
+  },
 ];
 
 function deriveIndexPlan(): MigrationRuntimePlan {
@@ -416,6 +753,28 @@ function deriveIndexPlan(): MigrationRuntimePlan {
     tuple_writes_planned: 0,
     confirmation: "MIGRATE audit_events TO v2",
     indexes: RBAC_INDEX_SPECS,
+  };
+}
+
+export function deriveMessagingIndexPlan(): MigrationRuntimePlan {
+  return {
+    migration_id: MESSAGING_REBAC_INDEXES_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_rebac_indexes",
+    kind: "index",
+    from_version: 1,
+    to_version: 2,
+    counts: { indexes_planned: MESSAGING_REBAC_INDEX_SPECS.length, tuple_writes_planned: 0 },
+    warnings: [],
+    sample_diffs: MESSAGING_REBAC_INDEX_SPECS.map((spec) => ({
+      collection: spec.collection,
+      id: JSON.stringify(spec.keys),
+      before: {},
+      after: { keys: spec.keys, options: spec.options ?? {} },
+    })),
+    tuple_writes_planned: 0,
+    confirmation: "MIGRATE messaging_rebac_indexes TO v2",
+    indexes: MESSAGING_REBAC_INDEX_SPECS,
   };
 }
 
@@ -454,6 +813,38 @@ async function loadUniversalMigrationInputs() {
 async function loadAgentToolMigrationInputs() {
   const dynamicAgents = await getCollection("dynamic_agents");
   return dynamicAgents.find({}).toArray();
+}
+
+async function loadMessagingRebacInputs(surface: "slack" | "webex") {
+  if (surface === "slack") {
+    const [grants, routes] = await Promise.all([
+      getCollection("slack_channel_grants"),
+      getCollection("slack_channel_agent_routes"),
+    ]);
+    const [grantDocs, routeDocs] = await Promise.all([grants.find({}).toArray(), routes.find({}).toArray()]);
+    return { grantDocs, routeDocs };
+  }
+
+  const [grants, routes] = await Promise.all([
+    getCollection("webex_space_grants"),
+    getCollection("webex_space_agent_routes"),
+  ]);
+  const [grantDocs, routeDocs] = await Promise.all([grants.find({}).toArray(), routes.find({}).toArray()]);
+  return { grantDocs, routeDocs };
+}
+
+async function loadMessagingTeamMappingInputs() {
+  const [teams, slackMappings, webexMappings] = await Promise.all([
+    getCollection("teams"),
+    getCollection("channel_team_mappings"),
+    getCollection("webex_space_team_mappings"),
+  ]);
+  const [teamDocs, slackDocs, webexDocs] = await Promise.all([
+    teams.find({}).toArray(),
+    slackMappings.find({}).toArray(),
+    webexMappings.find({}).toArray(),
+  ]);
+  return { teamDocs, slackDocs, webexDocs };
 }
 
 export function getMigrationDefinition(migrationId: string): MigrationDefinition | null {
@@ -534,6 +925,47 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
+  }
+  if (migrationId === SLACK_CHANNEL_REBAC_MIGRATION_ID) {
+    const { grantDocs, routeDocs } = await loadMessagingRebacInputs("slack");
+    return deriveMessagingRebacPlan({
+      surface: {
+        migrationId: SLACK_CHANNEL_REBAC_MIGRATION_ID,
+        schemaArea: "slack_channel_rebac",
+        confirmation: "MIGRATE slack_channel_rebac TO v2",
+        subjectType: "slack_channel",
+        idField: "channel_id",
+        routeIdField: "channel_id",
+      },
+      grants: grantDocs as Array<Record<string, any>>,
+      routes: routeDocs as Array<Record<string, any>>,
+    });
+  }
+  if (migrationId === WEBEX_SPACE_REBAC_MIGRATION_ID) {
+    const { grantDocs, routeDocs } = await loadMessagingRebacInputs("webex");
+    return deriveMessagingRebacPlan({
+      surface: {
+        migrationId: WEBEX_SPACE_REBAC_MIGRATION_ID,
+        schemaArea: "webex_space_rebac",
+        confirmation: "MIGRATE webex_space_rebac TO v2",
+        subjectType: "webex_space",
+        idField: "space_id",
+        routeIdField: "space_id",
+      },
+      grants: grantDocs as Array<Record<string, any>>,
+      routes: routeDocs as Array<Record<string, any>>,
+    });
+  }
+  if (migrationId === MESSAGING_TEAM_MAPPING_MIGRATION_ID) {
+    const { teamDocs, slackDocs, webexDocs } = await loadMessagingTeamMappingInputs();
+    return deriveMessagingTeamMappingPlan({
+      teams: teamDocs as Array<Record<string, any>>,
+      slackMappings: slackDocs as Array<Record<string, any>>,
+      webexMappings: webexDocs as Array<Record<string, any>>,
+    });
+  }
+  if (migrationId === MESSAGING_REBAC_INDEXES_MIGRATION_ID) {
+    return deriveMessagingIndexPlan();
   }
 
   throw new Error(`Migration is not plannable: ${migrationId}`);
@@ -665,6 +1097,25 @@ async function applyRuntimePlan(input: {
     }
   }
 
+  let messagingTeamMappingsReconciled = 0;
+  if (input.plan.teamMappingRepairs && input.plan.teamMappingRepairs.length > 0) {
+    const teams = await getCollection("teams");
+    for (const repair of input.plan.teamMappingRepairs) {
+      const addToSet: Record<string, unknown> = {};
+      if (repair.slack_channel) addToSet.slack_channels = repair.slack_channel;
+      if (repair.webex_space) addToSet.webex_spaces = repair.webex_space;
+      if (Object.keys(addToSet).length === 0) continue;
+      await teams.updateOne(
+        { _id: repair.team_id },
+        {
+          $addToSet: addToSet,
+          $set: { updated_at: input.now, updated_by: input.actor },
+        },
+      );
+      messagingTeamMappingsReconciled += 1;
+    }
+  }
+
   const result: MigrationApplyResult = {
     ...input.plan,
     applied_counts: {
@@ -672,6 +1123,7 @@ async function applyRuntimePlan(input: {
       relationships_upserted: relationshipsUpserted,
       membership_sources_upserted: membershipSourcesUpserted,
       indexes_created: indexesCreated,
+      messaging_team_mappings_reconciled: messagingTeamMappingsReconciled,
     },
     applied_at: input.now,
     applied_by: input.actor,

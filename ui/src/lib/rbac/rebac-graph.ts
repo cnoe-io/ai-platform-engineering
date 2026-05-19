@@ -1,5 +1,7 @@
 import { getRbacCollection, type RebacRelationshipDocument } from "./mongo-collections";
 import { readOpenFgaTuples, type OpenFgaTuple } from "./openfga";
+import { slackWorkspaceRef } from "./slack-channel-grant-store";
+import { webexWorkspaceRef } from "./webex-space-grant-store";
 
 export interface RebacGraphFilters {
   team?: string;
@@ -22,6 +24,12 @@ export interface RebacGraphEdge {
   from: string;
   to: string;
   relation: string;
+  kind?: "openfga" | "metadata";
+  metadata?: {
+    source_type: "slack_channel_team_mapping" | "webex_space_team_mapping";
+    label: string;
+    readonly: true;
+  };
   source?: {
     source_type: RebacRelationshipDocument["source_type"];
     source_id?: string;
@@ -68,6 +76,36 @@ const RELATION_TO_ACTION: Record<string, string> = {
   writer: "write",
 };
 
+interface TeamLookupDocument {
+  _id?: unknown;
+  slug?: string;
+  name?: string;
+}
+
+interface SlackTeamMappingDocument {
+  slack_workspace_id?: string;
+  slack_channel_id?: string;
+  channel_name?: string;
+  team_id?: string;
+  team_slug?: string;
+  active?: boolean;
+  status?: string;
+}
+
+interface WebexTeamMappingDocument {
+  workspace_id?: string;
+  webex_workspace_id?: string;
+  space_id?: string;
+  webex_space_id?: string;
+  webex_room_id?: string;
+  space_name?: string;
+  space_title?: string;
+  team_id?: string;
+  team_slug?: string;
+  active?: boolean;
+  status?: string;
+}
+
 function nodeType(id: string): string {
   if (id.includes("#")) return "userset";
   return id.split(":", 1)[0] || "unknown";
@@ -76,6 +114,11 @@ function nodeType(id: string): string {
 function addNode(nodes: Map<string, RebacGraphNode>, id: string): void {
   if (nodes.has(id)) return;
   nodes.set(id, { id, label: id.replace("#member", " members"), type: nodeType(id) });
+}
+
+function addLabeledNode(nodes: Map<string, RebacGraphNode>, id: string, label: string): void {
+  if (nodes.has(id)) return;
+  nodes.set(id, { id, label, type: nodeType(id) });
 }
 
 function edgeId(tuple: OpenFgaTuple): string {
@@ -96,6 +139,115 @@ function includeTuple(tuple: OpenFgaTuple, filters: RebacGraphFilters): boolean 
     if (tuple.key.user !== channelRef && tuple.key.object !== channelRef) return false;
   }
   return true;
+}
+
+function isActiveMapping(mapping: { active?: boolean; status?: string }): boolean {
+  if (mapping.active === false) return false;
+  if (!mapping.status) return true;
+  return ["active", "synced"].includes(mapping.status);
+}
+
+function slackChannelMatchesFilter(channelRef: string, filter?: string): boolean {
+  if (!filter) return true;
+  return channelRef === `slack_channel:${filter}` || channelRef.endsWith(`--${filter}`);
+}
+
+function metadataEdgeAllowed(edge: RebacGraphEdge, filters: RebacGraphFilters): boolean {
+  if (filters.subject) return false;
+  if (filters.team && edge.to !== `team:${filters.team}`) return false;
+  if (filters.resourceType && filters.resourceId && edge.to !== `${filters.resourceType}:${filters.resourceId}`) {
+    return false;
+  }
+  if (filters.slackChannel && !slackChannelMatchesFilter(edge.from, filters.slackChannel)) return false;
+  return true;
+}
+
+async function readCollectionRows<T>(name: string): Promise<T[]> {
+  try {
+    const { getCollection } = await import("@/lib/mongodb");
+    const collection = await getCollection<T>(name);
+    const cursor = collection.find({} as never);
+    if (typeof cursor.limit === "function") {
+      return (await cursor.limit(200).toArray()) as T[];
+    }
+    return (await cursor.toArray()) as T[];
+  } catch {
+    return [];
+  }
+}
+
+function teamSlugForMapping(
+  mapping: { team_id?: string; team_slug?: string },
+  teamSlugById: Map<string, string>
+): string | null {
+  const directSlug = mapping.team_slug?.trim();
+  if (directSlug) return directSlug;
+  const teamId = mapping.team_id?.trim();
+  return teamId ? teamSlugById.get(teamId) ?? null : null;
+}
+
+async function loadRoutingMetadataEdges(filters: RebacGraphFilters): Promise<RebacGraphEdge[]> {
+  if (filters.subject) return [];
+
+  const [teams, slackMappings, webexMappings] = await Promise.all([
+    readCollectionRows<TeamLookupDocument>("teams"),
+    readCollectionRows<SlackTeamMappingDocument>("channel_team_mappings"),
+    readCollectionRows<WebexTeamMappingDocument>("webex_space_team_mappings"),
+  ]);
+  const teamSlugById = new Map(
+    teams
+      .map((team) => [String(team._id ?? ""), team.slug?.trim() || ""] as const)
+      .filter(([, slug]) => Boolean(slug))
+  );
+  const edges: RebacGraphEdge[] = [];
+
+  for (const mapping of slackMappings) {
+    if (!isActiveMapping(mapping)) continue;
+    const channelId = mapping.slack_channel_id?.trim();
+    const teamSlug = teamSlugForMapping(mapping, teamSlugById);
+    if (!channelId || !teamSlug) continue;
+    const workspaceId = slackWorkspaceRef(mapping.slack_workspace_id);
+    const from = `slack_channel:${workspaceId}--${channelId}`;
+    const to = `team:${teamSlug}`;
+    const edge: RebacGraphEdge = {
+      id: `metadata:slack_channel_team_mapping:${workspaceId}:${channelId}:${teamSlug}`,
+      from,
+      to,
+      relation: "assigned_team",
+      kind: "metadata",
+      metadata: {
+        source_type: "slack_channel_team_mapping",
+        label: `${mapping.channel_name?.trim() || channelId} assigned to ${teamSlug}`,
+        readonly: true,
+      },
+    };
+    if (metadataEdgeAllowed(edge, filters)) edges.push(edge);
+  }
+
+  for (const mapping of webexMappings) {
+    if (!isActiveMapping(mapping)) continue;
+    const spaceId = mapping.webex_space_id?.trim() || mapping.space_id?.trim() || mapping.webex_room_id?.trim();
+    const teamSlug = teamSlugForMapping(mapping, teamSlugById);
+    if (!spaceId || !teamSlug) continue;
+    const workspaceId = webexWorkspaceRef(mapping.webex_workspace_id || mapping.workspace_id);
+    const from = `webex_space:${workspaceId}--${spaceId}`;
+    const to = `team:${teamSlug}`;
+    const edge: RebacGraphEdge = {
+      id: `metadata:webex_space_team_mapping:${workspaceId}:${spaceId}:${teamSlug}`,
+      from,
+      to,
+      relation: "assigned_team",
+      kind: "metadata",
+      metadata: {
+        source_type: "webex_space_team_mapping",
+        label: `${mapping.space_name?.trim() || mapping.space_title?.trim() || spaceId} assigned to ${teamSlug}`,
+        readonly: true,
+      },
+    };
+    if (metadataEdgeAllowed(edge, filters)) edges.push(edge);
+  }
+
+  return edges;
 }
 
 function provenanceKey(row: RebacRelationshipDocument): string {
@@ -240,6 +392,13 @@ export async function queryRebacGraph(filters: RebacGraphFilters = {}): Promise<
     tuplesRead += result.tuples.length;
     continuationToken = result.continuationToken;
   } while (continuationToken && tuplesRead < maxTuples && edges.length < maxTuples);
+
+  const metadataEdges = await loadRoutingMetadataEdges(filters);
+  for (const edge of metadataEdges.slice(0, Math.max(0, maxTuples - edges.length))) {
+    addLabeledNode(nodes, edge.from, edge.metadata?.label.split(" assigned to ", 1)[0] || edge.from);
+    addNode(nodes, edge.to);
+    edges.push(edge);
+  }
 
   return {
     nodes: Array.from(nodes.values()),

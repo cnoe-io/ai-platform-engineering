@@ -206,6 +206,11 @@ dependencies:
     version: 0.5.1-rc.8 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
+  # Webex Bot Integration (client, not an agent)
+  - name: webex-bot
+    version: 0.5.1-rc.7 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - webex-bot
   # Keycloak Identity Provider for CAIPE RBAC/OIDC.
   # Intentional local subchart: CAIPE owns realm import, token-exchange/OBO,
   # IdP/auth-flow reconciliation, branded theme packaging, and ExternalSecret

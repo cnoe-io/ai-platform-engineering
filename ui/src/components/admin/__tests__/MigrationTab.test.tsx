@@ -48,6 +48,58 @@ describe("MigrationTab", () => {
                 confirmation: "MIGRATE team_resources TO v2",
                 required: true,
               },
+              {
+                id: "slack_channel_rebac_backfill_v1",
+                title: "Slack channel ReBAC grants",
+                description: "Backfill Slack channel grants",
+                kind: "explicit",
+                schema_area: "slack_channel_rebac",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE slack_channel_rebac TO v2",
+                required: true,
+              },
+              {
+                id: "webex_space_rebac_backfill_v1",
+                title: "Webex space ReBAC grants",
+                description: "Backfill Webex space grants",
+                kind: "explicit",
+                schema_area: "webex_space_rebac",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE webex_space_rebac TO v2",
+                required: true,
+              },
+              {
+                id: "messaging_team_mapping_reconciliation_v1",
+                title: "Messaging team mapping reconciliation",
+                description: "Repair denormalized messaging team assignments",
+                kind: "explicit",
+                schema_area: "messaging_team_mappings",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE messaging_team_mappings TO v2",
+                required: true,
+              },
+              {
+                id: "messaging_rebac_indexes_v1",
+                title: "Messaging ReBAC indexes",
+                description: "Create messaging lookup indexes",
+                kind: "index",
+                schema_area: "messaging_rebac_indexes",
+                current_version: 1,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE messaging_rebac_indexes TO v2",
+                required: true,
+              },
             ],
           },
         });
@@ -98,6 +150,10 @@ describe("MigrationTab", () => {
 
     expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
     expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Slack channel ReBAC grants")).toBeInTheDocument();
+    expect(screen.getByText("Webex space ReBAC grants")).toBeInTheDocument();
+    expect(screen.getByText("Messaging team mapping reconciliation")).toBeInTheDocument();
+    expect(screen.getByText("Messaging ReBAC indexes")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[0]);
 

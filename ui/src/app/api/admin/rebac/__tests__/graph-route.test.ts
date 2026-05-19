@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 const mockCheckPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
+const mockGetCollection = jest.fn();
 
 const provenanceRows = [
   {
@@ -44,12 +45,7 @@ jest.mock("@/lib/rbac/audit", () => ({
 }));
 
 jest.mock("@/lib/mongodb", () => ({
-  getCollection: jest.fn(async () => ({
-    find: jest.fn().mockReturnValue({
-      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(provenanceRows) }),
-      toArray: jest.fn().mockResolvedValue(provenanceRows),
-    }),
-  })),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -73,6 +69,41 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+  mockGetCollection.mockImplementation(async (name: string) => {
+    if (name === "rebac_relationships") {
+      return collection(provenanceRows);
+    }
+    if (name === "teams") {
+      return collection([{ _id: "team-1", slug: "platform", name: "Platform" }]);
+    }
+    if (name === "channel_team_mappings") {
+      return collection([
+        {
+          slack_workspace_id: "CAIPE",
+          slack_channel_id: "C123",
+          channel_name: "#incidents",
+          team_id: "team-1",
+          team_slug: "platform",
+          active: true,
+          status: "active",
+        },
+      ]);
+    }
+    if (name === "webex_space_team_mappings") {
+      return collection([
+        {
+          workspace_id: "Cisco",
+          space_id: "space-1",
+          space_name: "War Room",
+          team_id: "team-1",
+          team_slug: "platform",
+          active: true,
+          status: "active",
+        },
+      ]);
+    }
+    return collection([]);
+  });
   const tuples = [
     {
       key: {
@@ -98,6 +129,16 @@ beforeEach(() => {
   }));
 });
 
+function collection(rows: unknown[]) {
+  return {
+    find: jest.fn(() => ({
+      sort: jest.fn(() => ({ toArray: jest.fn().mockResolvedValue(rows) })),
+      limit: jest.fn(() => ({ toArray: jest.fn().mockResolvedValue(rows) })),
+      toArray: jest.fn().mockResolvedValue(rows),
+    })),
+  };
+}
+
 describe("GET /api/admin/rebac/graph", () => {
   it("returns all relationship graph edges with source metadata", async () => {
     const { GET } = await import("../graph/route");
@@ -106,20 +147,50 @@ describe("GET /api/admin/rebac/graph", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.edges).toHaveLength(2);
+    expect(body.data.edges).toHaveLength(4);
     expect(body.data.edges[0]).toMatchObject({
       from: "team:platform#member",
       to: "agent:incident-agent",
       relation: "user",
       source: { source_type: "manual", source_id: "change-set-1" },
     });
+    expect(body.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "slack_channel:CAIPE--C123",
+          to: "team:platform",
+          relation: "assigned_team",
+          kind: "metadata",
+          metadata: expect.objectContaining({
+            source_type: "slack_channel_team_mapping",
+            readonly: true,
+          }),
+        }),
+        expect.objectContaining({
+          from: "webex_space:Cisco--space-1",
+          to: "team:platform",
+          relation: "assigned_team",
+          kind: "metadata",
+          metadata: expect.objectContaining({
+            source_type: "webex_space_team_mapping",
+            readonly: true,
+          }),
+        }),
+      ]),
+    );
   });
 
   it("filters by team, resource, subject, and Slack channel scopes", async () => {
     const { GET } = await import("../graph/route");
 
     const byTeam = await (await GET(request("/api/admin/rebac/graph?team=platform"))).json();
-    expect(byTeam.data.edges).toHaveLength(1);
+    expect(byTeam.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: "team:platform#member", to: "agent:incident-agent" }),
+        expect.objectContaining({ from: "slack_channel:CAIPE--C123", to: "team:platform" }),
+        expect.objectContaining({ from: "webex_space:Cisco--space-1", to: "team:platform" }),
+      ]),
+    );
 
     const byResource = await (
       await GET(request("/api/admin/rebac/graph?resource_type=agent&resource_id=incident-agent"))
@@ -132,7 +203,12 @@ describe("GET /api/admin/rebac/graph", () => {
     expect(bySubject.data.edges).toHaveLength(1);
 
     const bySlack = await (await GET(request("/api/admin/rebac/graph?slack_channel=C123"))).json();
-    expect(bySlack.data.edges).toHaveLength(1);
+    expect(bySlack.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: "slack_channel:C123", to: "agent:incident-agent" }),
+        expect.objectContaining({ from: "slack_channel:CAIPE--C123", to: "team:platform" }),
+      ]),
+    );
   });
 
   it("handles typed wildcard user subjects without passing user:* as an OpenFGA read filter", async () => {

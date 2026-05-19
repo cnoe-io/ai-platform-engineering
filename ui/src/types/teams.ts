@@ -50,6 +50,15 @@ export interface Team {
     channel_name: string;
     slack_workspace_id?: string;
   }>;
+  /**
+   * Webex spaces assigned to this team. Mirrors `webex_space_team_mappings`;
+   * resource access remains managed through Webex space ReBAC grants.
+   */
+  webex_spaces?: Array<{
+    space_id: string;
+    space_name: string;
+    workspace_id?: string;
+  }>;
   metadata?: {
     department?: string;
     tags?: string[];

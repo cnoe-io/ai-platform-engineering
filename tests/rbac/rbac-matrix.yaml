@@ -304,7 +304,7 @@ routes:
     resource: admin_ui
     scope: admin
     migration_status: migrated
-    notes: Lists the 0.5.1 schema-versioned migration manifest and stored migration status.
+    notes: Lists the 0.5.1 schema-versioned migration manifest and stored migration status, including Slack/Webex messaging ReBAC additions.
     expectations:
       alice_admin:
         status: 200
@@ -330,7 +330,7 @@ routes:
     resource: admin_ui
     scope: admin
     migration_status: migrated
-    notes: Dry-runs a schema migration after the organization-level admin_ui#admin gate.
+    notes: Dry-runs a schema migration after the organization-level admin_ui#admin gate; applies to conversation, universal, Dynamic Agent, Slack/Webex messaging, and index migration IDs.
     expectations:
       alice_admin:
         status: 200
@@ -356,7 +356,7 @@ routes:
     resource: admin_ui
     scope: admin
     migration_status: migrated
-    notes: Applies a schema migration only after exact typed confirmation.
+    notes: Applies a schema migration only after exact typed confirmation, including new Slack/Webex messaging ReBAC and reconciliation migration IDs.
     expectations:
       alice_admin:
         status: 200
@@ -2785,6 +2785,167 @@ routes:
       eve_dynamic_agent_user:
         status: 403
         reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  # Spec 2026-05-18 Webex bot RBAC parity: admin Webex space management uses
+  # the same admin_ui gates as Slack, while bot dispatch uses OpenFGA space and
+  # user/team resource relationships.
+  - id: ui-bff-get-api-admin-webex-spaces
+    surface: ui_bff
+    method: GET
+    path: /api/admin/webex/spaces
+    resource: admin_ui
+    scope: view
+    migration_status: migrated
+    notes: Webex Spaces admin list requires admin_ui#view before exposing space/team mappings.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-webex-space-resources
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/webex/spaces/{workspaceId}/{spaceId}/resources
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex space grant replacement requires admin_ui#admin and writes webex_space OpenFGA tuples.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-webex-space-onboard
+    surface: ui_bff
+    method: POST
+    path: /api/admin/webex/spaces/onboard
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex one-shot onboarding requires admin_ui#admin before converging team mapping, Keycloak team scope, OpenFGA grants, route metadata, and bot route-cache reload.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-put-api-admin-webex-space-routes
+    surface: ui_bff
+    method: PUT
+    path: /api/admin/webex/spaces/{workspaceId}/{spaceId}/routes
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex route metadata updates require admin_ui#admin and reconcile route-owned OpenFGA agent grants.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-webex-runtime-reload
+    surface: ui_bff
+    method: POST
+    path: /api/admin/webex/runtime/reload
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: Webex bot runtime reload proxies through the BFF after admin_ui#admin and bot-admin audience token exchange.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: webex-bot-message-openfga-space-agent-use
+    surface: webex_bot
+    method: rpc
+    path: webex.message.dispatch
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: Webex bot dispatch requires linked webex_user_id, active space-team mapping, webex_space route tuple, and user/team can_use on the selected agent.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 200
       frank_service_account:
         status: 403
         reason: DENY_NO_CAPABILITY

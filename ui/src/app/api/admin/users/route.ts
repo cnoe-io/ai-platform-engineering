@@ -27,6 +27,7 @@ type AdminUsersListItem = {
   enabled: boolean;
   attributes: Record<string, string[]>;
   slack_link_status: "linked" | "pending" | "unlinked";
+  webex_link_status: "linked" | "unlinked";
   roles: string[];
   raw_roles: string[];
   role_classifications: RealmRoleClassification[];
@@ -55,6 +56,15 @@ function readSlackUserIdFromUser(u: Record<string, unknown>): string | undefined
   if (!attrs) return undefined;
   const sid = attrs.slack_user_id;
   const v = Array.isArray(sid) ? sid[0] : sid;
+  const normalized = v != null ? String(v).trim() : "";
+  return normalized || undefined;
+}
+
+function readWebexUserIdFromUser(u: Record<string, unknown>): string | undefined {
+  const attrs = u.attributes as Record<string, unknown> | undefined;
+  if (!attrs) return undefined;
+  const wid = attrs.webex_user_id;
+  const v = Array.isArray(wid) ? wid[0] : wid;
   const normalized = v != null ? String(v).trim() : "";
   return normalized || undefined;
 }
@@ -92,6 +102,10 @@ function getSlackLinkStatus(
   const slackUserId = readSlackUserIdFromUser(u);
   if (!slackUserId) return "unlinked";
   return pendingSlackIds.has(slackUserId) ? "pending" : "linked";
+}
+
+function getWebexLinkStatus(u: Record<string, unknown>): AdminUsersListItem["webex_link_status"] {
+  return readWebexUserIdFromUser(u) ? "linked" : "unlinked";
 }
 
 async function loadRoleUserIdSet(roleName: string): Promise<Set<string>> {
@@ -139,6 +153,7 @@ async function enrichListRow(
     enabled: u.enabled !== false,
     attributes: normalizeAttributes(u.attributes),
     slack_link_status: getSlackLinkStatus(u, pendingSlackIds),
+    webex_link_status: getWebexLinkStatus(u),
     ...curatedRoles,
   };
 }
@@ -150,6 +165,7 @@ async function userMatchesFilters(
     teamEmailSet: Set<string> | null;
     idp: string | null;
     slackStatus: AdminUsersListItem["slack_link_status"] | null;
+    webexStatus: AdminUsersListItem["webex_link_status"] | null;
     pendingSlackIds: Set<string>;
   }
 ): Promise<boolean> {
@@ -160,6 +176,7 @@ async function userMatchesFilters(
   if (opts.teamEmailSet && !opts.teamEmailSet.has(email)) return false;
 
   if (opts.slackStatus && getSlackLinkStatus(u, opts.pendingSlackIds) !== opts.slackStatus) return false;
+  if (opts.webexStatus && getWebexLinkStatus(u) !== opts.webexStatus) return false;
 
   if (opts.idp) {
     const feds = await getUserFederatedIdentities(id);
@@ -187,6 +204,16 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
           ? null
           : (() => {
               throw new ApiError('slackStatus must be "linked", "pending", or "unlinked"', 400);
+            })();
+
+    const webexRaw = (url.searchParams.get("webexStatus") ?? "").trim().toLowerCase();
+    const webexStatus =
+      webexRaw === "linked" || webexRaw === "unlinked"
+        ? (webexRaw as AdminUsersListItem["webex_link_status"])
+        : webexRaw === ""
+          ? null
+          : (() => {
+              throw new ApiError('webexStatus must be "linked" or "unlinked"', 400);
             })();
 
     const enabled = parseBoolParam(url.searchParams.get("enabled"));
@@ -236,7 +263,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       Boolean(roleIdSet) ||
       Boolean(teamEmailSet) ||
       Boolean(idp) ||
-      Boolean(slackStatus);
+      Boolean(slackStatus) ||
+      Boolean(webexStatus);
     const pendingSlackIds =
       needsScan || !slackStatus ? await loadPendingSlackIds() : new Set<string>();
 
@@ -265,6 +293,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       teamEmailSet,
       idp: idp ?? null,
       slackStatus,
+      webexStatus,
       pendingSlackIds,
     };
 

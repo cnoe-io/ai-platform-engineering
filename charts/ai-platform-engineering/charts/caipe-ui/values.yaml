@@ -209,6 +209,17 @@ config:
   # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
   SLACK_DEFAULT_TEAM_SLUG: ""
   SLACK_DEFAULT_AGENT_ID: ""
+  # Webex bot internal admin API used for route-cache reload and one-time
+  # static-config-to-MongoDB/OpenFGA migration. The client secret is sensitive
+  # and must come from existingSecret/externalSecrets as WEBEX_BOT_ADMIN_CLIENT_SECRET.
+  WEBEX_BOT_ADMIN_URL: "http://ai-platform-engineering-webex-bot:3002"
+  WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+  WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
+  # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+  # WEBEX_BOT_ADMIN_SCOPE: "webex:routes:read webex:routes:reload webex:routes:sync"
+  # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
+  WEBEX_DEFAULT_TEAM_SLUG: ""
+  WEBEX_DEFAULT_AGENT_ID: ""
   LOGO_URL: "/logo.svg"
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""
@@ -278,8 +289,8 @@ config:
 # Example: kubectl create secret generic my-caipe-secrets --from-literal=MONGODB_URI='mongodb://user:pass@host:27017/caipe'
 # For AWS DocumentDB use the DocumentDB connection string (MongoDB-compatible) as MONGODB_URI.
 # You can also include NEXTAUTH_SECRET, OIDC_*, etc. in the same secret.
-# Slack bot admin sync/reload: include SLACK_BOT_ADMIN_CLIENT_SECRET when
-# enabling the Slack bot admin API.
+# Slack / Webex bot admin sync/reload: include SLACK_BOT_ADMIN_CLIENT_SECRET and
+# WEBEX_BOT_ADMIN_CLIENT_SECRET when enabling the respective bot admin APIs.
 existingSecret: ""
 
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
@@ -324,6 +335,14 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: SLACK_BOT_ADMIN_CLIENT_SECRET
+    # - secretKey: WEBEX_BOT_ADMIN_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: WEBEX_BOT_ADMIN_CLIENT_SECRET
+    # - secretKey: WEBEX_LINK_HMAC_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: WEBEX_LINK_HMAC_SECRET
 
 # Structured application config (models, MCP servers, agents).
 # Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.

@@ -134,6 +134,11 @@ const sidebars: SidebarsConfig = {
                       id: 'installation/helm-charts/ai-platform-engineering/slack-bot-chart',
                       label: 'slack-bot',
                     },
+                    {
+                      type: 'doc',
+                      id: 'installation/helm-charts/ai-platform-engineering/webex-bot-chart',
+                      label: 'webex-bot',
+                    },
                   ],
                 },
                 {
@@ -337,6 +342,7 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
             { type: 'doc', id: 'integrations/backstage-plugin', label: 'Agent Forge (Backstage)' },
             { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
+            { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
             { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
           ],
         },

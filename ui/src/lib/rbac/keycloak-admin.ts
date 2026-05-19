@@ -631,6 +631,9 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
 const SLACK_BOT_CLIENT_ID =
   process.env.KEYCLOAK_BOT_CLIENT_ID?.trim() || "caipe-slack-bot";
 
+const WEBEX_BOT_CLIENT_ID =
+  process.env.KEYCLOAK_WEBEX_BOT_CLIENT_ID?.trim() || "caipe-webex-bot";
+
 const AGENTGATEWAY_CLIENT_ID =
   process.env.KEYCLOAK_AGENTGATEWAY_CLIENT_ID?.trim() || "agentgateway";
 
@@ -653,6 +656,22 @@ interface KeycloakProtocolMapper {
   config?: Record<string, string>;
 }
 
+interface KeycloakManagementPermissions {
+  scopePermissions?: Record<string, string | undefined>;
+}
+
+interface KeycloakAuthzPolicy {
+  id: string;
+  name: string;
+}
+
+interface KeycloakScopePermission {
+  id?: string;
+  name?: string;
+  policies?: string[];
+  [key: string]: unknown;
+}
+
 async function getClientByClientId(clientId: string): Promise<KeycloakClient | null> {
   const enc = encodeURIComponent(clientId);
   const response = await adminFetch(`/clients?clientId=${enc}`, { method: "GET" });
@@ -664,6 +683,124 @@ async function getClientByClientId(clientId: string): Promise<KeycloakClient | n
   const cid = typeof c.clientId === "string" ? c.clientId : "";
   if (!id || !cid) return null;
   return { id, clientId: cid };
+}
+
+async function enableClientManagementPermissions(
+  clientUuid: string,
+  clientId: string
+): Promise<KeycloakManagementPermissions> {
+  const enc = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${enc}/management/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled: true }),
+  });
+  await assertOk(response, `enableClientManagementPermissions(${clientId})`);
+  return readClientManagementPermissions(clientUuid, clientId);
+}
+
+async function readClientManagementPermissions(
+  clientUuid: string,
+  clientId: string
+): Promise<KeycloakManagementPermissions> {
+  const enc = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${enc}/management/permissions`, {
+    method: "GET",
+  });
+  await assertOk(response, `readClientManagementPermissions(${clientId})`);
+  return (await response.json()) as KeycloakManagementPermissions;
+}
+
+async function getUsersImpersonatePermissionId(): Promise<string | null> {
+  const response = await adminFetch("/users-management-permissions", { method: "GET" });
+  await assertOk(response, "getUsersImpersonatePermissionId");
+  const payload = (await response.json()) as KeycloakManagementPermissions;
+  return payload.scopePermissions?.impersonate ?? null;
+}
+
+async function getClientPolicyByName(
+  realmManagementUuid: string,
+  policyName: string
+): Promise<KeycloakAuthzPolicy | null> {
+  const response = await adminFetch(
+    `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/policy?name=${encodeURIComponent(policyName)}`,
+    { method: "GET" }
+  );
+  await assertOk(response, `getClientPolicyByName(${policyName})`);
+  const policies = await parseJsonArray<Record<string, unknown>>(response);
+  const match = policies[0];
+  if (!match) return null;
+  const id = typeof match.id === "string" ? match.id : "";
+  const name = typeof match.name === "string" ? match.name : policyName;
+  return id ? { id, name } : null;
+}
+
+async function createClientPolicy(
+  realmManagementUuid: string,
+  policyName: string,
+  description: string,
+  clientUuid: string
+): Promise<KeycloakAuthzPolicy> {
+  const response = await adminFetch(
+    `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/policy/client`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: policyName,
+        description,
+        clients: [clientUuid],
+      }),
+    }
+  );
+  await assertOk(response, `createClientPolicy(${policyName})`);
+  const payload = (await response.json()) as Record<string, unknown>;
+  const id = typeof payload.id === "string" ? payload.id : "";
+  if (!id) {
+    throw new Error(`Keycloak client policy "${policyName}" was created without an id`);
+  }
+  return { id, name: policyName };
+}
+
+async function ensureClientPolicy(
+  realmManagementUuid: string,
+  policyName: string,
+  description: string,
+  clientUuid: string
+): Promise<KeycloakAuthzPolicy> {
+  const existing = await getClientPolicyByName(realmManagementUuid, policyName);
+  if (existing) return existing;
+  return createClientPolicy(realmManagementUuid, policyName, description, clientUuid);
+}
+
+async function attachPolicyToScopePermission(
+  realmManagementUuid: string,
+  permissionId: string,
+  policyId: string
+): Promise<void> {
+  const encRealmManagement = encodeURIComponent(realmManagementUuid);
+  const encPermission = encodeURIComponent(permissionId);
+  const permissionPath = `/clients/${encRealmManagement}/authz/resource-server/permission/scope/${encPermission}`;
+  const [response, associatedResponse] = await Promise.all([
+    adminFetch(permissionPath, { method: "GET" }),
+    adminFetch(`${permissionPath}/associatedPolicies`, { method: "GET" }),
+  ]);
+  await assertOk(response, `readScopePermission(${permissionId})`);
+  await assertOk(associatedResponse, `readScopePermissionPolicies(${permissionId})`);
+  const permission = (await response.json()) as KeycloakScopePermission;
+  const associatedPolicies = await parseJsonArray<Record<string, unknown>>(associatedResponse);
+  const policies = new Set(Array.isArray(permission.policies) ? permission.policies : []);
+  for (const policy of associatedPolicies) {
+    if (typeof policy.id === "string") {
+      policies.add(policy.id);
+    }
+  }
+  if (policies.has(policyId)) return;
+  policies.add(policyId);
+
+  const updateResponse = await adminFetch(permissionPath, {
+    method: "PUT",
+    body: JSON.stringify({ ...permission, policies: [...policies] }),
+  });
+  await assertOk(updateResponse, `attachPolicyToScopePermission(${permissionId})`);
 }
 
 async function listClientScopes(): Promise<KeycloakClientScope[]> {
@@ -827,6 +964,23 @@ async function bindScopeAsDefault(
   }
 }
 
+async function listDefaultClientScopes(clientUuid: string): Promise<KeycloakClientScope[]> {
+  const response = await adminFetch(
+    `/clients/${encodeURIComponent(clientUuid)}/default-client-scopes`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listDefaultClientScopes");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw
+    .map((s) => {
+      const id = typeof s.id === "string" ? s.id : "";
+      const name = typeof s.name === "string" ? s.name : "";
+      if (!id || !name) return null;
+      return { id, name } as KeycloakClientScope;
+    })
+    .filter((scope): scope is KeycloakClientScope => scope !== null);
+}
+
 async function unbindDefaultScope(
   clientUuid: string,
   scopeId: string
@@ -932,6 +1086,114 @@ export async function ensureTeamClientScope(slug: string): Promise<void> {
 }
 
 /**
+ * Select the single agentgateway `team-*` default scope that should contribute
+ * `active_team` to token-exchange results.
+ *
+ * This is a narrow repair for Keycloak's token-exchange behavior: when multiple
+ * hardcoded active-team mappers are default scopes on the target audience,
+ * mapper order is undefined and the bot can receive the wrong `active_team`.
+ */
+export async function selectAgentGatewayActiveTeamScope(slug: string): Promise<void> {
+  if (!isValidTeamSlug(slug)) {
+    throw new Error(
+      `Invalid team slug "${slug}" — must be lowercase alphanumerics with hyphens, max 63 chars`
+    );
+  }
+  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
+  if (!agwClient) {
+    throw new Error(`Keycloak audience client "${AGENTGATEWAY_CLIENT_ID}" not found`);
+  }
+  const targetScope = await getClientScopeByName(`team-${slug}`);
+  if (!targetScope) {
+    throw new Error(`Keycloak client scope "team-${slug}" not found`);
+  }
+
+  const defaultScopes = await listDefaultClientScopes(agwClient.id);
+  await Promise.all(
+    defaultScopes
+      .filter((scope) => scope.name.startsWith("team-") && scope.id !== targetScope.id)
+      .map((scope) => unbindDefaultScope(agwClient.id, scope.id))
+  );
+  await bindScopeAsDefault(agwClient.id, targetScope.id);
+}
+
+/**
+ * Idempotently repairs the Keycloak token-exchange permissions required for
+ * the Webex bot to mint user-scoped tokens whose target audience is
+ * `agentgateway`.
+ *
+ * Keycloak authorizes token exchange on the target audience client. Enabling
+ * management permissions on `caipe-webex-bot` is not enough; the Webex bot's
+ * client policy must also be attached to `agentgateway`'s token-exchange scope
+ * permission.
+ */
+export async function ensureWebexBotOboPermissions(): Promise<void> {
+  const [webexBotClient, agentGatewayClient, realmManagementClient] = await Promise.all([
+    getClientByClientId(WEBEX_BOT_CLIENT_ID),
+    getClientByClientId(AGENTGATEWAY_CLIENT_ID),
+    getClientByClientId("realm-management"),
+  ]);
+
+  if (!webexBotClient) {
+    throw new Error(`Keycloak Webex bot client "${WEBEX_BOT_CLIENT_ID}" not found`);
+  }
+  if (!agentGatewayClient) {
+    throw new Error(`Keycloak audience client "${AGENTGATEWAY_CLIENT_ID}" not found`);
+  }
+  if (!realmManagementClient) {
+    throw new Error('Keycloak client "realm-management" not found');
+  }
+
+  const [webexPerms, agentGatewayPerms, usersImpersonatePermissionId] = await Promise.all([
+    enableClientManagementPermissions(webexBotClient.id, webexBotClient.clientId),
+    enableClientManagementPermissions(agentGatewayClient.id, agentGatewayClient.clientId).catch(() =>
+      readClientManagementPermissions(agentGatewayClient.id, agentGatewayClient.clientId)
+    ),
+    getUsersImpersonatePermissionId(),
+  ]);
+
+  const webexTokenExchangePermissionId = webexPerms.scopePermissions?.["token-exchange"];
+  const agentGatewayTokenExchangePermissionId =
+    agentGatewayPerms.scopePermissions?.["token-exchange"];
+  if (!webexTokenExchangePermissionId) {
+    throw new Error(`Keycloak client "${WEBEX_BOT_CLIENT_ID}" has no token-exchange permission`);
+  }
+  if (!agentGatewayTokenExchangePermissionId) {
+    throw new Error(
+      `Keycloak client "${AGENTGATEWAY_CLIENT_ID}" has no token-exchange permission`
+    );
+  }
+  if (!usersImpersonatePermissionId) {
+    throw new Error("Keycloak users impersonate permission is not enabled");
+  }
+
+  const policy = await ensureClientPolicy(
+    realmManagementClient.id,
+    "caipe-webex-bot-token-exchange",
+    "Allows caipe-webex-bot to perform token exchange / OBO impersonation.",
+    webexBotClient.id
+  );
+
+  await Promise.all([
+    attachPolicyToScopePermission(
+      realmManagementClient.id,
+      webexTokenExchangePermissionId,
+      policy.id
+    ),
+    attachPolicyToScopePermission(
+      realmManagementClient.id,
+      usersImpersonatePermissionId,
+      policy.id
+    ),
+    attachPolicyToScopePermission(
+      realmManagementClient.id,
+      agentGatewayTokenExchangePermissionId,
+      policy.id
+    ),
+  ]);
+}
+
+/**
  * Idempotently remove a team scope. Unbinds from the bot client first, then
  * deletes the scope itself. Safe if the scope is already missing.
  */
@@ -953,4 +1215,41 @@ export async function deleteTeamClientScope(slug: string): Promise<void> {
     await unbindDefaultScope(agwClient.id, scope.id);
   }
   await deleteClientScope(scope.id);
+}
+
+function readAttributeValue(attrs: unknown, attributeName: string): string | undefined {
+  if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;
+  const values = (attrs as Record<string, unknown>)[attributeName];
+  if (!Array.isArray(values) || values.length === 0) return undefined;
+  const first = values[0];
+  return typeof first === "string" && first.trim() ? first.trim() : undefined;
+}
+
+/**
+ * Returns the Keycloak user id that currently owns `attributeValue` for `attributeName`, if any.
+ */
+export async function findRealmUserIdByAttribute(
+  attributeName: string,
+  attributeValue: string
+): Promise<string | null> {
+  const trimmed = attributeValue.trim();
+  if (!trimmed) return null;
+
+  const q = `${attributeName}:${trimmed}`;
+  const response = await adminFetch(
+    `/users?q=${encodeURIComponent(q)}&max=5`,
+    { method: "GET" }
+  );
+  await assertOk(response, `findRealmUserIdByAttribute(${attributeName})`);
+  const users = await parseJsonArray<Record<string, unknown>>(response);
+
+  for (const user of users) {
+    const value = readAttributeValue(user.attributes, attributeName);
+    if (value !== trimmed) continue;
+    const id = user.id;
+    if (id !== undefined && id !== null) {
+      return String(id);
+    }
+  }
+  return null;
 }

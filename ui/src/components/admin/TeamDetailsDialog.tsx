@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -30,12 +30,15 @@ import {
   RefreshCw,
   Plus,
   Search,
+  MessageSquare,
 } from "lucide-react";
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
 
-export type DialogMode = "details" | "members" | "resources" | "kbs" | "channels";
+export type DialogMode = "details" | "members" | "resources" | "kbs" | "channels" | "webex";
+
+const TEAM_SLACK_DISCOVERY_PAGE_SIZE = 50;
 
 interface ResourceOption {
   id: string;
@@ -82,6 +85,35 @@ interface DiscoveryPayload {
   cached: boolean;
   fetched_at: number;
   query: { q: string; member_only: boolean; limit: number };
+}
+
+interface TeamWebexSpace {
+  webex_space_id: string;
+  space_name: string;
+  webex_workspace_id?: string;
+}
+
+interface WebexSpacesPayload {
+  team_id: string;
+  spaces: TeamWebexSpace[];
+}
+
+interface DiscoveredWebexSpace {
+  id: string;
+  name: string;
+  type: string;
+  is_locked: boolean;
+}
+
+interface WebexDiscoveryPayload {
+  spaces: DiscoveredWebexSpace[];
+  total_matches: number;
+  total_visible: number;
+  next_cursor: string | null;
+  has_more: boolean;
+  cached: boolean;
+  fetched_at: number;
+  query: { q: string; limit: number };
 }
 
 interface TeamDetailsDialogProps {
@@ -180,9 +212,23 @@ export function TeamDetailsDialog({
   const [manualChannelId, setManualChannelId] = useState("");
   const [manualChannelName, setManualChannelName] = useState("");
 
+  const [webexSpacesData, setWebexSpacesData] = useState<WebexSpacesPayload | null>(null);
+  const [editedWebexSpaces, setEditedWebexSpaces] = useState<TeamWebexSpace[]>([]);
+  const [webexSpacesLoading, setWebexSpacesLoading] = useState(false);
+  const [webexSpacesSaving, setWebexSpacesSaving] = useState(false);
+  const [webexSpacesNotice, setWebexSpacesNotice] = useState<string | null>(null);
+  const [webexDiscovery, setWebexDiscovery] = useState<WebexDiscoveryPayload | null>(null);
+  const [webexDiscoveryLoading, setWebexDiscoveryLoading] = useState(false);
+  const [webexDiscoveryError, setWebexDiscoveryError] = useState<string | null>(null);
+  const [webexDiscoverySearch, setWebexDiscoverySearch] = useState("");
+  const [webexDiscoveryLoadingMore, setWebexDiscoveryLoadingMore] = useState(false);
+  const [manualSpaceId, setManualSpaceId] = useState("");
+  const [manualSpaceName, setManualSpaceName] = useState("");
+
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
   const [membershipSources, setMembershipSources] = useState<TeamMembershipSource[]>([]);
+  const slackDiscoveryAutoLoadedTeamRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (open && team) {
@@ -203,8 +249,17 @@ export function TeamDetailsDialog({
       setDiscoveryError(null);
       setDiscoverySearch("");
       setDiscoveryMemberOnly(true);
+      slackDiscoveryAutoLoadedTeamRef.current = null;
       setManualChannelId("");
       setManualChannelName("");
+      setWebexSpacesData(null);
+      setEditedWebexSpaces([]);
+      setWebexSpacesNotice(null);
+      setWebexDiscovery(null);
+      setWebexDiscoveryError(null);
+      setWebexDiscoverySearch("");
+      setManualSpaceId("");
+      setManualSpaceName("");
       setMembershipSources(team.membership_sources ?? []);
     }
   }, [open, team, mode]);
@@ -307,6 +362,37 @@ export function TeamDetailsDialog({
     };
   }, [open, activeMode, currentTeam]);
 
+  useEffect(() => {
+    if (!open || activeMode !== "webex" || !currentTeam) return;
+    let cancelled = false;
+    setWebexSpacesLoading(true);
+    setError(null);
+    setWebexSpacesNotice(null);
+    fetch(`/api/admin/teams/${currentTeam._id}/webex-spaces`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || "Failed to load Webex spaces");
+        }
+        if (!cancelled) {
+          const payload = data.data as WebexSpacesPayload;
+          setWebexSpacesData(payload);
+          setEditedWebexSpaces(payload.spaces.map((s) => ({ ...s })));
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load Webex spaces");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setWebexSpacesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeMode, currentTeam]);
+
   // Discovery: first page is fetched whenever search/member-only changes
   // (debounced below). The first call against a fresh cache walks the entire
   // workspace channel list once on the server; subsequent filters/pages are
@@ -327,7 +413,7 @@ export function TeamDetailsDialog({
         const params = new URLSearchParams();
         if (q) params.set("q", q);
         params.set("member_only", memberOnly ? "1" : "0");
-        params.set("limit", "500");
+        params.set("limit", String(TEAM_SLACK_DISCOVERY_PAGE_SIZE));
         if (cursor) params.set("cursor", cursor);
         if (forceRefresh) params.set("refresh", "1");
         const res = await fetch(
@@ -368,6 +454,15 @@ export function TeamDetailsDialog({
       }),
     [fetchDiscoveryPage, discoverySearch, discoveryMemberOnly]
   );
+
+  useEffect(() => {
+    if (!open || activeMode !== "channels" || !currentTeam?._id || discovery || discoveryLoading) {
+      return;
+    }
+    if (slackDiscoveryAutoLoadedTeamRef.current === currentTeam._id) return;
+    slackDiscoveryAutoLoadedTeamRef.current = currentTeam._id;
+    loadDiscovery(false);
+  }, [open, activeMode, currentTeam?._id, discovery, discoveryLoading, loadDiscovery]);
 
   const loadMoreDiscovery = useCallback(() => {
     if (!discovery?.next_cursor) return;
@@ -464,6 +559,148 @@ export function TeamDetailsDialog({
       setError(err instanceof Error ? err.message : "Failed to save channels");
     } finally {
       setChannelsSaving(false);
+    }
+  };
+
+  const fetchWebexDiscoveryPage = useCallback(
+    async (opts: {
+      q: string;
+      cursor?: string | null;
+      forceRefresh?: boolean;
+      append: boolean;
+    }) => {
+      const { q, cursor, forceRefresh, append } = opts;
+      if (append) setWebexDiscoveryLoadingMore(true);
+      else setWebexDiscoveryLoading(true);
+      setWebexDiscoveryError(null);
+      try {
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        params.set("limit", "200");
+        if (cursor) params.set("cursor", cursor);
+        if (forceRefresh) params.set("refresh", "1");
+        const res = await fetch(`/api/admin/webex/available-spaces?${params.toString()}`);
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || `Failed (${res.status})`);
+        }
+        const payload = data.data as WebexDiscoveryPayload;
+        setWebexDiscovery((prev) =>
+          append && prev
+            ? {
+                ...payload,
+                spaces: [...prev.spaces, ...payload.spaces],
+              }
+            : payload
+        );
+      } catch (err: unknown) {
+        setWebexDiscoveryError(
+          err instanceof Error ? err.message : "Webex space discovery failed"
+        );
+      } finally {
+        if (append) setWebexDiscoveryLoadingMore(false);
+        else setWebexDiscoveryLoading(false);
+      }
+    },
+    []
+  );
+
+  const loadWebexDiscovery = useCallback(
+    (forceRefresh = false) =>
+      fetchWebexDiscoveryPage({
+        q: webexDiscoverySearch.trim(),
+        forceRefresh,
+        append: false,
+      }),
+    [fetchWebexDiscoveryPage, webexDiscoverySearch]
+  );
+
+  const loadMoreWebexDiscovery = useCallback(() => {
+    if (!webexDiscovery?.next_cursor) return;
+    void fetchWebexDiscoveryPage({
+      q: webexDiscovery.query.q,
+      cursor: webexDiscovery.next_cursor,
+      append: true,
+    });
+  }, [webexDiscovery, fetchWebexDiscoveryPage]);
+
+  useEffect(() => {
+    if (activeMode !== "webex") return;
+    if (!webexDiscovery) return;
+    const handle = setTimeout(() => {
+      void fetchWebexDiscoveryPage({
+        q: webexDiscoverySearch.trim(),
+        append: false,
+      });
+    }, 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webexDiscoverySearch, activeMode, fetchWebexDiscoveryPage]);
+
+  const handleAddSpaceFromDiscovery = (space: DiscoveredWebexSpace) => {
+    setEditedWebexSpaces((prev) => {
+      if (prev.some((p) => p.webex_space_id === space.id)) return prev;
+      return [
+        ...prev,
+        {
+          webex_space_id: space.id,
+          space_name: space.name,
+        },
+      ];
+    });
+  };
+
+  const handleAddSpaceManual = () => {
+    const id = manualSpaceId.trim();
+    const name = manualSpaceName.trim() || id;
+    if (!id) return;
+    setEditedWebexSpaces((prev) => {
+      if (prev.some((p) => p.webex_space_id === id)) return prev;
+      return [
+        ...prev,
+        {
+          webex_space_id: id,
+          space_name: name,
+        },
+      ];
+    });
+    setManualSpaceId("");
+    setManualSpaceName("");
+  };
+
+  const handleRemoveWebexSpace = (id: string) => {
+    setEditedWebexSpaces((prev) => prev.filter((s) => s.webex_space_id !== id));
+  };
+
+  const handleSaveWebexSpaces = async () => {
+    if (!currentTeam) return;
+    setWebexSpacesSaving(true);
+    setError(null);
+    setWebexSpacesNotice(null);
+    try {
+      const res = await fetch(`/api/admin/teams/${currentTeam._id}/webex-spaces`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spaces: editedWebexSpaces }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to save Webex spaces");
+      }
+      const removed: string[] = data.data?.removed_space_ids ?? [];
+      setWebexSpacesNotice(
+        removed.length > 0
+          ? `Saved. ${editedWebexSpaces.length} space(s) active; ${removed.length} removed.`
+          : `Saved. ${editedWebexSpaces.length} space(s) assigned.`
+      );
+      setWebexSpacesData((prev) =>
+        prev ? { ...prev, spaces: editedWebexSpaces.map((s) => ({ ...s })) } : prev
+      );
+      onTeamUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save Webex spaces");
+    } finally {
+      setWebexSpacesSaving(false);
     }
   };
 
@@ -695,6 +932,14 @@ export function TeamDetailsDialog({
             className="text-xs"
           >
             Slack Channels
+          </Button>
+          <Button
+            variant={activeMode === "webex" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveMode("webex")}
+            className="text-xs"
+          >
+            Webex Spaces
           </Button>
         </div>
 
@@ -969,7 +1214,7 @@ export function TeamDetailsDialog({
               Bind Slack channels to this team. The Slack bot uses{" "}
               <code className="font-mono">channel_team_mappings</code> to
               decide which team&apos;s RBAC applies to in-channel requests.
-              Agent and resource access is granted from Security &amp; Policy → OpenFGA ReBAC → Slack Channels.
+              Agent route access is granted from Integrations → Slack.
             </p>
 
             {channelsNotice && (
@@ -1019,6 +1264,65 @@ export function TeamDetailsDialog({
                   <Check className="h-4 w-4 mr-1" />
                 )}
                 Save Channels
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {activeMode === "webex" && (
+          <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
+            <p className="text-xs text-muted-foreground">
+              Bind Webex spaces to this team. The Webex bot uses{" "}
+              <code className="font-mono">webex_space_team_mappings</code> to decide which
+              team&apos;s RBAC applies to in-space requests. Agent and resource access is
+              granted from Security &amp; Policy → OpenFGA ReBAC → Webex Spaces.
+            </p>
+
+            {webexSpacesNotice && (
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-3">
+                <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                  {webexSpacesNotice}
+                </p>
+              </div>
+            )}
+
+            {webexSpacesLoading || !webexSpacesData ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <WebexSpacesPanel
+                assigned={editedWebexSpaces}
+                discovery={webexDiscovery}
+                discoveryLoading={webexDiscoveryLoading}
+                discoveryLoadingMore={webexDiscoveryLoadingMore}
+                discoveryError={webexDiscoveryError}
+                discoverySearch={webexDiscoverySearch}
+                onSearchChange={setWebexDiscoverySearch}
+                onLoadDiscovery={loadWebexDiscovery}
+                onLoadMoreDiscovery={loadMoreWebexDiscovery}
+                onAddFromDiscovery={handleAddSpaceFromDiscovery}
+                onAddManual={handleAddSpaceManual}
+                onRemove={handleRemoveWebexSpace}
+                manualSpaceId={manualSpaceId}
+                manualSpaceName={manualSpaceName}
+                onManualIdChange={setManualSpaceId}
+                onManualNameChange={setManualSpaceName}
+              />
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button
+                size="sm"
+                onClick={handleSaveWebexSpaces}
+                disabled={webexSpacesSaving || webexSpacesLoading || !webexSpacesData}
+              >
+                {webexSpacesSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Check className="h-4 w-4 mr-1" />
+                )}
+                Save Spaces
               </Button>
             </div>
           </div>
@@ -1295,6 +1599,8 @@ function SlackChannelsPanel({
   // channel they searched for doesn't have a + button.
   const discoveryChannels = discovery?.channels ?? [];
   const trimmedSearch = discoverySearch.trim();
+  const totalBotVisibleChannels = discovery?.total_matches ?? 0;
+  const shownBotVisibleChannels = discoveryChannels.length;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
@@ -1377,40 +1683,42 @@ function SlackChannelsPanel({
               ) : (
                 <RefreshCw className="h-3 w-3" />
               )}
-              {discovery ? "Refresh cache" : "Discover"}
+              Refresh bot channels
             </Button>
           </div>
 
-          {/* Search + member-only toggle. Hidden until first Discover so the
-              tab stays simple when admins haven't engaged with discovery
-              yet. */}
-          {discovery && (
-            <>
-              <div className="relative">
-                <Search className="h-3 w-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
-                <Input
-                  value={discoverySearch}
-                  onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="Search by name…"
-                  className="h-7 text-xs pl-6"
-                />
-              </div>
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={discoveryMemberOnly}
-                  onChange={(e) => onMemberOnlyChange(e.target.checked)}
-                  className="h-3 w-3"
-                />
-                <span>Only channels the bot is a member of</span>
-                {!discoveryMemberOnly && (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    · including {discovery.total_visible} workspace channels
-                  </span>
-                )}
-              </label>
-            </>
-          )}
+          <div className="relative">
+            <Search className="h-3 w-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
+            <Input
+              value={discoverySearch}
+              onChange={(e) => onSearchChange(e.target.value)}
+              placeholder="Search bot-visible channels..."
+              className="h-7 text-xs pl-6"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            {discovery ? (
+              <span>
+                {totalBotVisibleChannels} bot-visible channels found. Showing {shownBotVisibleChannels}.
+              </span>
+            ) : (
+              <span>Loading bot-visible channels...</span>
+            )}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={discoveryMemberOnly}
+                onChange={(e) => onMemberOnlyChange(e.target.checked)}
+                className="h-3 w-3"
+              />
+              <span>Only channels the bot is a member of</span>
+              {discovery && !discoveryMemberOnly && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  · including {discovery.total_visible} workspace channels
+                </span>
+              )}
+            </label>
+          </div>
         </div>
 
         {discoveryError && (
@@ -1425,7 +1733,7 @@ function SlackChannelsPanel({
         <ScrollArea className="flex-1 p-2" style={{ maxHeight: "260px" }}>
           {!discovery && !discoveryLoading ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              Click <strong>Discover</strong> to list channels the bot can see.
+              Loading channels the bot can see...
             </p>
           ) : discovery && discoveryChannels.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
@@ -1540,3 +1848,239 @@ function SlackChannelsPanel({
   );
 }
 
+function WebexSpacesPanel({
+  assigned,
+  discovery,
+  discoveryLoading,
+  discoveryLoadingMore,
+  discoveryError,
+  discoverySearch,
+  onSearchChange,
+  onLoadDiscovery,
+  onLoadMoreDiscovery,
+  onAddFromDiscovery,
+  onAddManual,
+  onRemove,
+  manualSpaceId,
+  manualSpaceName,
+  onManualIdChange,
+  onManualNameChange,
+}: {
+  assigned: TeamWebexSpace[];
+  discovery: WebexDiscoveryPayload | null;
+  discoveryLoading: boolean;
+  discoveryLoadingMore: boolean;
+  discoveryError: string | null;
+  discoverySearch: string;
+  onSearchChange: (v: string) => void;
+  onLoadDiscovery: (forceRefresh?: boolean) => void;
+  onLoadMoreDiscovery: () => void;
+  onAddFromDiscovery: (space: DiscoveredWebexSpace) => void;
+  onAddManual: () => void;
+  onRemove: (id: string) => void;
+  manualSpaceId: string;
+  manualSpaceName: string;
+  onManualIdChange: (v: string) => void;
+  onManualNameChange: (v: string) => void;
+}) {
+  const assignedIds = new Set(assigned.map((s) => s.webex_space_id));
+  const discoverySpaces = discovery?.spaces ?? [];
+  const trimmedSearch = discoverySearch.trim();
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
+      <div className="rounded-md border flex flex-col min-h-0">
+        <div className="px-3 py-2 border-b bg-muted/30">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Assigned spaces ({assigned.length})
+          </p>
+        </div>
+        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "320px" }}>
+          {assigned.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              No spaces assigned. Pick from the right →
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {assigned.map((space) => (
+                <li
+                  key={space.webex_space_id}
+                  className="rounded border p-2 space-y-2 bg-background"
+                >
+                  <div className="flex items-start gap-2">
+                    <MessageSquare className="h-3.5 w-3.5 mt-1 text-muted-foreground shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{space.space_name}</div>
+                      <div className="text-[11px] font-mono text-muted-foreground truncate">
+                        {space.webex_space_id}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => onRemove(space.webex_space_id)}
+                      title="Remove from team"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </ScrollArea>
+      </div>
+
+      <div className="rounded-md border flex flex-col min-h-0">
+        <div className="px-3 py-2 border-b bg-muted/30 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Available spaces
+              {discovery && (
+                <span className="ml-1 normal-case font-normal">
+                  ({discovery.spaces.length}
+                  {discovery.has_more ? ` of ${discovery.total_matches}` : ""})
+                </span>
+              )}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[11px] gap-1"
+              onClick={() => onLoadDiscovery(Boolean(discovery))}
+              disabled={discoveryLoading}
+              title={
+                discovery
+                  ? "Re-fetch space list from Webex (invalidates cache)"
+                  : "Discover spaces from Webex"
+              }
+            >
+              {discoveryLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              {discovery ? "Refresh cache" : "Discover"}
+            </Button>
+          </div>
+          {discovery && (
+            <div className="relative">
+              <Search className="h-3 w-3 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
+              <Input
+                value={discoverySearch}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Search by title…"
+                className="h-7 text-xs pl-6"
+              />
+            </div>
+          )}
+        </div>
+
+        {discoveryError && (
+          <div className="px-3 py-2 border-b bg-amber-500/5">
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              Discovery failed: {discoveryError}. You can still add spaces manually below.
+            </p>
+          </div>
+        )}
+
+        <ScrollArea className="flex-1 p-2" style={{ maxHeight: "260px" }}>
+          {!discovery && !discoveryLoading ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Click <strong>Discover</strong> to list Webex spaces the bot can see.
+            </p>
+          ) : discovery && discoverySpaces.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              {trimmedSearch
+                ? `No spaces match "${trimmedSearch}".`
+                : "No Webex spaces available."}
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {discoverySpaces.map((space) => {
+                const alreadyAssigned = assignedIds.has(space.id);
+                return (
+                  <li
+                    key={space.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/50"
+                  >
+                    {space.is_locked ? (
+                      <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
+                    ) : (
+                      <MessageSquare className="h-3 w-3 text-muted-foreground shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm truncate">{space.name}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate">
+                        {space.id}
+                      </div>
+                    </div>
+                    {alreadyAssigned ? (
+                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
+                        Assigned
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 w-6 p-0 shrink-0"
+                        onClick={() => onAddFromDiscovery(space)}
+                        title="Assign to team"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+              {discovery?.has_more && (
+                <li className="pt-2 flex justify-center">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-[11px] gap-1"
+                    onClick={onLoadMoreDiscovery}
+                    disabled={discoveryLoadingMore}
+                  >
+                    {discoveryLoadingMore ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                    Load more ({discovery.total_matches - discoverySpaces.length} remaining)
+                  </Button>
+                </li>
+              )}
+            </ul>
+          )}
+        </ScrollArea>
+
+        <div className="px-3 py-2 border-t bg-muted/20 space-y-1">
+          <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Or add by space ID
+          </Label>
+          <div className="flex gap-1">
+            <Input
+              value={manualSpaceId}
+              onChange={(e) => onManualIdChange(e.target.value)}
+              placeholder="Y2lzY29zcGFyazov..."
+              className="h-7 text-xs font-mono flex-1 min-w-0"
+            />
+            <Input
+              value={manualSpaceName}
+              onChange={(e) => onManualNameChange(e.target.value)}
+              placeholder="Space title"
+              className="h-7 text-xs flex-1 min-w-0"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 shrink-0"
+              onClick={onAddManual}
+              disabled={!manualSpaceId.trim()}
+            >
+              <Plus className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

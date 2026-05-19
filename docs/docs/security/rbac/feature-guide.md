@@ -510,15 +510,14 @@ The OpenFGA ReBAC admin surface is for understanding and managing relationships.
 
 It supports:
 
-- Guided tuple creation.
-- Access checks.
+- Unified Access Manager checks and grant/revoke remediation.
 - Team-scoped graph viewing with an optional selected-user filter for large deployments.
 - Relationship provenance.
 - Staged policy change sets.
 - Validation before apply.
 - Tuple inspection and cleanup.
 
-The default OpenFGA ReBAC sub-tab is **OpenFGA Tuples** because raw tuple inspection is the most direct operational view. Use `openfgaTab=tuples`, `openfgaTab=builder`, `openfgaTab=explorer`, `openfgaTab=slack`, or `openfgaTab=graph` in the admin URL to deep-link to a specific sub-tab.
+The default OpenFGA ReBAC sub-tab is **OpenFGA Tuples** because raw tuple inspection is the most direct operational view. Use `openfgaTab=tuples`, `openfgaTab=access`, or `openfgaTab=graph` in the admin URL to deep-link to a specific sub-tab; old `openfgaTab=builder` and `openfgaTab=explorer` links open Access Manager. RAG Team Access now lives under **Admin → Resources**, while Slack and Webex setup live under **Admin → Integrations**; legacy `openfgaTab=rag`, `openfgaTab=slack`, and `openfgaTab=webex` links canonicalize to their moved surfaces.
 
 Use it when:
 

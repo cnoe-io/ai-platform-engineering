@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,9 @@ import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/componen
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
+import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
+import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
+import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
 import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
@@ -48,6 +51,7 @@ import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkil
 import { UserManagementTab } from "@/components/admin/UserManagementTab";
 import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
+import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
@@ -211,11 +215,19 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'migrations', 'ai-review', 'settings'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'slack', 'graph', 'tuples'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'migrations', 'ai-review', 'settings', 'slack', 'webex', 'rag-access'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples'] as const;
+const MOVED_ADMIN_TAB_MAP = {
+  insights: 'stats',
+} as const;
+const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
+  slack: 'slack',
+  webex: 'webex',
+  rag: 'rag-access',
+} as const;
 
-type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'system';
+type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
 const DEFAULT_ADMIN_TAB = 'settings';
 const DEFAULT_READONLY_TAB = 'users';
 
@@ -233,19 +245,20 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   {
-    key: 'system',
-    label: 'System',
+    key: 'settings',
+    label: 'Settings',
     icon: Settings,
     tabs: [
       { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
+      { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
-      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
   },
   {
     key: 'people',
-    label: 'Users & Teams',
+    label: 'Teams & Users',
     icon: Users,
     tabs: [
       { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
@@ -254,13 +267,22 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
+    key: 'integrations',
+    label: 'Integrations',
+    icon: Globe,
+    tabs: [
+      { value: 'slack', label: 'Slack', icon: Hash, gateKey: 'slack' },
+      { value: 'webex', label: 'Webex', icon: MessageSquare, gateKey: 'webex' },
+    ],
+  },
+  {
     key: 'insights',
     label: 'Insights',
     icon: TrendingUp,
     tabs: [
+      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
       { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
       { value: 'nps', label: 'NPS', icon: Star, gateKey: 'nps' },
-      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
     ],
   },
   {
@@ -280,6 +302,7 @@ const CATEGORIES: Category[] = [
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
   },
 ];
@@ -303,13 +326,86 @@ function isValidOpenFgaSubtab(tab: string | null): tab is typeof VALID_OPENFGA_S
   return Boolean(tab && (VALID_OPENFGA_SUBTABS as readonly string[]).includes(tab));
 }
 
+function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
+  if (!tab) return null;
+  return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
+}
+
+function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | null }) {
+  if (!overview) return null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+          <Users className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_users}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            DAU: {overview.dau} | MAU: {overview.mau}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Conversations</CardTitle>
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_conversations}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Today: +{overview.conversations_today}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Messages</CardTitle>
+          <Activity className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_messages}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Today: +{overview.messages_today}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
+          <Share2 className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.shared_conversations}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {overview.total_conversations > 0
+              ? ((overview.shared_conversations / overview.total_conversations) * 100).toFixed(1)
+              : '0.0'}
+            % of all conversations
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function movedOpenFgaDeepLinkTab(tab: string | null): typeof VALID_TABS[number] | null {
+  if (!tab) return null;
+  return (MOVED_OPENFGA_DEEPLINK_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
+}
+
 function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
-  const { gates } = useAdminTabGates();
+  const { gates, loading: adminTabGatesLoading } = useAdminTabGates();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const npsEnabled = getConfig('npsEnabled');
@@ -317,6 +413,7 @@ function AdminPage() {
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsRefreshing, setTeamsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
@@ -363,16 +460,18 @@ function AdminPage() {
   );
 
   useEffect(() => {
-    if (adminRoleLoading) return;
+    if (adminRoleLoading || adminTabGatesLoading) return;
     if (visibleCategories.length === 0) return;
 
     const requestedTab = searchParams.get('tab');
     const requestedCategory = searchParams.get('cat');
     const requestedOpenFgaSubtab = searchParams.get('subtab') ?? searchParams.get('openfgaTab');
     const shouldOpenOpenFgaDeepLink = isValidOpenFgaSubtab(requestedOpenFgaSubtab);
+    const movedDeepLinkTab = movedOpenFgaDeepLinkTab(requestedOpenFgaSubtab);
+    const movedTab = movedAdminTab(requestedTab);
     const tabFromUrl = shouldOpenOpenFgaDeepLink
       ? 'openfga'
-      : isValidTab(requestedTab) ? requestedTab : null;
+      : movedDeepLinkTab ?? movedTab ?? (isValidTab(requestedTab) ? requestedTab : null);
     const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
     const defaultCategory = categoryForTab(defaultTab);
 
@@ -417,11 +516,16 @@ function AdminPage() {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
+      if (nextTab !== 'openfga') {
+        params.delete('subtab');
+        params.delete('openfgaTab');
+      }
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     }
   }, [
     activeCategory,
     activeTab,
+    adminTabGatesLoading,
     adminRoleLoading,
     defaultTab,
     pathname,
@@ -443,6 +547,10 @@ function AdminPage() {
         const params = new URLSearchParams(searchParams.toString());
         params.set('cat', catKey);
         params.set('tab', firstVisible.value);
+        if (firstVisible.value !== 'openfga') {
+          params.delete('subtab');
+          params.delete('openfgaTab');
+        }
         router.replace(`${pathname}?${params.toString()}`, { scroll: false });
       }
     },
@@ -548,6 +656,31 @@ function AdminPage() {
     }
   }, [status]);
 
+  const fetchTeamsFromDb = async (): Promise<Team[]> => {
+    const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load teams');
+    }
+
+    return result.data?.teams || [];
+  };
+
+  const loadTeams = async () => {
+    setTeamsRefreshing(true);
+    try {
+      setTeams(await fetchTeamsFromDb());
+    } catch (err: any) {
+      console.error('[Admin] Failed to refresh teams:', err);
+      alert(`Failed to refresh teams: ${err.message || 'Unknown error'}`);
+    } finally {
+      setTeamsRefreshing(false);
+    }
+  };
+
   // Expand team: prefixed selections to member emails
   const expandStatsUsers = (selected: string[]): string[] => {
     const emails = new Set<string>();
@@ -610,7 +743,7 @@ function AdminPage() {
       // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
       // Always fetch unfiltered stats for the global overview cards
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const [statsRes, globalStatsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
+      const [statsRes, globalStatsRes, usersRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
         (() => {
           const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
           if (sourceFilter !== 'all') p.set('source', sourceFilter);
@@ -619,7 +752,7 @@ function AdminPage() {
         })(),
         hasStatsFilters ? fetch('/api/admin/stats') : null,
         fetch('/api/admin/users'),
-        fetch('/api/admin/teams').catch(() => null),
+        fetchTeamsFromDb().catch(() => []),
         fetch('/api/admin/stats/skills').catch(() => null),
         feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
         npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
@@ -637,11 +770,10 @@ function AdminPage() {
         return;
       }
 
-      const [statsResponse, globalStatsResponse, usersResponse, teamsResponse] = await Promise.all([
+      const [statsResponse, globalStatsResponse, usersResponse] = await Promise.all([
         statsRes.json(),
         globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
         usersRes.json(),
-        teamsRes ? teamsRes.json().catch(() => ({ success: true, data: { teams: [] } })) : { success: true, data: { teams: [] } },
       ]);
 
       if (statsResponse.success) {
@@ -654,9 +786,7 @@ function AdminPage() {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
 
-      if (teamsResponse.success) {
-        setTeams(teamsResponse.data.teams || []);
-      }
+      setTeams(teamsData);
 
       if (skillStatsRes?.ok) {
         const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
@@ -912,63 +1042,6 @@ function AdminPage() {
               </p>
             </div>
 
-            {/* Overview Stats — always shows unfiltered global totals */}
-            {globalOverview && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_users}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      DAU: {globalOverview.dau} | MAU: {globalOverview.mau}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Conversations</CardTitle>
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_conversations}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{globalOverview.conversations_today}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Messages</CardTitle>
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_messages}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{globalOverview.messages_today}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
-                    <Share2 className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.shared_conversations}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {globalOverview.total_conversations > 0 ? ((globalOverview.shared_conversations / globalOverview.total_conversations) * 100).toFixed(1) : '0.0'}% of all conversations
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
               userSelectedAdminTabRef.current = true;
@@ -977,6 +1050,10 @@ function AdminPage() {
               const params = new URLSearchParams(searchParams.toString());
               params.set('cat', categoryForTab(tab));
               params.set('tab', tab);
+              if (tab !== 'openfga') {
+                params.delete('subtab');
+                params.delete('openfgaTab');
+              }
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
               {/* Category selector */}
@@ -1020,9 +1097,33 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.settings && (
+                <TabsContent value="release-notes" className="space-y-4">
+                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
               {tabGateValues.ai_review && (
                 <TabsContent value="ai-review" className="space-y-4">
                   <ReviewConfigsTab />
+                </TabsContent>
+              )}
+
+              {tabGateValues.openfga && (
+                <TabsContent value="rag-access" className="space-y-4">
+                  <RagTeamAccessPanel isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.slack && (
+                <TabsContent value="slack" className="space-y-4">
+                  <SlackChannelRebacPanel disabled={!isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.webex && (
+                <TabsContent value="webex" className="space-y-4">
+                  <WebexSpaceRebacPanel disabled={!isAdmin} />
                 </TabsContent>
               )}
 
@@ -1040,14 +1141,28 @@ function AdminPage() {
 
               {/* Team Management Tab */}
               <TabsContent value="teams" className="space-y-4">
-                {isAdmin && (
-                  <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={loadTeams}
+                    disabled={teamsRefreshing}
+                  >
+                    {teamsRefreshing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Refresh Teams
+                  </Button>
+                  {isAdmin && (
                     <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
                       <UserPlus className="h-4 w-4" />
                       Create Team
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
                 {teams.length === 0 ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -1946,6 +2061,8 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
+                <OverviewStatsCards overview={globalOverview} />
+
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">

@@ -1394,6 +1394,14 @@ services:
       - SLACK_BOT_ADMIN_CLIENT_SECRET=${SLACK_BOT_ADMIN_CLIENT_SECRET:-}
       - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
+      - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
+      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
+      - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
+      - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
+      - WEBEX_BOT_ADMIN_AUDIENCE=${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}
+      - WEBEX_BOT_ADMIN_TOKEN_URL=${WEBEX_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       # App config: loaded at Next.js startup via instrumentation.ts.
       # APP_CONFIG_FILE on the host (set in .env) selects which file is
       # mounted — defaults to the committed example template (./config/app-config.yaml,
@@ -2367,6 +2375,71 @@ services:
         condition: service_started
     profiles:
       - slack-bot
+      - all-integrations
+
+  ####################################################################################################
+  #                                 Webex Bot Integration                                            #
+  ####################################################################################################
+  webex-bot:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.webex-bot
+    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-localtag}
+    container_name: webex-bot
+    volumes:
+      - ./ai_platform_engineering/integrations/webex_bot:/app/ai_platform_engineering/integrations/webex_bot
+      - /app/ai_platform_engineering/integrations/webex_bot/.venv
+    command:
+      - sh
+      - -c
+      - |
+        if [ "${DEV_HOT_RELOAD:-false}" = "true" ]; then
+          cd /app/ai_platform_engineering/integrations/webex_bot && uv sync && exec uv run watchfiles --filter python 'python -m ai_platform_engineering.integrations.webex_bot.main' /app/ai_platform_engineering/integrations/webex_bot
+        else
+          exec python -m ai_platform_engineering.integrations.webex_bot.main
+        fi
+    env_file: [.env]
+    ports: ["8032:3002"]
+    environment:
+      - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
+      - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
+      - WEBEX_WORKSPACE_ID=${WEBEX_WORKSPACE_ID:-}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
+      - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
+      - MONGODB_URI=mongodb://admin:changeme@caipe-mongodb:27017
+      - MONGODB_DATABASE=caipe
+      - WEBEX_AGENT_ROUTES_MODE=${WEBEX_AGENT_ROUTES_MODE:-db_prefer}
+      - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
+      - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
+      - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
+      - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
+      - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
+      - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}
+      - WEBEX_ADMIN_JWT_ISSUER=${WEBEX_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      - WEBEX_ADMIN_JWKS_URL=${WEBEX_ADMIN_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      - WEBEX_ADMIN_JWT_AUDIENCE=${WEBEX_ADMIN_JWT_AUDIENCE:-caipe-webex-bot-admin}
+      - WEBEX_ADMIN_ALLOWED_CLIENT_IDS=${WEBEX_ADMIN_ALLOWED_CLIENT_IDS:-caipe-ui}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID=${KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET=${KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - KEYCLOAK_WEBEX_BOT_CLIENT_ID=${KEYCLOAK_WEBEX_BOT_CLIENT_ID:-caipe-webex-bot}
+      - KEYCLOAK_WEBEX_BOT_CLIENT_SECRET=${KEYCLOAK_WEBEX_BOT_CLIENT_SECRET:-caipe-webex-bot-dev-secret}
+      - WEBEX_LINKING_BASE_URL=${WEBEX_LINKING_BASE_URL:-http://localhost:3000}
+      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-}
+    depends_on:
+      caipe-ui:
+        condition: service_started
+        required: false
+      caipe-mongodb:
+        condition: service_started
+    profiles:
+      - webex-bot
       - all-integrations
 
   ####################################################################################################

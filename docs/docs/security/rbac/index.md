@@ -10,8 +10,8 @@ This is the canonical reference for how authentication and authorization work in
 | Understand each component (Keycloak, UI, Supervisor, AgentGateway, Dynamic Agents) and how they're wired | [Architecture](./architecture.md) |
 | Get the short end-to-end summary of the Comprehensive RBAC refactor, including Keycloak roles, AgentGateway, and OpenFGA | [Comprehensive RBAC Refactor](./comprehensive-rbac-refactor.md) |
 | Understand how JWT identity and OpenFGA relationship checks work together | [JWT and OpenFGA](./jwt-and-openfga.md) |
-| Trace a request — login, OBO token-exchange, end-to-end Slack flow, Slack channel → agent routing | [Workflows](./workflows.md) |
-| Log in, exercise a role, verify a denial, link a Slack user, run the demo | [Usage](./usage.md) |
+| Trace a request — login, OBO token-exchange, end-to-end Slack/Webex flow, Slack channel or Webex space → agent routing | [Workflows](./workflows.md) |
+| Log in, exercise a role, verify a denial, link a Slack/Webex user, run the demo | [Usage](./usage.md) |
 | Find the file that owns a specific piece of the auth path | [File map](./file-map.md) |
 | Understand the difference between Keycloak **roles** and **client scopes**, what a slug is, and what happens when you create a team | [Roles vs Scopes](./roles-scopes-comparison.md) |
 | Install or upgrade the RBAC/OpenFGA refactor with Helm, including optional Keycloak, AgentGateway, OpenFGA, and bridge runtime components | [Helm installation and upgrade guide](./helm-install-upgrade.md) |
@@ -31,6 +31,7 @@ Think of CAIPE like a **secure corporate office building**:
 - **Team Resources** and **OpenFGA ReBAC** in the Admin UI are the rich ReBAC authoring surfaces: admins assign agents and MCP tool prefixes to a team, preview effective OpenFGA access, inspect all relationships in a full-screen graph, edit relationships on a drag/drop graph canvas, and inspect materialized tuples.
 - **CEL policy editing is retired** for the management plane. Admins use OpenFGA/ReBAC relationships instead of editing AgentGateway or admin-tab CEL rules.
 - **Identity Group Sync** maps enterprise groups into CAIPE team memberships using a hybrid source model: `memberOf` / `groups` claims refresh the signed-in user's memberships at login, while direct Okta directory queries power full admin dry-runs, removals, and drift detection.
+- **Slack channels and Webex spaces** are external messaging rooms. They are not identity providers; each bot maps the messaging surface to a Keycloak user, exchanges an OBO token, and checks OpenFGA before dispatching.
 - **The badge itself** is a JWT — a tamper-proof, digitally signed card that any badge reader can verify independently without phoning HR.
 
 Technically: CAIPE uses **OpenID Connect (OIDC)** for authentication and **JWT bearer tokens** for stateless authorization across all service boundaries. There is one token issuer (Keycloak), and every service verifies tokens against Keycloak's published JWKS public keys — no shared secrets, no per-hop re-authentication.
@@ -76,7 +77,7 @@ In `0.5.0`, the umbrella Helm chart can deploy the RBAC runtime components (`tag
 |----------|-------------------|
 | Single source of truth for identity | Keycloak is the only token issuer; all services verify against its JWKS |
 | No credentials in transit between services | JWT is a signed assertion — no password or secret is passed between hops |
-| User identity preserved end-to-end | The same JWT travels Slack Bot → Supervisor → AgentGateway → MCP unchanged |
+| User identity preserved end-to-end | The same JWT travels Slack/Webex Bot → Supervisor → AgentGateway → MCP unchanged |
 | Delegation is auditable | OBO tokens carry `act.sub` (the delegating party) alongside `sub` (the real user) |
 | Policy enforcement is centralised | AgentGateway is the single PEP for all MCP tool calls; tools don't implement their own authz |
 | Remote PDP for relationships | AgentGateway `extAuthz` calls OpenFGA before proxying MCP traffic |
@@ -142,7 +143,7 @@ Key fields for security architects:
 | Tenant data leakage | `tenant` claim in JWT used for query scoping at MCP layer and service-side filters |
 | PDP outage fail-open | AgentGateway `extAuthz.failureMode.denyWithStatus=403` fails closed if OpenFGA/bridge is unavailable |
 | AgentGateway admin exposure | Only the data-plane listener (`4000`) should be ingress-exposed; the admin listener (`15000`) remains private inside the cluster |
-| Unlinked Slack users bypassing RBAC | `rbac_global_middleware` blocks all unlinked users before the supervisor is called |
+| Unlinked Slack/Webex users bypassing RBAC | Bot runtime gates block unlinked users before the supervisor is called |
 | `AUTH_ENABLED=false` in production | Startup log emits a `WARNING` when auth is disabled; also documented in [Architecture › Dynamic Agents env vars](./architecture.md#key-environment-variables-2) |
 | Bootstrap admin left permanently enabled | No automatic enforcement — documented operational risk; must be removed post-setup |
 
@@ -151,6 +152,6 @@ Key fields for security architects:
 ## Where to next
 
 - **[Architecture](./architecture.md)** — Component-by-component reference: Keycloak, UI, Supervisor, AgentGateway, Dynamic Agents.
-- **[Workflows](./workflows.md)** — Sequence diagrams for login, OBO, end-to-end requests, Slack channel routing.
+- **[Workflows](./workflows.md)** — Sequence diagrams for login, OBO, end-to-end requests, Slack channel and Webex space routing.
 - **[Usage](./usage.md)** — Bring up the stack, log in as test users, verify RBAC denials, run the demo.
 - **[File map](./file-map.md)** — When you need to change something, this tells you which file to open.

@@ -172,12 +172,35 @@ tokenExchange:
       key: ""
       property: ""
 
+# ---------- Token exchange for the Webex bot (RFC 8693 / OBO) ----------
+# Mirrors tokenExchange above. The generated Secret key is KC_WEBEX_BOT_CLIENT_SECRET.
+# When `enabled` is omitted, inherits tokenExchange.enabled.
+webexTokenExchange:
+  enabled: true
+  botClientId: "caipe-webex-bot"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
 # ---------- User profile ----------
 userProfile:
   unmanagedAttributePolicy: "ADMIN_EDIT"
   customAttributes:
     - name: slack_user_id
       displayName: "Slack User ID"
+      permissions:
+        view: ["admin"]
+        edit: ["admin"]
+    - name: webex_user_id
+      displayName: "Webex User ID"
       permissions:
         view: ["admin"]
         edit: ["admin"]

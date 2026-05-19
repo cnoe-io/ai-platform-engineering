@@ -138,3 +138,28 @@ AND no secretRef, the chart auto-generates a 32-char random password.
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+Webex-bot client-secret K8s Secret name (parallel to keycloak.botSecretName).
+*/}}
+{{- define "keycloak.webexBotSecretName" -}}
+{{- if .Values.webexTokenExchange.secretRef }}
+{{- .Values.webexTokenExchange.secretRef }}
+{{- else }}
+{{- include "keycloak.fullname" . }}-webex-bot
+{{- end }}
+{{- end }}
+
+{{- define "keycloak.webexTokenExchangeEnabled" -}}
+{{- if hasKey .Values.webexTokenExchange "enabled" -}}
+{{- .Values.webexTokenExchange.enabled -}}
+{{- else -}}
+{{- .Values.tokenExchange.enabled -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "keycloak.shouldCreateWebexBotSecret" -}}
+{{- if and (eq (include "keycloak.webexTokenExchangeEnabled" .) "true") (not .Values.webexTokenExchange.secretRef) -}}
+true
+{{- end -}}
+{{- end -}}

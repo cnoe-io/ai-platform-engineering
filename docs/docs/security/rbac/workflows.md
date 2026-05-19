@@ -203,6 +203,68 @@ conversation write check, so a Slack OBO token for the conversation owner can
 update thread metadata such as `last_processed_ts` without a separate
 `conversation:<id>#writer` tuple.
 
+## Webex Space ReBAC and Bot Dispatch
+
+Webex follows the Slack bot trust model with Webex spaces in place of channels.
+The bot treats Webex as an external event source, not as an identity provider:
+every protected message must map to a Keycloak user, a CAIPE team, an
+OpenFGA-backed space route, and a user/resource allow decision before dispatch.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Webex user
+    participant WB as Webex Bot
+    participant UI as CAIPE UI BFF
+    participant KC as Keycloak
+    participant MDB as MongoDB
+    participant FGA as OpenFGA
+    participant DA as Dynamic Agents
+
+    User->>WB: message in Webex space
+    WB->>WB: WDM websocket receives activity and fetches full message detail
+    WB->>WB: decode public roomId to raw room UUID, validate personId and spaceId
+    WB->>KC: lookup user by webex_user_id
+    alt unlinked or identity unavailable
+        WB-->>User: deny with link prompt or retryable error
+    else linked
+        WB->>MDB: resolve webex_space_team_mappings
+        alt no active mapping
+            opt WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=true
+                WB->>MDB: create explicit space-team mapping and route metadata
+                WB->>FGA: write webex_space:<alias>--<space> user agent:<default_agent>
+            end
+        end
+        alt still unmapped
+            WB-->>User: deny WEBEX_SPACE_TEAM_NOT_FOUND
+        else mapped
+            WB->>KC: token exchange for user OBO JWT with active_team
+            WB->>FGA: read webex_space:<alias>--<space> agent route tuples
+            WB->>UI: POST /api/admin/webex/spaces/{workspace}/{space}/access-check
+            UI->>FGA: check space grant and user/team resource relationship
+            alt denied or PDP unavailable
+                UI-->>WB: denied or unavailable
+                WB-->>User: deny before dispatch
+            else allowed
+                WB->>DA: dispatch with Bearer OBO token
+                DA-->>WB: streamed response
+                WB-->>User: threaded Webex response using parentId
+            end
+        end
+    end
+```
+
+Failure categories are explicit and fail closed: `WEBEX_USER_NOT_LINKED`,
+`WEBEX_WORKSPACE_UNCONFIGURED`, `WEBEX_SPACE_TEAM_NOT_FOUND`,
+`WEBEX_OBO_FAILED`, `WEBEX_ROUTE_DENIED`, `missing_space_grant`, and
+`pdp_unavailable`. Audit records use `component=webex_bot` and hash Webex person
+IDs before logging.
+
+For Webex spaces, the raw room UUID is the policy identifier in
+`webex_space:<alias>--<space>`. Public Webex room IDs are decoded from
+`ciscospark://us/ROOM/<uuid>` before MongoDB/OpenFGA lookups and re-encoded only
+for outbound Webex API calls.
+
 ### Dynamic Agent Creation Ownership
 
 New Dynamic Agents must be assigned to an owner team during creation. The Web UI
@@ -428,7 +490,7 @@ Slack channel routing now separates "which team owns this channel?" from "which 
 5. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's active team/agent relationship.
 6. **Route**: dispatch to the selected `agent_id` only after both the channel association and user/team agent grant allow the request.
 
-The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association.
+The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association. The OpenFGA Policy Graph overlays `channel_team_mappings` as read-only `assigned_team` routing metadata edges so operators can see channel ownership next to OpenFGA grants without treating that ownership as a mutable tuple.
 
 The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from `audit_events`.
 
@@ -444,7 +506,7 @@ The transition comparison API is intentionally read-only and engineer-facing:
 
 ### Admin UI
 
-Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/agent grants in **Security & Policy → OpenFGA ReBAC → Slack Channels**.
+Admins configure channel/team ownership in **Admin → Teams → selected team → Slack Channels** and channel/agent grants in **Admin → Integrations → Slack**.
 
 - Channel/team ownership is exclusive: a channel cannot be actively mapped to two teams.
 - Channel/agent associations are many-to-many OpenFGA tuples: a channel can have multiple Dynamic Agent associations.
@@ -452,7 +514,7 @@ Admins configure channel/team ownership in **Admin → Teams → selected team �
 - UI-managed route dispatch is the default with static YAML fallback (`SLACK_AGENT_ROUTES_MODE=db_prefer`). Set `config` only for static YAML routing, and use `db_only` only after the channel's OpenFGA-backed UI routes are complete.
 - Runtime auto-assignment is opt-in with `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true`, `SLACK_DEFAULT_TEAM_SLUG`, and `SLACK_DEFAULT_AGENT_ID`. It only handles channels with no active mapping and never changes an already assigned channel.
 - Runtime sync/reload uses the Web UI backend as the browser-facing boundary. `caipe-ui` authorizes the admin user, calls the Slack bot admin API with a Keycloak client-credentials token, and the Slack bot verifies that token with JWKS before exposing route status, cache reload, or static-config upsert sync.
-- Deep links that include `subtab=slack` or `openfgaTab=slack` canonicalize to **Security & Policy → OpenFGA ReBAC → Slack Channels**, even if an older link still carries `cat=system&tab=settings`.
+- Deep links that include `subtab=slack` or `openfgaTab=slack` canonicalize to **Admin → Integrations → Slack**, even if an older link still carries `cat=system&tab=settings`.
 
 ### MongoDB Collection: `channel_team_mappings`
 

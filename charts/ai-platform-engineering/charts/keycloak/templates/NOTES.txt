@@ -5,7 +5,10 @@ Admin secret:        {{ include "keycloak.adminSecretName" . }}
 IdP client-secret:   {{ include "keycloak.idpSecretName" . }}
 {{- end }}
 {{- if .Values.tokenExchange.enabled }}
-Bot client-secret:   {{ include "keycloak.botSecretName" . }}
+Slack bot secret:    {{ include "keycloak.botSecretName" . }} (KC_BOT_CLIENT_SECRET)
+{{- end }}
+{{- if eq (include "keycloak.webexTokenExchangeEnabled" .) "true" }}
+Webex bot secret:    {{ include "keycloak.webexBotSecretName" . }} (KC_WEBEX_BOT_CLIENT_SECRET)
 {{- end }}
 
 {{- if .Values.externalSecrets.enabled }}
@@ -20,10 +23,19 @@ WARNING: `externalSecrets.enabled=true` (legacy flat shape) is DEPRECATED.
           (not .Values.tokenExchange.secretRef)
           (not .Values.tokenExchange.botClientSecret) }}
 
-NOTE: Bot client_secret was auto-generated (random 32-char). For prod,
+NOTE: Slack bot client_secret was auto-generated (random 32-char). For prod,
       use `tokenExchange.externalSecret` (ESO) or `tokenExchange.secretRef`.
       The Secret has `helm.sh/resource-policy=keep` so it survives uninstall —
       delete it manually if you truly want a fresh credential.
+{{- end }}
+
+{{- if and (eq (include "keycloak.webexTokenExchangeEnabled" .) "true")
+          (not .Values.webexTokenExchange.externalSecret.enabled)
+          (not .Values.webexTokenExchange.secretRef)
+          (not .Values.webexTokenExchange.botClientSecret) }}
+
+NOTE: Webex bot client_secret was auto-generated (random 32-char). For prod,
+      use `webexTokenExchange.externalSecret` (ESO) or `webexTokenExchange.secretRef`.
 {{- end }}
 
 {{- if and .Values.idp.enabled
@@ -45,3 +57,11 @@ recommended single-source-of-truth setup), add this to your umbrella values:
       clientSecretFromSecret:
         name: {{ include "keycloak.botSecretName" . }}
         key: KC_BOT_CLIENT_SECRET
+
+To wire the webex-bot subchart to the same Webex bot client_secret as Keycloak:
+
+  webex-bot:
+    keycloakBot:
+      clientSecretFromSecret:
+        name: {{ include "keycloak.webexBotSecretName" . }}
+        key: KC_WEBEX_BOT_CLIENT_SECRET

@@ -1,6 +1,7 @@
 import { getCollection } from "@/lib/mongodb";
 import { listResourceTypeDefinitions } from "@/lib/rbac/resource-model";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import type {
   UniversalRebacResourceType,
   UniversalRebacResourceTypeDefinition,
@@ -41,15 +42,18 @@ const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("external_group", "example-enterprise-group", "Example Enterprise Group", "rebac_shadowed"),
   resource("team", "platform", "Platform", "rebac_shadowed"),
   resource("slack_workspace", "workspace-default", "Default Slack Workspace", "role_gated"),
-  resource("slack_channel", "workspace-default:platform", "#platform", "role_gated"),
+  resource("slack_channel", "workspace-default--platform", "#platform", "role_gated"),
+  resource("webex_workspace", "workspace-default", "Default Webex Workspace", "role_gated"),
+  resource("webex_space", "workspace-default--platform", "Platform Space", "role_gated"),
   resource("agent", "platform-engineer", "Platform Engineer", "rebac_shadowed"),
+  resource("mcp_gateway", "list", "AgentGateway MCP list", "rebac_shadowed"),
   resource("mcp_server", "argocd", "Argo CD MCP Server", "role_gated"),
   resource("tool", "argocd_*", "Argo CD Tools", "rebac_shadowed"),
   resource("knowledge_base", "platform-runbooks", "Platform Runbooks", "rebac_shadowed"),
   resource("document", "platform-runbook", "Platform Runbook", "role_gated"),
   resource("skill", "incident-triage", "Incident Triage", "role_gated"),
   resource("task", "task-template", "Task Template", "role_gated"),
-  resource("conversation", "conversation", "Conversation", "role_gated"),
+  resource("conversation", "*", "All conversations", "role_gated"),
   resource("admin_surface", "admin", "Admin Console", "role_gated"),
   resource("policy", "rebac-policies", "ReBAC Policies", "rebac_shadowed"),
   resource("audit_log", "rbac-audit", "RBAC Audit Log", "role_gated"),
@@ -115,7 +119,7 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
     definitions.map((definition) => [definition.type, definition.actions])
   );
 
-  const [teams, users, agents, mcpServers, kbOwnership, slackMappings, conversations] =
+  const [teams, users, agents, mcpServers, kbOwnership, slackMappings, webexMappings] =
     await Promise.all([
       readCollection<{ _id: unknown; slug?: string; name?: string; status?: string }>("teams"),
       readCollection<{ _id?: unknown; email?: string; name?: string; role?: string }>("users"),
@@ -133,7 +137,15 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
         slack_channel_id?: string;
         channel_name?: string;
       }>("channel_team_mappings"),
-      readCollection<{ _id: unknown; title?: string }>("conversations"),
+      readCollection<{
+        workspace_id?: string;
+        webex_workspace_id?: string;
+        space_id?: string;
+        webex_space_id?: string;
+        webex_room_id?: string;
+        space_name?: string;
+        space_title?: string;
+      }>("webex_space_team_mappings"),
     ]);
 
   const kbIds = new Set<string>();
@@ -164,20 +176,28 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
         resource("slack_workspace", workspaceId, workspaceId, "role_gated"),
         resource(
           "slack_channel",
-          `${workspaceId}:${channelId}`,
+          `${workspaceId}--${channelId}`,
           mapping.channel_name || channelId,
           "role_gated"
         ),
       ];
     }),
-    ...conversations.map((conversation) =>
-      resource(
-        "conversation",
-        String(conversation._id),
-        conversation.title || String(conversation._id),
-        "role_gated"
-      )
-    ),
+    ...webexMappings.flatMap((mapping) => {
+      const workspaceId = webexWorkspaceRef(mapping.webex_workspace_id || mapping.workspace_id);
+      const spaceId = mapping.webex_space_id || mapping.space_id || mapping.webex_room_id;
+      if (!spaceId) {
+        return [resource("webex_workspace", workspaceId, workspaceId, "role_gated")];
+      }
+      return [
+        resource("webex_workspace", workspaceId, workspaceId, "role_gated"),
+        resource(
+          "webex_space",
+          `${workspaceId}--${spaceId}`,
+          mapping.space_name || mapping.space_title || spaceId,
+          "role_gated"
+        ),
+      ];
+    }),
   ];
 
   return {

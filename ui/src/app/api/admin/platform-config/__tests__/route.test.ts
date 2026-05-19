@@ -16,6 +16,7 @@ jest.mock("@/lib/api-middleware", () => ({
     (request: NextRequest) =>
       handler(request),
   requireAdmin: (...args: unknown[]) => mockRequireAdmin(...args),
+  requireRbacPermission: (...args: unknown[]) => mockRequireAdmin(...args),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
@@ -38,7 +39,19 @@ describe("admin platform-config route", () => {
       handler(_request, { email: "admin@example.com" }, { sub: "admin-sub", role: "admin" }),
     );
     mockGetCollection.mockResolvedValue({
-      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-default" }),
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        default_agent_id: "agent-default",
+        release_notes: {
+          enabled: true,
+          release_version: "0.6.0",
+          announcement_revision: 4,
+          announcement_id: "0.6.0:revision-4",
+          show_toast: true,
+          toast_duration_ms: 10000,
+          show_migration_cta: true,
+        },
+      }),
       updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
     });
     mockRequireAdmin.mockResolvedValue(undefined);
@@ -85,6 +98,23 @@ describe("admin platform-config route", () => {
     delete process.env.DEFAULT_AGENT_ID;
   });
 
+  it("returns release notes notification config with platform settings", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/platform-config"));
+    const body = await response.json();
+
+    expect(body.data.release_notes).toMatchObject({
+      enabled: true,
+      release_version: "0.6.0",
+      announcement_revision: 4,
+      announcement_id: "0.6.0:revision-4",
+      show_toast: true,
+      toast_duration_ms: 10000,
+      show_migration_cta: true,
+    });
+  });
+
   it("requires admin and system_config manage access before updating platform config", async () => {
     const { PATCH } = await import("../route");
 
@@ -97,11 +127,59 @@ describe("admin platform-config route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockRequireAdmin).toHaveBeenCalledWith({ sub: "admin-sub", role: "admin" });
+    expect(mockRequireAdmin).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      "admin_ui",
+      "admin",
+    );
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "admin-sub", role: "admin" },
       { type: "system_config", id: "platform_settings", action: "admin" },
     );
+  });
+
+  it("updates release notes config without clearing default agent", async () => {
+    const collection = {
+      findOne: jest.fn().mockResolvedValue(null),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          release_notes: {
+            enabled: true,
+            release_version: "0.6.0",
+            announcement_revision: 2,
+            show_toast: true,
+            toast_duration_ms: 12000,
+            show_migration_cta: false,
+          },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(collection.updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          release_notes: expect.objectContaining({
+            release_version: "0.6.0",
+            announcement_revision: 2,
+            announcement_id: "0.6.0:revision-2",
+          }),
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(collection.updateOne.mock.calls[0][1].$set).not.toHaveProperty("default_agent_id");
+    expect(body.data.release_notes.announcement_id).toBe("0.6.0:revision-2");
   });
 
   it("checks coarse admin before system_config manage on updates", async () => {

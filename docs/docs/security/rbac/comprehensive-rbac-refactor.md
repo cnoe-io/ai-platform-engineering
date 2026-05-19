@@ -153,8 +153,8 @@ The Admin UI has two human-facing ReBAC surfaces:
 - **Team Resources** is the source-of-truth editor for team grants. Admins choose
   which agents and MCP tool prefixes a team can use, and the Web UI backend materializes the
   change into OpenFGA tuples and Mongo intent.
-- **OpenFGA ReBAC** is the relationship workbench. It provides a guided tuple
-  builder, effective-access preview, full-screen all-relationship graph viewing,
+- **OpenFGA ReBAC** is the relationship workbench. It provides a unified Access
+  Manager for checks and staged grant/revoke remediation, full-screen all-relationship graph viewing,
   drag/drop policy/resource graph editing, and advanced tuple inspector without
   exposing OpenFGA directly to the browser.
 

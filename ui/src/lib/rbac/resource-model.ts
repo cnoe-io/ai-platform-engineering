@@ -50,9 +50,24 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
     description: "Slack channel that can be granted access to multiple CAIPE resources.",
   },
   {
+    type: "webex_workspace",
+    actions: ["discover", "read", "manage", "audit"],
+    description: "Webex workspace configuration and space discovery scope.",
+  },
+  {
+    type: "webex_space",
+    actions: ["discover", "read", "use", "write", "manage", "audit"],
+    description: "Webex space that can be granted access to multiple CAIPE resources.",
+  },
+  {
     type: "agent",
     actions: ["discover", "read", "use", "write", "manage", "audit"],
     description: "Agent execution and configuration resource.",
+  },
+  {
+    type: "mcp_gateway",
+    actions: ["call"],
+    description: "AgentGateway MCP gateway coarse call scope.",
   },
   {
     type: "mcp_server",

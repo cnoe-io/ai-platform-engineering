@@ -30,6 +30,8 @@ import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
+import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
   Popover,
@@ -42,6 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/toast";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -207,6 +210,18 @@ export function AppHeader() {
 
   // Fetch version info
   const { versionInfo } = useVersion();
+  const releasePrompt = useReleaseUpgradePrompt();
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    if (!session || !releasePrompt.toastNotification) return;
+    toast(
+      releasePrompt.toastNotification.message,
+      "info",
+      releasePrompt.toastNotification.duration,
+    );
+    releasePrompt.markToastShown();
+  }, [releasePrompt, session, toast]);
 
   // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
   // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
@@ -815,6 +830,19 @@ export function AppHeader() {
         onCancel={handleCancel}
         title="Unsaved changes"
         description="You have unsaved changes. They will be lost if you leave now."
+      />
+    )}
+    {session && releasePrompt.releaseVersion && (
+      <ReleaseUpgradeDialog
+        open={releasePrompt.open}
+        isAdmin={releasePrompt.isAdmin}
+        releaseVersion={releasePrompt.releaseVersion}
+        release={releasePrompt.release}
+        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
+        onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
+        onDismissPermanently={releasePrompt.dismissPermanently}
+        showMigrationCta={releasePrompt.showMigrationCta}
+        isDismissing={releasePrompt.isDismissing}
       />
     )}
     </>

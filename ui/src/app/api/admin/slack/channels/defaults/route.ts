@@ -15,6 +15,8 @@ interface SlackMigrationDefaultsRequest {
   team_slug?: unknown;
   agent_id?: unknown;
   create_routes?: unknown;
+  discovered_channels?: unknown;
+  channel_defaults?: unknown;
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
@@ -54,6 +56,17 @@ interface DynamicAgentDoc extends Document {
   enabled?: boolean;
 }
 
+interface DiscoveredSlackChannel {
+  workspace_id: string;
+  channel_id: string;
+  channel_name: string;
+}
+
+interface SlackChannelImportDefault extends DiscoveredSlackChannel {
+  team_slug: string;
+  agent_id: string;
+}
+
 function readRequiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ApiError(`${field} is required`, 400);
@@ -61,8 +74,68 @@ function readRequiredString(value: unknown, field: string): string {
   return value.trim();
 }
 
+function readOptionalString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizeDiscoveredChannels(value: unknown): DiscoveredSlackChannel[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError("discovered_channels must be an array", 400);
+  }
+
+  const byKey = new Map<string, DiscoveredSlackChannel>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const channelId = readOptionalString(record.id) || readOptionalString(record.channel_id);
+    if (!channelId) continue;
+    const workspaceId = slackWorkspaceRef(readOptionalString(record.workspace_id));
+    const channelName =
+      readOptionalString(record.name) || readOptionalString(record.channel_name) || channelId;
+    byKey.set(`${workspaceId}/${channelId}`, {
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      channel_name: channelName,
+    });
+  }
+  return Array.from(byKey.values());
+}
+
+function normalizeChannelDefaults(
+  value: unknown,
+  fallbackTeamSlug: string,
+  fallbackAgentId: string
+): SlackChannelImportDefault[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ApiError("channel_defaults must be an array", 400);
+  }
+
+  const byKey = new Map<string, SlackChannelImportDefault>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const channelId = readOptionalString(record.id) || readOptionalString(record.channel_id);
+    if (!channelId) continue;
+    const workspaceId = slackWorkspaceRef(readOptionalString(record.workspace_id));
+    const channelName =
+      readOptionalString(record.name) || readOptionalString(record.channel_name) || channelId;
+    const teamSlug = readOptionalString(record.team_slug) || fallbackTeamSlug;
+    const agentId = readOptionalString(record.agent_id) || fallbackAgentId;
+    byKey.set(`${workspaceId}/${channelId}`, {
+      workspace_id: workspaceId,
+      channel_id: channelId,
+      channel_name: channelName,
+      team_slug: teamSlug,
+      agent_id: agentId,
+    });
+  }
+  return Array.from(byKey.values());
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) =>
@@ -71,6 +144,21 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     const teamSlug = readRequiredString(body.team_slug, "team_slug");
     const agentId = readRequiredString(body.agent_id, "agent_id");
     const createRoutes = Boolean(body.create_routes);
+    const discoveredChannels = normalizeDiscoveredChannels(body.discovered_channels);
+    const explicitChannelDefaults = normalizeChannelDefaults(
+      body.channel_defaults,
+      teamSlug,
+      agentId
+    );
+    const channelDefaults =
+      explicitChannelDefaults.length > 0
+        ? explicitChannelDefaults
+        : discoveredChannels.map((channel) => ({
+            ...channel,
+            team_slug: teamSlug,
+            agent_id: agentId,
+          }));
+    const hasChannelScopedDefaults = channelDefaults.length > 0;
     const actor = "api";
     const now = new Date().toISOString();
 
@@ -82,11 +170,22 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       getCollection("slack_channel_agent_routes"),
     ]);
 
-    const [team, agent, channels] = await Promise.all([
-      teams.findOne({ slug: teamSlug } as never),
-      agents.findOne({ _id: agentId, enabled: { $ne: false } } as never),
-      mappings.find({ active: { $ne: false } } as never).sort({ channel_name: 1 }).limit(500).toArray(),
+    const requestedTeamSlugs = uniqueStrings([
+      teamSlug,
+      ...channelDefaults.map((channelDefault) => channelDefault.team_slug),
     ]);
+    const requestedAgentIds = uniqueStrings([
+      agentId,
+      ...channelDefaults.map((channelDefault) => channelDefault.agent_id),
+    ]);
+    const [requestedTeams, requestedAgents] = await Promise.all([
+      teams.find({ slug: { $in: requestedTeamSlugs } } as never).toArray(),
+      agents.find({ _id: { $in: requestedAgentIds }, enabled: { $ne: false } } as never).toArray(),
+    ]);
+    const teamBySlug = new Map(requestedTeams.map((team) => [team.slug, team]));
+    const agentById = new Map(requestedAgents.map((agent) => [agent._id, agent]));
+    const team = teamBySlug.get(teamSlug);
+    const agent = agentById.get(agentId);
 
     if (!team) {
       throw new ApiError(`Default team "${teamSlug}" was not found`, 404);
@@ -94,20 +193,118 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     if (!agent) {
       throw new ApiError(`Default Dynamic Agent "${agentId}" was not found or is disabled`, 404);
     }
+    for (const channelDefault of channelDefaults) {
+      if (!teamBySlug.has(channelDefault.team_slug)) {
+        throw new ApiError(`Team "${channelDefault.team_slug}" was not found`, 404);
+      }
+      if (!agentById.has(channelDefault.agent_id)) {
+        throw new ApiError(
+          `Dynamic Agent "${channelDefault.agent_id}" was not found or is disabled`,
+          404
+        );
+      }
+    }
+
+    let channelsOnboarded = 0;
+    let channelsAssignedTeam = 0;
+    for (const channel of channelDefaults) {
+      const channelTeam = teamBySlug.get(channel.team_slug);
+      const result = await mappings.updateOne(
+        {
+          slack_workspace_id: channel.workspace_id,
+          slack_channel_id: channel.channel_id,
+        } as never,
+        {
+          $set: {
+            channel_name: channel.channel_name,
+            ...(channelTeam
+              ? {
+                  team_id: String(channelTeam._id),
+                  team_slug: channel.team_slug,
+                }
+              : {}),
+            active: true,
+            updated_by: actor,
+            updated_at: now,
+          },
+          $setOnInsert: {
+            slack_workspace_id: channel.workspace_id,
+            slack_channel_id: channel.channel_id,
+            created_by: actor,
+            created_at: now,
+          },
+        } as never,
+        { upsert: true }
+      );
+      channelsOnboarded += result.upsertedCount ?? 0;
+      channelsAssignedTeam += 1;
+    }
+
+    const activeChannels = await mappings
+      .find({ active: { $ne: false } } as never)
+      .sort({ channel_name: 1 })
+      .limit(500)
+      .toArray();
+    const channelDefaultByKey = new Map(
+      channelDefaults.map((channelDefault) => [
+        `${slackWorkspaceRef(channelDefault.workspace_id)}/${channelDefault.channel_id}`,
+        channelDefault,
+      ])
+    );
+    const channels = hasChannelScopedDefaults
+      ? activeChannels.filter((channel) =>
+          channelDefaultByKey.has(
+            `${slackWorkspaceRef(channel.slack_workspace_id)}/${channel.slack_channel_id}`
+          )
+        )
+      : activeChannels;
+
     if (channels.length === 0) {
       throw new ApiError("No onboarded Slack channels found", 400);
     }
 
-    let channelsAssignedTeam = 0;
-    for (const channel of channels) {
-      if (channel.team_slug) continue;
-      channelsAssignedTeam += 1;
-      await mappings.updateOne(
-        { slack_channel_id: channel.slack_channel_id } as never,
+    let routesEnsured = 0;
+    let routesPreserved = 0;
+    if (!hasChannelScopedDefaults) {
+      for (const channel of channels) {
+        if (channel.team_slug) continue;
+        channelsAssignedTeam += 1;
+        await mappings.updateOne(
+          { slack_channel_id: channel.slack_channel_id } as never,
+          {
+            $set: {
+              team_id: String(team._id),
+              team_slug: teamSlug,
+              updated_by: actor,
+              updated_at: now,
+            },
+          } as never
+        );
+      }
+    }
+
+    const teamAgentPairs = new Map<string, { team: TeamDoc; agent_id: string }>();
+    if (hasChannelScopedDefaults) {
+      for (const channelDefault of channelDefaults) {
+        const targetTeam = teamBySlug.get(channelDefault.team_slug);
+        if (targetTeam) {
+          teamAgentPairs.set(`${channelDefault.team_slug}/${channelDefault.agent_id}`, {
+            team: targetTeam,
+            agent_id: channelDefault.agent_id,
+          });
+        }
+      }
+    } else {
+      teamAgentPairs.set(`${teamSlug}/${agentId}`, { team, agent_id: agentId });
+    }
+    for (const { team: targetTeam, agent_id: targetAgentId } of teamAgentPairs.values()) {
+      const teamResources = targetTeam.resources ?? {};
+      const nextTeamAgents = uniqueStrings([...(teamResources.agents ?? []), targetAgentId]);
+      await teams.updateOne(
+        { _id: targetTeam._id } as never,
         {
           $set: {
-            team_id: String(team._id),
-            team_slug: teamSlug,
+            resources: { ...teamResources, agents: nextTeamAgents },
             updated_by: actor,
             updated_at: now,
           },
@@ -115,33 +312,22 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       );
     }
 
-    const teamResources = team.resources ?? {};
-    const nextTeamAgents = uniqueStrings([...(teamResources.agents ?? []), agentId]);
-    await teams.updateOne(
-      { _id: team._id } as never,
-      {
-        $set: {
-          resources: { ...teamResources, agents: nextTeamAgents },
-          updated_by: actor,
-          updated_at: now,
-        },
-      } as never
-    );
-
     for (const channel of channels) {
       const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+      const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
+      const targetAgentId = scopedDefault?.agent_id ?? agentId;
       await grants.updateOne(
         {
           workspace_id: workspaceId,
           channel_id: channel.slack_channel_id,
           "resource.type": "agent",
-          "resource.id": agentId,
+          "resource.id": targetAgentId,
         },
         {
           $set: {
             workspace_id: workspaceId,
             channel_id: channel.slack_channel_id,
-            resource: { type: "agent", id: agentId },
+            resource: { type: "agent", id: targetAgentId },
             actions: ["use"],
             source_type: "migration",
             status: "active",
@@ -155,17 +341,28 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       );
 
       if (createRoutes) {
+        const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+        const existingRoute = await routes.findOne({
+          workspace_id: workspaceId,
+          channel_id: channel.slack_channel_id,
+          agent_id: targetAgentId,
+          status: { $ne: "deleted" },
+        } as never);
+        if (existingRoute) {
+          routesPreserved += 1;
+          continue;
+        }
         await routes.updateOne(
           {
-            workspace_id: workspaceId,
+            workspace_id: slackWorkspaceRef(channel.slack_workspace_id),
             channel_id: channel.slack_channel_id,
-            agent_id: agentId,
+            agent_id: targetAgentId,
           },
           {
             $set: {
               workspace_id: workspaceId,
               channel_id: channel.slack_channel_id,
-              agent_id: agentId,
+              agent_id: targetAgentId,
               enabled: true,
               priority: 100,
               users: { enabled: true, listen: "mention" },
@@ -179,23 +376,28 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           },
           { upsert: true }
         );
+        routesEnsured += 1;
       }
     }
 
     const writes: UniversalRebacRelationship[] = [
       ...channels.map((channel) =>
-        slackChannelGrantRelationship(
-          slackWorkspaceRef(channel.slack_workspace_id),
-          channel.slack_channel_id,
-          { type: "agent", id: agentId },
-          "use"
-        )
+        {
+          const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+          const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
+          return slackChannelGrantRelationship(
+            workspaceId,
+            channel.slack_channel_id,
+            { type: "agent", id: scopedDefault?.agent_id ?? agentId },
+            "use"
+          );
+        }
       ),
-      {
-        subject: { type: "team", id: teamSlug, relation: "member" },
+      ...Array.from(teamAgentPairs.values()).map(({ team: targetTeam, agent_id: targetAgentId }) => ({
+        subject: { type: "team", id: String(targetTeam.slug), relation: "member" },
         action: "use",
-        resource: { type: "agent", id: agentId },
-      },
+        resource: { type: "agent", id: targetAgentId },
+      })),
     ];
 
     const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] })).catch(
@@ -210,9 +412,12 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     return successResponse({
       summary: {
         channels_seen: channels.length,
+        channels_discovered: channelDefaults.length,
+        channels_onboarded: channelsOnboarded,
         channels_assigned_team: channelsAssignedTeam,
         channel_grants_ensured: channels.length,
-        routes_ensured: createRoutes ? channels.length : 0,
+        routes_ensured: routesEnsured,
+        routes_preserved: routesPreserved,
         team_grant_ensured: true,
       },
       defaults: {

@@ -205,6 +205,8 @@ export function UserDetailModal({
   }, [user?.federatedIdentities]);
 
   const slackUserId = user?.attributes?.slack_user_id?.[0]?.trim() ?? "";
+  const webexUserId = user?.attributes?.webex_user_id?.[0]?.trim() ?? "";
+  const webexLinked = webexUserId.length > 0;
 
   const lastLoginLabel =
     user?.lastAccess != null && user.lastAccess > 0
@@ -277,6 +279,20 @@ export function UserDetailModal({
       const json = (await readJson(res)) as { success?: boolean; error?: string };
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || `Unlink Slack failed (${res.status})`);
+      }
+    });
+  };
+
+  const unlinkWebex = () => {
+    if (!user || !webexLinked) return;
+    if (!window.confirm("Remove Webex link for this user?")) return;
+    void runAction("webex-unlink", async () => {
+      const res = await fetch(`/api/admin/webex/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Unlink Webex failed (${res.status})`);
       }
     });
   };
@@ -449,6 +465,33 @@ export function UserDetailModal({
                         {slackUserId ? (
                           <span className="font-mono text-xs text-muted-foreground">{slackUserId}</span>
                         ) : null}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
+                        Unlinked
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Webex</dt>
+                  <dd className="mt-0.5">
+                    {webexLinked ? (
+                      <span className="inline-flex flex-col gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
+                            Linked
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy === "webex-unlink"}
+                            onClick={() => unlinkWebex()}
+                            className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                          >
+                            {busy === "webex-unlink" ? "Unlinking…" : "Unlink Webex"}
+                          </button>
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">{webexUserId}</span>
                       </span>
                     ) : (
                       <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">

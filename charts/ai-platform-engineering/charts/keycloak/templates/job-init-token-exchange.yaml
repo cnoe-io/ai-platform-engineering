@@ -56,6 +56,20 @@ spec:
                   name: {{ include "keycloak.botSecretName" . }}
                   key: KC_BOT_CLIENT_SECRET
             {{- end }}
+            {{- if eq (include "keycloak.webexTokenExchangeEnabled" .) "true" }}
+            - name: KC_WEBEX_BOT_CLIENT_ID
+              value: {{ .Values.webexTokenExchange.botClientId | quote }}
+            {{- end }}
+            {{- if and (eq (include "keycloak.webexTokenExchangeEnabled" .) "true")
+                      (or .Values.webexTokenExchange.secretRef
+                           .Values.webexTokenExchange.externalSecret.enabled
+                           (eq (include "keycloak.shouldCreateWebexBotSecret" .) "true")) }}
+            - name: KC_WEBEX_BOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.webexBotSecretName" . }}
+                  key: KC_WEBEX_BOT_CLIENT_SECRET
+            {{- end }}
           volumeMounts:
             - name: init-scripts
               mountPath: /scripts

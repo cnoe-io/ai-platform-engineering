@@ -44,7 +44,7 @@
   ],
   "accessTokenLifespan": 3600,
   "accessTokenLifespanForImplicitFlow": 900,
-  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionIdleTimeout": 14400,
   "ssoSessionMaxLifespan": 36000,
   "offlineSessionIdleTimeout": 2592000,
   "offlineSessionMaxLifespan": 5184000,
@@ -120,6 +120,18 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "webex-bot-admin-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "caipe-webex-bot-admin",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -172,6 +184,45 @@
       "attributes": {
         "oidc.token.exchange.enabled": "true"
       }
+    },
+    {
+      "clientId": "caipe-webex-bot",
+      "name": "CAIPE Webex Bot",
+      "description": "Confidential client — service account with token-exchange permission for Webex OBO",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-webex-bot-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    },
+    {
+      "clientId": "caipe-webex-bot-admin",
+      "name": "CAIPE Webex Bot Admin Audience",
+      "description": "Audience target for Web UI BFF tokens calling the Webex bot admin API (JWT aud=caipe-webex-bot-admin)",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": false
     }
   ],
   "clientScopes": [

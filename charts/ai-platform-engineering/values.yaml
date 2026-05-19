@@ -22,6 +22,7 @@ tags:
   agent-petstore: false
   rag-stack: false
   slack-bot: false
+  webex-bot: false
   keycloak: false
 
 # Global configuration shared across all subcharts
@@ -823,6 +824,13 @@ caipe-ui:
     # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
     SLACK_DEFAULT_TEAM_SLUG: ""
     SLACK_DEFAULT_AGENT_ID: ""
+    # Webex bot internal admin API (BFF access-check + route management).
+    WEBEX_BOT_ADMIN_URL: "http://ai-platform-engineering-webex-bot:3002"
+    WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+    WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
+    # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+    WEBEX_DEFAULT_TEAM_SLUG: ""
+    WEBEX_DEFAULT_AGENT_ID: ""
     CAIPE_ORG_KEY: "caipe"
     CAIPE_ORG_DISPLAY_NAME: "CAIPE"
     LOGO_URL: "/logo.svg"
@@ -1109,6 +1117,61 @@ slack-bot:
       cpu: 500m
       memory: 512Mi
 
+######### Webex Bot Integration configuration #########
+# Parallel to slack-bot: Webex spaces, identity linking, and OpenFGA ReBAC.
+# Enable with Helm tag: webex-bot=true
+webex-bot:
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-webex-bot"
+    tag: ""
+    pullPolicy: "IfNotPresent"
+
+  config:
+    APP_NAME: "CAIPE"
+    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    WEBEX_WORKSPACE_ALIAS: "CAIPE-WEBEX"
+    WEBEX_AGENT_ROUTES_MODE: "db_prefer"
+    WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
+    WEBEX_DEFAULT_TEAM_SLUG: ""
+    WEBEX_DEFAULT_AGENT_ID: ""
+    WEBEX_ADMIN_API_ENABLED: "false"
+    WEBEX_ADMIN_API_HOST: "0.0.0.0"
+    WEBEX_ADMIN_API_PORT: "3002"
+    WEBEX_ADMIN_JWT_ISSUER: "http://ai-platform-engineering-keycloak:8080/realms/caipe"
+    WEBEX_ADMIN_JWKS_URL: "http://ai-platform-engineering-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+    WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+
+  # Wire OBO secret from Keycloak chart (see keycloak/templates/NOTES.txt).
+  keycloakBot:
+    clientSecretFromSecret:
+      name: "ai-platform-engineering-keycloak-webex-bot"
+      key: "KC_WEBEX_BOT_CLIENT_SECRET"
+
+  existingSecret: "webex-bot-secrets"
+
+  botConfig: {}
+
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 ######### Keycloak Identity Provider configuration #########
 # Keycloak provides RBAC, identity federation (upstream SSO broker),
 # and token exchange (RFC 8693) for the Slack bot.
@@ -1140,6 +1203,9 @@ keycloak:
   tokenExchange:
     enabled: true
     botClientId: "caipe-slack-bot"
+  webexTokenExchange:
+    enabled: true
+    botClientId: "caipe-webex-bot"
 
   # Upstream IDP broker (generic OIDC — works with Okta, Azure AD, Duo, etc.)
   # No vendor-specific credentials stored here.

@@ -205,6 +205,15 @@ describe('GET /api/admin/teams', () => {
     expect(body.data.teams).toHaveLength(1);
     expect(body.data.teams[0].name).toBe('Platform Engineering');
   });
+
+  it('marks team list responses as no-store so refreshes read MongoDB', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const req = makeRequest('/api/admin/teams?fresh=123');
+
+    const res = await GET(req);
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+  });
 });
 
 // ============================================================================

@@ -31,7 +31,10 @@ export type UniversalRebacResourceType =
   | "team"
   | "slack_workspace"
   | "slack_channel"
+  | "webex_workspace"
+  | "webex_space"
   | "agent"
+  | "mcp_gateway"
   | "mcp_server"
   | "tool"
   | "knowledge_base"
@@ -49,6 +52,7 @@ export type UniversalRebacSubjectType =
   | "user"
   | "team"
   | "slack_channel"
+  | "webex_space"
   | "external_group"
   | "service_account"
   | "anonymous";

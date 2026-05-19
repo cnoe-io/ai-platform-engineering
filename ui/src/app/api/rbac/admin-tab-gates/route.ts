@@ -12,6 +12,7 @@ const ALL_TABS: AdminTabKey[] = [
   "roles",
   "identity_group_sync",
   "slack",
+  "webex",
   "skills",
   "feedback",
   "nps",

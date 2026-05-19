@@ -16,6 +16,11 @@ export const RBAC_COLLECTION_NAMES = {
   policyChangeSets: "policy_change_sets",
   slackChannelAgentRoutes: "slack_channel_agent_routes",
   slackChannelGrants: "slack_channel_grants",
+  webexSpaceAgentRoutes: "webex_space_agent_routes",
+  webexSpaceGrants: "webex_space_grants",
+  webexSpaceTeamMappings: "webex_space_team_mappings",
+  webexLinkNonces: "webex_link_nonces",
+  webexUserMetrics: "webex_user_metrics",
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",
 } as const;

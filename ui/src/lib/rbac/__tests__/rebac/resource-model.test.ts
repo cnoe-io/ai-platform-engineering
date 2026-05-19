@@ -33,7 +33,10 @@ describe("universal ReBAC resource model", () => {
       "team",
       "slack_workspace",
       "slack_channel",
+      "webex_workspace",
+      "webex_space",
       "agent",
+      "mcp_gateway",
       "mcp_server",
       "tool",
       "knowledge_base",
@@ -59,6 +62,7 @@ describe("universal ReBAC resource model", () => {
       "audit",
     ]);
     expect(isSupportedResourceAction("knowledge_base", "ingest")).toBe(true);
+    expect(isSupportedResourceAction("mcp_gateway", "call")).toBe(true);
     expect(isSupportedResourceAction("tool", "call")).toBe(true);
     expect(isSupportedResourceAction("mcp_server", "invoke")).toBe(true);
     expect(isSupportedResourceAction("knowledge_base", "share")).toBe(false);

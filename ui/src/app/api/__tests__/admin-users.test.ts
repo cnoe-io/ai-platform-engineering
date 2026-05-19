@@ -263,4 +263,38 @@ describe('GET /api/admin/users — Keycloak list', () => {
     });
     expect(body.total).toBe(1);
   });
+
+  it('filters users by Webex link status from webex_user_id attribute', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const raw = [
+      {
+        id: 'u1',
+        username: 'alice',
+        email: 'alice@example.com',
+        attributes: { webex_user_id: ['person-abc'] },
+      },
+      {
+        id: 'u2',
+        username: 'bob',
+        email: 'bob@example.com',
+        attributes: {},
+      },
+    ];
+    mockSearchRealmUsers
+      .mockResolvedValueOnce(raw)
+      .mockResolvedValueOnce([]);
+    mockListRealmRoleMappingsForUser.mockResolvedValue([]);
+
+    const res = await GET(makeRequest('/api/admin/users?webexStatus=linked'));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(1);
+    expect(body.users[0]).toMatchObject({
+      id: 'u1',
+      email: 'alice@example.com',
+      webex_link_status: 'linked',
+    });
+    expect(body.total).toBe(1);
+  });
 });

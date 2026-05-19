@@ -35,10 +35,10 @@ export interface UserPublicInfo {
 // ============================================================================
 
 /** Valid client types for conversation creation. */
-export type ClientType = 'webui' | 'slack';
+export type ClientType = 'webui' | 'slack' | 'webex';
 
 /** All valid client_type values — used for runtime validation. */
-export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack'] as const;
+export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex'] as const;
 
 /**
  * A conversation participant — either an agent or a user.
@@ -192,6 +192,8 @@ export interface UserSettings {
     show_thinking_enabled: string;
     auto_scroll_enabled: string;
     show_timestamps_enabled: string;
+    releaseNotesDismissedVersions?: string[];
+    releaseNotesDismissedAnnouncementIds?: string[];
   };
   notifications: {
     email_enabled: boolean;
@@ -422,4 +424,26 @@ export interface AuditLogFilters {
   date_to?: string;
   include_deleted?: boolean;
   status?: 'active' | 'archived' | 'deleted';
+}
+
+// ============================================================================
+// Webex Bot Collections
+// ============================================================================
+
+/** Single-use nonce for Webex user ↔ Keycloak linking (expires after 10 minutes). */
+export interface WebexLinkNonce {
+  nonce: string;
+  webex_user_id: string;
+  created_at: Date;
+  consumed?: boolean;
+}
+
+/** Operational metrics for Webex bot usage (space-level aggregates). */
+export interface WebexUserMetrics {
+  webex_user_id: string;
+  workspace_id?: string;
+  space_id?: string;
+  event_count?: number;
+  last_seen_at?: string;
+  updated_at?: string;
 }

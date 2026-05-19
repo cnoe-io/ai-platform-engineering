@@ -19,7 +19,7 @@ const userResponse = {
       lastName: "Aradhyula",
       enabled: true,
       createdAt: 0,
-      attributes: { slack_user_id: ["U123SLACK"] },
+      attributes: { slack_user_id: ["U123SLACK"], webex_user_id: ["person-abc"] },
       slackLinkStatus: "linked",
       realmRoles: [
         { id: "legacy-admin", name: "admin" },
@@ -48,6 +48,13 @@ describe("UserDetailModal", () => {
     jest.spyOn(window, "confirm").mockReturnValue(true);
     global.fetch = jest.fn((url: string) => {
       if (url.includes("/api/admin/slack/users/user-1")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true, data: { revoked: true } }),
+        });
+      }
+      if (url.includes("/api/admin/webex/users/user-1")) {
         return Promise.resolve({
           ok: true,
           status: 200,
@@ -100,6 +107,40 @@ describe("UserDetailModal", () => {
 
     await waitFor(() => {
       expect(global.fetch).not.toHaveBeenCalledWith("/api/admin/roles");
+    });
+  });
+
+  it("shows Webex link status from webex_user_id attribute", async () => {
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(await screen.findByText("person-abc")).toBeInTheDocument();
+    expect(screen.getByText("Webex")).toBeInTheDocument();
+  });
+
+  it("can unlink Webex identity from the user detail modal", async () => {
+    const onSaved = jest.fn();
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={onSaved}
+      />
+    );
+
+    expect(await screen.findByText("person-abc")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /unlink webex/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/admin/webex/users/user-1", {
+        method: "DELETE",
+      });
+      expect(onSaved).toHaveBeenCalled();
     });
   });
 

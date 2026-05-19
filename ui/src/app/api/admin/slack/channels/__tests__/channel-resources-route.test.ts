@@ -82,7 +82,9 @@ function createMockCollection(rows: any[]) {
     updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
-      if (!row && options?.upsert) rows.push({ ...filter, ...(update.$set ?? {}) });
+      if (!row && options?.upsert) {
+        rows.push({ ...filter, ...(update.$setOnInsert ?? {}), ...(update.$set ?? {}) });
+      }
       return { matchedCount: row ? 1 : 0, modifiedCount: row ? 1 : 0, upsertedCount: row ? 0 : 1 };
     }),
     updateMany: jest.fn(async (filter: Record<string, any>, update: any) => {
@@ -722,6 +724,221 @@ describe("Slack channel ReBAC APIs", () => {
         { user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" },
         { user: `slack_channel:${workspaceAlias}--C987654321`, relation: "user", object: "agent:incident-agent" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it("onboards discovered bot-member channels before applying defaults without overwriting config-synced routes", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceAlias,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        active: true,
+      },
+    ]);
+    mockCollections.teams = createMockCollection([
+      {
+        _id: "team-1",
+        slug: "platform-engineering",
+        name: "Platform Engineering",
+        resources: { agents: [] },
+      },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "incident-agent", name: "Incident Agent", enabled: true },
+    ]);
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CNEWCONFIG",
+        agent_id: "incident-agent",
+        enabled: true,
+        priority: 25,
+        users: { enabled: true, listen: "all" },
+        source_type: "config_sync",
+        status: "active",
+      },
+    ]);
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/slack/channels/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "incident-agent",
+          create_routes: true,
+          discovered_channels: [
+            { id: "CNEWCONFIG", name: "config-managed" },
+            { id: "CNEWMISSING", name: "new-alerts" },
+          ],
+        }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.summary).toMatchObject({
+      channels_seen: 2,
+      channels_discovered: 2,
+      channels_onboarded: 2,
+      channels_assigned_team: 2,
+      channel_grants_ensured: 2,
+      routes_ensured: 1,
+      routes_preserved: 1,
+    });
+    expect(mockCollections.channel_team_mappings.updateOne).toHaveBeenCalledWith(
+      {
+        slack_workspace_id: workspaceAlias,
+        slack_channel_id: "CNEWCONFIG",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          channel_name: "config-managed",
+          active: true,
+        }),
+        $setOnInsert: expect.objectContaining({
+          slack_channel_id: "CNEWCONFIG",
+          slack_workspace_id: workspaceAlias,
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_agent_routes.updateOne).not.toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CNEWCONFIG",
+        agent_id: "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          priority: 100,
+          users: { enabled: true, listen: "mention" },
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_agent_routes.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CNEWMISSING",
+        agent_id: "incident-agent",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          priority: 100,
+          users: { enabled: true, listen: "mention" },
+          source_type: "bootstrap",
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: `slack_channel:${workspaceAlias}--CNEWCONFIG`, relation: "user", object: "agent:incident-agent" },
+        { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:incident-agent" },
+        { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it("applies per-channel import defaults for selected discovered channels", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([]);
+    mockCollections.teams = createMockCollection([
+      {
+        _id: "team-1",
+        slug: "platform-engineering",
+        name: "Platform Engineering",
+        resources: { agents: [] },
+      },
+      {
+        _id: "team-2",
+        slug: "security",
+        name: "Security",
+        resources: { agents: [] },
+      },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "incident-agent", name: "Incident Agent", enabled: true },
+      { _id: "test-april-2025", name: "Test April 2025", enabled: true },
+    ]);
+    mockCollections.slack_channel_agent_routes = createMockCollection([]);
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/slack/channels/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "incident-agent",
+          create_routes: true,
+          channel_defaults: [
+            {
+              id: "CNEWMISSING",
+              name: "new-alerts",
+              team_slug: "security",
+              agent_id: "test-april-2025",
+            },
+          ],
+        }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.summary).toMatchObject({
+      channels_seen: 1,
+      channels_discovered: 1,
+      channels_onboarded: 1,
+      channels_assigned_team: 1,
+      channel_grants_ensured: 1,
+      routes_ensured: 1,
+    });
+    expect(mockCollections.channel_team_mappings.updateOne).toHaveBeenCalledWith(
+      {
+        slack_workspace_id: workspaceAlias,
+        slack_channel_id: "CNEWMISSING",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          channel_name: "new-alerts",
+          team_id: "team-2",
+          team_slug: "security",
+          active: true,
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CNEWMISSING",
+        "resource.type": "agent",
+        "resource.id": "test-april-2025",
+      },
+      expect.anything(),
+      { upsert: true }
+    );
+    expect(mockCollections.slack_channel_agent_routes.updateOne).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CNEWMISSING",
+        agent_id: "test-april-2025",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          source_type: "bootstrap",
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:test-april-2025" },
+        { user: "team:security#member", relation: "user", object: "agent:test-april-2025" },
       ]),
       deletes: [],
     });

@@ -18,6 +18,8 @@ import {
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 
+export const dynamic = 'force-dynamic';
+
 interface CreateTeamRequest {
   name: string;
   slug?: string;
@@ -64,10 +66,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .sort({ created_at: -1 })
     .toArray();
 
-  return successResponse({
+  const response = successResponse({
     teams: allTeams,
     total: allTeams.length,
   });
+  response.headers.set('Cache-Control', 'no-store, max-age=0');
+  return response;
 });
 
 // POST /api/admin/teams

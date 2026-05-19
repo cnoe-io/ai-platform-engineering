@@ -24,6 +24,7 @@ const UM_PAGE = "umPage";
 const UM_TEAMS = "umTeams";
 const UM_IDP = "umIdp";
 const UM_SLACK = "umSlack";
+const UM_WEBEX = "umWebex";
 const UM_ENABLED = "umEnabled";
 
 const IDP_OPTIONS = [
@@ -33,6 +34,7 @@ const IDP_OPTIONS = [
 ];
 
 type SlackFilter = "all" | "linked" | "pending" | "unlinked";
+type WebexFilter = "all" | "linked" | "unlinked";
 type EnabledFilter = "all" | "enabled" | "disabled";
 
 interface AdminUserRow {
@@ -44,6 +46,7 @@ interface AdminUserRow {
   enabled: boolean;
   attributes: Record<string, string[]>;
   slack_link_status?: "linked" | "pending" | "unlinked";
+  webex_link_status?: "linked" | "unlinked";
 }
 
 interface TeamListItem {
@@ -74,6 +77,15 @@ function slackStatusForUser(u: AdminUserRow): "linked" | "pending" | "unlinked" 
   }
   const sid = u.attributes?.slack_user_id;
   const v = Array.isArray(sid) ? sid[0] : sid;
+  return v != null && String(v).trim() !== "" ? "linked" : "unlinked";
+}
+
+function webexStatusForUser(u: AdminUserRow): "linked" | "unlinked" {
+  if (u.webex_link_status === "linked" || u.webex_link_status === "unlinked") {
+    return u.webex_link_status;
+  }
+  const wid = u.attributes?.webex_user_id;
+  const v = Array.isArray(wid) ? wid[0] : wid;
   return v != null && String(v).trim() !== "" ? "linked" : "unlinked";
 }
 
@@ -198,6 +210,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
   );
   const idpFilter = searchParams.get(UM_IDP) ?? "";
   const slackFilter = (searchParams.get(UM_SLACK) ?? "all") as SlackFilter;
+  const webexFilter = (searchParams.get(UM_WEBEX) ?? "all") as WebexFilter;
   const enabledFilter = (searchParams.get(UM_ENABLED) ??
     "all") as EnabledFilter;
   const searchFromUrl = searchParams.get(UM_SEARCH) ?? "";
@@ -264,6 +277,13 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     });
   };
 
+  const setWebexFilter = (v: WebexFilter) => {
+    patchUrl({
+      [UM_WEBEX]: v === "all" ? null : v,
+      [UM_PAGE]: null,
+    });
+  };
+
   const setEnabledFilter = (v: EnabledFilter) => {
     patchUrl({
       [UM_ENABLED]: v === "all" ? null : v,
@@ -325,6 +345,9 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
         if (slackFilter === "linked" || slackFilter === "pending" || slackFilter === "unlinked") {
           qs.set("slackStatus", slackFilter);
         }
+        if (webexFilter === "linked" || webexFilter === "unlinked") {
+          qs.set("webexStatus", webexFilter);
+        }
         if (enabledFilter === "enabled") qs.set("enabled", "true");
         if (enabledFilter === "disabled") qs.set("enabled", "false");
 
@@ -366,6 +389,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     teamsFilterKey,
     idpFilter,
     slackFilter,
+    webexFilter,
     enabledFilter,
     teams,
   ]);
@@ -438,6 +462,18 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
           </select>
         </div>
         <div className="flex flex-col gap-1 min-w-[130px]">
+          <span className="text-xs font-medium text-muted-foreground">Webex</span>
+          <select
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            value={webexFilter}
+            onChange={(e) => setWebexFilter(e.target.value as WebexFilter)}
+          >
+            <option value="all">All</option>
+            <option value="linked">Linked</option>
+            <option value="unlinked">Unlinked</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1 min-w-[130px]">
           <span className="text-xs font-medium text-muted-foreground">
             Enabled
           </span>
@@ -465,13 +501,14 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                 <th className="px-4 py-3">Teams</th>
                 <th className="px-4 py-3">IdP</th>
                 <th className="px-4 py-3">Slack</th>
+                <th className="px-4 py-3">Webex</th>
                 <th className="px-4 py-3 w-20">Enabled</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-16 text-center">
+                  <td colSpan={7} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-8 w-8 animate-spin" />
                       <span>Loading…</span>
@@ -481,7 +518,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No users match the current filters.
@@ -497,6 +534,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                     emailToTeams.get(emailKey(u.email)) ?? [];
                   const slackStatus = slackStatusForUser(u);
                   const linked = isSlackLinked(u);
+                  const webexStatus = webexStatusForUser(u);
                   return (
                     <tr
                       key={u.id}
@@ -525,6 +563,17 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                             Pending
                           </span>
                         ) : linked ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
+                            Linked
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground border border-border">
+                            Unlinked
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {webexStatus === "linked" ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25">
                             Linked
                           </span>

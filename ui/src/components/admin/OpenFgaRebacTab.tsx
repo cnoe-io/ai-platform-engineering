@@ -7,12 +7,14 @@ import {
   Bot,
   Database,
   Hash,
+  MessageSquare,
   Shield,
   CheckCircle2,
   Loader2,
   Maximize2,
   Minimize2,
   RefreshCw,
+  Search,
   Trash2,
   User,
   Users,
@@ -45,14 +47,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { RebacPolicyBuilder } from "./rebac/RebacPolicyBuilder";
 import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
 import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
 import { RebacGraphFilters, type RebacGraphUserOption } from "./rebac/RebacGraphFilters";
-import { SlackChannelRebacPanel } from "./rebac/SlackChannelRebacPanel";
-import type { UniversalRebacRelationship, UniversalRebacResourceAction } from "@/types/rbac-universal";
+import type {
+  UniversalRebacRelationship,
+  UniversalRebacResourceAction,
+  UniversalRebacResourceType,
+  UniversalRebacResourceTypeDefinition,
+  UniversalRebacSubjectRef,
+  UniversalRebacSubjectType,
+} from "@/types/rbac-universal";
 
 type ResourceType = "agent" | "tool" | "knowledge_base";
+type AccessResourceType = UniversalRebacResourceType;
+type AccessSubjectType = Extract<
+  UniversalRebacSubjectType,
+  "team" | "user" | "slack_channel" | "webex_space" | "external_group" | "service_account"
+>;
 interface CatalogTeam {
   id: string;
   slug: string;
@@ -63,9 +75,13 @@ interface CatalogTeam {
 
 interface CatalogResource {
   id: string;
-  name: string;
-  description: string;
-  object: string;
+  name?: string;
+  display_name?: string;
+  description?: string;
+  object?: string;
+  type?: UniversalRebacResourceType;
+  status?: string;
+  enforcement_status?: string;
 }
 
 interface CatalogResponse {
@@ -75,11 +91,15 @@ interface CatalogResponse {
     store_name: string;
   };
   teams: CatalogTeam[];
+  resource_types?: UniversalRebacResourceTypeDefinition[];
+  actions?: Record<string, UniversalRebacResourceAction[]>;
   resources: {
     agents: CatalogResource[];
     tools: CatalogResource[];
     knowledge_bases: CatalogResource[];
+    by_type?: Partial<Record<UniversalRebacResourceType, CatalogResource[]>>;
   };
+  universal_resources?: CatalogResource[];
 }
 
 interface TupleKey {
@@ -104,6 +124,12 @@ interface GraphEdge {
   from: string;
   to: string;
   relation: string;
+  kind?: "openfga" | "metadata";
+  metadata?: {
+    source_type: "slack_channel_team_mapping" | "webex_space_team_mapping";
+    label: string;
+    readonly: true;
+  };
 }
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
@@ -112,16 +138,10 @@ const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
   knowledge_base: ["reader", "ingestor", "manager"],
 };
 
-const RESOURCE_LABELS: Record<ResourceType, string> = {
-  agent: "Agent",
-  tool: "Tool",
-  knowledge_base: "Knowledge base",
-};
-
 const RESOURCE_TYPES = new Set<ResourceType>(["agent", "tool", "knowledge_base"]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["builder", "explorer", "rag", "slack", "graph", "tuples"]);
+const OPENFGA_TABS = new Set(["tuples", "graph", "access"]);
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   user: "use",
   manager: "manage",
@@ -129,6 +149,67 @@ const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   reader: "read",
   ingestor: "ingest",
 };
+const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
+  discover: "can_discover",
+  read: "can_read",
+  use: "can_use",
+  write: "can_write",
+  create: "can_manage",
+  delete: "can_delete",
+  manage: "can_manage",
+  administer: "can_admin",
+  audit: "can_audit",
+  approve: "can_approve",
+  share: "can_share",
+  call: "can_call",
+  invoke: "can_invoke",
+  map: "can_map",
+  ingest: "can_ingest",
+  "read-metadata": "can_read_metadata",
+};
+
+const ACCESS_RESOURCE_LABELS: Partial<Record<AccessResourceType, string>> = {
+  organization: "Organization",
+  user: "User",
+  external_group: "External group",
+  team: "Team",
+  slack_workspace: "Slack workspace",
+  slack_channel: "Slack channel",
+  webex_workspace: "Webex workspace",
+  webex_space: "Webex space",
+  agent: "Agent",
+  mcp_gateway: "AgentGateway",
+  mcp_server: "MCP server",
+  tool: "Tool",
+  knowledge_base: "Knowledge base",
+  document: "Document",
+  skill: "Skill",
+  task: "Task",
+  conversation: "Conversation",
+  admin_surface: "Admin surface",
+  policy: "Policy",
+  audit_log: "Audit log",
+  secret_ref: "Secret reference",
+  system_config: "System config",
+};
+
+const ACCESS_SUBJECT_LABELS: Record<AccessSubjectType, string> = {
+  team: "Team",
+  user: "User",
+  slack_channel: "Slack channel",
+  webex_space: "Webex space",
+  external_group: "External group",
+  service_account: "Service account",
+};
+
+const ACCESS_SUBJECT_TYPES: AccessSubjectType[] = [
+  "team",
+  "user",
+  "slack_channel",
+  "webex_space",
+  "external_group",
+  "service_account",
+];
 
 const BASE_RELATIONSHIP_CHEATSHEET = [
   {
@@ -182,6 +263,7 @@ const SUBJECT_CHEATSHEET = [
   ["team:<slug>#admin", "team owners/admins"],
   ["external_group:<provider>/<id>#member", "synced IdP group members"],
   ["slack_channel:<workspace>--<channel>", "Slack channel route principal"],
+  ["webex_space:<workspace>--<space>", "Webex space route principal"],
 ] as const;
 
 const RESOURCE_OBJECT_CHEATSHEET = [
@@ -190,6 +272,7 @@ const RESOURCE_OBJECT_CHEATSHEET = [
   ["agent:<id>", "Dynamic Agent config/runtime target"],
   ["tool:<server>/<tool>", "specific MCP tool"],
   ["tool:<server>/*", "all tools from an MCP server"],
+  ["mcp_gateway:<name>", "AgentGateway coarse MCP call gate"],
   ["mcp_server:<id>", "MCP server discovery/sync target"],
   ["knowledge_base:<id>", "RAG datasource or KB resource"],
   ["conversation:<id>", "chat history and sharing target"],
@@ -198,6 +281,7 @@ const RESOURCE_OBJECT_CHEATSHEET = [
   ["admin_surface:<name>", "protected admin UI surface"],
   ["system_config:<key>", "platform configuration key"],
   ["slack_channel:<workspace>--<channel>", "Slack channel association target"],
+  ["webex_space:<workspace>--<space>", "Webex space association target"],
 ] as const;
 
 interface RebacNodeData {
@@ -209,7 +293,8 @@ interface RebacNodeData {
 }
 
 interface RebacEdgeData {
-  tuple: TupleKey;
+  tuple?: TupleKey;
+  metadata?: GraphEdge["metadata"];
   staged?: "write";
   [key: string]: unknown;
 }
@@ -218,11 +303,73 @@ function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
 }
 
-function typeResources(catalog: CatalogResponse | null, type: ResourceType): CatalogResource[] {
+function resourceName(resource: CatalogResource): string {
+  return resource.display_name || resource.name || resource.id;
+}
+
+function normalizeOpenFgaTab(tab: string): string {
+  if (tab === "builder" || tab === "explorer") return "access";
+  return OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
+}
+
+function accessResourceTypes(catalog: CatalogResponse | null): UniversalRebacResourceTypeDefinition[] {
+  return catalog?.resource_types ?? [];
+}
+
+function accessResources(catalog: CatalogResponse | null, type: AccessResourceType): CatalogResource[] {
   if (!catalog) return [];
+  const byType = catalog.resources.by_type?.[type] ?? [];
+  if (byType.length > 0) return byType;
   if (type === "agent") return catalog.resources.agents;
   if (type === "tool") return catalog.resources.tools;
-  return catalog.resources.knowledge_bases;
+  if (type === "knowledge_base") return catalog.resources.knowledge_bases;
+  return [];
+}
+
+function actionOptions(catalog: CatalogResponse | null, type: AccessResourceType): UniversalRebacResourceAction[] {
+  const fromActions = catalog?.actions?.[type];
+  if (fromActions?.length) return fromActions;
+  return catalog?.resource_types?.find((definition) => definition.type === type)?.actions.slice() ?? [];
+}
+
+function subjectOptions(catalog: CatalogResponse | null, type: AccessSubjectType): CatalogResource[] {
+  if (!catalog) return [];
+  if (type === "team") {
+    return catalog.teams.map((team) => ({
+      type: "team",
+      id: team.slug,
+      display_name: `${team.name} (${team.slug})`,
+      object: `team:${team.slug}`,
+    }));
+  }
+  return accessResources(catalog, type as AccessResourceType);
+}
+
+function accessResourceLabel(type: AccessResourceType): string {
+  return ACCESS_RESOURCE_LABELS[type] ?? type.replaceAll("_", " ");
+}
+
+function accessSubjectLabel(type: AccessSubjectType): string {
+  return ACCESS_SUBJECT_LABELS[type];
+}
+
+function subjectRelations(type: AccessSubjectType): Array<NonNullable<UniversalRebacSubjectRef["relation"]>> {
+  if (type === "team") return ["member", "admin"];
+  if (type === "external_group") return ["member"];
+  return [];
+}
+
+function normalizeUserSearchResults(users: RebacGraphUserOption[]): CatalogResource[] {
+  return users.map((user) => {
+    const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+    const primary = name || user.email || user.username || user.id;
+    return {
+      type: "user",
+      id: user.id,
+      display_name: primary === user.id ? `user:${user.id}` : `${primary} (${user.id})`,
+      object: `user:${user.id}`,
+    };
+  });
 }
 
 function statusBadge(catalog: CatalogResponse | null) {
@@ -241,13 +388,13 @@ function OpenFgaPermissionCheatsheet() {
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base">OpenFGA Permission Cheatsheet</CardTitle>
+            <CardTitle className="text-base">Access Manager Permission Cheatsheet</CardTitle>
             <CardDescription>
-              Use base relationships in the builder; OpenFGA derives the checked `can_*` permissions at runtime.
+              Use this reference to connect selected actions to the base relationships that OpenFGA stores and the `can_*` permissions it checks at runtime.
             </CardDescription>
           </div>
           <Badge variant="outline" className="border-cyan-500/40 text-cyan-700 dark:text-cyan-300">
-            Relationship Builder reference
+            Relationship reference
           </Badge>
         </div>
       </CardHeader>
@@ -342,6 +489,7 @@ const GRAPH_KIND_META: Record<string, { label: string; icon: LucideIcon; classNa
   tool: { label: "Tool", icon: Wrench, className: "border-amber-400 bg-amber-500/10" },
   knowledge_base: { label: "Knowledge Base", icon: Database, className: "border-rose-400 bg-rose-500/10" },
   slack_channel: { label: "Slack Channel", icon: Hash, className: "border-cyan-400 bg-cyan-500/10" },
+  webex_space: { label: "Webex Space", icon: MessageSquare, className: "border-violet-400 bg-violet-500/10" },
 };
 
 function graphKindMeta(kind: string) {
@@ -400,7 +548,13 @@ function relationshipFromTuple(tuple: TupleKey): UniversalRebacRelationship | nu
   const [resourceType, resourceId = ""] = tuple.object.split(":", 2);
   const action = RELATION_TO_ACTION[tuple.relation];
   if (!subjectType || !subjectId || !resourceType || !resourceId || !action) return null;
-  if (!["user", "team", "slack_channel", "external_group", "service_account", "anonymous"].includes(subjectType)) return null;
+  if (
+    !["user", "team", "slack_channel", "webex_space", "external_group", "service_account", "anonymous"].includes(
+      subjectType
+    )
+  ) {
+    return null;
+  }
   return {
     subject: {
       type: subjectType as UniversalRebacRelationship["subject"]["type"],
@@ -426,35 +580,52 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [teamSlug, setTeamSlug] = useState("");
   const [graphScope, setGraphScope] = useState(ALL_RELATIONSHIPS_SCOPE);
   const [graphUser, setGraphUser] = useState<RebacGraphUserOption | null>(null);
   const [graphFullscreenOpen, setGraphFullscreenOpen] = useState(false);
-  const [resourceType, setResourceType] = useState<ResourceType>("agent");
-  const [resourceId, setResourceId] = useState("");
-  const [relation, setRelation] = useState("user");
+  const [accessSubjectType, setAccessSubjectType] = useState<AccessSubjectType>("team");
+  const [accessSubjectId, setAccessSubjectId] = useState("");
+  const [accessSubjectRelation, setAccessSubjectRelation] =
+    useState<NonNullable<UniversalRebacSubjectRef["relation"]>>("member");
+  const [accessResourceType, setAccessResourceType] = useState<AccessResourceType>("agent");
+  const [accessResourceId, setAccessResourceId] = useState("");
+  const [accessAction, setAccessAction] = useState<UniversalRebacResourceAction>("use");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
   const [tupleFilter, setTupleFilter] = useState<Partial<TupleKey>>({});
   const [pendingGraphWrites, setPendingGraphWrites] = useState<TupleKey[]>([]);
   const [pendingGraphDeletes, setPendingGraphDeletes] = useState<TupleKey[]>([]);
   const [graphSelectedResourceObjects, setGraphSelectedResourceObjects] = useState<Set<string>>(() => new Set());
-  const [teamAccessTeamId, setTeamAccessTeamId] = useState("");
-  const [ragAdminEnabled, setRagAdminEnabled] = useState(false);
-  const [teamAccessLoading, setTeamAccessLoading] = useState(false);
   const activeTab = useMemo(() => {
     const tab = searchParams.get("subtab") ?? searchParams.get("openfgaTab") ?? DEFAULT_OPENFGA_TAB;
-    return OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
+    return normalizeOpenFgaTab(tab);
   }, [searchParams]);
 
-  const resources = useMemo(() => typeResources(catalog, resourceType), [catalog, resourceType]);
-  const selectedTuple: TupleKey | null = useMemo(() => {
-    if (!teamSlug || !resourceId || !relation) return null;
+  const selectedAccessRelationship: UniversalRebacRelationship | null = useMemo(() => {
+    if (!accessSubjectId || !accessResourceId || !accessAction) return null;
+    const allowedSubjectRelations = subjectRelations(accessSubjectType);
+    const subjectRelation = allowedSubjectRelations.includes(accessSubjectRelation)
+      ? accessSubjectRelation
+      : undefined;
     return {
-      user: `team:${teamSlug}#member`,
-      relation,
-      object: `${resourceType}:${resourceId}`,
+      subject: {
+        type: accessSubjectType,
+        id: accessSubjectId,
+        ...(subjectRelation ? { relation: subjectRelation } : {}),
+      },
+      action: accessAction,
+      resource: {
+        type: accessResourceType,
+        id: accessResourceId,
+      },
     };
-  }, [relation, resourceId, resourceType, teamSlug]);
+  }, [
+    accessAction,
+    accessResourceId,
+    accessResourceType,
+    accessSubjectId,
+    accessSubjectRelation,
+    accessSubjectType,
+  ]);
 
   const loadCatalog = useCallback(async () => {
     const res = await fetch("/api/admin/openfga/catalog");
@@ -462,9 +633,8 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     const payload = await res.json();
     const data = apiData<CatalogResponse>(payload);
     setCatalog(data);
-    setTeamSlug((prev) => prev || data.teams[0]?.slug || "");
-    setTeamAccessTeamId((prev) => prev || data.teams[0]?.id || "");
-    setResourceId((prev) => prev || data.resources.agents[0]?.id || "");
+    setAccessSubjectId((prev) => prev || data.teams[0]?.slug || "");
+    setAccessResourceId((prev) => prev || accessResources(data, "agent")[0]?.id || "");
   }, []);
 
   const loadTuples = useCallback(async () => {
@@ -509,14 +679,24 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   }, [refresh]);
 
   useEffect(() => {
-    const nextRelation = RELATIONS_BY_TYPE[resourceType][0];
-    setRelation(nextRelation);
-    setResourceId(typeResources(catalog, resourceType)[0]?.id || "");
-  }, [catalog, resourceType]);
+    const nextSubjects = subjectOptions(catalog, accessSubjectType);
+    setAccessSubjectId(nextSubjects[0]?.id || "");
+    const relations = subjectRelations(accessSubjectType);
+    setAccessSubjectRelation(relations[0] ?? "member");
+    setCheckResult(null);
+  }, [accessSubjectType, catalog]);
+
+  useEffect(() => {
+    const nextResources = accessResources(catalog, accessResourceType);
+    const nextActions = actionOptions(catalog, accessResourceType);
+    setAccessResourceId(nextResources[0]?.id || "");
+    setAccessAction(nextActions[0] ?? "read");
+    setCheckResult(null);
+  }, [accessResourceType, catalog]);
 
   const setActiveTab = useCallback(
     (tab: string) => {
-      const nextTab = OPENFGA_TABS.has(tab) ? tab : DEFAULT_OPENFGA_TAB;
+      const nextTab = normalizeOpenFgaTab(tab);
       const params = new URLSearchParams(searchParams.toString());
       params.set("subtab", nextTab);
       params.set("openfgaTab", nextTab);
@@ -524,66 +704,6 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     },
     [pathname, router, searchParams]
   );
-
-  const loadTeamAccess = useCallback(async () => {
-    if (!teamAccessTeamId) return;
-    setTeamAccessLoading(true);
-    setError(null);
-    try {
-      const selectedTeam = catalog?.teams.find((team) => team.id === teamAccessTeamId);
-      const teamAccessSlug = selectedTeam?.slug ?? teamAccessTeamId;
-      const params = new URLSearchParams({
-        user: `team:${teamAccessSlug}#member`,
-        relation: "manager",
-        object: "admin_surface:rag_datasources",
-        limit: "1",
-      });
-      const res = await fetch(`/api/admin/openfga/tuples?${params.toString()}`);
-      if (!res.ok) throw new Error(`Failed to load RAG team access: ${res.status}`);
-      const payload = await res.json();
-      const data = apiData<{ tuples: TupleRecord[] }>(payload);
-      setRagAdminEnabled((data.tuples ?? []).length > 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load RAG team access");
-    } finally {
-      setTeamAccessLoading(false);
-    }
-  }, [catalog?.teams, teamAccessTeamId]);
-
-  useEffect(() => {
-    if (activeTab === "rag") {
-      loadTeamAccess();
-    }
-  }, [activeTab, loadTeamAccess]);
-
-  async function saveTeamAccess() {
-    if (!teamAccessTeamId || !isAdmin) return;
-    const selectedTeam = catalog?.teams.find((team) => team.id === teamAccessTeamId);
-    const teamAccessSlug = selectedTeam?.slug ?? teamAccessTeamId;
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/openfga/relationship", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamSlug: teamAccessSlug,
-          resourceType: "admin_surface",
-          resourceId: "rag_datasources",
-          relation: "manager",
-          operation: ragAdminEnabled ? "grant" : "revoke",
-        }),
-      });
-      if (!res.ok) throw new Error(`Failed to save RAG team access: ${res.status}`);
-      setMessage("RAG team access saved to OpenFGA");
-      await Promise.all([loadTeamAccess(), loadTuples(), loadGraph()]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "RAG team access save failed");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function applyChangeSet(
     name: string,
@@ -617,36 +737,9 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     if (!apply.ok) throw new Error(`Change-set apply failed: ${apply.status}`);
   }
 
-  async function mutateRelationship(operation: "grant" | "revoke") {
-    if (!selectedTuple) return;
-    const relationship = relationshipFromTuple(selectedTuple);
-    if (!relationship) {
-      setError("Selected tuple cannot be represented as a universal ReBAC relationship");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await applyChangeSet(
-        `${operation === "grant" ? "Grant" : "Revoke"} ${relation} ${resourceType}:${resourceId}`,
-        operation === "grant" ? [relationship] : [],
-        operation === "revoke" ? [relationship] : []
-      );
-      setMessage(`${operation === "grant" ? "Granted" : "Revoked"} ${relation} on ${resourceType}:${resourceId}`);
-      await Promise.all([loadTuples(), loadGraph()]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "OpenFGA relationship update failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function checkAccess() {
-    if (!selectedTuple) return;
-    const relationship = relationshipFromTuple(selectedTuple);
-    if (!relationship) {
-      setError("Selected tuple cannot be represented as a universal ReBAC relationship");
+    if (!selectedAccessRelationship) {
+      setError("Select a subject, resource, and action to check effective access");
       return;
     }
     setBusy(true);
@@ -656,13 +749,65 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
       const res = await fetch("/api/admin/rebac/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ relationship }),
+        body: JSON.stringify({ relationship: selectedAccessRelationship }),
       });
       if (!res.ok) throw new Error(`ReBAC access check failed: ${res.status}`);
       const payload = await res.json();
       setCheckResult(Boolean(apiData<{ allowed: boolean }>(payload).allowed));
     } catch (err) {
       setError(err instanceof Error ? err.message : "ReBAC access check failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function grantSelectedAccess() {
+    if (!selectedAccessRelationship) {
+      setError("Select a subject, resource, and action before granting access");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await applyChangeSet(
+        `Grant effective access ${selectedAccessRelationship.action} ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`,
+        [selectedAccessRelationship],
+        []
+      );
+      setMessage(
+        `Granted ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
+      );
+      await Promise.all([loadTuples(), loadGraph()]);
+      await checkAccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Effective access grant failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeSelectedAccess() {
+    if (!selectedAccessRelationship) {
+      setError("Select a subject, resource, and action before revoking access");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await applyChangeSet(
+        `Revoke effective access ${selectedAccessRelationship.action} ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`,
+        [],
+        [selectedAccessRelationship]
+      );
+      setMessage(
+        `Revoked ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
+      );
+      await Promise.all([loadTuples(), loadGraph()]);
+      await checkAccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Effective access revoke failed");
     } finally {
       setBusy(false);
     }
@@ -805,145 +950,54 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="builder" onClick={() => setActiveTab("builder")}>Relationship Builder</TabsTrigger>
-          <TabsTrigger value="explorer" onClick={() => setActiveTab("explorer")}>Effective Access</TabsTrigger>
-          <TabsTrigger value="rag" onClick={() => setActiveTab("rag")}>RAG Team Access</TabsTrigger>
-          <TabsTrigger value="slack" onClick={() => setActiveTab("slack")}>Slack Channels</TabsTrigger>
-          <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
+          <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
+          <TabsTrigger value="access" onClick={() => setActiveTab("access")}>Access Manager</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="builder">
-          <div
-            data-testid="openfga-builder-stacked-layout"
-            className="space-y-4"
-          >
-            <RebacPolicyBuilder
-              selectedGrant={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
-              selectedRevocation={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
-              disabled={!isAdmin}
-              busy={busy}
-              onGrant={() => mutateRelationship("grant")}
-              onRevoke={() => mutateRelationship("revoke")}
-            >
-                <RelationshipForm
-                  catalog={catalog}
-                  teamSlug={teamSlug}
-                  resourceType={resourceType}
-                  resourceId={resourceId}
-                  relation={relation}
-                  resources={resources}
-                  onTeamSlug={setTeamSlug}
-                  onResourceType={setResourceType}
-                  onResourceId={setResourceId}
-                  onRelation={setRelation}
-                />
-                {selectedTuple && <TuplePreview tuple={selectedTuple} />}
-                {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
-            </RebacPolicyBuilder>
-            <OpenFgaPermissionCheatsheet />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="explorer">
+        <TabsContent value="access">
           <Card>
             <CardHeader>
-              <CardTitle>Effective Access Preview</CardTitle>
+              <CardTitle>Access Manager</CardTitle>
               <CardDescription>
-                Run OpenFGA Check for the selected team relation before testing through AgentGateway.
+                Select any catalog-backed subject and resource, check the derived permission, then grant or revoke it through a validated change set.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <RelationshipForm
+              <AccessCheckForm
                 catalog={catalog}
-                teamSlug={teamSlug}
-                resourceType={resourceType}
-                resourceId={resourceId}
-                relation={relation}
-                resources={resources}
-                onTeamSlug={setTeamSlug}
-                onResourceType={setResourceType}
-                onResourceId={setResourceId}
-                onRelation={setRelation}
+                subjectType={accessSubjectType}
+                subjectId={accessSubjectId}
+                subjectRelation={accessSubjectRelation}
+                resourceType={accessResourceType}
+                resourceId={accessResourceId}
+                action={accessAction}
+                onSubjectType={setAccessSubjectType}
+                onSubjectId={setAccessSubjectId}
+                onSubjectRelation={setAccessSubjectRelation}
+                onResourceType={setAccessResourceType}
+                onResourceId={setAccessResourceId}
+                onAction={setAccessAction}
               />
-              {selectedTuple && <TuplePreview tuple={selectedTuple} />}
+              {selectedAccessRelationship && <AccessPreview relationship={selectedAccessRelationship} />}
+              <AccessChangeSetPreview
+                relationship={selectedAccessRelationship}
+                allowed={checkResult}
+                canMutate={isAdmin}
+              />
               <RebacAccessChecker
-                relationship={selectedTuple ? relationshipFromTuple(selectedTuple) : null}
+                relationship={selectedAccessRelationship}
                 allowed={checkResult}
                 busy={busy}
+                canGrant={isAdmin}
                 onCheck={checkAccess}
+                onGrant={grantSelectedAccess}
+                onRevoke={revokeSelectedAccess}
               />
+              {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
+              <OpenFgaPermissionCheatsheet />
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="rag">
-          <Card>
-            <CardHeader>
-              <CardTitle>RAG Team Access</CardTitle>
-              <CardDescription>
-                Grant explicit RAG admin access to the Data Sources surface. Individual Knowledge Base
-                datasource grants stay in the Data Sources team access UI and remain deny-by-default.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 md:max-w-sm">
-                <Label htmlFor="rag-team-access-team">Team</Label>
-                <select
-                  id="rag-team-access-team"
-                  className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={teamAccessTeamId}
-                  disabled={!isAdmin || teamAccessLoading}
-                  onChange={(event) => setTeamAccessTeamId(event.target.value)}
-                >
-                  {(catalog?.teams ?? []).map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name || team.slug}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="rounded-md border p-4">
-                <label className="flex items-start gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={ragAdminEnabled}
-                    disabled={!isAdmin || teamAccessLoading}
-                    onChange={(event) => setRagAdminEnabled(event.target.checked)}
-                  />
-                  <span>
-                    <span className="block font-medium">Data Sources admin</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Writes <code className="rounded bg-muted px-1">team:&lt;slug&gt;#member manager admin_surface:rag_datasources</code>.
-                      Teams without this grant cannot administer the Data Sources tab. Readonly access comes from explicit per-datasource grants.
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  onClick={loadTeamAccess}
-                  disabled={!teamAccessTeamId || teamAccessLoading}
-                >
-                  {teamAccessLoading ? "Refreshing..." : "Refresh Team Access"}
-                </Button>
-                <Button
-                  onClick={saveTeamAccess}
-                  disabled={!isAdmin || busy || teamAccessLoading || !teamAccessTeamId}
-                >
-                  Save RAG Team Access
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="slack">
-          <SlackChannelRebacPanel disabled={!isAdmin} />
         </TabsContent>
 
         <TabsContent value="graph">
@@ -980,7 +1034,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 catalog={catalog}
                 graph={graph}
                 teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
-                preferredRelation={relation}
+                preferredRelation="user"
                 selectedResourceObjects={graphSelectedResourceObjects}
                 pendingWrites={pendingGraphWrites}
                 pendingDeletes={pendingGraphDeletes}
@@ -1036,7 +1090,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                       catalog={catalog}
                       graph={graph}
                       teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
-                      preferredRelation={relation}
+                      preferredRelation="user"
                       selectedResourceObjects={graphSelectedResourceObjects}
                       pendingWrites={pendingGraphWrites}
                       pendingDeletes={pendingGraphDeletes}
@@ -1111,91 +1165,256 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function RelationshipForm(props: {
+function AccessCheckForm(props: {
   catalog: CatalogResponse | null;
-  teamSlug: string;
-  resourceType: ResourceType;
+  subjectType: AccessSubjectType;
+  subjectId: string;
+  subjectRelation: NonNullable<UniversalRebacSubjectRef["relation"]>;
+  resourceType: AccessResourceType;
   resourceId: string;
-  relation: string;
-  resources: CatalogResource[];
-  onTeamSlug: (value: string) => void;
-  onResourceType: (value: ResourceType) => void;
+  action: UniversalRebacResourceAction;
+  onSubjectType: (value: AccessSubjectType) => void;
+  onSubjectId: (value: string) => void;
+  onSubjectRelation: (value: NonNullable<UniversalRebacSubjectRef["relation"]>) => void;
+  onResourceType: (value: AccessResourceType) => void;
   onResourceId: (value: string) => void;
-  onRelation: (value: string) => void;
+  onAction: (value: UniversalRebacResourceAction) => void;
 }) {
+  const [subjectQuery, setSubjectQuery] = useState("");
+  const [subjectResults, setSubjectResults] = useState<CatalogResource[]>([]);
+  const [searchingSubjects, setSearchingSubjects] = useState(false);
+  const [subjectError, setSubjectError] = useState<string | null>(null);
+  const subjectCatalogOptions = subjectOptions(props.catalog, props.subjectType);
+  const availableResourceTypes = accessResourceTypes(props.catalog);
+  const resources = accessResources(props.catalog, props.resourceType);
+  const actions = actionOptions(props.catalog, props.resourceType);
+  const relations = subjectRelations(props.subjectType);
+  const normalizedQuery = subjectQuery.trim().toLowerCase();
+  const visibleSubjects = (subjectResults.length > 0 ? subjectResults : subjectCatalogOptions).filter((subject) => {
+    if (!normalizedQuery || subjectResults.length > 0) return true;
+    return `${resourceName(subject)} ${subject.id}`.toLowerCase().includes(normalizedQuery);
+  });
+  const showSubjectOptions = normalizedQuery.length > 0 || subjectResults.length > 0;
+
+  async function searchSubjects() {
+    if (props.subjectType !== "user") {
+      setSubjectResults([]);
+      return;
+    }
+    const query = subjectQuery.trim();
+    if (!query) {
+      setSubjectResults([]);
+      return;
+    }
+    setSearchingSubjects(true);
+    setSubjectError(null);
+    try {
+      const params = new URLSearchParams({ search: query, pageSize: "20" });
+      const response = await fetch(`/api/admin/users?${params.toString()}`);
+      if (!response.ok) throw new Error(`User search failed: ${response.status}`);
+      const payload = await response.json();
+      setSubjectResults(normalizeUserSearchResults(Array.isArray(payload.users) ? payload.users : []));
+    } catch (err) {
+      setSubjectError(err instanceof Error ? err.message : "Subject search failed");
+    } finally {
+      setSearchingSubjects(false);
+    }
+  }
+
   return (
-    <div className="grid gap-3 md:grid-cols-4">
-      <div>
-        <Label htmlFor="rebac-team">Team</Label>
-        <select
-          id="rebac-team"
-          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-          value={props.teamSlug}
-          onChange={(event) => props.onTeamSlug(event.target.value)}
-        >
-          {props.catalog?.teams.map((team) => (
-            <option key={team.slug} value={team.slug}>
-              {team.name} ({team.slug})
-            </option>
-          ))}
-        </select>
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,0.8fr)]">
+        <div>
+          <Label htmlFor="rebac-access-subject-type">Subject type</Label>
+          <select
+            id="rebac-access-subject-type"
+            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={props.subjectType}
+            onChange={(event) => {
+              props.onSubjectType(event.target.value as AccessSubjectType);
+              setSubjectQuery("");
+              setSubjectResults([]);
+              setSubjectError(null);
+            }}
+          >
+            {ACCESS_SUBJECT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {accessSubjectLabel(type)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="rebac-access-subject">Subject</Label>
+          <div className="mt-1 flex gap-2">
+            <Input
+              id="rebac-access-subject"
+              autoComplete="off"
+              value={subjectQuery}
+              onChange={(event) => {
+                setSubjectQuery(event.target.value);
+                setSubjectResults([]);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void searchSubjects();
+                }
+              }}
+              placeholder={`Search ${accessSubjectLabel(props.subjectType).toLowerCase()} subjects`}
+            />
+            <Button type="button" variant="outline" className="gap-2" onClick={() => void searchSubjects()}>
+              <Search className="h-4 w-4" />
+              Search subjects
+            </Button>
+          </div>
+          {props.subjectId && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Selected <code>{props.subjectType}:{props.subjectId}</code>
+              {relations.length > 0 ? `#${props.subjectRelation}` : ""}
+            </p>
+          )}
+          {subjectError && <p className="mt-2 text-xs text-destructive">{subjectError}</p>}
+          {searchingSubjects && <p className="mt-2 text-xs text-muted-foreground">Searching subjects...</p>}
+          {showSubjectOptions && visibleSubjects.length > 0 && (
+            <div className="mt-2 max-h-44 overflow-auto rounded-md border bg-background">
+              {visibleSubjects.map((subject) => (
+                <button
+                  key={`${subject.type ?? props.subjectType}:${subject.id}`}
+                  type="button"
+                  className="block w-full border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-muted"
+                  onClick={() => {
+                    props.onSubjectId(subject.id);
+                    setSubjectQuery(resourceName(subject));
+                    setSubjectResults([]);
+                  }}
+                >
+                  <span className="block font-medium">{resourceName(subject)}</span>
+                  <span className="block text-muted-foreground">
+                    {props.subjectType}:{subject.id}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {relations.length > 0 && (
+          <div>
+            <Label htmlFor="rebac-access-subject-relation">Subject relation</Label>
+            <select
+              id="rebac-access-subject-relation"
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              value={props.subjectRelation}
+              onChange={(event) =>
+                props.onSubjectRelation(event.target.value as NonNullable<UniversalRebacSubjectRef["relation"]>)
+              }
+            >
+              {relations.map((relationValue) => (
+                <option key={relationValue} value={relationValue}>
+                  {relationValue}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
-      <div>
-        <Label htmlFor="rebac-resource-type">Resource type</Label>
-        <select
-          id="rebac-resource-type"
-          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-          value={props.resourceType}
-          onChange={(event) => props.onResourceType(event.target.value as ResourceType)}
-        >
-          {Object.entries(RESOURCE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label htmlFor="rebac-resource">Resource</Label>
-        <select
-          id="rebac-resource"
-          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-          value={props.resourceId}
-          onChange={(event) => props.onResourceId(event.target.value)}
-        >
-          {props.resources.map((resource) => (
-            <option key={resource.id} value={resource.id}>
-              {resource.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label htmlFor="rebac-relation">Relation</Label>
-        <select
-          id="rebac-relation"
-          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-          value={props.relation}
-          onChange={(event) => props.onRelation(event.target.value)}
-        >
-          {RELATIONS_BY_TYPE[props.resourceType].map((rel) => (
-            <option key={rel} value={rel}>
-              {rel}
-            </option>
-          ))}
-        </select>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div>
+          <Label htmlFor="rebac-access-resource-type">Resource type</Label>
+          <select
+            id="rebac-access-resource-type"
+            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={props.resourceType}
+            onChange={(event) => props.onResourceType(event.target.value as AccessResourceType)}
+          >
+            {availableResourceTypes.map((definition) => (
+              <option key={definition.type} value={definition.type}>
+                {accessResourceLabel(definition.type)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="rebac-access-resource">Resource</Label>
+          <select
+            id="rebac-access-resource"
+            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={props.resourceId}
+            onChange={(event) => props.onResourceId(event.target.value)}
+          >
+            {resources.map((resource) => (
+              <option key={resource.id} value={resource.id}>
+                {resourceName(resource)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="rebac-access-action">Action</Label>
+          <select
+            id="rebac-access-action"
+            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={props.action}
+            onChange={(event) => props.onAction(event.target.value as UniversalRebacResourceAction)}
+          >
+            {actions.map((action) => (
+              <option key={action} value={action}>
+                {action}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
 }
 
-function TuplePreview({ tuple }: { tuple: TupleKey }) {
+function AccessPreview({ relationship }: { relationship: UniversalRebacRelationship }) {
+  const subject = `${relationship.subject.type}:${relationship.subject.id}${
+    relationship.subject.relation ? `#${relationship.subject.relation}` : ""
+  }`;
+  const object = `${relationship.resource.type}:${relationship.resource.id}`;
   return (
     <div className="rounded-md border bg-muted/30 p-3 text-sm">
-      <div className="font-medium">Tuple preview</div>
+      <div className="font-medium">Check preview</div>
       <code className="mt-1 block break-all">
-        {tuple.user} <span className="text-muted-foreground">{tuple.relation}</span> {tuple.object}
+        {subject} <span className="text-muted-foreground">{ACTION_TO_CHECK_RELATION[relationship.action]}</span>{" "}
+        {object}
       </code>
+    </div>
+  );
+}
+
+function AccessChangeSetPreview({
+  relationship,
+  allowed,
+  canMutate,
+}: {
+  relationship: UniversalRebacRelationship | null;
+  allowed: boolean | null;
+  canMutate: boolean;
+}) {
+  if (!relationship || allowed === null) {
+    return (
+      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        Run an access check to preview the grant or revoke change set for this relationship.
+      </div>
+    );
+  }
+
+  const grants = allowed ? [] : [relationship];
+  const revocations = allowed ? [relationship] : [];
+  return (
+    <div className="space-y-2">
+      <div>
+        <div className="text-sm font-medium">Policy change-set preview</div>
+        <p className="text-xs text-muted-foreground">
+          {canMutate
+            ? "The next mutation will be validated and applied through the ReBAC change-set API."
+            : "Only admins can apply this suggested policy change."}
+        </p>
+      </div>
+      <PolicyChangeSetDiff grants={grants} revocations={revocations} />
     </div>
   );
 }
@@ -1270,6 +1489,11 @@ function GraphDetails({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge
               ) : (
                 graph.edges.map((edge) => (
                   <div key={edge.id} className="rounded bg-muted/40 p-2 text-xs">
+                    {edge.kind === "metadata" && (
+                      <Badge variant="outline" className="mb-1">
+                        routing metadata
+                      </Badge>
+                    )}
                     <code>{edge.from}</code> <span className="text-muted-foreground">{edge.relation}</span>{" "}
                     <code>{edge.to}</code>
                   </div>
@@ -1340,12 +1564,21 @@ function OpenFgaGraphEditorInner({
   const [graphWarning, setGraphWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    const nextNodes = buildFlowNodes(graph, teamSlug, team?.name, pendingWrites, selectedResourceObjects, showUsers);
+    const nextNodes = buildFlowNodes(
+      graph,
+      catalog,
+      teamSlug,
+      team?.name,
+      pendingWrites,
+      selectedResourceObjects,
+      showUsers
+    );
     const visibleNodeIds = new Set(nextNodes.map((node) => node.id));
     setNodes(nextNodes);
     setEdges(buildFlowEdges(graph, pendingWrites, pendingDeletes, visibleNodeIds));
   }, [
     graph,
+    catalog,
     pendingDeletes,
     pendingWrites,
     selectedResourceObjects,
@@ -1384,7 +1617,7 @@ function OpenFgaGraphEditorInner({
       event.preventDefault();
       const raw = event.dataTransfer.getData("application/caipe-openfga-resource");
       if (!raw) return;
-      const resource = JSON.parse(raw) as CatalogResource & { resourceType: ResourceType };
+      const resource = JSON.parse(raw) as CatalogResource & { resourceType: AccessResourceType };
       const object = resource.object || `${resource.resourceType}:${resource.id}`;
       if (!selectedResourceObjects.has(object)) {
         onToggleResource(object);
@@ -1412,6 +1645,7 @@ function OpenFgaGraphEditorInner({
   );
 
   const selectedTuple = selectedEdge?.data?.tuple ?? null;
+  const selectedMetadata = selectedEdge?.data?.metadata ?? null;
   const selectedIsPendingWrite = selectedEdge?.data?.staged === "write";
   const hasPendingChanges = pendingWrites.length > 0 || pendingDeletes.length > 0;
 
@@ -1491,6 +1725,16 @@ function OpenFgaGraphEditorInner({
                 {selectedIsPendingWrite ? "Remove staged grant" : "Stage revoke"}
               </Button>
             </div>
+          ) : selectedMetadata ? (
+            <div className="mt-2 space-y-2">
+              <Badge variant="outline">routing metadata</Badge>
+              <p className="text-xs text-muted-foreground">
+                {selectedMetadata.label}. This edge comes from a messaging team mapping, not an OpenFGA tuple.
+              </p>
+              <Button size="sm" variant="outline" disabled className="w-full">
+                Read-only metadata edge
+              </Button>
+            </div>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">Select an edge to stage a revoke.</p>
           )}
@@ -1511,6 +1755,7 @@ function OpenFgaGraphEditorInner({
 
 function buildFlowNodes(
   graph: { nodes: GraphNode[]; edges: GraphEdge[] },
+  catalog: CatalogResponse | null,
   teamSlug: string,
   teamName: string | undefined,
   pendingWrites: TupleKey[],
@@ -1528,6 +1773,9 @@ function buildFlowNodes(
   }
 
   graph.nodes.forEach((node) => addNode(node.id, node.label, node.type));
+  catalogGraphResourceNodes(catalog, selectedResourceObjects).forEach((node) => {
+    addNode(node.id, node.label, node.kind);
+  });
   graph.edges.forEach((edge) => {
     addNode(edge.from);
     addNode(edge.to);
@@ -1547,11 +1795,15 @@ function buildFlowNodes(
   const columnByKind: Record<string, number> = {
     user: 0,
     slack_channel: 0,
+    webex_space: 0,
     team: 1,
     userset: 1,
     agent: 2,
     tool: 2,
     knowledge_base: 2,
+    mcp_gateway: 2,
+    mcp_server: 2,
+    conversation: 2,
   };
   const rowByColumn: Record<number, number> = {};
 
@@ -1578,6 +1830,23 @@ function buildFlowNodes(
     });
 }
 
+function catalogGraphResourceNodes(
+  catalog: CatalogResponse | null,
+  selectedResourceObjects: Set<string>
+): Array<{ id: string; label: string; kind: string }> {
+  if (!catalog || selectedResourceObjects.size === 0) return [];
+
+  return accessResourceTypes(catalog).flatMap((definition) =>
+    accessResources(catalog, definition.type)
+      .map((resource) => ({
+        id: resource.object || `${definition.type}:${resource.id}`,
+        label: resourceName(resource),
+        kind: definition.type,
+      }))
+      .filter((resource) => selectedResourceObjects.has(resource.id))
+  );
+}
+
 function buildFlowEdges(
   graph: { nodes: GraphNode[]; edges: GraphEdge[] },
   pendingWrites: TupleKey[],
@@ -1587,24 +1856,27 @@ function buildFlowEdges(
   const deleted = new Set(pendingDeletes.map(tupleKey));
   const existingKeys = new Set<string>();
   const persistedEdges = graph.edges
-    .map((edge) => ({ edge, tuple: edgeTuple(edge) }))
-    .filter(
-      ({ edge, tuple }) =>
-        !deleted.has(tupleKey(tuple)) && visibleNodeIds.has(edge.from) && visibleNodeIds.has(edge.to)
-    )
+    .map((edge) => ({ edge, tuple: edge.kind === "metadata" ? null : edgeTuple(edge) }))
+    .filter(({ edge, tuple }) => {
+      if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return false;
+      return !tuple || !deleted.has(tupleKey(tuple));
+    })
     .map(({ edge, tuple }) => {
-      existingKeys.add(tupleKey(tuple));
+      const isMetadata = edge.kind === "metadata";
+      if (tuple) existingKeys.add(tupleKey(tuple));
       return {
         id: edge.id,
         source: edge.from,
         target: edge.to,
-        label: edge.relation,
-        data: { tuple },
+        label: edge.metadata?.readonly ? `${edge.relation} (metadata)` : edge.relation,
+        data: tuple ? { tuple } : { metadata: edge.metadata },
         labelStyle: { fontSize: 11, fill: "hsl(var(--foreground))" },
         labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 6,
-        style: { stroke: "hsl(var(--primary))", strokeWidth: 2 },
+        style: isMetadata
+          ? { stroke: "hsl(var(--muted-foreground))", strokeWidth: 2, strokeDasharray: "4 4" }
+          : { stroke: "hsl(var(--primary))", strokeWidth: 2 },
       } satisfies Edge<RebacEdgeData>;
     });
 
@@ -1642,18 +1914,21 @@ function GraphResourcePalette({
   onSetResourceVisibility: (objects: string[], visible: boolean) => void;
 }) {
   const [resourceSearch, setResourceSearch] = useState("");
-  const resourceGroups: Array<{ type: ResourceType; label: string; resources: CatalogResource[] }> = [
-    { type: "agent", label: "Agents", resources: catalog?.resources.agents ?? [] },
-    { type: "tool", label: "Tools", resources: catalog?.resources.tools ?? [] },
-    { type: "knowledge_base", label: "Knowledge bases", resources: catalog?.resources.knowledge_bases ?? [] },
-  ];
+  const resourceGroups: Array<{ type: AccessResourceType; label: string; resources: CatalogResource[] }> =
+    accessResourceTypes(catalog)
+      .map((definition) => ({
+        type: definition.type,
+        label: accessResourceLabel(definition.type),
+        resources: accessResources(catalog, definition.type),
+      }))
+      .filter((group) => group.resources.length > 0);
   const normalizedSearch = resourceSearch.trim().toLowerCase();
   const filteredResourceGroups = resourceGroups.map((group) => ({
     ...group,
     resources: normalizedSearch
       ? group.resources.filter((resource) =>
-          [resource.name, resource.object, resource.description].some((value) =>
-            value.toLowerCase().includes(normalizedSearch)
+          [resourceName(resource), resource.object, resource.description, resource.id].some((value) =>
+            (value ?? "").toLowerCase().includes(normalizedSearch)
           )
         )
       : group.resources,
@@ -1737,7 +2012,7 @@ function GraphResourcePalette({
                     onChange={() => onToggleResource(object)}
                   />
                   <span className="min-w-0">
-                    <span className="block font-medium">{resource.name}</span>
+                    <span className="block font-medium">{resourceName(resource)}</span>
                     <code className="block truncate text-[10px] text-muted-foreground">{object}</code>
                   </span>
                 </label>

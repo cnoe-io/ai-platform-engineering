@@ -2091,7 +2091,7 @@ choose_features() {
         fi ;;
       webex)
         prompt "Webex Bot Token (blank to skip): "
-        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_BOT_TOKEN="$_v" --from-literal=WEBEX_TOKEN="$_v")
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_INTEGRATION_BOT_ACCESS_TOKEN="$_v")
         if ! $_skip; then
           prompt "Webex Webhook Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=WEBEX_WEBHOOK_SECRET="$_v")
         fi ;;
@@ -2360,7 +2360,7 @@ _agent_secret_keys() {
     backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
     slack) echo "SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID" ;;
     pagerduty) echo "PAGERDUTY_API_KEY PAGERDUTY_API_URL" ;;
-    webex) echo "WEBEX_TOKEN" ;;
+    webex) echo "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN" ;;
     komodor) echo "KOMODOR_TOKEN KOMODOR_API_URL" ;;
     aws) echo "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE" ;;
     splunk) echo "SPLUNK_TOKEN SPLUNK_API_URL" ;;

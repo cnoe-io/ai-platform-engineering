@@ -124,6 +124,64 @@ beforeEach(() => {
   ]);
   collections.platform_config = createCollection([{ _id: "platform_settings", default_agent_id: "agent-1" }]);
   collections.rebac_relationships = createCollection();
+  collections.slack_channel_grants = createCollection([
+    {
+      workspace_id: "T123",
+      channel_id: "C123",
+      resource: { type: "agent", id: "agent-1" },
+      actions: ["use"],
+      source_type: "manual",
+      status: "active",
+    },
+  ]);
+  collections.slack_channel_agent_routes = createCollection([
+    {
+      workspace_id: "T123",
+      channel_id: "C124",
+      agent_id: "agent-1",
+      enabled: true,
+      status: "active",
+    },
+  ]);
+  collections.webex_space_grants = createCollection([
+    {
+      workspace_id: "WEBEX",
+      space_id: "space-1",
+      resource: { type: "knowledge_base", id: "kb-1" },
+      actions: ["read"],
+      source_type: "manual",
+      status: "active",
+    },
+  ]);
+  collections.webex_space_agent_routes = createCollection([
+    {
+      workspace_id: "WEBEX",
+      space_id: "space-2",
+      agent_id: "agent-1",
+      enabled: true,
+      status: "active",
+    },
+  ]);
+  collections.channel_team_mappings = createCollection([
+    {
+      slack_workspace_id: "T123",
+      slack_channel_id: "C123",
+      channel_name: "incidents",
+      team_id: "team-1",
+      team_slug: "platform",
+      status: "active",
+    },
+  ]);
+  collections.webex_space_team_mappings = createCollection([
+    {
+      workspace_id: "WEBEX",
+      space_id: "space-1",
+      space_name: "War Room",
+      team_id: "team-1",
+      team_slug: "platform",
+      status: "active",
+    },
+  ]);
 });
 
 describe("admin ReBAC migrations API", () => {
@@ -147,6 +205,22 @@ describe("admin ReBAC migrations API", () => {
           kind: "implicit",
           current_version: 1,
           target_version: 2,
+        }),
+        expect.objectContaining({
+          id: "slack_channel_rebac_backfill_v1",
+          title: "Slack channel ReBAC grants",
+        }),
+        expect.objectContaining({
+          id: "webex_space_rebac_backfill_v1",
+          title: "Webex space ReBAC grants",
+        }),
+        expect.objectContaining({
+          id: "messaging_team_mapping_reconciliation_v1",
+          title: "Messaging team mapping reconciliation",
+        }),
+        expect.objectContaining({
+          id: "messaging_rebac_indexes_v1",
+          title: "Messaging ReBAC indexes",
         }),
       ]),
     );
@@ -334,5 +408,145 @@ describe("admin ReBAC migrations API", () => {
       expect.objectContaining({ unique: true }),
     );
     expect(body.data.applied_counts.indexes_created).toBeGreaterThan(0);
+  });
+
+  it("plans and applies Slack channel ReBAC grant backfill", async () => {
+    const planRoute = await import("../migrations/[migrationId]/plan/route");
+    const applyRoute = await import("../migrations/[migrationId]/apply/route");
+
+    const planResponse = await planRoute.POST(
+      request("/api/admin/rebac/migrations/slack_channel_rebac_backfill_v1/plan", { method: "POST" }),
+      { params: Promise.resolve({ migrationId: "slack_channel_rebac_backfill_v1" }) },
+    );
+    const planBody = await planResponse.json();
+
+    expect(planResponse.status).toBe(200);
+    expect(planBody.data.counts).toMatchObject({
+      grants_scanned: 1,
+      routes_scanned: 1,
+      tuples_planned: 2,
+      relationships_planned: 2,
+    });
+    expect(planBody.data.confirmation).toBe("MIGRATE slack_channel_rebac TO v2");
+
+    const applyResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/slack_channel_rebac_backfill_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE slack_channel_rebac TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "slack_channel_rebac_backfill_v1" }) },
+    );
+
+    expect(applyResponse.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: "slack_channel:T123--C123", relation: "user", object: "agent:agent-1" },
+        { user: "slack_channel:T123--C124", relation: "user", object: "agent:agent-1" },
+      ]),
+      deletes: [],
+    });
+    expect(collections.rebac_relationships.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "subject.type": "slack_channel",
+        "subject.id": "T123--C123",
+        action: "use",
+        "resource.type": "agent",
+        "resource.id": "agent-1",
+        source_id: "slack_channel_rebac_backfill_v1",
+      }),
+      expect.any(Object),
+      { upsert: true },
+    );
+  });
+
+  it("plans and applies Webex space ReBAC grant backfill", async () => {
+    const planRoute = await import("../migrations/[migrationId]/plan/route");
+    const applyRoute = await import("../migrations/[migrationId]/apply/route");
+
+    const planResponse = await planRoute.POST(
+      request("/api/admin/rebac/migrations/webex_space_rebac_backfill_v1/plan", { method: "POST" }),
+      { params: Promise.resolve({ migrationId: "webex_space_rebac_backfill_v1" }) },
+    );
+    const planBody = await planResponse.json();
+
+    expect(planResponse.status).toBe(200);
+    expect(planBody.data.counts).toMatchObject({
+      grants_scanned: 1,
+      routes_scanned: 1,
+      tuples_planned: 2,
+      relationships_planned: 2,
+    });
+
+    const applyResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/webex_space_rebac_backfill_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE webex_space_rebac TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "webex_space_rebac_backfill_v1" }) },
+    );
+
+    expect(applyResponse.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: "webex_space:WEBEX--space-1", relation: "reader", object: "knowledge_base:kb-1" },
+        { user: "webex_space:WEBEX--space-2", relation: "user", object: "agent:agent-1" },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it("applies messaging team mapping reconciliation and messaging indexes", async () => {
+    const applyRoute = await import("../migrations/[migrationId]/apply/route");
+
+    const mappingResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_team_mapping_reconciliation_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE messaging_team_mappings TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "messaging_team_mapping_reconciliation_v1" }) },
+    );
+    const mappingBody = await mappingResponse.json();
+
+    expect(mappingResponse.status).toBe(200);
+    expect(collections.teams.updateOne).toHaveBeenCalledWith(
+      { _id: "team-1" },
+      expect.objectContaining({
+        $addToSet: expect.objectContaining({
+          slack_channels: expect.objectContaining({
+            slack_channel_id: "C123",
+            channel_name: "incidents",
+            slack_workspace_id: "T123",
+          }),
+        }),
+      }),
+    );
+    expect(collections.teams.updateOne).toHaveBeenCalledWith(
+      { _id: "team-1" },
+      expect.objectContaining({
+        $addToSet: expect.objectContaining({
+          webex_spaces: expect.objectContaining({
+            space_id: "space-1",
+            space_name: "War Room",
+            workspace_id: "WEBEX",
+          }),
+        }),
+      }),
+    );
+    expect(mappingBody.data.applied_counts.messaging_team_mappings_reconciled).toBe(2);
+
+    const indexResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_rebac_indexes_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE messaging_rebac_indexes TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "messaging_rebac_indexes_v1" }) },
+    );
+    const indexBody = await indexResponse.json();
+
+    expect(indexResponse.status).toBe(200);
+    expect(collections.webex_space_grants.createIndex).toHaveBeenCalled();
+    expect(collections.webex_space_agent_routes.createIndex).toHaveBeenCalled();
+    expect(collections.webex_space_team_mappings.createIndex).toHaveBeenCalled();
+    expect(indexBody.data.applied_counts.indexes_created).toBeGreaterThan(0);
   });
 });

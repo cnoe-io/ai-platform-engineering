@@ -10,6 +10,7 @@ const EMPTY_GATES: AdminTabGatesMap = {
   roles: false,
   identity_group_sync: false,
   slack: false,
+  webex: false,
   skills: false,
   feedback: false,
   nps: false,

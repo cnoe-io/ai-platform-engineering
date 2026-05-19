@@ -1233,6 +1233,29 @@ services:
       - slack-bot
       - all-integrations
 
+  ####################################################################################################
+  #                                 Webex Bot Integration                                            #
+  ####################################################################################################
+  webex-bot:
+    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-0.4.0}
+    container_name: webex-bot
+    env_file: [.env]
+    ports: ["8032:3002"]
+    environment:
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
+      - MONGODB_URI=${MONGODB_URI:-}
+      - CAIPE_UI_BASE_URL=${CAIPE_UI_BASE_URL:-http://localhost:3000}
+      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
+      - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+    depends_on:
+      - caipe-ui
+    profiles:
+      - webex-bot
+      - all-integrations
+
 volumes:
   caipe_ui_mongodb_data:
     driver: local

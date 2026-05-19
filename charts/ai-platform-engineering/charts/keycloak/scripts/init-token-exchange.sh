@@ -58,6 +58,43 @@ if [ -z "${ACCESS_TOKEN}" ]; then
 fi
 AUTH="Authorization: Bearer ${ACCESS_TOKEN}"
 
+attach_policy_to_scope_permission() {
+  REALM_MANAGEMENT_ID="$1"
+  PERMISSION_ID="$2"
+  POLICY_ID="$3"
+  LABEL="${4:-scope permission}"
+
+  PERMISSION_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" 2>/dev/null || echo "{}")
+  ASSOCIATED_POLICIES_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}/associatedPolicies" 2>/dev/null || echo "[]")
+  UPDATED_PERMISSION_JSON=$(PERMISSION_JSON="${PERMISSION_JSON}" ASSOCIATED_POLICIES_JSON="${ASSOCIATED_POLICIES_JSON}" POLICY_ID="${POLICY_ID}" python3 -c '
+import json
+import os
+
+permission = json.loads(os.environ["PERMISSION_JSON"])
+associated = json.loads(os.environ.get("ASSOCIATED_POLICIES_JSON") or "[]")
+policies = []
+for policy_id in permission.get("policies") or []:
+    if policy_id not in policies:
+        policies.append(policy_id)
+for policy in associated:
+    policy_id = policy.get("id") if isinstance(policy, dict) else None
+    if policy_id and policy_id not in policies:
+        policies.append(policy_id)
+if os.environ["POLICY_ID"] not in policies:
+    policies.append(os.environ["POLICY_ID"])
+permission["policies"] = policies
+print(json.dumps(permission))
+' 2>/dev/null)
+  if [ -n "${UPDATED_PERMISSION_JSON}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" \
+      -d "${UPDATED_PERMISSION_JSON}" 2>/dev/null && \
+      echo "${TAG}   ${LABEL} updated."
+  fi
+}
+
 # ------------------------------------------------------------------
 # 1. Set sslRequired on master + realm
 # ------------------------------------------------------------------
@@ -106,6 +143,24 @@ else
     -d "${UPDATED_PROFILE}" 2>/dev/null && \
     echo "${TAG}   User profile updated (slack_user_id + ADMIN_EDIT)." || \
     echo "${TAG}   WARNING: could not update user profile."
+  PROFILE=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}/users/profile" 2>/dev/null || echo "{}")
+fi
+
+if echo "${PROFILE}" | grep -q '"webex_user_id"'; then
+  echo "${TAG}   webex_user_id already declared in user profile."
+else
+  echo "${TAG}   Adding webex_user_id to user profile ..."
+  UPDATED_PROFILE=$(echo "${PROFILE}" | sed 's/\("attributes"[[:space:]]*:[[:space:]]*\[\)/\1{"name":"webex_user_id","displayName":"Webex User ID","validations":{},"annotations":{},"permissions":{"view":["admin"],"edit":["admin"]},"multivalued":false},/')
+  if echo "${UPDATED_PROFILE}" | grep -q '"unmanagedAttributePolicy"'; then
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/"unmanagedAttributePolicy"[[:space:]]*:[[:space:]]*"[^"]*"/"unmanagedAttributePolicy":"ADMIN_EDIT"/')
+  else
+    UPDATED_PROFILE=$(echo "${UPDATED_PROFILE}" | sed 's/}$/,"unmanagedAttributePolicy":"ADMIN_EDIT"}/')
+  fi
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/users/profile" \
+    -d "${UPDATED_PROFILE}" 2>/dev/null && \
+    echo "${TAG}   User profile updated (webex_user_id + ADMIN_EDIT)." || \
+    echo "${TAG}   WARNING: could not update user profile for webex_user_id."
 fi
 
 # Also ensure unmanagedAttributePolicy is set even if slack_user_id was already there
@@ -181,6 +236,30 @@ if [ -n "${KC_BOT_CLIENT_SECRET:-}" ]; then
   fi
 else
   echo "${TAG} KC_BOT_CLIENT_SECRET not set — leaving Keycloak-managed client_secret unchanged."
+fi
+
+WEBEX_BOT_CLIENT_ID="${KC_WEBEX_BOT_CLIENT_ID:-}"
+if [ -n "${KC_WEBEX_BOT_CLIENT_SECRET:-}" ] && [ -n "${WEBEX_BOT_CLIENT_ID}" ]; then
+  echo "${TAG} Reconciling client_secret on '${WEBEX_BOT_CLIENT_ID}' from KC_WEBEX_BOT_CLIENT_SECRET ..."
+  WEBEX_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${WEBEX_BOT_CLIENT_ID}" 2>/dev/null || echo "[]")
+  WEBEX_INTERNAL_ID=$(json_field "${WEBEX_CLIENTS_RESP}" "id")
+  if [ -z "${WEBEX_INTERNAL_ID}" ]; then
+    echo "${TAG}   WARNING: client '${WEBEX_BOT_CLIENT_ID}' not found — skipping Webex secret reconciliation." >&2
+  else
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${WEBEX_INTERNAL_ID}" \
+      -d "{\"clientId\":\"${WEBEX_BOT_CLIENT_ID}\",\"secret\":\"${KC_WEBEX_BOT_CLIENT_SECRET}\"}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+      echo "${TAG}   Webex client_secret reconciled (HTTP ${HTTP_CODE})."
+    else
+      echo "${TAG}   ERROR: failed to set Webex client_secret (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+  fi
+else
+  echo "${TAG} KC_WEBEX_BOT_CLIENT_SECRET not set — leaving Webex client_secret unchanged."
 fi
 
 # ------------------------------------------------------------------
@@ -305,11 +384,8 @@ else
 
     PERM_NAME="token-exchange.permission.client.${BOT_INTERNAL_ID}"
 
-    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${TOKEN_EXCHANGE_PERM_ID}" \
-      -d "{\"id\":\"${TOKEN_EXCHANGE_PERM_ID}\",\"name\":\"${PERM_NAME}\",\"type\":\"scope\",\"logic\":\"POSITIVE\",\"decisionStrategy\":\"AFFIRMATIVE\",\"resources\":[\"${RESOURCE_ID}\"],\"scopes\":[\"${SCOPE_ID}\"],\"policies\":[\"${POLICY_ID}\"]}" 2>/dev/null && \
-      echo "${TAG}   token-exchange permission updated." || \
-      echo "${TAG}   WARNING: could not update token-exchange permission."
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${TOKEN_EXCHANGE_PERM_ID}" "${POLICY_ID}" "token-exchange permission" || \
+      echo "${TAG}   WARNING: could not update token-exchange permission ${PERM_NAME}."
   fi
 
   # ------------------------------------------------------------------
@@ -346,10 +422,7 @@ else
       "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${IMPERSONATE_PERM_ID}/scopes" 2>/dev/null || echo "[]")
     IMP_SCOPE_ID=$(json_field "${IMP_SCOPES}" "id")
 
-    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/permission/scope/${IMPERSONATE_PERM_ID}" \
-      -d "{\"id\":\"${IMPERSONATE_PERM_ID}\",\"name\":\"admin-impersonating.permission.users\",\"type\":\"scope\",\"logic\":\"POSITIVE\",\"decisionStrategy\":\"AFFIRMATIVE\",\"resources\":[\"${IMP_RESOURCE_ID}\"],\"scopes\":[\"${IMP_SCOPE_ID}\"],\"policies\":[\"${POLICY_ID}\"]}" 2>/dev/null && \
-      echo "${TAG}   impersonate permission updated." || \
+    attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${IMPERSONATE_PERM_ID}" "${POLICY_ID}" "impersonate permission" || \
       echo "${TAG}   WARNING: could not update impersonate permission."
   fi
 fi

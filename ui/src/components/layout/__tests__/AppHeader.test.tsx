@@ -90,6 +90,39 @@ jest.mock('@/hooks/use-version', () => ({
   }),
 }))
 
+const mockReleasePrompt = {
+  open: false,
+  isAdmin: false,
+  releaseVersion: null as string | null,
+  announcementId: null as string | null,
+  release: null as any,
+  showMigrationCta: true,
+  toastNotification: null as any,
+  markToastShown: jest.fn(),
+  openMigrationAssistant: jest.fn(),
+  skipUntilNextLogin: jest.fn(),
+  dismissPermanently: jest.fn(),
+  isLoading: false,
+  isDismissing: false,
+}
+jest.mock('@/hooks/use-release-upgrade-prompt', () => ({
+  useReleaseUpgradePrompt: () => mockReleasePrompt,
+}))
+
+jest.mock('@/components/release/ReleaseUpgradeDialog', () => ({
+  ReleaseUpgradeDialog: ({ open, isAdmin, releaseVersion }: any) =>
+    open ? (
+      <div data-testid="release-upgrade-dialog">
+        ReleaseUpgradeDialog {releaseVersion} {isAdmin ? 'admin' : 'user'}
+      </div>
+    ) : null,
+}))
+
+const mockToast = jest.fn()
+jest.mock('@/components/ui/toast', () => ({
+  useToast: () => ({ toast: mockToast }),
+}))
+
 // Mock config
 let mockReportProblemEnabled = false
 jest.mock('@/lib/config', () => ({
@@ -197,6 +230,14 @@ describe('AppHeader — nav tabs', () => {
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockReleasePrompt.open = false
+    mockReleasePrompt.isAdmin = false
+    mockReleasePrompt.releaseVersion = null
+    mockReleasePrompt.announcementId = null
+    mockReleasePrompt.release = null
+    mockReleasePrompt.showMigrationCta = true
+    mockReleasePrompt.toastNotification = null
+    mockReleasePrompt.markToastShown.mockClear()
   })
 
   describe('Insights tab removed from nav', () => {
@@ -759,6 +800,34 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(greenBadge).not.toBeInTheDocument()
     expect(amberBadge).not.toBeInTheDocument()
     expect(blueBadge).not.toBeInTheDocument()
+  })
+
+  it('mounts the release upgrade dialog for authenticated sessions', () => {
+    mockReleasePrompt.open = true
+    mockReleasePrompt.isAdmin = true
+    mockReleasePrompt.releaseVersion = '0.5.1'
+
+    render(<AppHeader />)
+
+    expect(screen.getByTestId('release-upgrade-dialog')).toHaveTextContent('0.5.1 admin')
+  })
+
+  it('shows the managed release notes toast once when configured', () => {
+    mockReleasePrompt.releaseVersion = '0.6.0'
+    mockReleasePrompt.toastNotification = {
+      id: '0.6.0:revision-2',
+      message: 'Release notes for 0.6.0 are available.',
+      duration: 12000,
+    }
+
+    render(<AppHeader />)
+
+    expect(mockToast).toHaveBeenCalledWith(
+      'Release notes for 0.6.0 are available.',
+      'info',
+      12000,
+    )
+    expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
   })
 })
 
