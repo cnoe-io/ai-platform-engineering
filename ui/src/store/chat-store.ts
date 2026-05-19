@@ -7,6 +7,7 @@ import { A2AClient } from "@/lib/a2a-client";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
+import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -35,7 +36,7 @@ interface ChatState {
   inputRequiredConversations: Set<string>;
 
   // Actions
-  createConversation: (agentId?: string) => Promise<string>;
+  createConversation: (agentId?: NewConversationAgentSelection) => Promise<string>;
   setActiveConversation: (id: string) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
@@ -253,8 +254,9 @@ const storeImplementation = (set: any, get: any) => ({
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
 
-      createConversation: async (agentId?: string) => {
+      createConversation: async (agentId?: NewConversationAgentSelection) => {
         const storageMode = getStorageMode();
+        const conversationAgentId = resolveNewConversationAgentId(agentId);
 
         let id: string;
 
@@ -263,7 +265,7 @@ const storeImplementation = (set: any, get: any) => ({
           const result = await apiClient.createConversation({
             title: 'New Conversation',
             client_type: 'webui',
-            agent_id: agentId,
+            agent_id: conversationAgentId,
           });
           id = result.conversation._id;
         } else {
@@ -279,7 +281,7 @@ const storeImplementation = (set: any, get: any) => ({
           messages: [],
           a2aEvents: [],
           streamEvents: [],
-          participants: buildParticipants(agentId),
+          participants: buildParticipants(conversationAgentId),
         };
 
         // Update local state

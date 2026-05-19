@@ -52,7 +52,7 @@ jest.mock('@/lib/timeline-manager', () => ({
 
 import { useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
-import type { Conversation, ChatMessage } from '@/types/a2a';
+import { getAgentId, type Conversation, type ChatMessage } from '@/types/a2a';
 
 // Get typed mock references
 const mockApiClient = apiClient as jest.Mocked<typeof apiClient>;
@@ -105,6 +105,7 @@ describe('chat-store', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     (global as any).__mockStorageMode = 'mongodb';
+    delete (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__;
     resetStore();
   });
 
@@ -1109,6 +1110,39 @@ describe('chat-store', () => {
           client_type: 'webui',
         })
       );
+    });
+
+    it('uses configured default agent when agent id is omitted', async () => {
+      (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
+        dynamicAgentsEnabled: true,
+        defaultNewChatAgentId: 'agent-sunny-webex-meeting-test',
+      };
+
+      const id = await useChatStore.getState().createConversation();
+
+      expect(id).toBe('server-generated-id');
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: 'agent-sunny-webex-meeting-test',
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('allows explicit Platform Engineer conversations with null', async () => {
+      (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__ = {
+        dynamicAgentsEnabled: true,
+        defaultNewChatAgentId: 'agent-sunny-webex-meeting-test',
+      };
+
+      await useChatStore.getState().createConversation(null);
+
+      expect(mockApiClient.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent_id: undefined,
+        })
+      );
+      expect(getAgentId(useChatStore.getState().conversations[0])).toBeUndefined();
     });
 
     it('does not call server in localStorage mode', async () => {

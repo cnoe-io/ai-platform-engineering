@@ -5,12 +5,13 @@ import { Plus, ChevronDown, Bot, Loader2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
+import { getDefaultNewChatAgentId } from "@/lib/new-chat-agent";
 import { getGradientStyle } from "@/lib/gradient-themes";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
   collapsed: boolean;
-  onNewChat: (agentId?: string) => void;
+  onNewChat: (agentId?: string | null) => void;
 }
 
 export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
@@ -21,8 +22,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
-  const configuredDefaultAgentId = getConfig("defaultNewChatAgentId");
-  const defaultAgentId = configuredDefaultAgentId?.trim() || undefined;
+  const defaultAgentId = getDefaultNewChatAgentId();
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
@@ -87,7 +87,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     setDropdownOpen(!dropdownOpen);
   };
 
-  const handleSelectAgent = (agentId?: string) => {
+  const handleSelectAgent = (agentId?: string | null) => {
     setDropdownOpen(false);
     onNewChat(agentId);
   };
@@ -165,7 +165,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
           <div className="py-1">
             {/* Platform Engineer option */}
             <button
-              onClick={() => handleSelectAgent(undefined)}
+              onClick={() => handleSelectAgent(null)}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
             >
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shrink-0">

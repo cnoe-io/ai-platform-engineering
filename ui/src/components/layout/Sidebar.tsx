@@ -36,6 +36,7 @@ import { NewChatButton } from "@/components/chat/NewChatButton";
 import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
+import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
 
@@ -179,15 +180,17 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     }
   };
 
-  const handleNewChat = async (agentId?: string) => {
+  const handleNewChat = async (agentId?: NewConversationAgentSelection) => {
     try {
+      const conversationAgentId = resolveNewConversationAgentId(agentId);
+
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
         const result = await apiClient.createConversation({
           title: "New Conversation",
           client_type: 'webui',
-          agent_id: agentId,
+          agent_id: conversationAgentId,
         });
         const conversation = result.conversation;
 

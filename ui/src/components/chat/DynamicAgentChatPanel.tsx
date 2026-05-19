@@ -1436,7 +1436,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             {/* User Input Form */}
             {pendingUserInput && pendingUserInput.metadata.input_fields && (
               <MetadataInputForm
+                key={`${activeConversationId || conversationId || "unknown"}:${pendingUserInput.messageId}`}
                 messageId={pendingUserInput.messageId}
+                conversationId={activeConversationId || conversationId}
                 title={pendingUserInput.metadata.input_title}
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
