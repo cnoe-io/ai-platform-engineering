@@ -19,6 +19,8 @@ import { getConfig } from '@/lib/config';
  */
 export function useAdminRole() {
   const { data: session, status } = useSession();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const isDevAdmin = Boolean(
     !getConfig('ssoEnabled') &&
@@ -26,22 +28,17 @@ export function useAdminRole() {
     getConfig('storageMode') === 'mongodb'
   );
 
-  const [isAdmin, setIsAdmin] = useState(isDevAdmin);
-  const [loading, setLoading] = useState(!isDevAdmin);
-
   const canViewAdmin = (session?.canViewAdmin === true) || isDevAdmin;
   const canAccessDynamicAgents = (session?.canAccessDynamicAgents === true) || isDevAdmin;
 
   useEffect(() => {
     async function checkAdminRole() {
-      if (isDevAdmin) {
-        setIsAdmin(true);
-        setLoading(false);
-        return;
-      }
-
       if (!session) {
-        setIsAdmin(false);
+        if (isDevAdmin) {
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+        }
         setLoading(false);
         return;
       }
@@ -65,7 +62,7 @@ export function useAdminRole() {
     }
 
     checkAdminRole();
-  }, [session, isDevAdmin]);
+  }, [session]);
 
   return { isAdmin, canViewAdmin, canAccessDynamicAgents, loading };
 }

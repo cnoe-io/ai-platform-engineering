@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import dynamic from "next/dynamic";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { AuthGuard } from "@/components/auth-guard";
@@ -9,34 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Server, Loader2, ShieldAlert, MessageSquare, Cpu } from "lucide-react";
+import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
+import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
+import { LLMModelsTab } from "@/components/dynamic-agents/LLMModelsTab";
+import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-
-const TabLoading = () => (
-  <div className="flex items-center justify-center py-12">
-    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-  </div>
-);
-
-const DynamicAgentsTab = dynamic(
-  () => import("@/components/dynamic-agents/DynamicAgentsTab").then((mod) => mod.DynamicAgentsTab),
-  { loading: TabLoading, ssr: false },
-);
-
-const MCPServersTab = dynamic(
-  () => import("@/components/dynamic-agents/MCPServersTab").then((mod) => mod.MCPServersTab),
-  { loading: TabLoading, ssr: false },
-);
-
-const LLMModelsTab = dynamic(
-  () => import("@/components/dynamic-agents/LLMModelsTab").then((mod) => mod.LLMModelsTab),
-  { loading: TabLoading, ssr: false },
-);
-
-const ConversationsTab = dynamic(
-  () => import("@/components/dynamic-agents/ConversationsTab").then((mod) => mod.ConversationsTab),
-  { loading: TabLoading, ssr: false },
-);
 
 function DynamicAgentsPageContent() {
   const router = useRouter();

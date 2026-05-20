@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import dynamic from "next/dynamic";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,22 +19,9 @@ import {
   CopyPlus,
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { toYaml } from "@/lib/yaml-serializer";
-
-const DynamicAgentEditor = dynamic(
-  () => import("./DynamicAgentEditor").then((mod) => mod.DynamicAgentEditor),
-  {
-    ssr: false,
-    loading: () => (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    ),
-  },
-);
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);

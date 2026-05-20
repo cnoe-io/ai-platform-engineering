@@ -115,9 +115,8 @@ async function proxyAgenticAppRequest(
     idToken?: string;
   };
   try {
-    // Match the Apps hub behavior for local no-SSO development. The auth
-    // helper only falls back to anonymous when SSO is disabled.
-    const auth = await getAuthenticatedUser(nextRequest, { allowAnonymous: true });
+    // Execution gateway never uses anonymous/no-SSO fallback — real session required.
+    const auth = await getAuthenticatedUser(nextRequest, { allowAnonymous: false });
     user = auth.user;
     session = auth.session;
   } catch (e) {
