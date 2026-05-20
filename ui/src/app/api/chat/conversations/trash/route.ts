@@ -69,9 +69,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       console.log(`[Trash] Auto-purged ${expired.length} conversations older than ${ARCHIVE_RETENTION_DAYS} days for ${user.email}`);
     }
 
-    // Query for soft-deleted conversations (have deleted_at set), exclude Slack
+    // Query for soft-deleted conversation candidates, then filter by ReBAC.
     const query = {
-      owner_id: user.email,
       source: { $ne: 'slack' } as any,
       deleted_at: { $exists: true, $ne: null },
     };

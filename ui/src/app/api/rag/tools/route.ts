@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
+import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import { extractRealmRolesFromSession } from "@/lib/rbac/task-skill-realm-access";
 
 /**
@@ -95,8 +96,14 @@ export async function GET() {
       .sort({ updated_at: -1 })
       .limit(200)
       .toArray();
+    const visibleResults = await filterResourcesByPermission(
+      { sub: session.sub, role: session.role, user: session.user },
+      results,
+      { type: "tool", action: "read", id: (tool) => tool.tool_id },
+      { allowAdminBypass: true },
+    );
 
-    return NextResponse.json({ tools: results });
+    return NextResponse.json({ tools: visibleResults });
   } catch (error) {
     return handleApiError(error);
   }

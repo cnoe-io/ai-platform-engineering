@@ -5,7 +5,6 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  getUserTeamIds,
 } from "@/lib/api-middleware";
 import type {
   AgentSkill,
@@ -15,10 +14,6 @@ import type {
   ScanStatus,
 } from "@/types/agent-skill";
 import { syncSkillResource } from "@/lib/rbac/keycloak-resource-sync";
-import {
-  extractRealmRolesFromSession,
-  extractSkillAccessFromJwtRoles,
-} from "@/lib/rbac/task-skill-realm-access";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import {
@@ -151,11 +146,6 @@ async function updateAgentSkillInMongoDB(
     console.log(`[MongoDB] ERROR: Built-in skill mutation locked by policy`);
     throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
   }
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    console.log(`[MongoDB] ERROR: User trying to modify another user's config`);
-    throw new ApiError("You don't have permission to update this configuration", 403);
-  }
-
   console.log(`[MongoDB] Permission checks passed`);
 
   const updatePayload = { ...updates, updated_at: new Date() };
@@ -213,42 +203,19 @@ async function deleteAgentSkillFromMongoDB(
   if (existing.is_system && !canMutateBuiltinSkill(existing)) {
     throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
   }
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    throw new ApiError("You don't have permission to delete this configuration", 403);
-  }
-
   await collection.deleteOne({ id });
 
   await syncSkillResource("delete", id, existing.name);
 }
 
 async function getAgentSkillsFromMongoDB(
-  ownerEmail: string,
-  opts: { isAdmin: boolean; realmRoles: string[] }
+  _ownerEmail: string,
+  _opts: { isAdmin: boolean; realmRoles: string[] }
 ): Promise<AgentSkill[]> {
   const collection = await getCollection<AgentSkill>("agent_skills");
 
-  if (opts.isAdmin) {
-    return collection.find({}).sort({ is_system: -1, created_at: -1 }).toArray();
-  }
-
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-  const { allGrantedSkillIds } = extractSkillAccessFromJwtRoles(opts.realmRoles);
-  const roleClause =
-    allGrantedSkillIds.length > 0 ? [{ id: { $in: allGrantedSkillIds } }] : [];
-
   const configs = await collection
-    .find({
-      $or: [
-        { is_system: true },
-        { owner_id: ownerEmail },
-        { visibility: "global" },
-        ...(userTeamIds.length > 0
-          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-          : []),
-        ...roleClause,
-      ],
-    })
+    .find({})
     .sort({ is_system: -1, created_at: -1 })
     .toArray();
 
@@ -257,31 +224,12 @@ async function getAgentSkillsFromMongoDB(
 
 async function getAgentSkillByIdFromMongoDB(
   id: string,
-  ownerEmail: string,
-  opts: { isAdmin: boolean; realmRoles: string[] }
+  _ownerEmail: string,
+  _opts: { isAdmin: boolean; realmRoles: string[] }
 ): Promise<AgentSkill | null> {
   const collection = await getCollection<AgentSkill>("agent_skills");
 
-  if (opts.isAdmin) {
-    return collection.findOne({ id });
-  }
-
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-  const { allGrantedSkillIds } = extractSkillAccessFromJwtRoles(opts.realmRoles);
-  const grantedByRole = new Set(allGrantedSkillIds);
-
-  const config = await collection.findOne({
-    id,
-    $or: [
-      { is_system: true },
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-      ...(grantedByRole.has(id) ? [{ id }] : []),
-    ],
-  });
+  const config = await collection.findOne({ id });
 
   return config;
 }
@@ -409,9 +357,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const id = searchParams.get("id");
 
   return await withAuth(request, async (req, user, session) => {
-    const realmRoles = extractRealmRolesFromSession(session);
     const isAdmin = user.role === "admin";
-    const listOpts = { isAdmin, realmRoles };
+    const listOpts = { isAdmin, realmRoles: [] };
 
     if (id) {
       console.log(`[API GET] Fetching single config: ${id} for user: ${user.email}`);

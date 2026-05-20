@@ -10,6 +10,14 @@ import { ApiError } from "@/lib/api-middleware";
 
 const COLLECTION_NAME = "mcp_servers";
 
+type AgentGatewayMigrationWarning = {
+  id: string;
+  endpoint: string;
+  target_endpoint?: string;
+  existing_endpoint?: string;
+  message: string;
+};
+
 export async function fetchAgentGatewayMcpDiscovery(): Promise<AgentGatewayMcpDiscovery> {
   const response = await fetch(agentGatewayAdminConfigUrl(), { method: "GET" });
   if (!response.ok) {
@@ -22,12 +30,24 @@ export async function fetchAgentGatewayMcpDiscovery(): Promise<AgentGatewayMcpDi
   return buildAgentGatewayMcpDiscovery(config, existingServers);
 }
 
-export async function syncSelectedAgentGatewayMcpServers(ids: string[]) {
-  const selectedIds = new Set(ids);
+export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
   const discovery = await fetchAgentGatewayMcpDiscovery();
+  const selectedIds = new Set(
+    ids && ids.length > 0 ? ids : discovery.targets.map((target) => target.id),
+  );
   const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
   const added: string[] = [];
   const skipped: Array<{ id: string; reason: string }> = [];
+  const conflicts = discovery.targets.filter((target) => target.status === "conflict");
+  const migration_warnings: AgentGatewayMigrationWarning[] = conflicts.map((target) => ({
+    id: target.id,
+    endpoint: target.endpoint,
+    target_endpoint: target.target_endpoint,
+    existing_endpoint: target.existing_endpoint,
+    message:
+      `Legacy MCP server conflicts with AgentGateway target "${target.id}". ` +
+      "Remove or rename the legacy MCP server to let AgentGateway manage it.",
+  }));
 
   for (const target of discovery.targets) {
     if (!selectedIds.has(target.id)) continue;
@@ -45,5 +65,17 @@ export async function syncSelectedAgentGatewayMcpServers(ids: string[]) {
     }
   }
 
-  return { added, skipped, targets: discovery.targets };
+  return {
+    added,
+    skipped,
+    summary: {
+      added: added.length,
+      existing: discovery.targets.filter((target) => target.status === "existing").length,
+      conflicts: conflicts.length,
+      skipped: skipped.length,
+    },
+    conflicts,
+    migration_warnings,
+    targets: discovery.targets,
+  };
 }

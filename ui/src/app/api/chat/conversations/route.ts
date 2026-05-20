@@ -11,7 +11,6 @@ import {
   paginatedResponse,
   validateRequired,
   getPaginationParams,
-  getUserTeamIds,
   requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
@@ -19,6 +18,7 @@ import { VALID_CLIENT_TYPES } from '@/types/mongodb';
 import { buildParticipants } from '@/types/a2a';
 import packageJson from '../../../../../package.json';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
+import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
 
 type ConversationWithAgentDisplay = Conversation & {
   agent_id?: string;
@@ -94,25 +94,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const conversations = await getCollection<Conversation>('conversations');
 
-  // Resolve user's team memberships for team-shared conversations
-  const userTeamIds = await getUserTeamIds(user.email);
-
-  // Build query — include conversations owned, shared directly, via teams, or public
-  const ownershipConditions: any[] = [
-    { owner_id: user.email },
-    { 'sharing.shared_with': user.email },
-    { 'sharing.is_public': true },
-  ];
-
-  if (userTeamIds.length > 0) {
-    ownershipConditions.push({
-      'sharing.shared_with_teams': { $in: userTeamIds },
-    });
-  }
-
-  // Exclude soft-deleted conversations
+  // Fetch non-deleted candidates and let the ReBAC filter decide visibility.
+  // Legacy sharing fields are still stored for migration, but no longer prefilter reads.
   const query: any = {
-    $or: ownershipConditions,
     $and: [
       { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
     ],
@@ -195,6 +179,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       },
       { status: 400 }
     );
+  }
+
+  if (body.agent_id) {
+    const denial = await requireAgentUsePermission({
+      subject: session.sub,
+      agentId: body.agent_id,
+      email: user.email,
+    });
+    if (denial) {
+      return denial;
+    }
   }
 
   const conversations = await getCollection<Conversation>('conversations');

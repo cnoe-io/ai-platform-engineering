@@ -27,6 +27,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import requests
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import MongoClient
@@ -36,6 +37,7 @@ from pymongo.errors import PyMongoError
 from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
 
 logger = logging.getLogger("caipe.slack_bot.channel_team_resolver")
+DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 
 # Sentinel team slug used in OBO tokens for DM / personal interactions.
@@ -213,15 +215,22 @@ class ChannelTeamResolver:
                 deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="channel"),
             )
 
-        # Membership pre-check: bot is the first checkpoint, AgentGateway
-        # ext_authz/OpenFGA is the second. Doing it here lets us return a
-        # friendlier message instead of a 403 from AGW.
+        # Membership pre-check: prefer OpenFGA team#member so ReBAC is the
+        # source of truth. Legacy Mongo members are a fallback only when the
+        # PDP is not configured or temporarily unavailable.
         member_key = (channel_id, keycloak_user_id)
         cached_member = self._membership.get(member_key)
         if cached_member and now - cached_member[1] < self._ttl:
             is_member = cached_member[0]
         else:
-            is_member = await self._user_is_member(team_doc, keycloak_user_id)
+            openfga_member = await self._user_is_openfga_team_member(
+                slug.strip(), keycloak_user_id
+            )
+            is_member = (
+                openfga_member
+                if openfga_member is not None
+                else await self._user_is_member(team_doc, keycloak_user_id)
+            )
             self._membership[member_key] = (is_member, now)
 
         if not is_member:
@@ -237,6 +246,15 @@ class ChannelTeamResolver:
             team_id=team_id,
             team_name=team_name,
             deny_message=None,
+        )
+
+    async def _user_is_openfga_team_member(
+        self, team_slug: str, keycloak_user_id: str
+    ) -> Optional[bool]:
+        """Return an OpenFGA team#member decision, or None when unavailable."""
+
+        return await asyncio.to_thread(
+            _check_openfga_team_member_sync, team_slug, keycloak_user_id
         )
 
     @staticmethod
@@ -297,6 +315,48 @@ class ChannelTeamResolver:
         if isinstance(username, str) and username.lower() in member_keys:
             return True
         return False
+
+
+def _check_openfga_team_member_sync(
+    team_slug: str, keycloak_user_id: str
+) -> Optional[bool]:
+    base_url = os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
+    store_id = os.environ.get("OPENFGA_STORE_ID", "").strip()
+    if not base_url and not store_id:
+        return None
+    base_url = base_url or DEFAULT_OPENFGA_HTTP
+    try:
+        if not store_id:
+            store_id = _openfga_store_id(base_url)
+        response = requests.post(
+            f"{base_url}/stores/{store_id}/check",
+            headers={"Content-Type": "application/json"},
+            json={
+                "tuple_key": {
+                    "user": f"user:{keycloak_user_id}",
+                    "relation": "member",
+                    "object": f"team:{team_slug}",
+                }
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        return bool(response.json().get("allowed"))
+    except requests.RequestException as exc:
+        logger.warning("OpenFGA team membership check failed: %s", exc)
+        return None
+
+
+def _openfga_store_id(base_url: str) -> str:
+    store_name = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
+    response = requests.get(
+        f"{base_url}/stores", headers={"Content-Type": "application/json"}, timeout=5
+    )
+    response.raise_for_status()
+    for store in response.json().get("stores", []):
+        if store.get("name") == store_name and store.get("id"):
+            return str(store["id"])
+    raise requests.RequestException(f"OpenFGA store {store_name!r} was not found")
 
 
 _default_resolver: Optional[ChannelTeamResolver] = None

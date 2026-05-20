@@ -23,13 +23,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    // Build search query
-    const searchQuery: any = {
-      $or: [
-        { owner_id: user.email },
-        { 'sharing.shared_with': user.email },
-      ],
-    };
+    // Build search query from content filters only; OpenFGA filters access below.
+    const searchQuery: any = {};
 
     // Add text search if query provided
     if (query) {

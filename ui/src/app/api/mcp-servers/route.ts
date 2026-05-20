@@ -16,6 +16,10 @@ import {
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
@@ -91,12 +95,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
 
-    const [items, total] = await Promise.all([
+    const [items] = await Promise.all([
       collection.find({}).sort({ name: 1 }).skip(skip).limit(pageSize).toArray(),
       collection.countDocuments({}),
     ]);
+    const visibleItems = await filterResourcesByPermission(session, items, {
+      type: "mcp_server",
+      action: "read",
+      id: (server) => String(server._id),
+    });
 
-    return paginatedResponse(items, total, page, pageSize);
+    return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -196,6 +205,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!server) {
       throw new ApiError("MCP server not found", 404);
     }
+    await requireResourcePermission(session, {
+      type: "mcp_server",
+      id,
+      action: "write",
+    });
 
     // Config-driven guard
     if (server.config_driven) {
@@ -254,6 +268,11 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     if (!server) {
       throw new ApiError("MCP server not found", 404);
     }
+    await requireResourcePermission(session, {
+      type: "mcp_server",
+      id,
+      action: "delete",
+    });
 
     // Config-driven guard
     if (server.config_driven) {

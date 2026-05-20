@@ -47,6 +47,64 @@ def test_resolve_denies_non_member(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "member" in (result.deny_message or "").lower()
 
 
+def test_resolve_allows_openfga_team_member_without_legacy_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = WebexSpaceTeamResolver()
+
+    monkeypatch.setattr(
+        resolver,
+        "_load_space_team_sync",
+        lambda _space_id: {
+            "_id": "507f1f77bcf86cd799439011",
+            "slug": "platform-eng",
+            "name": "Platform Eng",
+            "members": [],
+        },
+    )
+
+    async def fake_openfga_member(
+        _team_slug: str, _keycloak_user_id: str
+    ) -> Optional[bool]:
+        return True
+
+    monkeypatch.setattr(resolver, "_user_is_openfga_team_member", fake_openfga_member)
+
+    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
+
+    assert result.team_slug == "platform-eng"
+    assert result.deny_message is None
+
+
+def test_resolve_denies_when_openfga_team_member_check_denies_legacy_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolver = WebexSpaceTeamResolver()
+
+    monkeypatch.setattr(
+        resolver,
+        "_load_space_team_sync",
+        lambda _space_id: {
+            "_id": "507f1f77bcf86cd799439011",
+            "slug": "platform-eng",
+            "name": "Platform Eng",
+            "members": [{"user_id": "kc-user-1"}],
+        },
+    )
+
+    async def fake_openfga_member(
+        _team_slug: str, _keycloak_user_id: str
+    ) -> Optional[bool]:
+        return False
+
+    monkeypatch.setattr(resolver, "_user_is_openfga_team_member", fake_openfga_member)
+
+    result = asyncio.run(resolver.resolve("space-12345678", "kc-user-1"))
+
+    assert result.team_slug is None
+    assert "member" in (result.deny_message or "").lower()
+
+
 def test_resolve_denies_invalid_team_slug(monkeypatch: pytest.MonkeyPatch) -> None:
     resolver = WebexSpaceTeamResolver()
 

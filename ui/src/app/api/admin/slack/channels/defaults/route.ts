@@ -62,6 +62,16 @@ interface DynamicAgentDoc extends Document {
   enabled?: boolean;
 }
 
+interface SlackChannelGrantDoc extends Document {
+  workspace_id: string;
+  channel_id: string;
+  resource?: {
+    type?: string;
+    id?: string;
+  };
+  status?: string;
+}
+
 interface DiscoveredSlackChannel {
   workspace_id: string;
   channel_id: string;
@@ -312,6 +322,9 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
 
     let routesEnsured = 0;
     let routesPreserved = 0;
+    let channelGrantsReplaced = 0;
+    let routesReplaced = 0;
+    const deleteRelationships: UniversalRebacRelationship[] = [];
     if (!hasChannelScopedDefaults) {
       for (const channel of channels) {
         if (channel.team_slug) continue;
@@ -363,6 +376,48 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
       const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
       const targetAgentId = scopedDefault?.agent_id ?? agentId;
+      if (hasChannelScopedDefaults) {
+        const staleGrants = await grants
+          .find({
+            workspace_id: workspaceId,
+            channel_id: channel.slack_channel_id,
+            "resource.type": "agent",
+            "resource.id": { $ne: targetAgentId },
+            status: "active",
+          } as never)
+          .toArray();
+        channelGrantsReplaced += staleGrants.length;
+        for (const staleGrant of staleGrants as SlackChannelGrantDoc[]) {
+          const staleAgentId = staleGrant.resource?.id;
+          if (!staleAgentId) continue;
+          deleteRelationships.push(
+            slackChannelGrantRelationship(
+              workspaceId,
+              channel.slack_channel_id,
+              { type: "agent", id: staleAgentId },
+              "use"
+            )
+          );
+        }
+        if (staleGrants.length > 0) {
+          await grants.updateMany(
+            {
+              workspace_id: workspaceId,
+              channel_id: channel.slack_channel_id,
+              "resource.type": "agent",
+              "resource.id": { $ne: targetAgentId },
+              status: "active",
+            } as never,
+            {
+              $set: {
+                status: "deleted",
+                updated_by: actor,
+                updated_at: now,
+              },
+            } as never
+          );
+        }
+      }
       await grants.updateOne(
         {
           workspace_id: workspaceId,
@@ -389,6 +444,35 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
 
       if (createRoutes) {
         const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+        if (hasChannelScopedDefaults) {
+          const staleRoutes = await routes
+            .find({
+              workspace_id: workspaceId,
+              channel_id: channel.slack_channel_id,
+              agent_id: { $ne: targetAgentId },
+              status: "active",
+            } as never)
+            .toArray();
+          routesReplaced += staleRoutes.length;
+          if (staleRoutes.length > 0) {
+            await routes.updateMany(
+              {
+                workspace_id: workspaceId,
+                channel_id: channel.slack_channel_id,
+                agent_id: { $ne: targetAgentId },
+                status: "active",
+              } as never,
+              {
+                $set: {
+                  enabled: false,
+                  status: "deleted",
+                  updated_by: actor,
+                  updated_at: now,
+                },
+              } as never
+            );
+          }
+        }
         const existingRoute = await routes.findOne({
           workspace_id: workspaceId,
           channel_id: channel.slack_channel_id,
@@ -449,14 +533,14 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       ),
     ];
 
-    const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] })).catch(
-      (error) => ({
-        enabled: false,
-        writes: 0,
-        deletes: 0,
-        error: error instanceof Error ? error.message : "OpenFGA tuple write failed",
-      })
-    );
+    const openfga = await writeOpenFgaTuples(
+      buildUniversalRebacTupleDiff({ writes, deletes: deleteRelationships })
+    ).catch((error) => ({
+      enabled: false,
+      writes: 0,
+      deletes: 0,
+      error: error instanceof Error ? error.message : "OpenFGA tuple write failed",
+    }));
 
     const runtimeReload = await reloadSlackRuntime();
 
@@ -467,8 +551,10 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
         channels_onboarded: channelsOnboarded,
         channels_assigned_team: channelsAssignedTeam,
         channel_grants_ensured: channels.length,
+        channel_grants_replaced: channelGrantsReplaced,
         routes_ensured: routesEnsured,
         routes_preserved: routesPreserved,
+        routes_replaced: routesReplaced,
         team_grant_ensured: true,
       },
       defaults: {

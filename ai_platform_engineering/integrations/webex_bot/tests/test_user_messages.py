@@ -16,6 +16,7 @@ def test_team_session_message_is_plain_language() -> None:
     message = user_messages.TEAM_SESSION_UNAVAILABLE_MESSAGE
 
     assert "I couldn't start your CAIPE session for this Webex space." in message
+    assert "Please try again in a minute. If it still doesn't work" not in message
     for internal_term in ("Keycloak", "scope", "team-scoped", "provisioned", "slug"):
         assert internal_term not in message
 

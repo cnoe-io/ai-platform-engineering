@@ -5,7 +5,6 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  getUserTeamIds,
 } from "@/lib/api-middleware";
 import type {
   WorkflowConfig,
@@ -14,6 +13,10 @@ import type {
   WorkflowConfigVisibility,
   StepEntry,
 } from "@/types/workflow-config";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 
 /**
  * Workflow Config API Routes
@@ -79,41 +82,22 @@ function validateVisibility(
   }
 }
 
-async function getVisibleConfigs(ownerEmail: string): Promise<WorkflowConfig[]> {
+async function getVisibleConfigs(_ownerEmail: string): Promise<WorkflowConfig[]> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
 
   return collection
-    .find({
-      $or: [
-        { owner_id: ownerEmail },
-        { visibility: "global" },
-        ...(userTeamIds.length > 0
-          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-          : []),
-      ],
-    })
+    .find({})
     .sort({ name: 1 })
     .toArray();
 }
 
 async function getVisibleConfigById(
   id: string,
-  ownerEmail: string
+  _ownerEmail: string
 ): Promise<WorkflowConfig | null> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
 
-  return collection.findOne({
-    _id: id,
-    $or: [
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
+  return collection.findOne({ _id: id });
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +112,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     // Admins can see all workflow configs
     if (user.role === "admin") {
       const collection = await getCollection<WorkflowConfig>("workflow_configs");
@@ -146,11 +130,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (!config) {
         throw new ApiError("Workflow config not found", 404);
       }
+      await requireResourcePermission(session, { type: "task", id, action: "read" });
       return NextResponse.json(config) as NextResponse;
     }
 
     const configs = await getVisibleConfigs(user.email);
-    return NextResponse.json(configs) as NextResponse;
+    const visibleConfigs = await filterResourcesByPermission(session, configs, {
+      type: "task",
+      action: "discover",
+      id: (config) => String(config._id),
+    });
+    return NextResponse.json(visibleConfigs) as NextResponse;
   });
 });
 
@@ -163,7 +153,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflows require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const body: CreateWorkflowConfigInput = await request.json();
 
     if (!body.name) {
@@ -224,8 +214,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (existing.owner_id !== user.email && user.role !== "admin") {
-      throw new ApiError("You don't have permission to update this workflow config", 403);
+    if (user.role !== "admin") {
+      await requireResourcePermission(session, { type: "task", id, action: "write" });
     }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot modify a config-driven workflow. Edit app-config.yaml instead.", 403);
@@ -265,15 +255,15 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflow config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const collection = await getCollection<WorkflowConfig>("workflow_configs");
     const existing = await collection.findOne({ _id: id as any });
 
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (existing.owner_id !== user.email && user.role !== "admin") {
-      throw new ApiError("You don't have permission to delete this workflow config", 403);
+    if (user.role !== "admin") {
+      await requireResourcePermission(session, { type: "task", id, action: "delete" });
     }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot delete a config-driven workflow. Remove it from app-config.yaml instead.", 403);

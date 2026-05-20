@@ -43,41 +43,25 @@ describe("MCPServersTab AgentGateway sync", () => {
           }),
         } as Response);
       }
-      if (url === "/api/mcp-servers/agentgateway/discover") {
-        return Promise.resolve({
-          json: async () => ({
-            success: true,
-            data: {
-              targets: [
-                {
-                  id: "rag",
-                  name: "RAG",
-                  transport: "http",
-                  endpoint: "http://agentgateway:4000/mcp",
-                  target_endpoint: "http://rag-server:9446/mcp",
-                  enabled: true,
-                  status: "new",
-                },
-                {
-                  id: "jira",
-                  name: "Jira",
-                  transport: "http",
-                  endpoint: "http://agentgateway:4000/mcp",
-                  target_endpoint: "http://mcp-jira:8000/mcp",
-                  enabled: true,
-                  status: "conflict",
-                  existing_endpoint: "http://mcp-jira:8000/mcp",
-                },
-              ],
-            },
-          }),
-        } as Response);
-      }
       if (url === "/api/mcp-servers/agentgateway/sync" && init?.method === "POST") {
         return Promise.resolve({
           json: async () => ({
             success: true,
-            data: { added: ["rag"], skipped: [{ id: "jira", reason: "existing" }] },
+            data: {
+              added: ["rag"],
+              skipped: [{ id: "jira", reason: "conflict" }],
+              summary: { added: 1, existing: 0, conflicts: 1, skipped: 1 },
+              migration_warnings: [
+                {
+                  id: "jira",
+                  endpoint: "http://agentgateway:4000/mcp",
+                  target_endpoint: "http://mcp-jira:8000/mcp",
+                  existing_endpoint: "http://legacy-jira:8000/mcp",
+                  message:
+                    "Legacy MCP server conflicts with AgentGateway target \"jira\". Remove or rename the legacy MCP server to let AgentGateway manage it.",
+                },
+              ],
+            },
           }),
         } as Response);
       }
@@ -85,29 +69,30 @@ describe("MCPServersTab AgentGateway sync", () => {
     }) as unknown as typeof fetch;
   });
 
-  it("lets users confirm which AgentGateway-discovered MCP servers to add", async () => {
+  it("syncs AgentGateway MCP servers in one click and shows migration conflicts", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
     fireEvent.click(screen.getByRole("button", { name: /Sync with AgentGateway/i }));
-
-    expect(await screen.findByText("AgentGateway MCP targets")).toBeInTheDocument();
-    expect(screen.getByText("RAG")).toBeInTheDocument();
-    expect(screen.getByText("New")).toBeInTheDocument();
-    expect(screen.getByText("Conflict")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Add selected servers/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/mcp-servers/agentgateway/sync",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ ids: ["rag"] }),
+          body: JSON.stringify({}),
         }),
       );
     });
+
     expect(await screen.findByText(/Added 1 MCP server/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 legacy MCP server conflicts with AgentGateway targets/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Remove or rename the legacy MCP server/i)).toBeInTheDocument();
+    expect(screen.getAllByText("jira").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Current: http:\/\/legacy-jira:8000\/mcp/i)).toBeInTheDocument();
+    expect(screen.getByText(/AgentGateway: http:\/\/mcp-jira:8000\/mcp/i)).toBeInTheDocument();
   });
 
   it("marks AgentGateway-registered MCP servers in the table", async () => {

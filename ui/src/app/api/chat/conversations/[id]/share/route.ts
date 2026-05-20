@@ -10,12 +10,11 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  requireOwnership,
   validateUUID,
   validateRequired,
   validateEmail,
 } from '@/lib/api-middleware';
-import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation, ShareConversationRequest, SharingAccess } from '@/types/mongodb';
 
 // GET /api/chat/conversations/[id]/share
@@ -38,12 +37,7 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
-    await requireResourcePermission(session, {
-      type: 'conversation',
-      id: conversationId,
-      action: 'share',
-    });
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
     const accessList = await sharingAccess
@@ -93,12 +87,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
-    await requireResourcePermission(session, {
-      type: 'conversation',
-      id: conversationId,
-      action: 'share',
-    });
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     const now = new Date();
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
@@ -224,12 +213,7 @@ export const PATCH = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
-    await requireResourcePermission(session, {
-      type: 'conversation',
-      id: conversationId,
-      action: 'share',
-    });
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     if (email) {
       const sharingAccess = await getCollection<SharingAccess>('sharing_access');

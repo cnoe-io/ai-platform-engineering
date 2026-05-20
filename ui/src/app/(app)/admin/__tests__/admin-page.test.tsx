@@ -909,6 +909,98 @@ describe('Admin Dashboard Page', () => {
       confirmSpy.mockRestore();
     });
 
+    it('shows a compact Chat chip for combined Slack channels and Webex spaces', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-integrations',
+                name: 'Integration Team',
+                description: 'Owns chat surfaces',
+                owner_id: 'admin@example.com',
+                created_at: new Date().toISOString(),
+                members: [
+                  { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
+                ],
+                slack_channels: [
+                  { slack_channel_id: 'C111', channel_name: 'alerts' },
+                ],
+                webex_spaces: [
+                  { space_id: 'space-1', space_name: 'Support Room' },
+                  { space_id: 'space-2', space_name: 'Incident Room' },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Integration Team')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /3 chat integrations/i })).toBeInTheDocument();
+      expect(screen.getByText(/^Chat$/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /3 integrations/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /1 channels/i })).not.toBeInTheDocument();
+    });
+
+    it('filters teams by search text and shows an empty result state', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-platform',
+                name: 'Platform Team',
+                description: 'Core platform engineering',
+                owner_id: 'platform-owner@example.com',
+                created_at: new Date().toISOString(),
+                members: [
+                  { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+                ],
+              },
+              {
+                _id: 'team-security',
+                name: 'Security Team',
+                description: 'Guardrails and audits',
+                owner_id: 'security-owner@example.com',
+                created_at: new Date().toISOString(),
+                members: [
+                  { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+      expect(screen.getByText('Security Team')).toBeInTheDocument();
+
+      fireEvent.change(
+        screen.getByRole('searchbox', { name: /search teams/i }),
+        { target: { value: 'security' } }
+      );
+
+      expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      expect(screen.getByText('Security Team')).toBeInTheDocument();
+
+      fireEvent.change(
+        screen.getByRole('searchbox', { name: /search teams/i }),
+        { target: { value: 'does-not-exist' } }
+      );
+
+      expect(screen.getByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /clear team search/i })).toBeInTheDocument();
+    });
+
     it('refreshes teams from the database without reloading the whole admin dashboard', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
       let teamFetchCount = 0;

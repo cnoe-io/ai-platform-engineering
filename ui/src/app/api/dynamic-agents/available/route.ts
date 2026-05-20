@@ -10,15 +10,14 @@
  */
 
 import { NextRequest } from "next/server";
-import type { Filter } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import {
   withErrorHandler,
   successResponse,
-  getUserTeamIds,
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
+import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -28,46 +27,32 @@ const COLLECTION_NAME = "dynamic_agents";
  * List dynamic agents available for the current user to chat with.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  const { user, session } = await getAuthFromBearerOrSession(request);
+  const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "dynamic_agent", "view");
 
-    const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
+  const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
-    const userEmail = user.email || "";
-    const userTeams = await getUserTeamIds(userEmail);
+  const agents = await collection
+    .find({ enabled: true })
+    .sort({ name: 1 })
+    .toArray();
 
-    // Build query for agents visible to this user:
-    // 1. Global agents (anyone can see)
-    // 2. Team agents where user is a member OR owned by user
-    // 3. Private agents owned by this user
-    // Use type assertion to satisfy MongoDB's strict Filter types
-    const query: Filter<DynamicAgentConfig> = {
-      enabled: true,
-      $or: [
-        { visibility: "global" as const },
-        ...(userTeams.length > 0
-          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeams } }]
-          : []),
-        { visibility: "team" as const, owner_id: userEmail },
-        { visibility: "private" as const, owner_id: userEmail },
-      ],
-    };
+  const visibleAgents = await filterResourcesByPermission(session, agents, {
+    type: "agent",
+    action: "use",
+    id: (agent) => String(agent._id),
+  });
 
-    const agents = await collection
-      .find(query)
-      .sort({ name: 1 })
-      .toArray();
+  // Normalize legacy model_id/model_provider → model
+  const normalizedAgents = visibleAgents.map((agent) => {
+    const doc = agent as unknown as Record<string, unknown>;
+    if (doc.model_id && !doc.model) {
+      doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };
+      delete doc.model_id;
+      delete doc.model_provider;
+    }
+    return doc;
+  });
 
-    // Normalize legacy model_id/model_provider → model
-    const normalizedAgents = agents.map((agent) => {
-      const doc = agent as unknown as Record<string, unknown>;
-      if (doc.model_id && !doc.model) {
-        doc.model = { id: doc.model_id, provider: doc.model_provider || "unknown" };
-        delete doc.model_id;
-        delete doc.model_provider;
-      }
-      return doc;
-    });
-
-    return successResponse(normalizedAgents);
+  return successResponse(normalizedAgents);
 });

@@ -12,11 +12,15 @@ import { fetchAgentGatewayMcpDiscovery } from "../_lib";
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireRbacPermission(session, "mcp_server", "view");
-  await requireResourcePermission(session, {
-    type: "mcp_server",
-    id: "agentgateway",
-    action: "discover",
-  });
+  await requireResourcePermission(
+    session,
+    {
+      type: "mcp_server",
+      id: "agentgateway",
+      action: "discover",
+    },
+    { allowAdminBypass: true },
+  );
 
   const discovery = await fetchAgentGatewayMcpDiscovery();
   return successResponse(discovery);

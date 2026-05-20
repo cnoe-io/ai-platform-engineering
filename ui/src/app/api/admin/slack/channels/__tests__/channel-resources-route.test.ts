@@ -68,14 +68,16 @@ jest.mock("@/lib/auth-config", () => ({
 
 function matchesFilter(row: any, filter: Record<string, any>): boolean {
   return Object.entries(filter).every(([key, value]) => {
-    if (value && typeof value === "object" && "$ne" in value) return row[key] !== value.$ne;
-    if (value && typeof value === "object" && "$in" in value) return value.$in.includes(row[key]);
-    if (value && typeof value === "object" && "$nin" in value) return !value.$nin.includes(row[key]);
+    const resolved = key.includes(".")
+      ? key.split(".").reduce((acc, part) => acc?.[part], row)
+      : row[key];
+    if (value && typeof value === "object" && "$ne" in value) return resolved !== value.$ne;
+    if (value && typeof value === "object" && "$in" in value) return value.$in.includes(resolved);
+    if (value && typeof value === "object" && "$nin" in value) return !value.$nin.includes(resolved);
     if (key.includes(".")) {
-      const resolved = key.split(".").reduce((acc, part) => acc?.[part], row);
       return resolved === value;
     }
-    return row[key] === value;
+    return resolved === value;
   });
 }
 
@@ -1002,6 +1004,113 @@ describe("Slack channel ReBAC APIs", () => {
         { user: "team:security#member", relation: "user", object: "agent:test-april-2025" },
       ]),
       deletes: [],
+    });
+  });
+
+  it("replaces stale per-channel routes when a discovered channel changes agents", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([]);
+    mockCollections.teams = createMockCollection([
+      {
+        _id: "team-1",
+        slug: "platform-engineering",
+        name: "Platform Engineering",
+        resources: { agents: [] },
+      },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "foo-bar", name: "Foo Bar", enabled: true },
+      { _id: "test-april-2025", name: "Test April 2025", enabled: true },
+    ]);
+    mockCollections.slack_channel_grants = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CCHANGED",
+        resource: { type: "agent", id: "test-april-2025" },
+        actions: ["use"],
+        status: "active",
+      },
+    ]);
+    mockCollections.slack_channel_agent_routes = createMockCollection([
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CCHANGED",
+        agent_id: "test-april-2025",
+        enabled: true,
+        priority: 100,
+        source_type: "auto",
+        status: "active",
+        users: { enabled: true, listen: "all" },
+      },
+    ]);
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/slack/channels/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "foo-bar",
+          create_routes: true,
+          channel_defaults: [
+            {
+              id: "CCHANGED",
+              name: "sri-local-test-4",
+              team_slug: "platform-engineering",
+              agent_id: "foo-bar",
+            },
+          ],
+        }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.summary).toMatchObject({
+      channel_grants_replaced: 1,
+      routes_replaced: 1,
+    });
+    expect(mockCollections.slack_channel_grants.updateMany).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CCHANGED",
+        "resource.type": "agent",
+        "resource.id": { $ne: "foo-bar" },
+        status: "active",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "deleted",
+          updated_by: "api",
+        }),
+      })
+    );
+    expect(mockCollections.slack_channel_agent_routes.updateMany).toHaveBeenCalledWith(
+      {
+        workspace_id: workspaceAlias,
+        channel_id: "CCHANGED",
+        agent_id: { $ne: "foo-bar" },
+        status: "active",
+      },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          enabled: false,
+          status: "deleted",
+          updated_by: "api",
+        }),
+      })
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: `slack_channel:${workspaceAlias}--CCHANGED`, relation: "user", object: "agent:foo-bar" },
+        { user: "team:platform-engineering#member", relation: "user", object: "agent:foo-bar" },
+      ]),
+      deletes: [
+        {
+          user: `slack_channel:${workspaceAlias}--CCHANGED`,
+          relation: "user",
+          object: "agent:test-april-2025",
+        },
+      ],
     });
   });
 });

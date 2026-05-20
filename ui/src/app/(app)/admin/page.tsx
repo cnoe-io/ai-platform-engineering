@@ -215,6 +215,7 @@ interface Team {
   // Source of truth is `channel_team_mappings`, but we mirror a thin array
   // onto the team document so the card doesn't need an extra round-trip.
   slack_channels?: Array<{ slack_channel_id: string }>;
+  webex_spaces?: Array<{ space_id: string; space_name?: string; workspace_id?: string }>;
 }
 
 interface SimulationUserOption {
@@ -446,6 +447,7 @@ function AdminPage() {
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamSearch, setTeamSearch] = useState("");
   const [teamsRefreshing, setTeamsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -805,6 +807,24 @@ function AdminPage() {
       setTeamsRefreshing(false);
     }
   };
+
+  const filteredTeams = useMemo(() => {
+    const query = teamSearch.trim().toLowerCase();
+    if (!query) return teams;
+
+    return teams.filter((team) => {
+      const searchableValues = [
+        team.name,
+        team.slug,
+        team.description,
+        team.owner_id,
+        ...team.members.map((member) => member.user_id),
+      ];
+      return searchableValues
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [teams, teamSearch]);
 
   // Expand team: prefixed selections to member emails
   const expandStatsUsers = (selected: string[]): string[] => {
@@ -1432,27 +1452,50 @@ function AdminPage() {
 
               {/* Team Management Tab */}
               <TabsContent value="teams" className="space-y-4">
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="gap-2"
-                    onClick={loadTeams}
-                    disabled={teamsRefreshing}
-                  >
-                    {teamsRefreshing ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="relative w-full sm:max-w-md">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="search"
+                      aria-label="Search teams"
+                      value={teamSearch}
+                      onChange={(event) => setTeamSearch(event.target.value)}
+                      placeholder="Search teams by name, owner, or description"
+                      className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-9 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                    {teamSearch && (
+                      <button
+                        type="button"
+                        aria-label="Clear search input"
+                        onClick={() => setTeamSearch("")}
+                        className="absolute right-2 top-1/2 rounded p-1 text-muted-foreground hover:text-foreground -translate-y-1/2"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     )}
-                    Refresh Teams
-                  </Button>
-                  {isAdmin && (
-                    <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                      <UserPlus className="h-4 w-4" />
-                      Create Team
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={loadTeams}
+                      disabled={teamsRefreshing}
+                    >
+                      {teamsRefreshing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Refresh Teams
                     </Button>
-                  )}
+                    {isAdmin && (
+                      <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                        <UserPlus className="h-4 w-4" />
+                        Create Team
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {teams.length === 0 ? (
                   <div className="text-center py-12">
@@ -1470,9 +1513,24 @@ function AdminPage() {
                       </Button>
                     )}
                   </div>
+                ) : filteredTeams.length === 0 ? (
+                  <div className="rounded-lg border border-dashed py-12 text-center">
+                    <Search className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No teams match "{teamSearch}"</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Try a team name, owner email, member email, or description.
+                    </p>
+                    <Button type="button" variant="outline" onClick={() => setTeamSearch("")}>
+                      Clear team search
+                    </Button>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {teams.map((team) => (
+                    {filteredTeams.map((team) => {
+                      const chatIntegrationCount =
+                        (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
+
+                      return (
                       <Card key={team._id}>
                         <CardHeader>
                           <div className="flex items-center justify-between">
@@ -1514,12 +1572,12 @@ function AdminPage() {
                             </button>
                           </div>
 
-                          {/* Quick stats — 6 chips give an at-a-glance summary
+                          {/* Quick stats — 5 chips give an at-a-glance summary
                               and double as deep-links into the right tab in
                               the team-management dialog. Counts that we
                               don't have on the Team object yet (KBs) just
                               hide the number and show an icon. */}
-                          <div className="grid grid-cols-6 gap-1.5 mt-3">
+                          <div className="grid grid-cols-5 gap-1.5 mt-3">
                             <StatChip
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
@@ -1549,8 +1607,10 @@ function AdminPage() {
                             />
                             <StatChip
                               icon={<MessageSquare className="h-3.5 w-3.5" />}
-                              label="Channels"
-                              count={team.slack_channels?.length}
+                              label="Chat"
+                              count={chatIntegrationCount}
+                              ariaLabel={`${chatIntegrationCount} chat integration${chatIntegrationCount === 1 ? "" : "s"}`}
+                              title="Manage chat integrations"
                               onClick={() => openTeamDialog(team, "channels")}
                             />
                           </div>
@@ -1573,7 +1633,8 @@ function AdminPage() {
                           </div>
                         </CardContent>
                       </Card>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </TabsContent>
@@ -3112,20 +3173,25 @@ function StatChip({
   icon,
   label,
   count,
+  ariaLabel,
+  title,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   // string variant supports wildcard markers like "*" for all-tool grants
   count?: number | string;
+  ariaLabel?: string;
+  title?: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
       onClick={onClick}
       className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      title={`Manage ${label.toLowerCase()}`}
+      title={title || `Manage ${label.toLowerCase()}`}
     >
       <div className="flex items-center gap-1 text-muted-foreground">
         {icon}

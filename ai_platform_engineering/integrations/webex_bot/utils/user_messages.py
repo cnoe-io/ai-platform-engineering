@@ -4,8 +4,7 @@ from __future__ import annotations
 
 TEAM_SESSION_UNAVAILABLE_MESSAGE = (
     "I couldn't start your CAIPE session for this Webex space. "
-    "Please try again in a minute. If it still doesn't work, ask an admin "
-    "to refresh this space's team setup in CAIPE."
+    "Ask an admin to refresh this space's team setup in CAIPE."
 )
 
 TEAM_SETUP_INCOMPLETE_MESSAGE = (

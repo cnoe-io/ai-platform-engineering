@@ -68,7 +68,7 @@ function request(path: string, init?: RequestInit): NextRequest {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "admin-sub" } });
+  mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "admin-sub", role: "admin" } });
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   global.fetch = jest.fn().mockResolvedValue({
@@ -98,10 +98,15 @@ describe("AgentGateway MCP server discovery API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockRequireRbacPermission).toHaveBeenCalledWith({ sub: "admin-sub" }, "mcp_server", "view");
+    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      "mcp_server",
+      "view",
+    );
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "admin-sub" },
+      { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "discover" },
+      { allowAdminBypass: true },
     );
     expect(body.data.targets).toEqual([
       expect.objectContaining({ id: "rag", status: "new" }),
@@ -115,7 +120,7 @@ describe("AgentGateway MCP server discovery API", () => {
     ]);
   });
 
-  it("adds only selected new AgentGateway MCP targets", async () => {
+  it("auto-imports all new AgentGateway MCP targets and reports legacy conflicts", async () => {
     const insertOne = jest.fn();
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
@@ -137,15 +142,16 @@ describe("AgentGateway MCP server discovery API", () => {
       request("/api/mcp-servers/agentgateway/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: ["rag", "jira"] }),
+        body: JSON.stringify({}),
       }),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "admin-sub" },
+      { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "admin" },
+      { allowAdminBypass: true },
     );
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -162,41 +168,82 @@ describe("AgentGateway MCP server discovery API", () => {
     expect(body.data).toMatchObject({
       added: ["rag"],
       skipped: [{ id: "jira", reason: "conflict" }],
+      summary: {
+        added: 1,
+        existing: 0,
+        conflicts: 1,
+        skipped: 1,
+      },
+      conflicts: [
+        expect.objectContaining({
+          id: "jira",
+          endpoint: "http://agentgateway:4000/mcp",
+          existing_endpoint: "http://mcp-jira:8000/mcp",
+        }),
+      ],
+      migration_warnings: [
+        expect.objectContaining({
+          id: "jira",
+          message: expect.stringMatching(/legacy MCP server conflicts with AgentGateway/i),
+        }),
+      ],
     });
   });
 
-  it("does not fetch AgentGateway config when discovery object check is denied", async () => {
-    mockRequireResourcePermission.mockRejectedValue(new Error("no discovery"));
+  it("allows admin discovery to bypass missing AgentGateway object grant", async () => {
+    mockRequireResourcePermission.mockImplementation((_session, _resource, options) => {
+      if (options?.allowAdminBypass) return Promise.resolve();
+      return Promise.reject(new Error("no discovery"));
+    });
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
     const { GET } = await import("../discover/route");
 
-    await expect(GET(request("/api/mcp-servers/agentgateway/discover"))).rejects.toThrow("no discovery");
+    const response = await GET(request("/api/mcp-servers/agentgateway/discover"));
+    const body = await response.json();
 
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.data.targets).toEqual([
+      expect.objectContaining({ id: "rag", status: "new" }),
+      expect.objectContaining({ id: "jira", status: "new" }),
+    ]);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      { type: "mcp_server", id: "agentgateway", action: "discover" },
+      { allowAdminBypass: true },
+    );
   });
 
-  it("does not sync selected targets when manage object check is denied", async () => {
+  it("allows admin sync to bypass missing AgentGateway object grant", async () => {
     const insertOne = jest.fn();
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
       insertOne,
     });
-    mockRequireResourcePermission.mockRejectedValue(new Error("no manage"));
+    mockRequireResourcePermission.mockImplementation((_session, _resource, options) => {
+      if (options?.allowAdminBypass) return Promise.resolve();
+      return Promise.reject(new Error("no manage"));
+    });
     const { POST } = await import("../sync/route");
 
-    await expect(
-      POST(
-        request("/api/mcp-servers/agentgateway/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: ["rag"] }),
-        }),
-      ),
-    ).rejects.toThrow("no manage");
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+    const body = await response.json();
 
-    expect(insertOne).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(insertOne).toHaveBeenCalledTimes(2);
+    expect(body.data.summary).toMatchObject({ added: 2, conflicts: 0 });
   });
 
-  it("validates selected target ids after the manage gate", async () => {
+  it("validates selected target ids after the manage gate when ids are provided", async () => {
     const { POST } = await import("../sync/route");
 
     await expect(
@@ -210,8 +257,9 @@ describe("AgentGateway MCP server discovery API", () => {
     ).rejects.toThrow("ids must be an array");
 
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "admin-sub" },
+      { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "admin" },
+      { allowAdminBypass: true },
     );
   });
 });

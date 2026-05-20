@@ -11,6 +11,7 @@ import {
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
+import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -52,13 +53,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Find agents that would create a cycle
     const ancestors = getAncestorAgentIds(agentId, allAgents);
 
-    // Filter out self and ancestors
-    const available = allAgents
-      .filter((agent) => {
-        if (agent._id === agentId) return false; // Can't delegate to self
-        if (ancestors.has(agent._id)) return false; // Would create a cycle
-        return true;
-      })
+    // Filter out self and ancestors before checking ReBAC can_use on candidates.
+    const candidates = allAgents.filter((agent) => {
+      if (agent._id === agentId) return false; // Can't delegate to self
+      if (ancestors.has(agent._id)) return false; // Would create a cycle
+      return true;
+    });
+
+    const usableCandidates = await filterResourcesByPermission(session, candidates, {
+      type: "agent",
+      action: "use",
+      id: (agent) => String(agent._id),
+    });
+
+    const available = usableCandidates
       .map((agent) => ({
         id: agent._id,
         name: agent.name,

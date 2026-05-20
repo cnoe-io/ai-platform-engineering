@@ -157,6 +157,80 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
+  it("filters chat-available agents through OpenFGA can_use instead of legacy visibility", async () => {
+    const agents = [
+      {
+        _id: "foo-bar",
+        name: "Foo Bar",
+        enabled: true,
+        visibility: "team",
+        shared_with_teams: ["team-a"],
+      },
+      {
+        _id: "incident-agent",
+        name: "Incident Agent",
+        enabled: true,
+        visibility: "global",
+      },
+    ];
+    mockFilterResourcesByPermission.mockResolvedValue([agents[1]]);
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue(agents),
+      }),
+    });
+    const { GET } = await import("../available/route");
+
+    const response = await GET(request("/api/dynamic-agents/available"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockGetUserTeamIds).not.toHaveBeenCalled();
+    expect(mockGetCollection).toHaveBeenCalledWith("dynamic_agents");
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      session,
+      agents,
+      { type: "agent", action: "use", id: expect.any(Function) },
+    );
+    expect(body.data).toEqual([expect.objectContaining({ _id: "incident-agent" })]);
+  });
+
+  it("filters configurable subagents through OpenFGA can_use after cycle checks", async () => {
+    const agents = [
+      { _id: "parent", name: "Parent", enabled: true },
+      { _id: "allowed-child", name: "Allowed Child", enabled: true },
+      { _id: "denied-child", name: "Denied Child", enabled: true },
+      {
+        _id: "ancestor",
+        name: "Ancestor",
+        enabled: true,
+        subagents: [{ agent_id: "parent", name: "parent", description: "parent" }],
+      },
+    ];
+    mockFilterResourcesByPermission.mockResolvedValue([agents[1]]);
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(agents[0]),
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue(agents),
+      }),
+    });
+    const { GET } = await import("../available-subagents/route");
+
+    const response = await GET(request("/api/dynamic-agents/available-subagents?id=parent"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      session,
+      [agents[1], agents[2]],
+      { type: "agent", action: "use", id: expect.any(Function) },
+    );
+    expect(body.data.agents).toEqual([
+      expect.objectContaining({ id: "allowed-child", name: "Allowed Child" }),
+    ]);
+  });
+
   it("requires owner team and writes agent relationship tuples before creating an agent", async () => {
     const insertOne = jest.fn();
     const dynamicAgents = {

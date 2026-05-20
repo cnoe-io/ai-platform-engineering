@@ -5,7 +5,6 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  getUserTeamIds,
   requireRbacPermission,
 } from "@/lib/api-middleware";
 import type {
@@ -16,6 +15,10 @@ import type {
 } from "@/types/task-config";
 import { extractEnvVars, toTaskConfigYamlFormat } from "@/types/task-config";
 import { syncTaskResource } from "@/lib/rbac/keycloak-resource-sync";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 
 /**
  * Task Config API Routes
@@ -46,7 +49,7 @@ async function saveTaskConfig(config: TaskConfig): Promise<void> {
 async function updateTaskConfig(
   id: string,
   updates: Partial<TaskConfig>,
-  user: { email: string; role?: string },
+  _user: { email: string; role?: string },
   opts: { isAdmin: boolean }
 ): Promise<void> {
   const collection = await getCollection<TaskConfig>("task_configs");
@@ -60,10 +63,6 @@ async function updateTaskConfig(
     throw new ApiError("Only admins can modify system task configurations", 403);
   }
 
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    throw new ApiError("You don't have permission to update this task config", 403);
-  }
-
   await collection.updateOne(
     { id },
     { $set: { ...updates, updated_at: new Date() } }
@@ -72,7 +71,7 @@ async function updateTaskConfig(
 
 async function deleteTaskConfig(
   id: string,
-  user: { email: string; role?: string },
+  _user: { email: string; role?: string },
   opts: { isAdmin: boolean }
 ): Promise<void> {
   const collection = await getCollection<TaskConfig>("task_configs");
@@ -86,10 +85,6 @@ async function deleteTaskConfig(
     throw new ApiError("Only admins can delete system task configurations", 403);
   }
 
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    throw new ApiError("You don't have permission to delete this task config", 403);
-  }
-
   await collection.deleteOne({ id });
 
   if (!existing.is_system) {
@@ -98,7 +93,7 @@ async function deleteTaskConfig(
 }
 
 async function getTaskConfigs(
-  ownerEmail: string,
+  _ownerEmail: string,
   opts: { isAdmin: boolean }
 ): Promise<TaskConfig[]> {
   const collection = await getCollection<TaskConfig>("task_configs");
@@ -110,26 +105,15 @@ async function getTaskConfigs(
       .toArray();
   }
 
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-
   return collection
-    .find({
-      $or: [
-        { is_system: true },
-        { owner_id: ownerEmail },
-        { visibility: "global" },
-        ...(userTeamIds.length > 0
-          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-          : []),
-      ],
-    })
+    .find({})
     .sort({ is_system: -1, category: 1, name: 1 })
     .toArray();
 }
 
 async function getTaskConfigById(
   id: string,
-  ownerEmail: string,
+  _ownerEmail: string,
   opts: { isAdmin: boolean }
 ): Promise<TaskConfig | null> {
   const collection = await getCollection<TaskConfig>("task_configs");
@@ -138,19 +122,7 @@ async function getTaskConfigById(
     return collection.findOne({ id });
   }
 
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-
-  return collection.findOne({
-    id,
-    $or: [
-      { is_system: true },
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
+  return collection.findOne({ id });
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -241,17 +213,27 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (!config) {
         throw new ApiError("Task config not found", 404);
       }
+      if (!listOpts.isAdmin) {
+        await requireResourcePermission(session, { type: "task", id, action: "read" });
+      }
       return NextResponse.json(config) as NextResponse;
     }
 
     const configs = await getTaskConfigs(user.email, listOpts);
+    const visibleConfigs = listOpts.isAdmin
+      ? configs
+      : await filterResourcesByPermission(session, configs, {
+          type: "task",
+          action: "discover",
+          id: (config) => config.id,
+        });
 
     if (format === "yaml") {
-      const yamlObj = toTaskConfigYamlFormat(configs);
+      const yamlObj = toTaskConfigYamlFormat(visibleConfigs);
       return NextResponse.json(yamlObj) as NextResponse;
     }
 
-    return NextResponse.json(configs) as NextResponse;
+    return NextResponse.json(visibleConfigs) as NextResponse;
   });
 });
 
@@ -312,7 +294,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
-    await updateTaskConfig(id, body, user, { isAdmin: await canManageTaskConfigs(session) });
+    const isAdmin = await canManageTaskConfigs(session);
+    if (!isAdmin) {
+      await requireResourcePermission(session, { type: "task", id, action: "write" });
+    }
+    await updateTaskConfig(id, body, user, { isAdmin });
 
     return successResponse({ id, message: "Task config updated successfully" });
   });
@@ -331,7 +317,11 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   return await withAuth(request, async (_req, user, session) => {
-    await deleteTaskConfig(id, user, { isAdmin: await canManageTaskConfigs(session) });
+    const isAdmin = await canManageTaskConfigs(session);
+    if (!isAdmin) {
+      await requireResourcePermission(session, { type: "task", id, action: "delete" });
+    }
+    await deleteTaskConfig(id, user, { isAdmin });
     return successResponse({ id, message: "Task config deleted successfully" });
   });
 });

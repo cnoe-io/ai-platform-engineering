@@ -208,8 +208,7 @@ def test_reason_code_fallback_is_user_friendly() -> None:
             "parent_id": "message-public-id",
             "markdown": (
                 "I couldn't start your CAIPE session for this Webex space. "
-                "Please try again in a minute. If it still doesn't work, ask an "
-                "admin to refresh this space's team setup in CAIPE."
+                "Ask an admin to refresh this space's team setup in CAIPE."
             ),
         }
     ]

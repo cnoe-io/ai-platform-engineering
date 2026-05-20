@@ -7,10 +7,9 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  requireOwnership,
   validateUUID,
 } from '@/lib/api-middleware';
-import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 // POST /api/chat/conversations/[id]/pin
@@ -33,12 +32,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
-    await requireResourcePermission(session, {
-      type: 'conversation',
-      id: conversationId,
-      action: 'write',
-    });
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Toggle pin status
     const newStatus = !conversation.is_pinned;

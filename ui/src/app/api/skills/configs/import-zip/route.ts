@@ -25,6 +25,10 @@ import {
   canMutateBuiltinSkill,
   BUILTIN_LOCKED_MESSAGE,
 } from "@/lib/builtin-skill-policy";
+import {
+  filterResourcesByPermission,
+  requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 
 /**
@@ -123,6 +127,8 @@ interface RunZipImportArgs {
   loadVisibleSkills: () => Promise<AgentSkill[]>;
   /** Provider for inserting/overwriting; same testability rationale. */
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  /** Concrete authorization hook for overwriting an existing skill. */
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
 }
 
 function triggerSupervisorRefresh(): void {
@@ -203,6 +209,7 @@ export async function runZipImport(
         existingByName: visibleByName,
         user: args.user,
         persistSkill: args.persistSkill,
+        canOverwriteSkill: args.canOverwriteSkill,
       });
       imported.push(summary);
     } catch (err) {
@@ -210,7 +217,10 @@ export async function runZipImport(
       // it in the response so the UI can show a per-row error.
       // Re-throw for built-in lock so the operator sees a hard 403
       // (matches the existing PUT semantics).
-      if (err instanceof ApiError && err.statusCode === 403) {
+      if (
+        (err instanceof ApiError && err.statusCode === 403) ||
+        (typeof err === "object" && err !== null && (err as { statusCode?: number }).statusCode === 403)
+      ) {
         throw err;
       }
       imported.push({
@@ -233,12 +243,13 @@ interface ImportOneArgs {
   existingByName: Map<string, AgentSkill>;
   user: { email: string; role?: string };
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
 }
 
 async function importOne(
   args: ImportOneArgs,
 ): Promise<ImportedSkillSummary> {
-  const { candidate, decision, existingByName, user, persistSkill } = args;
+  const { candidate, decision, existingByName, user, persistSkill, canOverwriteSkill } = args;
 
   // No conflict resolution provided: the candidate name didn't
   // collide at analyze time, so we treat it as a brand-new import.
@@ -294,6 +305,7 @@ async function importOne(
       scanResult,
       user,
       persistSkill,
+      canOverwriteSkill,
       durationMs: Date.now() - tStart,
     });
   }
@@ -408,6 +420,7 @@ async function overwriteExisting(
     scanResult,
     user,
     persistSkill,
+    canOverwriteSkill,
     durationMs,
   } = args;
   const existing = existingByName.get(normalise(decision.existingName)) ||
@@ -423,11 +436,8 @@ async function overwriteExisting(
   if (existing.is_system && !canMutateBuiltinSkill(existing)) {
     throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
   }
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    throw new ApiError(
-      `You don't have permission to overwrite "${existing.name}".`,
-      403,
-    );
+  if (canOverwriteSkill) {
+    await canOverwriteSkill(existing);
   }
 
   const now = new Date();
@@ -539,7 +549,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Skills require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.toLowerCase().includes("multipart/form-data")) {
       throw new ApiError(
@@ -589,21 +599,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // expose a writer that uses the same auth checks as the plain
     // CRUD route.
     const collection = await getCollection<AgentSkill>("agent_skills");
-    const visible = await collection
-      .find({
-        $or: [
-          { is_system: true },
-          { owner_id: user.email },
-          { visibility: "global" },
-        ],
-      })
-      .toArray();
+    const candidates = await collection.find({}).toArray();
+    const visible = await filterResourcesByPermission(session, candidates, {
+      type: "skill",
+      action: "discover",
+      id: (skill) => skill.id,
+    });
 
     const result = await runZipImport({
       buffer,
       resolutions,
       user,
       loadVisibleSkills: async () => visible,
+      canOverwriteSkill: async (skill) => {
+        await requireResourcePermission(session, { type: "skill", id: skill.id, action: "write" });
+      },
       persistSkill: async (skill, mode) => {
         if (mode === "create") {
           await collection.insertOne(skill);

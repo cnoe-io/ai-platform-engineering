@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 /**
  * Single team-scoped RAG tool operations (098 Enterprise RBAC — FR-009).
@@ -57,6 +58,11 @@ export async function GET(
     if (!tool || tool.status === "deleted") {
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
+    await requireResourcePermission(
+      { sub: session.sub, role: session.role, user: session.user },
+      { type: "tool", id: toolId, action: "read" },
+      { allowAdminBypass: true },
+    );
 
     return NextResponse.json({ tool });
   } catch (error) {
@@ -87,6 +93,11 @@ export async function PUT(
     if (!existing || existing.status === "deleted") {
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
+    await requireResourcePermission(
+      { sub: session.sub, role: session.role, user: session.user },
+      { type: "tool", id: toolId, action: "write" },
+      { allowAdminBypass: true },
+    );
 
     const body = await request.json();
     const { name, datasource_ids, description } = body as {
@@ -151,6 +162,11 @@ export async function DELETE(
     if (!existing || existing.status === "deleted") {
       return NextResponse.json({ error: "Tool not found" }, { status: 404 });
     }
+    await requireResourcePermission(
+      { sub: session.sub, role: session.role, user: session.user },
+      { type: "tool", id: toolId, action: "delete" },
+      { allowAdminBypass: true },
+    );
 
     await tools.updateOne(
       { tool_id: toolId },

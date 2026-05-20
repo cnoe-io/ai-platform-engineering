@@ -310,7 +310,7 @@ describe("runZipImport — import phase", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it("rejects overwrite of another user's skill with a 403", async () => {
+  it("rejects overwrite when the OpenFGA write hook denies it", async () => {
     const buffer = await makeZipBuffer({
       "SKILL.md": FRONTMATTER("foo"),
     });
@@ -335,6 +335,9 @@ describe("runZipImport — import phase", () => {
         resolutions: [decision],
         user: baseUser,
         loadVisibleSkills: async () => existing,
+        canOverwriteSkill: async () => {
+          throw Object.assign(new Error("denied"), { statusCode: 403 });
+        },
         persistSkill: jest.fn(),
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
