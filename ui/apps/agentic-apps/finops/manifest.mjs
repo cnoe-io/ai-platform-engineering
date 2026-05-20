@@ -6,7 +6,7 @@ export const FINOPS_MANIFEST = {
   id: FINOPS_APP_ID,
   displayName: "FinOps Command Center",
   description:
-    "A real-data reference app that launches AWS Cost Explorer analysis through a custom AWS agent and shares cost context with the CAIPE Assistant Overlay.",
+    "A real-data reference app that launches AWS Cost Explorer and LiteLLM usage analysis through FinOps agents and shares cost context with the CAIPE Assistant Overlay.",
   apiVersion: "1.0",
   runtime: {
     kind: "proxied-next-zone",
@@ -35,6 +35,11 @@ export const FINOPS_MANIFEST = {
         description: "Invoke the configured AWS cost analysis agent",
         defaultEffect: "allow",
       },
+      {
+        action: "agent.invoke.litellm-finops",
+        description: "Invoke the configured LiteLLM FinOps reporting agent",
+        defaultEffect: "allow",
+      },
     ],
   },
   assistant: {
@@ -51,12 +56,12 @@ export const FINOPS_MANIFEST = {
       id: "finops-agent",
       displayName: "FinOps Agent",
       required: true,
-      capabilities: ["aws-cost-explorer", "cost-anomaly-explanation", "savings-recommendation"],
+      capabilities: ["aws-cost-explorer", "litellm-usage-reporting", "cost-anomaly-explanation", "savings-recommendation"],
     },
   ],
   data: {
     apiBasePath: "/api/finops",
-    eventChannels: ["finops.cost.updated", "finops.agent.analysis.completed"],
+    eventChannels: ["finops.cost.updated", "finops.litellm.updated", "finops.agent.analysis.completed"],
   },
   health: {
     endpoint: "/healthz",
@@ -64,7 +69,7 @@ export const FINOPS_MANIFEST = {
     blockLaunchWhen: ["degraded", "unreachable"],
   },
   catalog: {
-    categories: ["reference", "finops", "aws"],
-    capabilities: ["aws-cost-explorer", "assistant-context-bridge", "optimization-workflows"],
+    categories: ["reference", "finops", "aws", "litellm"],
+    capabilities: ["aws-cost-explorer", "litellm-usage-reporting", "assistant-context-bridge", "optimization-workflows"],
   },
 };

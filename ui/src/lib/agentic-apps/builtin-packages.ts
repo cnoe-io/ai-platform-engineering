@@ -44,8 +44,8 @@ export const BUILTIN_AGENTIC_APP_PACKAGE_SEEDS = [
     source: "builtin" as const,
     manifest: FINOPS_MANIFEST,
     catalog: {
-      categories: ["reference", "finops", "aws"],
-      capabilities: ["aws-cost-explorer", "assistant-context-bridge"],
+      categories: ["reference", "finops", "aws", "litellm"],
+      capabilities: ["aws-cost-explorer", "litellm-usage-reporting", "assistant-context-bridge"],
     },
   },
   {

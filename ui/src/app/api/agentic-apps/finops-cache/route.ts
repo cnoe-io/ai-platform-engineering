@@ -27,20 +27,26 @@ interface FinOpsDashboardRun {
   appId: "finops";
   ownerId: string;
   agentId: string;
+  dataSource: "aws-cost-explorer" | "litellm";
   dashboardKind: string;
   lookbackDays: number | null;
   payload: {
+    dataSource?: string;
     currency?: string;
     totalCost?: number | null;
     forecastCost?: number | null;
-    services?: Array<{ name: string; amount: number }>;
-    trend?: Array<{ date: string; amount: number }>;
+    totalTokens?: number | null;
+    totalRequests?: number | null;
+    services?: Array<{ name: string; amount: number; totalTokens?: number | null; requests?: number | null }>;
+    trend?: Array<{ date: string; amount: number; totalTokens?: number | null; requests?: number | null }>;
     rawCost?: Array<{
       date: string;
       service: string;
       account?: string;
       amount: number;
       unit?: string;
+      totalTokens?: number | null;
+      requests?: number | null;
     }>;
     anomalies?: Array<{
       service: string;
@@ -98,6 +104,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       appId: "finops",
       ownerId: user.email,
       agentId: sanitizeShortString(body.agentId, "agent-aws-cost-explorer"),
+      dataSource: normalizeDataSource(body.dataSource ?? payload.dataSource),
       dashboardKind: sanitizeShortString(body.dashboardKind, "cost-overview"),
       lookbackDays: normalizeLookbackDays(body.lookbackDays),
       payload,
@@ -136,6 +143,7 @@ function normalizeRuns(doc: FinOpsDashboardCacheDoc | null): FinOpsDashboardRun[
     appId: "finops",
     ownerId: doc.ownerId,
     agentId: doc.agentId,
+    dataSource: normalizeDataSource(doc.dataSource ?? doc.payload?.dataSource),
     dashboardKind: doc.dashboardKind,
     lookbackDays: doc.lookbackDays,
     payload: doc.payload,
@@ -144,6 +152,10 @@ function normalizeRuns(doc: FinOpsDashboardCacheDoc | null): FinOpsDashboardRun[
     updatedAt: doc.updatedAt,
   };
   return [legacyRun];
+}
+
+function normalizeDataSource(value: unknown): "aws-cost-explorer" | "litellm" {
+  return String(value ?? "").toLowerCase() === "litellm" ? "litellm" : "aws-cost-explorer";
 }
 
 function sanitizeShortString(value: unknown, fallback: string): string {

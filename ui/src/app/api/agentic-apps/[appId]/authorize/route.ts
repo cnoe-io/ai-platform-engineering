@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, context: AuthorizeContext): Pro
 
   let auth: Awaited<ReturnType<typeof getAuthenticatedUser>>;
   try {
-    auth = await getAuthenticatedUser(request, { allowAnonymous: false });
+    auth = await getAuthenticatedUser(request, { allowAnonymous: true });
   } catch (error) {
     if (error instanceof ApiError) {
       return Response.json({ error: error.message }, { status: error.statusCode });

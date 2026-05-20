@@ -24,7 +24,13 @@ describe("finops reference app template", () => {
     expect(serverSource).toContain("/api/summary");
     expect(serverSource).toContain("/api/v1/chat/invoke");
     expect(serverSource).toContain("AWS Cost Explorer");
+    expect(serverSource).toContain("LiteLLM");
     expect(serverSource).toContain("\"agent-aws-cost-explorer\"");
+    expect(serverSource).toContain("\"agent-litellm-finops\"");
+    expect(serverSource).toContain("FINOPS_LITELLM_AGENT_ID");
+    expect(serverSource).toContain("dataSource");
+    expect(serverSource).toContain("get_llm_usage_and_spend_by_user_report");
+    expect(serverSource).toContain("get_llm_spend_by_model_report");
     expect(serverSource).toContain("dashboardKind");
     expect(serverSource).toContain("rawCost");
     expect(serverSource).toContain("trend: [{ date");
@@ -52,11 +58,11 @@ describe("finops reference app template", () => {
     expect(serverSource).toContain("fontScaleSelect");
     expect(serverSource).toContain("applyFontPreferences");
     expect(serverSource).toContain("agentic-app.fontPreferences");
-    expect(serverSource).toContain("--app-font-scale: 0.8");
+    expect(serverSource).toContain("--app-font-scale: 1.12");
     expect(serverSource).toContain("kpi-strip");
     expect(serverSource).toContain("insights-strip");
     expect(serverSource).toContain("renderSparkline");
-    expect(serverSource).toContain('preferences.scale] ? preferences.scale : "small"');
+    expect(serverSource).toContain('preferences.scale] ? preferences.scale : "default"');
     expect(serverSource.indexOf('class="font-customizer font-dock"')).toBeGreaterThan(
       serverSource.indexOf("</section>"),
     );
@@ -70,8 +76,9 @@ describe("finops reference app template", () => {
     expect(serverSource).toContain("setRunButtonBusy");
     expect(serverSource).toContain("setRunStatus");
     expect(serverSource).toContain("Use aws_cli_execute exactly once");
+    expect(serverSource).toContain("Use the LiteLLM MCP curated report tool");
     expect(serverSource).toContain("profile must be an empty string");
-    expect(serverSource).toContain("Raw Cost Explorer rows");
+    expect(serverSource).toContain("raw Cost Explorer rows");
     expect(serverSource).toContain("renderTrendChart");
     expect(serverSource).toContain("/api/agentic-apps/finops-cache");
     expect(serverSource).toContain("loadCachedDashboard");
@@ -80,6 +87,8 @@ describe("finops reference app template", () => {
     expect(serverSource).toContain("agentProgress");
     expect(serverSource).toContain("selectService");
     expect(serverSource).toContain("selectTrendDate");
+    expect(serverSource).toContain("syncDataSourceControls");
+    expect(serverSource).toContain("normalizeDashboardPayload");
     expect(serverSource).toContain("openAssistantChat");
     expect(serverSource).toContain("caipe.agenticApp.assistant.open.v1");
     expect(serverSource).not.toContain("No mock data");

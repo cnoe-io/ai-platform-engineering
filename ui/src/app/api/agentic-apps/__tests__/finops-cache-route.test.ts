@@ -19,6 +19,8 @@ describe("FinOps dashboard cache route", () => {
     expect(routeSource).toContain("ownerId: user.email");
     expect(routeSource).toContain("replaceOne");
     expect(routeSource).toContain("payload");
+    expect(routeSource).toContain("dataSource");
+    expect(routeSource).toContain("normalizeDataSource");
     expect(routeSource).toContain("rawCost");
     expect(routeSource).toContain("trend");
     expect(routeSource).toContain("MAX_RUN_HISTORY");

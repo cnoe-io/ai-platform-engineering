@@ -117,7 +117,7 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
     return () => {
       cancelled = true;
     };
-  }, [appId]);
+  }, [appId, onUnauthorized]);
 
   useEffect(() => {
     if (!assistantEnabled) {
@@ -218,7 +218,7 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
             assistantAgentName={state.app.assistantAgentName}
             activeContext={assistantContext}
             onClearContext={() => setAssistantContext(null)}
-            assistantAgentId={resolveAssistantAgentId(state.app.appId)}
+            assistantAgentId={resolveAssistantAgentId(state.app.appId, assistantContext)}
             open={assistantOpen}
             onOpenChange={setAssistantOpen}
           />
@@ -247,7 +247,17 @@ function redirectToLogin(onUnauthorized?: (loginUrl: string) => void): void {
   window.location.assign(loginUrl);
 }
 
-function resolveAssistantAgentId(appId: string): string {
+function resolveAssistantAgentId(
+  appId: string,
+  context?: AgenticAppAssistantContextRecord | null,
+): string {
+  const contextAgentId = context?.resourceRefs?.find(
+    (ref) => ref.kind === "agent" && typeof ref.id === "string" && ref.id.trim(),
+  )?.id;
+  if (appId === "finops" && contextAgentId) {
+    return contextAgentId;
+  }
+
   const assistantAgents: Record<string, string> = {
     finops: "agent-aws-cost-explorer",
     weather: "agent-weather-agent",

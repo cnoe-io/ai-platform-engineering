@@ -1427,6 +1427,9 @@ services:
     environment:
       - NODE_ENV=development
       - FINOPS_APP_PORT=3010
+      - FINOPS_AWS_AGENT_ID=${FINOPS_AWS_AGENT_ID:-agent-aws-cost-explorer}
+      - FINOPS_LITELLM_AGENT_ID=${FINOPS_LITELLM_AGENT_ID:-agent-litellm-finops}
+      - FINOPS_DATA_SOURCE=${FINOPS_DATA_SOURCE:-litellm}
       - AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY=${AGENTIC_APP_FINOPS_JWT_SKIP_VERIFY:-true}
       - AGENTIC_APP_TOKEN_SECRET=${AGENTIC_APP_TOKEN_SECRET:-}
     ports: ["3010:3010"]
