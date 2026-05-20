@@ -33,7 +33,7 @@ caipe auth login
 caipe
 ```
 
-See the full [CAIPE CLI documentation](../../cli/README.md) for commands, configuration, and development instructions.
+See the full [CAIPE CLI documentation](https://github.com/cnoe-io/ai-platform-engineering/blob/main/cli/README.md) for commands, configuration, and development instructions.
 
 
 
