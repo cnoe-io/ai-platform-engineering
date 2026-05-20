@@ -306,6 +306,11 @@
             },
             {
               "type": "doc",
+              "id": "features/admin-settings",
+              "label": "Admin Settings"
+            },
+            {
+              "type": "doc",
               "id": "ui/auth-flow",
               "label": "Authentication Flow"
             },
