@@ -1,7 +1,78 @@
-## 0.5.1 (2026-05-19)
+## 0.5.1 (2026-05-20)
+
+## 0.5.1-rc.12 (2026-05-20)
+
+## 0.4.14-dev.2 (2026-05-20)
 
 ### Fix
 
+- **jira**: quiet MCP server logs by default
+
+## 0.4.14-dev.1 (2026-05-20)
+
+## 0.4.14 (2026-05-20)
+
+### Fix
+
+- **security**: avoid logging HTTP error metadata
+- **security**: close active CodeQL alerts
+
+## 0.4.13-dev.9 (2026-05-20)
+
+## 0.4.13-dev.8 (2026-05-20)
+
+### Fix
+
+- **security**: resolve dependency and code scanning alerts
+- **ci**: make grype pr scans retryable
+- **skill-scanner**: sanitize validation error details
+
+## 0.4.13-dev.7 (2026-05-19)
+
+### Fix
+
+- **slack-bot**: suppress post in _post_final_response when text is empty after stripping
+- **slack-bot**: restore overthink var in handle_mention for followup_prompt
+- **slack-bot**: remove overthink from handle_mention — app_mentions never use it
+- **slack-bot**: tie is_overthink_message to overthink.enabled in _route_to_agent
+- **slack-bot**: SDPL-1866 overthink skip missing in _route_to_agent; pre-render boilerplate
+
+### Refactor
+
+- **slack-bot**: simplify overthink boilerplate — no Jinja, set at call site
+
+## 0.4.13-dev.6 (2026-05-19)
+
+## 0.4.13-dev.5 (2026-05-19)
+
+## 0.4.13-dev.4 (2026-05-19)
+
+### Feat
+
+- **rbac**: restore release access grants
+
+### Fix
+
+- **escalation**: SDPL-1865 use last email match for VictorOps on-call lookup
+- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages
+- **skill-scanner**: return validation errors for malformed skills
+- **rbac**: show legacy MCP conflicts to admins
+- **ui**: restore release build type safety
+
+## 0.5.1-rc.11 (2026-05-20)
+
+### Feat
+
+- **rbac**: complete OpenFGA cutover for release 0.5.1
+- **rbac**: refine messaging onboarding flows
+- **rbac**: add migration health and connector onboarding
+
+### Fix
+
+- **openfga**: seed bootstrap system config grants
+- **rbac**: add runtime bot ReBAC access checks
+- **ui**: satisfy Webex ReBAC production types
+- **rbac**: use Next.js path syntax in Webex matrix
 - **webex-bot**: remove unused WDM typing import
 
 ## 0.5.1-rc.9 (2026-05-19)
@@ -36,42 +107,6 @@
 - **rbac**: add Slack runtime sync admin flow
 - **slack**: auto-assign unmapped channels
 
-## 0.4.13-dev.9 (2026-05-20)
-
-## 0.4.13-dev.8 (2026-05-20)
-
-### Fix
-
-- **security**: resolve dependency and code scanning alerts
-- **ci**: make grype pr scans retryable
-- **skill-scanner**: sanitize validation error details
-
-## 0.4.13-dev.7 (2026-05-19)
-
-### Fix
-
-- **slack-bot**: suppress post in _post_final_response when text is empty after stripping
-- **slack-bot**: restore overthink var in handle_mention for followup_prompt
-- **slack-bot**: remove overthink from handle_mention — app_mentions never use it
-- **slack-bot**: tie is_overthink_message to overthink.enabled in _route_to_agent
-- **slack-bot**: SDPL-1866 overthink skip missing in _route_to_agent; pre-render boilerplate
-
-### Refactor
-
-- **slack-bot**: simplify overthink boilerplate — no Jinja, set at call site
-
-## 0.4.13-dev.6 (2026-05-19)
-
-## 0.4.13-dev.5 (2026-05-19)
-
-## 0.4.13-dev.4 (2026-05-19)
-
-### Fix
-
-- **escalation**: SDPL-1865 use last email match for VictorOps on-call lookup
-
-## 0.4.13-dev.3 (2026-05-18)
-
 ### Fix
 
 - **chat**: make /invoke history persistence configurable (default: ephemeral)
@@ -100,7 +135,6 @@
 
 - **ci**: always run image builds on tag push regardless of actor
 - **jira**: type MCP client request dispatch
-- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages
 
 ## 0.4.13 (2026-05-18)
 
@@ -187,48 +221,13 @@
 ### Feat
 
 - **caipe-ui**: configurable default agent (#1378)
-- **workflows**: gate workflows tab with WORKFLOWS_ENABLED env var
-- **workflows**: add visibility/sharing RBAC with config-access checks on runs
-- **workflows**: add Tool Access picker for step-level tool restrictions
-- **da**: support boolean values in allowed_tools (true=all, false=disabled)
-- **workflows**: include user email/name in trigger_info from API route
-- **workflows**: add cancelled status, waiting_for_input to run cards, hide HITL forms on terminal runs
-- **workflows**: show read-only banner and disable forms for config-driven workflows
-- **workflows**: add config-driven workflow seeding with read-only protection
-- **workflows**: add step context injection, artifact capture, and unavailable resource warnings
-- **workflows**: switch export/import from JSON to YAML
-- **workflows**: add workflow tools for dynamic agents with run cards and trigger info
-- **workflows**: add ReactFlow-based workflow editor with skill isolation fix
-- **workflows**: add workflow run deletion with file cleanup and auto-expiry
-- **da**: make context panel resizable with Show Files button
-- **files**: add generic files API and remove conversation file endpoints
-- **workflows**: add workflow UI components and pages
-- **workflows**: add workflow API routes, stores, and types
-- **workflows**: add server-side workflow infrastructure
-- **rag**: anchor slack document fresh_until to message post time
 
 ### Fix
 
 - **ui**: group admin tabs for default agent settings
-- **da**: remove client_id from log to satisfy CodeQL sensitive data rule
-- **workflows**: fix retry logic and builtin_tools override format
-- **workflows**: dynamic canvas layout to prevent node overlap with on_error badges
-- **workflows**: normalize legacy allowed_tools [] to true in StepToolOverridePicker
-- **da**: simplify curl and fetch_url builtin tool descriptions
-- **workflows**: prevent add-step in config-driven workflows with warning toast
-- **workflows**: correct error.txt detection and add Langfuse session grouping
-- **ui**: workflow editor and run view UX polish
-- **ui**: align run delete button with top row to avoid timestamp overlap
-- **ui**: slow down workflow progress pulse and fix dark mode in tool approval card
-- **hitl**: support multi-tool approval and fix workflow file download
 - **ci**: disable quick-sanity-on-tag workflow instead of deleting it
 - **ci**: remove caipe-webex-bot from grype scan and delete quick-sanity-on-tag workflow
 - **setup**: remove invalid :-  default from array expansions
-
-### Refactor
-
-- **ui**: extract AgentAvatar component and standardize agent prop passing
-- **streaming**: extract shared AG-UI protocol and split consumers
 
 ## 0.4.12-dev.10 (2026-05-14)
 
@@ -305,7 +304,6 @@
 ### Fix
 
 - **ci**: remove invalid top-level description field from docs workflows
-- **skill-scanner**: return validation errors for malformed skills
 
 ## 0.4.12 (2026-05-13)
 
