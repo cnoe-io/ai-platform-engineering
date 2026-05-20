@@ -8,6 +8,7 @@ const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
+const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -51,6 +52,7 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 }));
 
 jest.mock("@/lib/mongodb", () => ({
+  connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
@@ -93,6 +95,9 @@ function request(path: string, init?: RequestInit): NextRequest {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.BOOTSTRAP_ADMIN_EMAILS = "admin@example.com";
+  process.env.KEYCLOAK_URL = "http://keycloak";
+  process.env.KEYCLOAK_REALM = "caipe";
   for (const key of Object.keys(collections)) delete collections[key];
   mockGetAuthFromBearerOrSession.mockResolvedValue({
     user: { email: "admin@example.com", name: "Admin" },
@@ -102,6 +107,13 @@ beforeEach(() => {
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
+  mockConnectToDatabase.mockImplementation(async () => ({
+    db: {
+      listCollections: jest.fn(() => ({
+        toArray: jest.fn(async () => Object.keys(collections).map((name) => ({ name }))),
+      })),
+    },
+  }));
 
   collections.conversations = createCollection([
     { _id: "c1", owner_id: "alice@example.com", metadata: {} },
@@ -110,6 +122,8 @@ beforeEach(() => {
   collections.users = createCollection([{ email: "alice@example.com", keycloak_sub: "alice-sub" }]);
   collections.schema_migrations = createCollection();
   collections.data_schema_versions = createCollection();
+  collections.migration_manifest = createCollection();
+  collections.migration_overrides = createCollection();
   collections.teams = createCollection([
     {
       _id: "team-1",
@@ -185,10 +199,161 @@ beforeEach(() => {
 });
 
 describe("admin ReBAC migrations API", () => {
+  it("seeds a DB-managed manifest and hides completed migrations by default", async () => {
+    collections.schema_migrations = createCollection([
+      { _id: "conversation_owner_identity_v1", release: "0.5.1", status: "completed", completed_at: "2026-05-19T12:00:00.000Z" },
+    ]);
+    collections.data_schema_versions = createCollection([
+      { _id: "conversations", version: 2, last_migration_id: "conversation_owner_identity_v1" },
+      { _id: "team_resources", version: 1 },
+    ]);
+    const { GET } = await import("../migrations/route");
+
+    const response = await GET(request("/api/admin/rebac/migrations"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(collections.migration_manifest.updateOne).toHaveBeenCalledWith(
+      { _id: "conversation_owner_identity_v1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          migration_id: "conversation_owner_identity_v1",
+          release: "0.5.1",
+          schema_area: "conversations",
+          from_version: 1,
+          to_version: 2,
+          blocking: true,
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(body.data.migrations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "conversation_owner_identity_v1" }),
+      ]),
+    );
+    expect(body.data.completed_migrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "conversation_owner_identity_v1",
+          status: "completed",
+          current_version: 2,
+        }),
+      ]),
+    );
+    expect(body.data.schema_versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ schema_area: "conversations", current_version: 2, target_version: 2, status: "current" }),
+        expect.objectContaining({ schema_area: "team_resources", current_version: 1, target_version: 2, status: "behind" }),
+      ]),
+    );
+  });
+
+  it("returns blocking migration status and records super-admin overrides", async () => {
+    collections.data_schema_versions = createCollection([{ _id: "conversations", version: 1 }]);
+    const statusRoute = await import("../migrations/status/route");
+    const overrideRoute = await import("../migrations/override/route");
+
+    const statusResponse = await statusRoute.GET(request("/api/admin/rebac/migrations/status"));
+    const statusBody = await statusResponse.json();
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusBody.data.pending_required_count).toBeGreaterThan(0);
+    expect(statusBody.data.blocking_required_count).toBeGreaterThan(0);
+    expect(statusBody.data.is_blocking).toBe(true);
+    expect(statusBody.data.runtime).toEqual(
+      expect.objectContaining({
+        migration_release: "0.5.1",
+      }),
+    );
+
+    const overrideResponse = await overrideRoute.POST(
+      request("/api/admin/rebac/migrations/override", {
+        method: "POST",
+        body: JSON.stringify({ reason: "Emergency production verification" }),
+      }),
+    );
+    const overrideBody = await overrideResponse.json();
+
+    expect(overrideResponse.status).toBe(200);
+    expect(overrideBody.data.override_active).toBe(true);
+    expect(collections.migration_overrides.updateOne).toHaveBeenCalledWith(
+      { _id: "0.5.1:admin@example.com" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          release: "0.5.1",
+          reason: "Emergency production verification",
+          status: "active",
+          created_by: "admin@example.com",
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("returns Keycloak migration health with persisted run details", async () => {
+    collections.schema_migrations = createCollection([
+      {
+        _id: "keycloak_rbac_mapping_reconciliation_v1",
+        release: "0.5.1",
+        schema_area: "keycloak_rbac_mappings",
+        status: "failed",
+        applied_counts: {
+          team_scopes_reconciled: 2,
+          obo_permission_sets_reconciled: 1,
+        },
+        warnings: ["Keycloak unavailable"],
+        error: "Keycloak unavailable",
+        updated_by: "webui-startup",
+        updated_at: "2026-05-19T12:00:00.000Z",
+      },
+    ]);
+    collections.data_schema_versions = createCollection([
+      {
+        _id: "keycloak_rbac_mappings",
+        version: 0,
+        last_migration_id: "keycloak_rbac_mapping_reconciliation_v1",
+      },
+    ]);
+    const { GET } = await import("../../keycloak/migration-health/route");
+
+    const response = await GET(request("/api/admin/keycloak/migration-health"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.keycloak).toEqual(
+      expect.objectContaining({
+        configured: true,
+        reachable: false,
+        realm: "caipe",
+      }),
+    );
+    expect(body.data.schema_area).toEqual(
+      expect.objectContaining({
+        area: "keycloak_rbac_mappings",
+        current_version: 0,
+        target_version: 1,
+        status: "behind",
+      }),
+    );
+    expect(body.data.migration.last_run).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        actor: "webui-startup",
+        applied_counts: expect.objectContaining({ team_scopes_reconciled: 2 }),
+        warnings: ["Keycloak unavailable"],
+        error: "Keycloak unavailable",
+      }),
+    );
+    expect(body.data.blocking.is_blocking).toBe(true);
+  });
+
   it("lists 0.5.1 migrations with stored schema status", async () => {
     mockRequireResourcePermission.mockRejectedValue(new Error("system_config denied"));
+    collections.messages = createCollection();
     collections.data_schema_versions = createCollection([
       { _id: "conversations", version: 1, last_migration_id: "legacy" },
+      { _id: "messages", version: 3, last_migration_id: "message-history-v3" },
     ]);
     const { GET } = await import("../migrations/route");
 
@@ -221,6 +386,22 @@ describe("admin ReBAC migrations API", () => {
         expect.objectContaining({
           id: "messaging_rebac_indexes_v1",
           title: "Messaging ReBAC indexes",
+        }),
+      ]),
+    );
+    expect(body.data.schema_versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          schema_area: "messages",
+          current_version: 3,
+          target_version: null,
+          status: "current",
+        }),
+        expect.objectContaining({
+          schema_area: "users",
+          current_version: null,
+          target_version: null,
+          status: "unknown",
         }),
       ]),
     );

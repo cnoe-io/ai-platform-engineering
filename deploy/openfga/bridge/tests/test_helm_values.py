@@ -226,6 +226,18 @@ def test_keycloak_realm_config_declares_webex_bot_clients() -> None:
     assert "webex-bot-admin-audience" in mapper_names
 
 
+def test_keycloak_realm_config_uses_eight_hour_idle_sessions() -> None:
+    root = _repo_root()
+    for path in [
+        root / "charts/ai-platform-engineering/charts/keycloak/realm-config.json",
+        root / "deploy/keycloak/realm-config.example.json",
+    ]:
+        realm = json.loads(path.read_text())
+        assert realm["accessTokenLifespan"] == 3600
+        assert realm["ssoSessionIdleTimeout"] == 8 * 60 * 60
+        assert realm["ssoSessionMaxLifespan"] == 24 * 60 * 60
+
+
 def test_caipe_ui_external_secrets_example_includes_webex_admin_secret() -> None:
     root = _repo_root()
     values = yaml.safe_load(

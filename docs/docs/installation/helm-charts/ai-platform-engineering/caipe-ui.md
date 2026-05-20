@@ -79,6 +79,9 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
 | config.SSO_ENABLED | string | `"true"` |  |
 | config.SUPPORT_EMAIL | string | `"support@example.com"` |  |
 | config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
+| config.WEBEX_THREAD_CONTEXT_ENABLED | string | `"true"` | Mirrors the Webex bot thread-context default in UI config. |
+| config.WEBEX_THREAD_CONTEXT_MAX_CHARS | string | `"4000"` | Mirrors the Webex bot thread-context character cap in UI config. |
+| config.WEBEX_THREAD_CONTEXT_MAX_MESSAGES | string | `"10"` | Mirrors the Webex bot thread-context message cap in UI config. |
 | config.WORKFLOW_RUNNER_ENABLED | string | `"false"` |  |
 | env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
 | existingSecret | string | `""` |  |

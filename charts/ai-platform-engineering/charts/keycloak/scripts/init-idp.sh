@@ -35,6 +35,7 @@ if (set +B) 2>/dev/null; then set +B; fi
 
 REALM="${KC_REALM:-caipe}"
 KC_URL="${KC_URL:-http://localhost:7080}"
+BOT_OBO_AUDIENCE_CLIENT_ID="${CAIPE_PLATFORM_AUDIENCE:-caipe-platform}"
 
 # -------------------------------------------------------------------
 # Persona seeding (spec 102 T019).
@@ -226,7 +227,55 @@ _ensure_caipe_platform_user_roles() {
   done
 }
 
+_ensure_realm_session_lifetimes() {
+  local ACCESS_TOKEN_LIFESPAN="${KEYCLOAK_ACCESS_TOKEN_LIFESPAN:-3600}"
+  local SSO_IDLE_TIMEOUT="${KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT:-28800}"
+  local SSO_MAX_LIFESPAN="${KEYCLOAK_SSO_SESSION_MAX_LIFESPAN:-86400}"
+
+  echo "[init-idp] Ensuring realm session lifetimes: access=${ACCESS_TOKEN_LIFESPAN}s, idle=${SSO_IDLE_TIMEOUT}s, max=${SSO_MAX_LIFESPAN}s ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   WARNING: could not acquire admin token — skipping realm session lifetime check."
+      return 0
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  local REALM_JSON
+  REALM_JSON=$(curl -sf -H "${AUTH}" "${KC_URL}/admin/realms/${REALM}" 2>/dev/null) || {
+    echo "[init-idp]   WARNING: could not read realm ${REALM} — skipping session lifetime check."
+    return 0
+  }
+
+  local UPDATED_REALM_JSON
+  UPDATED_REALM_JSON=$(printf '%s' "${REALM_JSON}" | \
+    ACCESS_TOKEN_LIFESPAN="${ACCESS_TOKEN_LIFESPAN}" \
+    SSO_IDLE_TIMEOUT="${SSO_IDLE_TIMEOUT}" \
+    SSO_MAX_LIFESPAN="${SSO_MAX_LIFESPAN}" \
+    python3 -c 'import json, os, sys
+realm = json.load(sys.stdin)
+realm["accessTokenLifespan"] = int(os.environ["ACCESS_TOKEN_LIFESPAN"])
+realm["ssoSessionIdleTimeout"] = int(os.environ["SSO_IDLE_TIMEOUT"])
+realm["ssoSessionMaxLifespan"] = int(os.environ["SSO_MAX_LIFESPAN"])
+print(json.dumps(realm, separators=(",", ":")))
+') || {
+    echo "[init-idp]   WARNING: failed to render updated realm JSON — skipping session lifetime check."
+    return 0
+  }
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}" \
+    -d "${UPDATED_REALM_JSON}" >/dev/null \
+    && echo "[init-idp]   Realm session lifetimes are current." \
+    || echo "[init-idp]   WARNING: failed to update realm session lifetimes."
+}
+
 _ensure_caipe_platform_user_roles
+_ensure_realm_session_lifetimes
 
 # The Web UI BFF calls the Slack bot admin API with a Keycloak
 # client_credentials token. The same caipe-ui confidential client is used for
@@ -1174,13 +1223,11 @@ _ensure_caipe_platform_user_roles
 # -------------------------------------------------------------------
 # Spec 104: register `agentgateway` as a known audience in the realm.
 #
-# The Slack bot's OBO exchange pins `audience=agentgateway` so the
-# minted token can be sent directly to AgentGateway. Keycloak's RFC 8693
-# implementation rejects unknown audiences with `invalid_client /
-# Audience not found`, so we provision a public, bearer-only-style
-# client with `clientId=agentgateway`. No grants enabled — it exists
-# purely as an audience target. AGW's `jwtAuth.audiences` list also
-# accepts this value (see deploy/agentgateway/config.yaml).
+# Bot OBO exchanges now target the CAIPE UI BFF audience (`caipe-platform`
+# by default), but AgentGateway still accepts `agentgateway` for direct
+# data-plane callers and legacy tokens. Keycloak's RFC 8693 implementation
+# rejects unknown audiences with `invalid_client / Audience not found`, so
+# we keep provisioning this public, bearer-only-style audience client.
 # -------------------------------------------------------------------
 echo "[init-idp] Ensuring 'agentgateway' audience client exists ..."
 AGW_EXISTS=$(curl -sf -H "${AUTH}" \
@@ -1198,7 +1245,7 @@ if [ "${AGW_EXISTS}" = "0" ]; then
       "directAccessGrantsEnabled":false,
       "serviceAccountsEnabled":false,
       "protocol":"openid-connect",
-      "description":"Spec 104: bearer-target only. OBO tokens minted with audience=agentgateway hit AGW with this aud claim."
+      "description":"Spec 104: bearer-target only. Direct/legacy tokens minted with audience=agentgateway hit AGW with this aud claim."
     }' && echo "[init-idp]   Created 'agentgateway' audience client."
 else
   echo "[init-idp]   'agentgateway' client already exists — skipping."
@@ -1206,7 +1253,8 @@ fi
 
 # -------------------------------------------------------------------
 # Spec 104: allow caipe-slack-bot to perform token-exchange whose
-# *target audience* is `agentgateway`. Keycloak gates token-exchange
+# *target audience* is the CAIPE UI BFF resource server (`caipe-platform`
+# by default). Keycloak gates token-exchange
 # per target client via a scope-permission on the realm-management
 # resource server. Without this attachment the bot's OBO request is
 # rejected with `access_denied / Client not allowed to exchange`.
@@ -1214,37 +1262,37 @@ fi
 # We piggyback on the existing `caipe-slack-bot-token-exchange` policy
 # created above (it names caipe-slack-bot as the allowed exchanger).
 # -------------------------------------------------------------------
-AGW_CLIENT_ID=$(curl -sf -H "${AUTH}" \
-  "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+OBO_AUDIENCE_CLIENT_ID=$(curl -sf -H "${AUTH}" \
+  "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BOT_OBO_AUDIENCE_CLIENT_ID}" 2>/dev/null \
   | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-RM_CLIENT_ID_FOR_AGW=$(curl -sf -H "${AUTH}" \
+RM_CLIENT_ID_FOR_OBO_AUD=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null \
   | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
 
-if [ -n "${AGW_CLIENT_ID}" ] && [ -n "${RM_CLIENT_ID_FOR_AGW}" ]; then
+if [ -n "${OBO_AUDIENCE_CLIENT_ID}" ] && [ -n "${RM_CLIENT_ID_FOR_OBO_AUD}" ]; then
   curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID}/management/permissions" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUDIENCE_CLIENT_ID}/management/permissions" \
     -d '{"enabled": true}' >/dev/null \
-    && echo "[init-idp]   Enabled management permissions on agentgateway."
+    && echo "[init-idp]   Enabled management permissions on ${BOT_OBO_AUDIENCE_CLIENT_ID}."
 
-  AGW_TE_PERM_ID=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID}/management/permissions" 2>/dev/null \
+  OBO_AUD_TE_PERM_ID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUDIENCE_CLIENT_ID}/management/permissions" 2>/dev/null \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
 
-  POL_NAME_AGW="caipe-slack-bot-token-exchange"
-  POL_ID_AGW=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_AGW}/authz/resource-server/policy?name=${POL_NAME_AGW}" 2>/dev/null \
+  POL_NAME_OBO_AUD="caipe-slack-bot-token-exchange"
+  POL_ID_OBO_AUD=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID_FOR_OBO_AUD}/authz/resource-server/policy?name=${POL_NAME_OBO_AUD}" 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null)
 
-  if [ -n "${AGW_TE_PERM_ID}" ] && [ -n "${POL_ID_AGW}" ]; then
+  if [ -n "${OBO_AUD_TE_PERM_ID}" ] && [ -n "${POL_ID_OBO_AUD}" ]; then
     kc_attach_policy_to_scope_permission \
-      "${RM_CLIENT_ID_FOR_AGW}" \
-      "${AGW_TE_PERM_ID}" \
-      "${POL_ID_AGW}" \
-      "agentgateway token-exchange permission"
+      "${RM_CLIENT_ID_FOR_OBO_AUD}" \
+      "${OBO_AUD_TE_PERM_ID}" \
+      "${POL_ID_OBO_AUD}" \
+      "${BOT_OBO_AUDIENCE_CLIENT_ID} token-exchange permission"
   fi
 else
-  echo "[init-idp]   WARNING: could not resolve agentgateway / realm-management client IDs; skipping AGW token-exchange perm."
+  echo "[init-idp]   WARNING: could not resolve ${BOT_OBO_AUDIENCE_CLIENT_ID} / realm-management client IDs; skipping bot OBO target token-exchange perm."
 fi
 
 # -------------------------------------------------------------------
@@ -1666,24 +1714,24 @@ if [ -n "${WB_CLIENT_ID}" ]; then
       done
 
       # Token exchange is authorized on the target audience client too. The
-      # Webex bot requests audience=agentgateway, so attach the same Webex
-      # client policy to agentgateway's token-exchange permission.
-      AGW_CLIENT_ID_WB=$(curl -sf -H "${AUTH}" \
-        "${KC_URL}/admin/realms/${REALM}/clients?clientId=agentgateway" 2>/dev/null \
+      # Webex bot requests audience=${BOT_OBO_AUDIENCE_CLIENT_ID}, so attach
+      # the same Webex client policy to that client's token-exchange permission.
+      OBO_AUDIENCE_CLIENT_ID_WB=$(curl -sf -H "${AUTH}" \
+        "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BOT_OBO_AUDIENCE_CLIENT_ID}" 2>/dev/null \
         | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
-      if [ -n "${AGW_CLIENT_ID_WB}" ]; then
-        AGW_TE_PERM_ID_WB=$(curl -sf -H "${AUTH}" \
-          "${KC_URL}/admin/realms/${REALM}/clients/${AGW_CLIENT_ID_WB}/management/permissions" 2>/dev/null \
+      if [ -n "${OBO_AUDIENCE_CLIENT_ID_WB}" ]; then
+        OBO_AUD_TE_PERM_ID_WB=$(curl -sf -H "${AUTH}" \
+          "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUDIENCE_CLIENT_ID_WB}/management/permissions" 2>/dev/null \
           | python3 -c "import sys,json; print(json.load(sys.stdin)['scopePermissions']['token-exchange'])" 2>/dev/null)
-        if [ -n "${AGW_TE_PERM_ID_WB}" ]; then
+        if [ -n "${OBO_AUD_TE_PERM_ID_WB}" ]; then
           kc_attach_policy_to_scope_permission \
             "${RM_CLIENT_ID_WB}" \
-            "${AGW_TE_PERM_ID_WB}" \
+            "${OBO_AUD_TE_PERM_ID_WB}" \
             "${POL_ID_WB}" \
-            "agentgateway token-exchange permission"
+            "${BOT_OBO_AUDIENCE_CLIENT_ID} token-exchange permission"
         fi
       else
-        echo "[init-idp]   WARNING: agentgateway client not found — Webex OBO target-audience setup incomplete."
+        echo "[init-idp]   WARNING: ${BOT_OBO_AUDIENCE_CLIENT_ID} client not found — Webex OBO target-audience setup incomplete."
       fi
     fi
   else

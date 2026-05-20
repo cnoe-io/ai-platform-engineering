@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,8 +53,9 @@ import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
+import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAdminTabGates } from "@/hooks/useAdminTabGates";
+import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
@@ -193,6 +194,7 @@ interface NPSData {
 interface Team {
   _id: string;
   name: string;
+  slug?: string;
   description?: string;
   owner_id: string;
   created_at: Date;
@@ -215,7 +217,23 @@ interface Team {
   slack_channels?: Array<{ slack_channel_id: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'migrations', 'ai-review', 'settings', 'slack', 'webex', 'rag-access'] as const;
+interface SimulationUserOption {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+}
+
+interface SimulationTeamOption {
+  _id?: string;
+  id?: string;
+  slug?: string;
+  name: string;
+  description?: string;
+}
+
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -302,6 +320,7 @@ const CATEGORIES: Category[] = [
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
   },
@@ -399,13 +418,27 @@ function movedOpenFgaDeepLinkTab(tab: string | null): typeof VALID_TABS[number] 
   return (MOVED_OPENFGA_DEEPLINK_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+function simulationTargetFromParams(searchParams: { get(name: string): string | null }): AdminTabGateSimulationTarget | null {
+  const type = searchParams.get("simulate_type");
+  const id = searchParams.get("simulate_id")?.trim();
+  const relation = searchParams.get("simulate_relation");
+  if ((type !== "user" && type !== "team") || !id) return null;
+  return {
+    type,
+    id,
+    ...(type === "team" && (relation === "member" || relation === "admin") ? { relation } : {}),
+  };
+}
+
 function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
-  const { gates, loading: adminTabGatesLoading } = useAdminTabGates();
+  const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
+  const { gates, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
+  const isSimulationActive = Boolean(simulationTarget);
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const npsEnabled = getConfig('npsEnabled');
@@ -418,6 +451,16 @@ function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
+  const [simulationType, setSimulationType] = useState<"user" | "team">(simulationTarget?.type ?? "user");
+  const [simulationId, setSimulationId] = useState(simulationTarget?.id ?? "");
+  const [simulationRelation, setSimulationRelation] = useState<"member" | "admin">(
+    simulationTarget?.relation ?? "admin"
+  );
+  const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
+  const [simulationSearch, setSimulationSearch] = useState(simulationTarget?.id ?? "");
+  const [simulationUsers, setSimulationUsers] = useState<SimulationUserOption[]>([]);
+  const [simulationTeams, setSimulationTeams] = useState<SimulationTeamOption[]>([]);
+  const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
   const userSelectedAdminTabRef = useRef(false);
   const initialTab = searchParams.get('tab');
   const defaultTab = isAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
@@ -437,10 +480,10 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       nps: Boolean(gates.nps && npsEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
-      settings: isAdmin,
-      ai_review: isAdmin,
+      settings: isAdmin && !isSimulationActive,
+      ai_review: isAdmin && !isSimulationActive,
     }),
-    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, npsEnabled]
+    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
   );
 
   const visibleCategories = useMemo(
@@ -556,6 +599,88 @@ function AdminPage() {
     },
     [pathname, router, searchParams, tabGateValues]
   );
+
+  useEffect(() => {
+    setSimulationType(simulationTarget?.type ?? "user");
+    setSimulationId(simulationTarget?.id ?? "");
+    setSimulationSearch(simulationTarget?.id ?? "");
+    setSimulationRelation(simulationTarget?.relation ?? "admin");
+  }, [simulationTarget]);
+
+  useEffect(() => {
+    if (!simulationDialogOpen) return;
+    const query = simulationSearch.trim();
+    if (query.length < 2) {
+      setSimulationUsers([]);
+      setSimulationTeams([]);
+      setSimulationSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSimulationSearchLoading(true);
+
+    async function loadSimulationSubjects() {
+      try {
+        if (simulationType === "user") {
+          const response = await fetch(`/api/admin/users?search=${encodeURIComponent(query)}&pageSize=20`);
+          const payload = await response.json();
+          const users = (payload.users ?? payload.data?.users ?? []) as SimulationUserOption[];
+          if (!cancelled) setSimulationUsers(users);
+        } else {
+          const response = await fetch("/api/admin/teams");
+          const payload = await response.json();
+          const rows = (payload.data?.teams ?? payload.teams ?? []) as SimulationTeamOption[];
+          const normalizedQuery = query.toLowerCase();
+          const matching = rows.filter((team) =>
+            [team.slug, team.name, team.description, team.id, team._id]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+          );
+          if (!cancelled) setSimulationTeams(matching);
+        }
+      } catch {
+        if (!cancelled) {
+          setSimulationUsers([]);
+          setSimulationTeams([]);
+        }
+      } finally {
+        if (!cancelled) setSimulationSearchLoading(false);
+      }
+    }
+
+    void loadSimulationSubjects();
+    return () => {
+      cancelled = true;
+    };
+  }, [simulationDialogOpen, simulationSearch, simulationType]);
+
+  const applySimulationTarget = useCallback(() => {
+    const trimmedId = simulationId.trim();
+    if (!trimmedId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("simulate_type", simulationType);
+    params.set("simulate_id", trimmedId);
+    if (simulationType === "team") {
+      params.set("simulate_relation", simulationRelation);
+    } else {
+      params.delete("simulate_relation");
+    }
+    userSelectedAdminTabRef.current = false;
+    setSimulationDialogOpen(false);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams, simulationId, simulationRelation, simulationType]);
+
+  const clearSimulationTarget = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("simulate_type");
+    params.delete("simulate_id");
+    params.delete("simulate_relation");
+    userSelectedAdminTabRef.current = false;
+    setSimulationDialogOpen(false);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
@@ -1076,7 +1201,173 @@ function AdminPage() {
                     </button>
                   );
                 })}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setSimulationDialogOpen(true)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      isSimulationActive
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    View as
+                    {isSimulationActive && (
+                      <span className="max-w-40 truncate">
+                        {simulation?.subject?.openfga_user ?? simulationTarget?.id}
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
+
+              <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>View As Effective Permissions</DialogTitle>
+                    <DialogDescription>
+                      Search for a real user or team. Preview is read-only and evaluates Admin visibility
+                      against the selected OpenFGA subject.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-type">
+                          Subject type
+                        </label>
+                        <select
+                          id="simulate-type"
+                          value={simulationType}
+                          onChange={(event) => {
+                            const nextType = event.target.value as "user" | "team";
+                            setSimulationType(nextType);
+                            setSimulationId("");
+                            setSimulationSearch("");
+                            setSimulationUsers([]);
+                            setSimulationTeams([]);
+                          }}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="team">Team</option>
+                          <option value="user">User</option>
+                        </select>
+                      </div>
+                      {simulationType === "team" && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-relation">
+                            Role / relation
+                          </label>
+                          <select
+                            id="simulate-relation"
+                            value={simulationRelation}
+                            onChange={(event) => setSimulationRelation(event.target.value as "member" | "admin")}
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="admin">Manager/Admin</option>
+                            <option value="member">Reader/Member</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-search">
+                        {simulationType === "team" ? "Search team, slug, or role" : "Search user, email, or sub"}
+                      </label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <input
+                          id="simulate-search"
+                          value={simulationSearch}
+                          onChange={(event) => {
+                            setSimulationSearch(event.target.value);
+                            setSimulationId(event.target.value.trim());
+                          }}
+                          placeholder={
+                            simulationType === "team"
+                              ? "Search team name or slug"
+                              : "Search by email, name, or Keycloak sub"
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        You can select a search result or enter a raw OpenFGA id directly.
+                      </p>
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+                      {simulationSearchLoading ? (
+                        <div className="p-3 text-sm text-muted-foreground">Searching...</div>
+                      ) : simulationType === "user" ? (
+                        simulationUsers.length > 0 ? (
+                          simulationUsers.map((user) => {
+                            const label = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.email || user.id;
+                            return (
+                              <button
+                                key={user.id}
+                                type="button"
+                                onClick={() => {
+                                  setSimulationId(user.id);
+                                  setSimulationSearch(user.email || user.username || user.id);
+                                }}
+                                className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                              >
+                                <span className="font-medium">{label}</span>{" "}
+                                {user.email && <span className="text-muted-foreground">{user.email}</span>}{" "}
+                                <code className="text-xs text-muted-foreground">{user.id}</code>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="p-3 text-sm text-muted-foreground">Type at least 2 characters to search users.</div>
+                        )
+                      ) : simulationTeams.length > 0 ? (
+                        simulationTeams.map((team) => {
+                          const teamId = team.slug || team.id || team._id || team.name;
+                          return (
+                            <button
+                              key={teamId}
+                              type="button"
+                              onClick={() => {
+                                setSimulationId(teamId);
+                                setSimulationSearch(team.slug || team.name);
+                              }}
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            >
+                              <span className="font-medium">{team.name}</span>{" "}
+                              <code className="text-xs text-muted-foreground">{teamId}</code>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="p-3 text-sm text-muted-foreground">Type at least 2 characters to search teams.</div>
+                      )}
+                    </div>
+
+                    {isSimulationActive && (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+                        <span className="font-medium">Active preview:</span>{" "}
+                        <code>{simulation?.subject?.openfga_user ?? `${simulationTarget?.type}:${simulationTarget?.id}`}</code>
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter>
+                    {isSimulationActive && (
+                      <Button type="button" variant="outline" onClick={clearSimulationTarget}>
+                        Exit Simulation
+                      </Button>
+                    )}
+                    <Button type="button" onClick={applySimulationTarget} disabled={!simulationId.trim()}>
+                      Preview
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               {/* Filtered sub-tabs for the active category */}
               <TabsList className="flex w-full justify-start gap-0">
@@ -1117,13 +1408,13 @@ function AdminPage() {
 
               {tabGateValues.slack && (
                 <TabsContent value="slack" className="space-y-4">
-                  <SlackChannelRebacPanel disabled={!isAdmin} />
+                  <SlackChannelRebacPanel disabled={!isAdmin || isSimulationActive} />
                 </TabsContent>
               )}
 
               {tabGateValues.webex && (
                 <TabsContent value="webex" className="space-y-4">
-                  <WebexSpaceRebacPanel disabled={!isAdmin} />
+                  <WebexSpaceRebacPanel disabled={!isAdmin || isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -2709,6 +3000,12 @@ function AdminPage() {
               {tabGateValues.openfga && (
                 <TabsContent value="openfga" className="space-y-4">
                   <OpenFgaRebacTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.migrations && (
+                <TabsContent value="keycloak" className="space-y-4">
+                  <KeycloakMigrationHealthPanel />
                 </TabsContent>
               )}
 

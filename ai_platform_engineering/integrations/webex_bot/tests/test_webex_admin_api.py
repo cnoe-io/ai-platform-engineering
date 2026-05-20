@@ -85,6 +85,21 @@ def test_status_reports_route_cache_and_static_config() -> None:
     assert status["route_cache"]["cache_size"] == 1
 
 
+def test_status_reports_thread_context_runtime_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WEBEX_THREAD_CONTEXT_ENABLED", "false")
+    monkeypatch.setenv("WEBEX_THREAD_CONTEXT_MAX_MESSAGES", "7")
+    monkeypatch.setenv("WEBEX_THREAD_CONTEXT_MAX_CHARS", "2500")
+    service = WebexBotAdminService(config=_config(), resolver=_Resolver())
+
+    status = service.status()
+
+    assert status["thread_context"] == {
+        "enabled": False,
+        "max_messages": 7,
+        "max_chars": 2500,
+    }
+
+
 def test_reload_clears_all_or_one_space_cache() -> None:
     resolver = _Resolver()
     service = WebexBotAdminService(config=_config(), resolver=resolver)

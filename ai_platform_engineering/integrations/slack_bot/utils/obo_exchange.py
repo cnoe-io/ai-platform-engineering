@@ -64,10 +64,14 @@ class OboExchangeConfig:
     bot_client_secret: Optional[str] = field(
         default_factory=lambda: os.environ.get("KEYCLOAK_BOT_CLIENT_SECRET")
     )
-    # Spec 104: the audience we mint OBO tokens for. AGW validates `aud` so
-    # this MUST match the AGW JWT verifier config.
-    agentgateway_audience: str = field(
-        default_factory=lambda: os.environ.get("AGENTGATEWAY_AUDIENCE", "agentgateway")
+    # Bot OBO tokens are sent first to the CAIPE UI BFF access-check/proxy
+    # routes. Dynamic Agents and AgentGateway accept this audience as a
+    # platform token when the BFF forwards the same bearer downstream.
+    caipe_platform_audience: str = field(
+        default_factory=lambda: os.environ.get(
+            "KEYCLOAK_BOT_AUDIENCE",
+            os.environ.get("CAIPE_PLATFORM_AUDIENCE", "caipe-platform"),
+        )
     )
 
 
@@ -101,7 +105,7 @@ async def exchange_token(
         "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
         "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
         "client_id": cfg.bot_client_id,
-        "audience": cfg.agentgateway_audience,
+        "audience": cfg.caipe_platform_audience,
     }
     _apply_active_team(data, active_team)
     if cfg.bot_client_secret:
@@ -133,7 +137,7 @@ async def impersonate_user(
 
     Returns:
         :class:`OboToken` whose JWT carries ``sub=<user>``,
-        ``active_team=<active_team>``, ``aud=agentgateway``.
+        ``active_team=<active_team>``, ``aud=caipe-platform`` by default.
 
     Raises:
         ValueError: If ``active_team`` is empty or syntactically invalid.
@@ -158,7 +162,7 @@ async def impersonate_user(
         "requested_subject": keycloak_user_id,
         "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
         "client_id": cfg.bot_client_id,
-        "audience": cfg.agentgateway_audience,
+        "audience": cfg.caipe_platform_audience,
     }
     _apply_active_team(data, active_team)
     if cfg.bot_client_secret:
@@ -170,10 +174,12 @@ async def impersonate_user(
 def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None:
     """Translate ``active_team`` into a Keycloak ``scope`` parameter.
 
-    Per Spec 104 each team slug has a matching `team-<slug>` client scope
-    bound as *optional* on the bot client; requesting it triggers the
-    hardcoded `active_team` mapper. The literal sentinel ``__personal__``
-    maps to the dedicated `team-personal` scope.
+    Per Spec 104 each team slug has a matching `team-<slug>` client scope.
+    The scope is bound as optional on the bot client and as the selected
+    default on the bot OBO audience (`caipe-platform` by default), because
+    Keycloak token-exchange applies default scopes from the target audience.
+    The literal sentinel ``__personal__`` maps to the dedicated
+    `team-personal` scope.
     """
     if active_team is None:
         return

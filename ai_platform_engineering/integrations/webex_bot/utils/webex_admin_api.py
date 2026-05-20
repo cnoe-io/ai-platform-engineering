@@ -63,6 +63,23 @@ def webex_admin_jwt_audience() -> str:
     return "caipe-webex-bot-admin"
 
 
+def _thread_context_status() -> dict[str, int | bool]:
+    enabled_raw = os.environ.get("WEBEX_THREAD_CONTEXT_ENABLED", "true").strip().lower()
+    try:
+        max_messages = max(1, int(os.environ.get("WEBEX_THREAD_CONTEXT_MAX_MESSAGES", "10")))
+    except ValueError:
+        max_messages = 10
+    try:
+        max_chars = max(200, int(os.environ.get("WEBEX_THREAD_CONTEXT_MAX_CHARS", "4000")))
+    except ValueError:
+        max_chars = 4000
+    return {
+        "enabled": enabled_raw not in {"false", "0", "no", "off"},
+        "max_messages": max_messages,
+        "max_chars": max_chars,
+    }
+
+
 @dataclass(frozen=True)
 class WebexAdminAuthResult:
     """Verified Webex admin API caller identity."""
@@ -184,6 +201,7 @@ class WebexBotAdminService:
                 "spaces": len(self._config.spaces),
                 "routes": route_count,
             },
+            "thread_context": _thread_context_status(),
             "route_cache": self._resolver.cache_status(),
             "last_sync": self._last_sync,
         }

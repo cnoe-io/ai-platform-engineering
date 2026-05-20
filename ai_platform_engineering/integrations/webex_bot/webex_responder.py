@@ -20,9 +20,28 @@ WEBEX_API_BASE_URL = "https://webexapis.com/v1"
 
 
 class WebexApiProtocol(Protocol):
-    def create_message(self, *, room_id: str, markdown: str, parent_id: str | None = None) -> str: ...
+    def create_message(
+        self,
+        *,
+        markdown: str,
+        room_id: str | None = None,
+        parent_id: str | None = None,
+        person_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str: ...
 
     def update_message(self, *, message_id: str, room_id: str, markdown: str) -> None: ...
+
+    def get_message(self, *, message_id: str) -> dict[str, Any] | None: ...
+
+    def list_messages(
+        self,
+        *,
+        room_id: str,
+        parent_id: str | None = None,
+        before_message_id: str | None = None,
+        max_messages: int = 10,
+    ) -> list[dict[str, Any]]: ...
 
 
 class WebexRestApi:
@@ -42,10 +61,24 @@ class WebexRestApi:
         self._base_url = base_url.rstrip("/")
         self._http_client = http_client
 
-    def create_message(self, *, room_id: str, markdown: str, parent_id: str | None = None) -> str:
-        payload: dict[str, str] = {"roomId": room_id, "markdown": markdown}
+    def create_message(
+        self,
+        *,
+        markdown: str,
+        room_id: str | None = None,
+        parent_id: str | None = None,
+        person_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+    ) -> str:
+        payload: dict[str, Any] = {"markdown": markdown}
+        if room_id:
+            payload["roomId"] = room_id
+        if person_id:
+            payload["toPersonId"] = person_id
         if parent_id:
             payload["parentId"] = parent_id
+        if attachments:
+            payload["attachments"] = attachments
         data = self._request("POST", "/messages", json=payload)
         message_id = data.get("id")
         return str(message_id) if message_id else ""
@@ -53,7 +86,35 @@ class WebexRestApi:
     def update_message(self, *, message_id: str, room_id: str, markdown: str) -> None:
         self._request("PUT", f"/messages/{message_id}", json={"roomId": room_id, "markdown": markdown})
 
-    def _request(self, method: str, path: str, *, json: dict[str, str]) -> dict[str, Any]:
+    def get_message(self, *, message_id: str) -> dict[str, Any] | None:
+        data = self._request("GET", f"/messages/{message_id}")
+        return data if data else None
+
+    def list_messages(
+        self,
+        *,
+        room_id: str,
+        parent_id: str | None = None,
+        before_message_id: str | None = None,
+        max_messages: int = 10,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"roomId": room_id, "max": max(1, max_messages)}
+        if parent_id:
+            params["parentId"] = parent_id
+        if before_message_id:
+            params["beforeMessage"] = before_message_id
+        data = self._request("GET", "/messages", params=params)
+        items = data.get("items")
+        return items if isinstance(items, list) else []
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         client = self._http_client
         owns_client = client is None
         if owns_client:
@@ -70,6 +131,7 @@ class WebexRestApi:
                     "User-Agent": "caipe-webex-bot/0.5.0",
                 },
                 json=json,
+                params=params,
             )
             response.raise_for_status()
             if not response.content:
@@ -95,9 +157,71 @@ class WebexResponder:
         if not room_id or not parent_id:
             logger.warning("Cannot send Webex reply without room_id and parent_id")
             return
+        if result.reason_code == "WEBEX_USER_NOT_LINKED" and result.linking_url:
+            await self._reply_with_private_linking_card(event, room_id=room_id, parent_id=parent_id, result=result)
+            return
+
         markdown = _markdown_for_result(result)
         if not markdown:
             return
+        await asyncio.to_thread(
+            self._webex_api.create_message,
+            room_id=room_id,
+            parent_id=parent_id,
+            markdown=markdown,
+        )
+
+    async def _reply_with_private_linking_card(
+        self,
+        event: dict[str, Any],
+        *,
+        room_id: str,
+        parent_id: str,
+        result: WebexMessageResult,
+    ) -> None:
+        person_id = _person_ref(event)
+        app_name = _app_name()
+        if not person_id:
+            logger.warning("Cannot send Webex 1:1 linking card without person_id")
+            await self._reply_to_thread(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=(
+                    f"I could not identify your Webex user for private linking. Open {app_name} "
+                    "and try account linking, then retry your request."
+                ),
+            )
+            return
+
+        try:
+            await asyncio.to_thread(
+                self._webex_api.create_message,
+                person_id=person_id,
+                markdown=f"Link your {app_name} account to Webex to continue.",
+                attachments=[_linking_card(app_name, result.linking_url)],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not send Webex 1:1 linking card (type=%s)", type(exc).__name__)
+            await self._reply_to_thread(
+                room_id=room_id,
+                parent_id=parent_id,
+                markdown=(
+                    f"I could not send you a 1:1 Webex linking message. Open {app_name} and "
+                    "try account linking, then retry your request."
+                ),
+            )
+            return
+
+        await self._reply_to_thread(
+            room_id=room_id,
+            parent_id=parent_id,
+            markdown=(
+                f"I sent you a 1:1 Webex message to link your {app_name} account. "
+                "Complete linking there, then retry your request."
+            ),
+        )
+
+    async def _reply_to_thread(self, *, room_id: str, parent_id: str, markdown: str) -> None:
         await asyncio.to_thread(
             self._webex_api.create_message,
             room_id=room_id,
@@ -140,12 +264,19 @@ class WebexThreadedStreamDispatcher:
         reply_id = self._webex_api.create_message(
             room_id=room_id,
             parent_id=parent_id,
-            markdown="Working on it...",
+            markdown=_agent_reply_markdown(agent_id, "Working on it..."),
         )
         accumulated = ""
         last_sent_len = 0
 
         try:
+            agent_message = _message_with_thread_context(
+                self._webex_api,
+                room_id=room_id,
+                parent_id=parent_id,
+                message_id=message_id,
+                text=text,
+            )
             conversation = self._sse_client.create_conversation(
                 title=text[:50].strip() or "Webex Thread",
                 agent_id=agent_id,
@@ -163,7 +294,7 @@ class WebexThreadedStreamDispatcher:
                 or space_message_to_conversation_id(space_id, parent_id)
             )
             for event in self._sse_client.stream_chat(
-                message=text,
+                message=agent_message,
                 conversation_id=conversation_id,
                 agent_id=agent_id,
                 bearer_token=obo_token,
@@ -181,7 +312,7 @@ class WebexThreadedStreamDispatcher:
                         self._webex_api.update_message(
                             message_id=reply_id,
                             room_id=room_id,
-                            markdown=accumulated,
+                            markdown=_agent_reply_markdown(agent_id, accumulated),
                         )
                         last_sent_len = len(accumulated)
                 elif event.type == SSEEventType.RUN_ERROR:
@@ -189,7 +320,7 @@ class WebexThreadedStreamDispatcher:
                     self._webex_api.update_message(
                         message_id=reply_id,
                         room_id=room_id,
-                        markdown=message,
+                        markdown=_agent_reply_markdown(agent_id, message),
                     )
                     return
         except Exception as exc:
@@ -197,7 +328,10 @@ class WebexThreadedStreamDispatcher:
             self._webex_api.update_message(
                 message_id=reply_id,
                 room_id=room_id,
-                markdown="I could not complete the request. Please try again.",
+                markdown=_agent_reply_markdown(
+                    agent_id,
+                    "I could not complete the request. Please try again.",
+                ),
             )
             return
 
@@ -205,7 +339,7 @@ class WebexThreadedStreamDispatcher:
         self._webex_api.update_message(
             message_id=reply_id,
             room_id=room_id,
-            markdown=final_markdown,
+            markdown=_agent_reply_markdown(agent_id, final_markdown),
         )
 
 
@@ -219,6 +353,12 @@ def _thread_refs(event: dict[str, Any]) -> tuple[str | None, str | None]:
     )
 
 
+def _person_ref(event: dict[str, Any]) -> str | None:
+    data = event.get("data") if isinstance(event.get("data"), dict) else event
+    person_id = data.get("personId") or data.get("person_id") or event.get("personId")
+    return str(person_id).strip() if isinstance(person_id, str) and person_id.strip() else None
+
+
 def _markdown_for_result(result: WebexMessageResult) -> str | None:
     parts: list[str] = []
     if result.deny_message:
@@ -228,3 +368,183 @@ def _markdown_for_result(result: WebexMessageResult) -> str | None:
     if result.linking_url:
         parts.append(f"Link your account: {result.linking_url}")
     return "\n\n".join(parts) if parts else None
+
+
+def _linking_card(app_name: str, linking_url: str | None) -> dict[str, Any]:
+    return {
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.3",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": f"Link {app_name} to Webex",
+                    "weight": "Bolder",
+                    "size": "Medium",
+                    "wrap": True,
+                },
+                {
+                    "type": "TextBlock",
+                    "text": (
+                        "Verify with enterprise SSO so this Webex identity can use "
+                        f"{app_name} agents on your behalf."
+                    ),
+                    "wrap": True,
+                },
+                {
+                    "type": "TextBlock",
+                    "text": "This link expires in 10 minutes.",
+                    "isSubtle": True,
+                    "wrap": True,
+                },
+            ],
+            "actions": [
+                {
+                    "type": "Action.OpenUrl",
+                    "title": "Link with SSO",
+                    "url": linking_url or "",
+                }
+            ],
+        },
+    }
+
+
+def _app_name() -> str:
+    return os.environ.get("APP_NAME", "CAIPE").strip() or "CAIPE"
+
+
+def _agent_reply_markdown(agent_id: str, body: str) -> str:
+    content = body.strip() or "Done."
+    return (
+        f"**Agent:** `{agent_id}`\n\n"
+        f"{content}\n\n"
+        "_Reply in this Webex thread to continue with this agent. If the route only "
+        "listens to mentions, mention the bot in your reply._"
+    )
+
+
+def _message_with_thread_context(
+    webex_api: WebexApiProtocol,
+    *,
+    room_id: str,
+    parent_id: str,
+    message_id: str,
+    text: str,
+) -> str:
+    if os.environ.get("WEBEX_THREAD_CONTEXT_ENABLED", "true").strip().lower() in {
+        "false",
+        "0",
+        "no",
+        "off",
+    }:
+        return text
+
+    try:
+        context_messages = _load_thread_context_messages(
+            webex_api,
+            room_id=room_id,
+            parent_id=parent_id,
+            message_id=message_id,
+            max_messages=_thread_context_max_messages(),
+        )
+    except Exception as exc:  # noqa: BLE001 - context is optional; dispatch should continue.
+        logger.warning("Unable to load Webex thread context (type=%s)", type(exc).__name__)
+        return text
+
+    formatted_context = _format_thread_context(context_messages)
+    if not formatted_context:
+        return text
+    return (
+        "Webex thread context (oldest to newest, excluding the current request):\n"
+        f"{formatted_context}\n\n"
+        "Current Webex request:\n"
+        f"{text}"
+    )
+
+
+def _load_thread_context_messages(
+    webex_api: WebexApiProtocol,
+    *,
+    room_id: str,
+    parent_id: str,
+    message_id: str,
+    max_messages: int,
+) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    remaining = max_messages
+    if parent_id != message_id:
+        root = webex_api.get_message(message_id=parent_id)
+        if root:
+            messages.append(root)
+            remaining -= 1
+
+    if remaining > 0:
+        replies = webex_api.list_messages(
+            room_id=room_id,
+            parent_id=parent_id,
+            before_message_id=message_id,
+            max_messages=remaining,
+        )
+        messages.extend(reversed(replies))
+    return [message for message in messages if message.get("id") != message_id]
+
+
+def _format_thread_context(messages: list[dict[str, Any]]) -> str:
+    max_chars = _thread_context_max_chars()
+    lines: list[str] = []
+    used_chars = 0
+    for message in messages:
+        if _is_webex_bot_reply(message):
+            continue
+        text = _message_text(message)
+        if not text:
+            continue
+        author = _message_author(message)
+        line = f"- {author}: {text}"
+        if used_chars + len(line) > max_chars:
+            remaining = max_chars - used_chars
+            if remaining <= 0:
+                break
+            line = line[:remaining].rstrip()
+        lines.append(line)
+        used_chars += len(line)
+        if used_chars >= max_chars:
+            break
+    return "\n".join(lines)
+
+
+def _message_text(message: dict[str, Any]) -> str:
+    raw = message.get("text") or message.get("markdown") or ""
+    return " ".join(str(raw).split())
+
+
+def _is_webex_bot_reply(message: dict[str, Any]) -> bool:
+    raw = str(message.get("markdown") or message.get("text") or "")
+    return (
+        "**Agent:**" in raw
+        or "Reply in this Webex thread to continue with this agent" in raw
+    )
+
+
+def _message_author(message: dict[str, Any]) -> str:
+    for key in ("personEmail", "personDisplayName", "personId"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "unknown"
+
+
+def _thread_context_max_messages() -> int:
+    try:
+        return max(1, int(os.environ.get("WEBEX_THREAD_CONTEXT_MAX_MESSAGES", "10")))
+    except ValueError:
+        return 10
+
+
+def _thread_context_max_chars() -> int:
+    try:
+        return max(200, int(os.environ.get("WEBEX_THREAD_CONTEXT_MAX_CHARS", "4000")))
+    except ValueError:
+        return 4000

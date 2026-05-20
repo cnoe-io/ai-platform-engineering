@@ -333,55 +333,30 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   );
 });
 
-it("applies Slack channel association defaults for Slack channels", async () => {
-  const confirmSpy = jest.spyOn(window, "confirm");
+it("keeps Slack onboarding defaults simple without bulk apply controls", async () => {
   render(<SlackChannelRebacPanel />);
 
-  await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
+  await screen.findByText("Onboarding Default Selection");
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
     target: { value: "platform-engineering" },
   });
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Dynamic Agent" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
-  const applyButton = screen.getByRole("button", { name: "Apply Defaults to Managed Channels" });
-  await waitFor(() => expect(applyButton).not.toBeDisabled());
-  fireEvent.click(applyButton);
 
-  expect(confirmSpy).not.toHaveBeenCalled();
-  expect(await screen.findByRole("dialog", { name: "Apply Slack channel association defaults?" })).toBeInTheDocument();
-  expect(screen.getByText(/This will update 1 onboarded Slack channel/i)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Apply defaults" }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/slack/channels/defaults",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          team_slug: "platform-engineering",
-          agent_id: "incident-agent",
-          create_routes: true,
-        }),
-      })
-    )
-  );
-  await waitFor(() =>
-    expect(mockToast).toHaveBeenCalledWith(
-      expect.stringContaining("Slack channel association defaults applied"),
-      "success"
-    )
-  );
+  expect(screen.queryByRole("button", { name: "Apply Selection to Managed Channels" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Refresh lists" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Create matching Slack routes when onboarding/i)).not.toBeInTheDocument();
 });
 
 it("discovers bot-member channels and applies defaults after admin consent", async () => {
   render(<SlackChannelRebacPanel />);
 
   await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
     target: { value: "platform-engineering" },
   });
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Dynamic Agent" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
 
@@ -390,6 +365,9 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   expect(screen.queryByRole("dialog", { name: "Review channels found by the bot" })).not.toBeInTheDocument();
   expect(await screen.findByText(/2 bot-member channels discovered/i)).toBeInTheDocument();
   expect(screen.getByText(/Select channels to import, then choose team and Dynamic Agent per channel/i)).toBeInTheDocument();
+  expect(screen.getByText("Onboarding path")).toBeInTheDocument();
+  expect(screen.getByText("Needs setup")).toBeInTheDocument();
+  expect(screen.getByText("Already managed")).toBeInTheDocument();
   expect(
     screen.getByRole("status", {
       name: /2 bot-visible found .* 1 new .* 1 managed in CAIPE .* 1 missing team/i,
@@ -405,7 +383,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
     target: { value: "test-april-2025" },
   });
 
-  fireEvent.click(screen.getByRole("button", { name: "Apply discovered defaults" }));
+  fireEvent.click(screen.getByRole("button", { name: "Set up selected Slack channels" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -458,10 +436,10 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
   render(<SlackChannelRebacPanel />);
 
   await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
     target: { value: "platform-engineering" },
   });
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Dynamic Agent" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
 
@@ -475,7 +453,7 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
     target: { value: "test-april-2025" },
   });
 
-  const applyButton = screen.getByRole("button", { name: "Apply discovered defaults" });
+  const applyButton = screen.getByRole("button", { name: "Set up selected Slack channels" });
   fireEvent.click(applyButton);
 
   await waitFor(() =>
@@ -484,6 +462,10 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
       "success"
     )
   );
+  expect(screen.queryByRole("dialog", { name: "Slack setup complete" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Refresh setup status" })).toBeInTheDocument();
+  expect(screen.queryByText("Needs setup")).not.toBeInTheDocument();
+  expect(screen.getAllByText("Already managed").length).toBeGreaterThanOrEqual(2);
   expect(applyButton.parentElement).not.toHaveTextContent(/Channel setup applied/i);
 });
 
@@ -494,7 +476,8 @@ it("uses a streamlined setup flow with icons and toast action confirmations", as
   expect(screen.getByRole("heading", { name: "Step 1: Discover and Setup" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Step 2a: Verify Slack Channel ReBAC" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Step 2b: Specify agent priority" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "[Optional] Global Channel Defaults" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Onboarding Default Selection" })).toBeInTheDocument();
+  expect(screen.getByText(/Only changes what is preselected when you onboard channels/i)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Discover & Apply Defaults" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Import from YAML Config" })).toBeInTheDocument();
@@ -522,10 +505,10 @@ it("lays out Slack setup as five subtly tinted sections in the requested order",
   render(<SlackChannelRebacPanel />);
 
   expect(await screen.findByText("Slack Channel Setup")).toBeInTheDocument();
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Team" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
     target: { value: "platform-engineering" },
   });
-  fireEvent.change(await screen.findByRole("combobox", { name: "Default Dynamic Agent" }), {
+  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" }));
@@ -534,7 +517,7 @@ it("lays out Slack setup as five subtly tinted sections in the requested order",
     await screen.findByRole("region", { name: "Step 1: Discover and Setup" }),
     screen.getByRole("region", { name: "Step 2a: Verify Slack Channel ReBAC" }),
     screen.getByRole("region", { name: "Step 2b: Specify agent priority" }),
-    screen.getByRole("region", { name: "[Optional] Global Channel Defaults" }),
+    screen.getByRole("region", { name: "Onboarding Default Selection" }),
     screen.getByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
   ];
 
@@ -561,15 +544,18 @@ it("lays out Slack setup as five subtly tinted sections in the requested order",
   expect(sections[4]).toHaveTextContent("Import from YAML Config");
 });
 
-it("labels Slack channel association defaults and shows current configured values", async () => {
+it("labels Slack onboarding default selection and shows current configured values", async () => {
   render(<SlackChannelRebacPanel />);
 
   expect(await screen.findByText("Slack Channel Setup")).toBeInTheDocument();
   expect(screen.queryByText("Migration Defaults")).not.toBeInTheDocument();
-  expect(screen.getByText("Current default team")).toBeInTheDocument();
+  expect(screen.getByText("Saved onboarding team")).toBeInTheDocument();
   expect(await screen.findByText("team:platform-engineering")).toBeInTheDocument();
-  expect(screen.getByText("Current default Dynamic Agent")).toBeInTheDocument();
+  expect(screen.getByText("Saved onboarding Dynamic Agent")).toBeInTheDocument();
   expect(screen.getByText("agent:incident-agent")).toBeInTheDocument();
+  expect(screen.queryByText("[Optional] Global Channel Defaults")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Apply Selection to Managed Channels" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Refresh lists" })).not.toBeInTheDocument();
 });
 
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {

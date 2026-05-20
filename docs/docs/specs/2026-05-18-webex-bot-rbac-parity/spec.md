@@ -103,6 +103,7 @@ As a security reviewer, I need Webex authorization docs, RBAC file maps, tests, 
 - **FR-018**: Automated tests MUST cover Webex bot identity, OBO, space ReBAC, UI BFF routes, OpenFGA tuple builders/model changes, Helm values, and denial behavior.
 - **FR-019**: Canonical RBAC docs under `docs/docs/security/rbac/` MUST be updated in the same change to include Webex bot architecture, workflows, usage, and file map entries.
 - **FR-020**: PRs #1038 and #1329 MUST be treated as reference inputs only; implementation MUST align with current Slack RBAC patterns in this branch.
+- **FR-021**: Webex bot replies MUST identify the selected Dynamic Agent and explain how to continue in the same Webex thread; when enabled, bounded prior thread context MUST be fetched through Webex `parentId` and sent only after identity, team, route, and ReBAC authorization succeed.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -149,8 +150,9 @@ The authorization model mirrors Slack with Webex names: `webex_workspace` and `w
 4. The bot resolves the space to a CAIPE team; unmapped spaces deny by default unless an explicit approved auto-assign mode is configured.
 5. The bot obtains an OBO token scoped to the linked user and active team.
 6. The bot checks space-level OpenFGA grants and user-level/team-level access before dispatch.
-7. The bot resolves enabled Webex space routes and forwards the request to the existing CAIPE agent path with user context.
-8. Allow/deny outcomes are logged with Webex-specific audit fields and surfaced through diagnostics.
+7. The bot resolves enabled Webex space routes and, when thread context is enabled, fetches bounded prior Webex messages for the same `parentId`.
+8. The bot forwards the current request plus bounded thread context to the existing CAIPE agent path with user context.
+9. Allow/deny outcomes are logged with Webex-specific audit fields and surfaced through diagnostics. Threaded replies include the selected `agent_id` and follow-up instructions.
 
 ### Admin UI
 

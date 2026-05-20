@@ -16,6 +16,10 @@ data:
       {{- $clients = append $clients $client -}}
     {{- end -}}
     {{- $_ := set $realm "clients" $clients -}}
+    {{- $_ := set $realm "accessTokenLifespan" (.Values.realm.accessTokenLifespan | int) -}}
+    {{- $_ := set $realm "accessTokenLifespanForImplicitFlow" (.Values.realm.accessTokenLifespanForImplicitFlow | int) -}}
+    {{- $_ := set $realm "ssoSessionIdleTimeout" (.Values.realm.ssoSessionIdleTimeout | int) -}}
+    {{- $_ := set $realm "ssoSessionMaxLifespan" (.Values.realm.ssoSessionMaxLifespan | int) -}}
     {{- if not .Values.demoUsers.enabled -}}
       {{- $users := list -}}
       {{- range $user := $realm.users -}}

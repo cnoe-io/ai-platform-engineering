@@ -54,10 +54,12 @@ class OboExchangeConfig:
     bot_client_secret: Optional[str] = field(
         default_factory=lambda: os.environ.get("KEYCLOAK_WEBEX_BOT_CLIENT_SECRET")
     )
-    agentgateway_audience: str = field(
+    # Webex bot OBO tokens are sent first to CAIPE UI BFF access-check/proxy
+    # routes; the BFF forwards the same platform-scoped bearer downstream.
+    caipe_platform_audience: str = field(
         default_factory=lambda: os.environ.get(
             "KEYCLOAK_WEBEX_BOT_AUDIENCE",
-            os.environ.get("AGENTGATEWAY_AUDIENCE", "agentgateway"),
+            os.environ.get("CAIPE_PLATFORM_AUDIENCE", "caipe-platform"),
         )
     )
 
@@ -84,7 +86,7 @@ async def impersonate_user(
         "requested_subject": keycloak_user_id,
         "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
         "client_id": cfg.bot_client_id,
-        "audience": cfg.agentgateway_audience,
+        "audience": cfg.caipe_platform_audience,
     }
     _apply_active_team(data, active_team)
     if cfg.bot_client_secret:

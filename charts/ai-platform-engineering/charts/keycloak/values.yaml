@@ -69,6 +69,10 @@ realm:
   name: caipe
   # "none" for dev, "external" for prod (HTTPS terminated at ingress)
   sslRequired: "external"
+  accessTokenLifespan: 3600
+  accessTokenLifespanForImplicitFlow: 900
+  ssoSessionIdleTimeout: 28800
+  ssoSessionMaxLifespan: 86400
 
 # ---------- Demo/test users ----------
 # Disabled by default so production realms do not import sample password users or

@@ -10,8 +10,8 @@ Verifies the load-bearing invariants of
 2. The OBO request body is built with ``scope=openid team-<slug>`` for a
    real team and ``scope=openid team-personal`` for the ``__personal__``
    sentinel.
-3. ``aud=<agentgateway audience>`` is always pinned in the request so the
-   minted token is acceptable to AGW.
+3. ``aud=<caipe-platform audience>`` is always pinned in the request because
+   Slack bot OBO tokens are sent to the CAIPE UI BFF access-check routes.
 4. The returned JWT's ``active_team`` claim is verified against what was
    requested. A mismatch (Keycloak misconfiguration / scope spoofing)
    raises ``OboExchangeError`` instead of silently issuing a token with
@@ -63,7 +63,7 @@ def _config() -> OboExchangeConfig:
         realm="caipe",
         bot_client_id="caipe-slack-bot",
         bot_client_secret="shh",
-        agentgateway_audience="agentgateway",
+        caipe_platform_audience="caipe-platform",
     )
 
 
@@ -77,6 +77,22 @@ class FakeResponse:
 
     def json(self) -> dict[str, Any]:
         return self._payload
+
+
+def test_default_audience_targets_caipe_ui_bff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KEYCLOAK_BOT_AUDIENCE", raising=False)
+    monkeypatch.delenv("CAIPE_PLATFORM_AUDIENCE", raising=False)
+
+    assert OboExchangeConfig().caipe_platform_audience == "caipe-platform"
+
+
+def test_caipe_platform_audience_env_overrides_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("KEYCLOAK_BOT_AUDIENCE", raising=False)
+    monkeypatch.setenv("CAIPE_PLATFORM_AUDIENCE", "custom-platform")
+
+    assert OboExchangeConfig().caipe_platform_audience == "custom-platform"
 
 
 @pytest.mark.parametrize("slug", ["", " ", None, "Has Space", "_leading", "x" * 64, "-bad"])
@@ -122,7 +138,7 @@ def test_impersonate_user_requires_active_team() -> None:
 
 def test_impersonate_user_pins_audience_and_scope_for_personal() -> None:
     """For DMs the bot calls with active_team=__personal__ → the request
-    body must include `audience=agentgateway` and `scope` containing
+    body must include `audience=caipe-platform` and `scope` containing
     `team-personal`."""
     captured: dict[str, Any] = {}
 
@@ -152,7 +168,7 @@ def test_impersonate_user_pins_audience_and_scope_for_personal() -> None:
     assert token.access_token == minted
     assert token.active_team == PERSONAL_ACTIVE_TEAM
     data = captured["data"]
-    assert data.get("audience") == "agentgateway"
+    assert data.get("audience") == "caipe-platform"
     assert PERSONAL_SCOPE_NAME in data.get("scope", "").split()
 
 

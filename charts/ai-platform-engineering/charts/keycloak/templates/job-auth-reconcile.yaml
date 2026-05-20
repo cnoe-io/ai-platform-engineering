@@ -57,6 +57,12 @@ spec:
                   optional: true
             - name: KC_REALM
               value: {{ .Values.realm.name | quote }}
+            - name: KEYCLOAK_ACCESS_TOKEN_LIFESPAN
+              value: {{ .Values.realm.accessTokenLifespan | quote }}
+            - name: KEYCLOAK_SSO_SESSION_IDLE_TIMEOUT
+              value: {{ .Values.realm.ssoSessionIdleTimeout | quote }}
+            - name: KEYCLOAK_SSO_SESSION_MAX_LIFESPAN
+              value: {{ .Values.realm.ssoSessionMaxLifespan | quote }}
             - name: KEYCLOAK_SEED_DEMO_USERS
               value: "false"
             {{- if .Values.bootstrapAdminEmails }}

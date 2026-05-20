@@ -21,6 +21,11 @@ describe("MigrationTab", () => {
           success: true,
           data: {
             release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 6 },
+            schema_versions: [
+              { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
+              { schema_area: "team_resources", current_version: 1, target_version: 2, status: "behind" },
+            ],
             migrations: [
               {
                 id: "conversation_owner_identity_v1",
@@ -101,6 +106,38 @@ describe("MigrationTab", () => {
                 required: true,
               },
             ],
+            completed_migrations: [],
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 6 },
+            schema_versions: [
+              { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
+            ],
+            pending_required_count: 6,
+            blocking_required_count: 6,
+            is_blocking: true,
+            override_active: false,
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/override") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 6 },
+            schema_versions: [],
+            pending_required_count: 6,
+            blocking_required_count: 6,
+            is_blocking: false,
+            override_active: true,
+            override_reason: "Emergency production verification",
           },
         });
       }
@@ -149,11 +186,20 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
 
     expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
+    expect(await screen.findByText(/Runtime migration release/i)).toBeInTheDocument();
+    expect(await screen.findByText("conversations")).toBeInTheDocument();
+    const conversationsCard = screen.getByText("conversations").parentElement;
+    expect(conversationsCard).not.toHaveClass("bg-amber-50");
+    expect(conversationsCard).not.toHaveClass("bg-emerald-50");
+    expect(conversationsCard?.querySelector("svg")).toHaveClass("text-amber-600");
+    expect(screen.getAllByText(/v1 -> v2/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("behind")[0]).toHaveClass("text-amber-700");
     expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
     expect(screen.getByText("Slack channel ReBAC grants")).toBeInTheDocument();
     expect(screen.getByText("Webex space ReBAC grants")).toBeInTheDocument();
     expect(screen.getByText("Messaging team mapping reconciliation")).toBeInTheDocument();
     expect(screen.getByText("Messaging ReBAC indexes")).toBeInTheDocument();
+    expect(screen.queryByText("Keycloak Reconciliation Health")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[0]);
 
@@ -204,6 +250,25 @@ describe("MigrationTab", () => {
     expect(await screen.findByText(/conversations_updated: 10/i)).toBeInTheDocument();
   });
 
+  it("copies the required confirmation text", async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<MigrationTab isAdmin />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Dry run/i }))[0]);
+    await screen.findByText("MIGRATE conversations TO v2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Copy confirmation text/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("MIGRATE conversations TO v2");
+    });
+    expect(
+      await screen.findByRole("button", { name: /Copied confirmation text/i }),
+    ).toBeInTheDocument();
+  });
+
   it("refreshes the migration manifest in-page", async () => {
     render(<MigrationTab isAdmin />);
 
@@ -212,18 +277,23 @@ describe("MigrationTab", () => {
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/admin/rebac/migrations");
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect((global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url) === "/api/admin/rebac/migrations")).toHaveLength(2);
     });
   });
 
-  it("shows a checked migration complete indicator for completed migrations", async () => {
+  it("hides completed migrations by default and reveals them on request", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
       if (String(url) === "/api/admin/rebac/migrations") {
         return jsonResponse({
           success: true,
           data: {
             release: "0.5.1",
-            migrations: [
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [
+              { schema_area: "conversations", current_version: 2, target_version: 2, status: "current" },
+            ],
+            migrations: [],
+            completed_migrations: [
               {
                 id: "conversation_owner_identity_v1",
                 title: "Conversation owner identity v2",
@@ -241,14 +311,45 @@ describe("MigrationTab", () => {
           },
         });
       }
+      if (String(url) === "/api/admin/rebac/migrations/status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [],
+            pending_required_count: 0,
+            blocking_required_count: 0,
+            is_blocking: false,
+            override_active: false,
+          },
+        });
+      }
       return jsonResponse({ success: false }, false, 404);
     });
 
     render(<MigrationTab isAdmin />);
 
+    expect(await screen.findByText(/No active migrations/i)).toBeInTheDocument();
+    expect(screen.queryByText("Conversation owner identity v2")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Show completed migrations/i));
+
     const completeCheckbox = await screen.findByRole("checkbox", { name: /Migration complete/i });
     expect(completeCheckbox).toBeChecked();
+    expect(screen.getAllByText("Conversation owner identity v2").length).toBeGreaterThan(0);
     expect(screen.getByText(/Migration complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/v2 -> v2/i)).toBeInTheDocument();
+    expect(screen.getByText("current")).toHaveClass("text-emerald-700");
+  });
+
+  it("does not render the redundant in-tab migration override warning", async () => {
+    render(<MigrationTab isAdmin />);
+
+    expect((await screen.findAllByText(/Conversation owner identity v2/i)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Migration required before using this version/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Override reason/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Record super-admin override/i })).not.toBeInTheDocument();
   });
 
   it("does not allow read-only users to run migrations", async () => {

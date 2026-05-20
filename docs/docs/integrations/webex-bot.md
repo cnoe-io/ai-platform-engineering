@@ -18,6 +18,7 @@ The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) a
 - **Adaptive Cards** for structured responses, HITL forms, and feedback
 - **Space authorization** with MongoDB-backed registry and TTL cache
 - **1:1 and group space** support with threading
+- **Thread-aware follow-ups** that pass bounded prior Webex thread context to the selected agent
 - **Feedback collection** via Langfuse integration
 
 ## Setup
@@ -43,6 +44,9 @@ The CAIPE Webex bot connects to the Webex platform via WebSocket (WDM pattern) a
 | `MONGODB_URI` | No | — | MongoDB connection URI for persistent sessions |
 | `MONGODB_DATABASE` | No | `caipe` | MongoDB database name |
 | `CAIPE_UI_BASE_URL` | No | `http://localhost:3000` | CAIPE UI URL for auth links |
+| `WEBEX_THREAD_CONTEXT_ENABLED` | No | `true` | Include bounded prior Webex thread messages in the agent prompt |
+| `WEBEX_THREAD_CONTEXT_MAX_MESSAGES` | No | `10` | Maximum prior thread messages fetched with Webex `parentId`, including the root message when present |
+| `WEBEX_THREAD_CONTEXT_MAX_CHARS` | No | `4000` | Maximum formatted thread-context characters sent to the agent |
 | `LANGFUSE_SCORING_ENABLED` | No | `false` | Enable Langfuse feedback |
 | `LANGFUSE_PUBLIC_KEY` | If Langfuse enabled | — | Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | If Langfuse enabled | — | Langfuse secret key |
@@ -97,6 +101,8 @@ User (Webex) ──→ Webex Cloud ──→ WebSocket ──→ Webex Bot
 ```
 
 The bot uses the WDM (Web Device Management) pattern to establish a persistent WebSocket connection with Webex, avoiding the need for public endpoints or webhook servers.
+
+When `WEBEX_THREAD_CONTEXT_ENABLED=true`, the bot uses the Webex Messages API to fetch the root message and recent replies for the current `parentId` before dispatch. The selected Dynamic Agent receives that bounded context plus the current request; Webex replies include the responding `agent_id` and instructions to continue in the same thread. The bot still only processes new events it receives according to route listen mode: `mention` routes require a bot mention, `message` routes accept plain space messages, and `all` accepts both.
 
 ## Helm Deployment
 

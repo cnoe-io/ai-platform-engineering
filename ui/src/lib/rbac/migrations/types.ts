@@ -13,6 +13,7 @@ export interface MigrationDefinition {
   description: string;
   confirmation: string;
   required: boolean;
+  blocking?: boolean;
   implemented: boolean;
   dependencies?: string[];
 }
@@ -22,6 +23,39 @@ export interface MigrationListItem extends MigrationDefinition {
   target_version: number;
   status: MigrationStatus;
   last_run_at?: string;
+}
+
+export interface MigrationSchemaVersionStatus {
+  schema_area: string;
+  current_version: number | null;
+  target_version: number | null;
+  status: "current" | "behind" | "unknown";
+  last_migration_id?: string;
+}
+
+export interface MigrationRuntimeStatus {
+  migration_release: string;
+  manifest_count: number;
+}
+
+export interface MigrationListResult {
+  release: string;
+  runtime: MigrationRuntimeStatus;
+  schema_versions: MigrationSchemaVersionStatus[];
+  migrations: MigrationListItem[];
+  completed_migrations: MigrationListItem[];
+}
+
+export interface MigrationBlockingStatus {
+  release: string;
+  runtime: MigrationRuntimeStatus;
+  schema_versions: MigrationSchemaVersionStatus[];
+  pending_required_count: number;
+  blocking_required_count: number;
+  is_blocking: boolean;
+  override_active: boolean;
+  override_reason?: string;
+  override_expires_at?: string;
 }
 
 export interface MigrationSampleDiff {

@@ -2,13 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle2,
   FileUp,
   RefreshCw,
   RotateCw,
-  Search,
   Settings2,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
@@ -26,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 
 interface SlackChannelSummary {
   workspace_id: string;
@@ -188,7 +186,6 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   const [routePriority, setRoutePriority] = useState(100);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [migrationConfirmOpen, setMigrationConfirmOpen] = useState(false);
 
   const selected = useMemo(
     () => channels.find((channel) => `${channel.workspace_id}/${channel.channel_id}` === selectedKey),
@@ -411,19 +408,6 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     }
   };
 
-  const refreshDefaults = async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      await Promise.all([loadChannels(), loadDynamicAgents(), loadTeams(), loadAssociationDefaults()]);
-      toast("Slack channel association default lists refreshed.", "success");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to refresh Slack channel association defaults");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const refreshSlackRuntimeStatus = async () => {
     setLoading(true);
     setMessage(null);
@@ -491,11 +475,6 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     } finally {
       setLoading(false);
     }
-  };
-
-  const applyMigrationDefaults = () => {
-    if (!defaultTeamSlug || !defaultAgentId) return;
-    setMigrationConfirmOpen(true);
   };
 
   const fetchBotMemberChannels = async (): Promise<DiscoveredSlackChannel[]> => {
@@ -597,6 +576,14 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
         summary: SlackChannelDefaultsSummary;
       }>(await response.json());
       await Promise.all([loadChannels(), loadRoutes(), loadDiagnostics(), loadSlackRuntimeStatus()]);
+      if (selectedImports.length > 0) {
+        const selectedImportIds = new Set(selectedImports.map((channel) => channel.id));
+        setDiscoveredImportRows((rows) =>
+          rows.map((row) =>
+            selectedImportIds.has(row.id) ? { ...row, is_existing: true, selected: false } : row
+          )
+        );
+      }
       toast(
         selectedImports.length > 0
           ? `Discovered defaults applied: onboarded ${data.summary.channels_onboarded ?? 0} channels, assigned ${data.summary.channels_assigned_team} channels, ensured ${data.summary.channel_grants_ensured} channel grants, ensured ${data.summary.routes_ensured} routes, preserved ${data.summary.routes_preserved ?? 0} existing routes.`
@@ -877,7 +864,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
 
         <div
           role="region"
-          aria-label="[Optional] Global Channel Defaults"
+          aria-label="Onboarding Default Selection"
           data-section-tone="teal"
           data-section-order="3"
           className="order-3 rounded-md border border-teal-500/25 bg-teal-500/5 p-4 space-y-4"
@@ -885,48 +872,25 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           <div>
             <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
               <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-              [Optional] Global Channel Defaults
+              Onboarding Default Selection
             </h3>
             <p className="text-xs text-muted-foreground">
-              Pick the fallback team, default Dynamic Agent, and route creation behavior.
+              Only changes what is preselected when you onboard channels. Each channel still needs an explicit setup action.
             </p>
-          </div>
-          <div className="grid gap-2 text-xs md:grid-cols-3">
-            <div className="rounded-md border border-teal-500/15 bg-background/60 p-3">
-              <div className="flex items-center gap-2 font-medium">
-                <Search className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-                Step 1: Discover and Setup
-              </div>
-              <div className="mt-1 text-muted-foreground">Locate bot-member channels.</div>
-            </div>
-            <div className="rounded-md border border-teal-500/15 bg-background/60 p-3">
-              <div className="flex items-center gap-2 font-medium">
-                <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-                2. Choose defaults
-              </div>
-              <div className="mt-1 text-muted-foreground">Pick team, agent, and route creation.</div>
-            </div>
-            <div className="rounded-md border border-teal-500/15 bg-background/60 p-3">
-              <div className="flex items-center gap-2 font-medium">
-                <CheckCircle2 className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-                3. Review
-              </div>
-              <div className="mt-1 text-muted-foreground">Confirm creates and preserves before applying.</div>
-            </div>
           </div>
           <div className="grid gap-2 rounded-md border border-teal-500/15 bg-background/60 p-3 text-xs md:grid-cols-2">
             <div>
-              <div className="text-muted-foreground">Current default team</div>
+              <div className="text-muted-foreground">Saved onboarding team</div>
               <code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code>
             </div>
             <div>
-              <div className="text-muted-foreground">Current default Dynamic Agent</div>
+              <div className="text-muted-foreground">Saved onboarding Dynamic Agent</div>
               <code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="slack-default-team">Default Team</Label>
+              <Label htmlFor="slack-default-team">Preselected Team</Label>
               <select
                 id="slack-default-team"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -934,7 +898,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 onChange={(event) => setDefaultTeamSlug(event.target.value)}
                 disabled={disabled || teams.length === 0}
               >
-                <option value="">{teams.length === 0 ? "No teams configured" : "Select default team"}</option>
+                <option value="">{teams.length === 0 ? "No teams configured" : "Select preselected team"}</option>
                 {teams.map((team) => (
                   <option key={team.slug || team.id || team._id} value={team.slug}>
                     {team.name || team.slug} ({team.slug})
@@ -943,7 +907,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="slack-default-agent">Default Dynamic Agent</Label>
+              <Label htmlFor="slack-default-agent">Preselected Dynamic Agent</Label>
               <select
                 id="slack-default-agent"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -952,7 +916,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 disabled={disabled || dynamicAgents.length === 0}
               >
                 <option value="">
-                  {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select default Dynamic Agent"}
+                  {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}
                 </option>
                 {dynamicAgents.map((agent) => (
                   <option key={agent._id} value={agent._id}>
@@ -964,77 +928,10 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           </div>
           {(teams.length === 0 || dynamicAgents.length === 0) && (
             <p className="text-xs text-muted-foreground">
-              Configure a team or Dynamic Agent in the admin UI, then use Refresh lists to reload this menu.
+              Configure a team or Dynamic Agent in the admin UI, then reload this page.
             </p>
           )}
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createDefaultRoutes}
-              onChange={(event) => setCreateDefaultRoutes(event.target.checked)}
-              disabled={disabled}
-            />
-            Create matching Slack routes for the default Dynamic Agent
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              onClick={applyMigrationDefaults}
-              disabled={disabled || loading || !defaultTeamSlug || !defaultAgentId || channels.length === 0}
-            >
-              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              {loading ? "Applying..." : "Apply Defaults to Managed Channels"}
-            </Button>
-            <Button type="button" variant="outline" onClick={refreshDefaults} disabled={disabled || loading}>
-              <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              Refresh lists
-            </Button>
-          </div>
         </div>
-
-        <Dialog open={migrationConfirmOpen} onOpenChange={setMigrationConfirmOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Apply Slack channel association defaults?</DialogTitle>
-              <DialogDescription>
-                This will update {channels.length} onboarded Slack channel{channels.length === 1 ? "" : "s"}.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 rounded-md border bg-muted/30 p-3 text-sm">
-              <div>
-                <span className="font-medium">Default team:</span>{" "}
-                <code>team:{defaultTeamSlug}</code>
-              </div>
-              <div>
-                <span className="font-medium">Default Dynamic Agent:</span>{" "}
-                <code>agent:{defaultAgentId}</code>
-              </div>
-              <div>
-                <span className="font-medium">Unassigned channels:</span>{" "}
-                {unassignedChannelCount}
-              </div>
-              <div>
-                <span className="font-medium">Routes:</span>{" "}
-                {createDefaultRoutes ? "Create matching Slack routes" : "Do not create Slack routes"}
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              This ensures channel grants and the default team grant in OpenFGA. Existing grants are left in place.
-            </p>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setMigrationConfirmOpen(false)}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button type="button" onClick={() => void confirmMigrationDefaults()} disabled={loading}>
-                {loading ? "Applying..." : "Apply defaults"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         <div
           role="region"
@@ -1276,198 +1173,58 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           )}
         </div>
 
-        <div
-          role="region"
-          aria-label="Step 1: Discover and Setup"
-          data-section-tone="sky"
-          data-section-order="1"
-          className="order-1 space-y-3 rounded-md border border-sky-500/25 bg-sky-500/5 p-4 text-sm"
-        >
-          <div>
-            <h3 className="text-base font-semibold tracking-tight">Step 1: Discover and Setup</h3>
-            <p className="text-xs text-muted-foreground">
-              Find Slack channels where the bot is already installed, then choose what to import.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void discoverDefaults()}
-              disabled={disabled || loading || discoverDefaultsLoading || !defaultTeamSlug || !defaultAgentId}
-            >
-              <Search className="h-4 w-4" aria-hidden="true" />
-              {discoverDefaultsLoading
-                ? "Finding Slack channels..."
-                : discoveredBotChannels.length > 0
-                  ? "Refresh Slack Channels with Bot Integration"
-                  : "Find Slack Channels with Bot Integration"}
-            </Button>
-            <span
-              role="status"
-              aria-label={discoveryStatusText}
-              className="text-xs text-muted-foreground"
-            >
-              {discoveryStatusText}
-            </span>
-          </div>
-          {(discoverDefaultsError || discoveredBotChannels.length > 0) && (
-            <>
-            <div>
-              <div className="font-medium">Review channels found by the bot</div>
-              <p className="text-xs text-muted-foreground">
-                Select channels to import, then choose team and Dynamic Agent per channel.
-              </p>
-            </div>
-            {discoverDefaultsError ? (
-              <div className="text-destructive">{discoverDefaultsError}</div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary">
-                    {pluralize(discoveredBotChannels.length, "bot-member channel")} discovered
-                  </Badge>
-                  <Badge variant="outline">
-                    {pluralize(discoveredNewChannelCount, "new channel")} new
-                  </Badge>
-                  <Badge variant="outline">
-                    {pluralize(selectedDiscoveredImportRows.length, "channel")} selected
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    Routes:{" "}
-                    {createDefaultRoutes
-                      ? "create missing defaults and preserve existing route metadata"
-                      : "do not create Slack routes"}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAllDiscoveredImportRowsSelected(true)}
-                    disabled={loading || discoveredImportRows.length === 0}
-                  >
-                    Select all
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAllDiscoveredImportRowsSelected(false)}
-                    disabled={loading || discoveredImportRows.length === 0}
-                  >
-                    Clear selection
-                  </Button>
-                </div>
-                <div className="max-h-[420px] overflow-auto rounded-md border bg-background/80">
-                  <div className="grid min-w-[760px] grid-cols-[minmax(220px,1fr)_190px_220px_110px] gap-3 border-b bg-sky-500/5 px-3 py-2 text-xs font-medium text-muted-foreground">
-                    <div>Channel</div>
-                    <div>Team</div>
-                    <div>Dynamic Agent</div>
-                    <div>Status</div>
-                  </div>
-                  {discoveredImportRows.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground">
-                      No bot-member channels were discovered.
-                    </div>
-                  ) : (
-                    discoveredImportRows.map((channel) => (
-                      <div
-                        key={channel.id}
-                        className="grid min-w-[760px] grid-cols-[minmax(220px,1fr)_190px_220px_110px] gap-3 border-b px-3 py-3 last:border-b-0"
-                      >
-                        <label className="flex items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            aria-label={`Import #${channel.name}`}
-                            checked={channel.selected}
-                            onChange={(event) =>
-                              updateDiscoveredImportRow(channel.id, {
-                                selected: event.target.checked,
-                              })
-                            }
-                            disabled={loading}
-                          />
-                          <span>
-                            <span className="font-medium">#{channel.name}</span>
-                            <span className="block text-xs text-muted-foreground">
-                              {channel.id}
-                              {typeof channel.num_members === "number"
-                                ? ` · ${pluralize(channel.num_members, "member")}`
-                                : ""}
-                            </span>
-                          </span>
-                        </label>
-                        <select
-                          aria-label={`Team for #${channel.name}`}
-                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                          value={channel.team_slug}
-                          onChange={(event) =>
-                            updateDiscoveredImportRow(channel.id, {
-                              team_slug: event.target.value,
-                            })
-                          }
-                          disabled={loading || !channel.selected}
-                        >
-                          {teams.map((team) => (
-                            <option key={team.slug} value={team.slug}>
-                              {team.name || team.slug}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          aria-label={`Dynamic Agent for #${channel.name}`}
-                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                          value={channel.agent_id}
-                          onChange={(event) =>
-                            updateDiscoveredImportRow(channel.id, {
-                              agent_id: event.target.value,
-                            })
-                          }
-                          disabled={loading || !channel.selected}
-                        >
-                          {dynamicAgents.map((agent) => (
-                            <option key={agent._id} value={agent._id}>
-                              {agent.name || agent._id}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="flex items-center">
-                          <Badge variant={channel.is_existing ? "outline" : "secondary"}>
-                            {channel.is_existing ? "Managed" : "New"}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="max-w-3xl text-xs text-muted-foreground">
-                Existing UI-managed or config-synced route metadata is preserved. This action imports only
-                selected channels, applies each selected row's team and agent, ensures channel grants, and
-                creates missing default routes when route creation is enabled.
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  onClick={() => void confirmMigrationDefaults(discoveredImportRows)}
-                  disabled={
-                    loading ||
-                    Boolean(discoverDefaultsError) ||
-                    selectedDiscoveredImportRows.length === 0
-                  }
-                >
-                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                  {loading ? "Applying..." : "Apply discovered defaults"}
-                </Button>
-              </div>
-            </div>
-            </>
-          )}
-        </div>
+        <ConnectorOnboardingWizard
+          connectorName="Slack"
+          itemSingular="channel"
+          itemPlural="channels"
+          discoveredLabel="bot-member channel"
+          findLabel="Find Slack Channels with Bot Integration"
+          refreshLabel="Refresh Slack Channels with Bot Integration"
+          loadingLabel="Finding Slack channels..."
+          emptyLabel="No bot-member channels were discovered."
+          description="Find Slack channels where the bot is already installed, then choose what to import."
+          discoveryStatusText={discoveryStatusText}
+          discoveredCount={discoveredBotChannels.length}
+          newCount={discoveredNewChannelCount}
+          selectedCount={selectedDiscoveredImportRows.length}
+          routeModeDescription={
+            createDefaultRoutes
+              ? "create missing defaults and preserve existing route metadata"
+              : "do not create Slack routes"
+          }
+          rows={discoveredImportRows.map((channel) => ({
+            id: channel.id,
+            name: `#${channel.name}`,
+            secondary: [
+              channel.id,
+              typeof channel.num_members === "number" ? pluralize(channel.num_members, "member") : "",
+            ].filter(Boolean).join(" · "),
+            selected: channel.selected,
+            teamSlug: channel.team_slug,
+            agentId: channel.agent_id,
+            isExisting: channel.is_existing,
+            importLabel: `Import #${channel.name}`,
+            teamLabel: `Team for #${channel.name}`,
+            agentLabel: `Dynamic Agent for #${channel.name}`,
+          }))}
+          teams={teams.map((team) => ({ value: team.slug, label: team.name || team.slug }))}
+          agents={dynamicAgents.map((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+          error={discoverDefaultsError}
+          disabled={disabled}
+          loading={loading}
+          discovering={discoverDefaultsLoading}
+          onDiscover={() => void discoverDefaults()}
+          onSelectAll={() => setAllDiscoveredImportRowsSelected(true)}
+          onClearSelection={() => setAllDiscoveredImportRowsSelected(false)}
+          onRowChange={(channelId, updates) =>
+            updateDiscoveredImportRow(channelId, {
+              ...(typeof updates.selected === "boolean" ? { selected: updates.selected } : {}),
+              ...(typeof updates.teamSlug === "string" ? { team_slug: updates.teamSlug } : {}),
+              ...(typeof updates.agentId === "string" ? { agent_id: updates.agentId } : {}),
+            })
+          }
+          onApply={() => void confirmMigrationDefaults(discoveredImportRows)}
+        />
 
         <Dialog
           open={Boolean(routePendingDelete)}

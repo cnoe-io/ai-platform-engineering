@@ -49,6 +49,9 @@ real values in chart values:
 | `config.CAIPE_API_URL` | string | `http://ai-platform-engineering-caipe-ui:3000` | CAIPE UI/BFF URL used for access checks |
 | `config.WEBEX_WORKSPACE_ALIAS` | string | `CAIPE-WEBEX` | Trusted Webex policy namespace alias |
 | `config.WEBEX_AGENT_ROUTES_MODE` | string | `db_prefer` | Route source mode: `config`, `db_prefer`, or `db_only` |
+| `config.WEBEX_THREAD_CONTEXT_ENABLED` | string | `true` | Include bounded prior Webex thread context in agent prompts |
+| `config.WEBEX_THREAD_CONTEXT_MAX_MESSAGES` | string | `10` | Maximum prior thread messages fetched from Webex, including the root message when present |
+| `config.WEBEX_THREAD_CONTEXT_MAX_CHARS` | string | `4000` | Maximum formatted thread-context characters sent to agents |
 | `config.WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES` | string | `false` | Opt-in first-message auto-assignment for unmapped spaces |
 | `config.WEBEX_ADMIN_API_ENABLED` | string | `false` | Enables internal bot admin API |
 | `config.WEBEX_ADMIN_JWT_AUDIENCE` | string | `caipe-webex-bot-admin` | Required JWT audience for admin API calls |

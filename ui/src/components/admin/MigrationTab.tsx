@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Copy,
   Database,
   Download,
   Loader2,
@@ -16,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type MigrationKind = "implicit" | "explicit" | "index";
 type MigrationStatus = "not_started" | "planned" | "running" | "completed" | "failed";
@@ -32,6 +34,34 @@ interface MigrationListItem {
   implemented: boolean;
   required: boolean;
   confirmation: string;
+}
+
+interface MigrationSchemaVersion {
+  schema_area: string;
+  current_version: number | null;
+  target_version: number | null;
+  status: "current" | "behind" | "unknown";
+}
+
+interface MigrationRuntime {
+  migration_release: string;
+  manifest_count: number;
+}
+
+interface MigrationListResponse {
+  release: string;
+  runtime: MigrationRuntime;
+  schema_versions: MigrationSchemaVersion[];
+  migrations: MigrationListItem[];
+  completed_migrations: MigrationListItem[];
+}
+
+interface MigrationBlockingStatus {
+  pending_required_count: number;
+  blocking_required_count: number;
+  is_blocking: boolean;
+  override_active: boolean;
+  override_reason?: string;
 }
 
 interface MigrationPlan {
@@ -69,34 +99,81 @@ function kindTone(kind: MigrationKind): "default" | "secondary" | "outline" {
   return "default";
 }
 
+function formatVersion(version: number | null): string {
+  return typeof version === "number" ? `v${version}` : "unknown";
+}
+
+function formatVersionRange(current: number | null, target: number | null): string {
+  if (target === null) return formatVersion(current);
+  return `${formatVersion(current)} -> ${formatVersion(target)}`;
+}
+
+function statusColorClass(status: MigrationStatus | MigrationSchemaVersion["status"]): string {
+  if (status === "completed" || status === "current") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  }
+  if (status === "failed") {
+    return "border-red-300 bg-red-50 text-red-700";
+  }
+  if (status === "behind" || status === "running" || status === "planned") {
+    return "border-amber-300 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-300 bg-slate-50 text-slate-700";
+}
+
+function schemaStatusIconClass(status: MigrationSchemaVersion["status"]): string {
+  if (status === "current") return "text-emerald-600";
+  if (status === "behind") return "text-amber-600";
+  return "text-slate-500";
+}
+
 export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const [release, setRelease] = useState("0.5.1");
+  const [runtime, setRuntime] = useState<MigrationRuntime | null>(null);
+  const [schemaVersions, setSchemaVersions] = useState<MigrationSchemaVersion[]>([]);
   const [migrations, setMigrations] = useState<MigrationListItem[]>([]);
+  const [completedMigrations, setCompletedMigrations] = useState<MigrationListItem[]>([]);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [plan, setPlan] = useState<MigrationPlan | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [copiedConfirmation, setCopiedConfirmation] = useState(false);
   const [applyResult, setApplyResult] = useState<MigrationApplyResult | null>(null);
+  const [blockingStatus, setBlockingStatus] = useState<MigrationBlockingStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const visibleMigrations = useMemo(
+    () => (showCompleted ? [...migrations, ...completedMigrations] : migrations),
+    [completedMigrations, migrations, showCompleted],
+  );
+
   const selectedMigration = useMemo(
-    () => migrations.find((migration) => migration.id === selectedId) ?? migrations[0] ?? null,
-    [migrations, selectedId],
+    () => visibleMigrations.find((migration) => migration.id === selectedId) ?? visibleMigrations[0] ?? null,
+    [selectedId, visibleMigrations],
   );
 
   const loadMigrations = useCallback(async (options: { keepSelection?: boolean } = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await readJson<{ release: string; migrations: MigrationListItem[] }>(
-        await fetch("/api/admin/rebac/migrations"),
-      );
+      const [data, status] = await Promise.all([
+        fetch("/api/admin/rebac/migrations").then((response) => readJson<MigrationListResponse>(response)),
+        fetch("/api/admin/rebac/migrations/status")
+          .then((response) => readJson<MigrationBlockingStatus>(response))
+          .catch(() => null),
+      ]);
       setRelease(data.release);
+      setRuntime(data.runtime);
+      setSchemaVersions(data.schema_versions ?? []);
       setMigrations(data.migrations);
+      setCompletedMigrations(data.completed_migrations ?? []);
+      setBlockingStatus(status);
       setSelectedId((current) => {
-        if (options.keepSelection && current && data.migrations.some((migration) => migration.id === current)) {
+        const selectable = [...data.migrations, ...(data.completed_migrations ?? [])];
+        if (options.keepSelection && current && selectable.some((migration) => migration.id === current)) {
           return current;
         }
         return data.migrations[0]?.id ?? null;
@@ -137,6 +214,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     setPlan(null);
     setApplyResult(null);
     setConfirmation("");
+    setCopiedConfirmation(false);
     setError(null);
     setPlanning(true);
     try {
@@ -164,6 +242,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
         }),
       );
       setApplyResult(data);
+      await loadMigrations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply migration");
     } finally {
@@ -172,6 +251,12 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   }
 
   const canApply = Boolean(plan && selectedMigration && confirmation === selectedMigration.confirmation && !applying);
+
+  async function copyConfirmationText() {
+    if (!plan) return;
+    await navigator.clipboard?.writeText(plan.confirmation);
+    setCopiedConfirmation(true);
+  }
 
   return (
     <div className="space-y-4">
@@ -195,6 +280,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               setPlan(null);
               setApplyResult(null);
               setConfirmation("");
+              setCopiedConfirmation(false);
               loadMigrations({ keepSelection: true }).catch((err) =>
                 setError(err instanceof Error ? err.message : "Failed to refresh migrations"),
               );
@@ -205,6 +291,47 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             Refresh migrations
           </Button>
         </CardHeader>
+      </Card>
+
+      {blockingStatus?.override_active && (
+        <Card className="border-amber-300/60 bg-amber-50">
+          <CardContent className="flex items-center gap-2 pt-6 text-sm text-amber-900">
+            <ShieldAlert className="h-4 w-4" />
+            Migration override active{blockingStatus.override_reason ? `: ${blockingStatus.override_reason}` : ""}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Runtime and DB Versions</CardTitle>
+          <CardDescription>
+            Runtime migration release: {runtime?.migration_release ?? release}. DB schema areas are versioned independently.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {schemaVersions.map((schema) => (
+            <div
+              key={schema.schema_area}
+              className="rounded-lg border bg-card/60 p-3 text-sm"
+            >
+              <div className="flex items-center gap-2 font-medium">
+                {schema.status === "current" ? (
+                  <CheckCircle2 className={cn("h-4 w-4", schemaStatusIconClass(schema.status))} />
+                ) : (
+                  <AlertCircle className={cn("h-4 w-4", schemaStatusIconClass(schema.status))} />
+                )}
+                <span>{schema.schema_area}</span>
+              </div>
+              <div className="text-current/70">
+                {formatVersionRange(schema.current_version, schema.target_version)}
+              </div>
+              <Badge variant="outline" className={cn("mt-1", statusColorClass(schema.status))}>
+                {schema.status}
+              </Badge>
+            </div>
+          ))}
+        </CardContent>
       </Card>
 
       {error && (
@@ -226,7 +353,20 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
           <div className="space-y-3">
-            {migrations.map((migration) => (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={showCompleted}
+                onChange={(event) => setShowCompleted(event.target.checked)}
+              />
+              Show completed migrations ({completedMigrations.length})
+            </label>
+            {visibleMigrations.length === 0 && (
+              <Card>
+                <CardContent className="pt-6 text-sm text-muted-foreground">No active migrations.</CardContent>
+              </Card>
+            )}
+            {visibleMigrations.map((migration) => (
               <Card
                 key={migration.id}
                 className={migration.id === selectedMigration?.id ? "border-primary/60" : undefined}
@@ -251,13 +391,15 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       <Badge variant={migration.implemented ? "default" : "outline"}>
                         {migration.implemented ? "ready" : "registered"}
                       </Badge>
-                      <Badge variant="outline">{migration.status.replace(/_/g, " ")}</Badge>
+                      <Badge variant="outline" className={statusColorClass(migration.status)}>
+                        {migration.status.replace(/_/g, " ")}
+                      </Badge>
                     </div>
                   </div>
                   <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
                     <span>Area: {migration.schema_area}</span>
-                    <span>Current: {migration.current_version ?? "unknown"}</span>
-                    <span>Target: {migration.target_version}</span>
+                    <span>Current: {formatVersion(migration.current_version)}</span>
+                    <span>Target: {formatVersion(migration.target_version)}</span>
                   </div>
                   {migration.status === "completed" && (
                     <label className="flex w-fit items-center gap-2 rounded-md border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900">
@@ -346,7 +488,27 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                     <label htmlFor="migration-confirmation" className="text-sm font-medium">
                       Type confirmation
                     </label>
-                    <code className="block rounded bg-muted px-2 py-1 text-xs">{plan.confirmation}</code>
+                    <div className="flex items-center gap-2">
+                      <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1 text-xs">
+                        {plan.confirmation}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={
+                          copiedConfirmation ? "Copied confirmation text" : "Copy confirmation text"
+                        }
+                        onClick={copyConfirmationText}
+                      >
+                        {copiedConfirmation ? (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        ) : (
+                          <Copy className="mr-2 h-4 w-4" />
+                        )}
+                        {copiedConfirmation ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
                     <Input
                       id="migration-confirmation"
                       value={confirmation}

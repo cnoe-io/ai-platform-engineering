@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle2,
   FileUp,
   RefreshCw,
   RotateCw,
-  Search,
   Settings2,
   Sparkles,
 } from "lucide-react";
@@ -22,9 +20,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 
 interface WebexSpaceSummary {
   workspace_id: string;
@@ -90,11 +88,6 @@ interface WebexSpaceAssociationDefaults {
   create_routes?: boolean;
 }
 
-interface ManualWebexSpaceInput {
-  id: string;
-  name?: string;
-}
-
 interface WebexBotRuntimeStatus {
   route_mode: string;
   static_config: {
@@ -105,6 +98,11 @@ interface WebexBotRuntimeStatus {
     ttl_seconds: number;
     cache_size: number;
     cached_spaces?: string[];
+  };
+  thread_context?: {
+    enabled: boolean;
+    max_messages: number;
+    max_chars: number;
   };
   last_sync?: WebexBotRuntimeSyncSummary | null;
 }
@@ -130,12 +128,6 @@ interface WebexSpaceImportRow extends DiscoveredWebexSpace {
   team_slug: string;
   agent_id: string;
   is_existing: boolean;
-}
-
-function isWebexSpaceImportRow(
-  space: ManualWebexSpaceInput | WebexSpaceImportRow
-): space is WebexSpaceImportRow {
-  return "selected" in space && "team_slug" in space && "agent_id" in space;
 }
 
 interface WebexSpaceDiscoveryPayload {
@@ -169,10 +161,10 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function normalizeRoutePriority(value: number): number {
-  if (!Number.isFinite(value)) return 100;
-  const rounded = Math.floor(value);
-  return rounded >= 0 ? rounded : 100;
+function threadContextLabel(status: WebexBotRuntimeStatus | null): string {
+  const context = status?.thread_context;
+  if (!context) return "unknown";
+  return `${context.enabled ? "Enabled" : "Disabled"}, ${context.max_messages} messages / ${context.max_chars} chars`;
 }
 
 async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -207,9 +199,6 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
   const [diagnostics, setDiagnostics] = useState<WebexRuntimeDiagnostics | null>(null);
   const [dynamicAgents, setDynamicAgents] = useState<DynamicAgentOption[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [routeAgentId, setRouteAgentId] = useState("");
-  const [editingRouteAgentId, setEditingRouteAgentId] = useState<string | null>(null);
-  const [routePendingDelete, setRoutePendingDelete] = useState<WebexSpaceAgentRoute | null>(null);
   const [defaultTeamSlug, setDefaultTeamSlug] = useState("");
   const [defaultAgentId, setDefaultAgentId] = useState("");
   const [configuredDefaults, setConfiguredDefaults] = useState<WebexSpaceAssociationDefaults | null>(null);
@@ -224,15 +213,8 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
   const [discoverDefaultsError, setDiscoverDefaultsError] = useState<string | null>(null);
   const [discoveredBotSpaces, setDiscoveredBotSpaces] = useState<DiscoveredWebexSpace[]>([]);
   const [discoveredImportRows, setDiscoveredImportRows] = useState<WebexSpaceImportRow[]>([]);
-  const [routeListen, setRouteListen] = useState<"message" | "mention" | "all">("mention");
-  const [routePriority, setRoutePriority] = useState(100);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [migrationConfirmOpen, setMigrationConfirmOpen] = useState(false);
-  const [manualSpaceConfirmOpen, setManualSpaceConfirmOpen] = useState(false);
-  const [manualSpaceId, setManualSpaceId] = useState("");
-  const [manualSpaceName, setManualSpaceName] = useState("");
-  const previousSelectedKeyRef = useRef("");
 
   const selected = useMemo(
     () => spaces.find((space) => `${space.workspace_id}/${space.space_id}` === selectedKey),
@@ -261,12 +243,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
         : `${spaces.length} managed in CAIPE`;
     return `${base} · ${unassignedSpaceCount} missing team`;
   }, [discoveredBotSpaces.length, discoveredNewSpaceCount, spaces.length, unassignedSpaceCount]);
-  const missingAssociationAutoFixAgentId = (
-    routeAgentId.trim() ||
-    defaultAgentId ||
-    configuredDefaults?.agent_id ||
-    ""
-  ).trim();
+  const missingAssociationAutoFixAgentId = (defaultAgentId || configuredDefaults?.agent_id || "").trim();
   const diagnosticsMissingRouteableAgent = Boolean(
     diagnostics?.openfga.reachable &&
     diagnostics.openfga.tuple_count === 0 &&
@@ -387,74 +364,6 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     );
   }, [loadDiagnostics]);
 
-  const resetRouteForm = () => {
-    setRouteAgentId("");
-    setRouteListen("mention");
-    setRoutePriority(100);
-    setEditingRouteAgentId(null);
-  };
-
-  useEffect(() => {
-    if (!selectedKey) return;
-    if (previousSelectedKeyRef.current && previousSelectedKeyRef.current !== selectedKey) {
-      resetRouteForm();
-    }
-    previousSelectedKeyRef.current = selectedKey;
-  }, [selectedKey]);
-
-  const editRoute = (route: WebexSpaceAgentRoute) => {
-    setRouteAgentId(route.agent_id);
-    setRouteListen(route.users?.listen ?? "mention");
-    setRoutePriority(normalizeRoutePriority(route.priority ?? 100));
-    setEditingRouteAgentId(route.agent_id);
-  };
-
-  const saveRoute = async () => {
-    if (!selected || !routeAgentId.trim()) return;
-    const priority = normalizeRoutePriority(routePriority);
-    setLoading(true);
-    setMessage(null);
-    try {
-      const agentId = routeAgentId.trim();
-      const nextRoutes = [
-        ...routes.filter(
-          (route) => route.agent_id !== agentId && route.agent_id !== editingRouteAgentId
-        ),
-        {
-          agent_id: agentId,
-          enabled: true,
-          priority,
-          users: { enabled: true, listen: routeListen },
-        },
-      ];
-      const response = await fetch(
-        `/api/admin/webex/spaces/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.space_id)}/routes`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ routes: nextRoutes }),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(await responseErrorMessage(response, "Failed to save Webex association"));
-      }
-      const data = apiData<{ routes: WebexSpaceAgentRoute[] }>(await response.json());
-      setRoutes(data.routes ?? []);
-      resetRouteForm();
-      toast(
-        editingRouteAgentId
-          ? "Webex space-agent association updated."
-          : "Webex space-agent association created.",
-        "success"
-      );
-      await Promise.all([loadSpaces(), loadDiagnostics()]);
-    } catch (error) {
-      setMessage(webexAssociationErrorMessage(error, "Failed to save Webex association"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fixMissingRouteableAgent = async () => {
     if (!selected) return;
     const agentId = missingAssociationAutoFixAgentId;
@@ -470,7 +379,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
         {
           agent_id: agentId,
           enabled: true,
-          priority: normalizeRoutePriority(routePriority),
+          priority: 100,
           users: { enabled: true, listen: "all" as const },
         },
       ];
@@ -487,53 +396,10 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
       }
       const data = apiData<{ routes: WebexSpaceAgentRoute[] }>(await response.json());
       setRoutes(data.routes ?? []);
-      setRouteAgentId("");
-      setRouteListen("mention");
-      setRoutePriority(100);
       await Promise.all([loadSpaces(), loadRoutes(), loadDiagnostics()]);
       toast(`Created Webex association for agent:${agentId}.`, "success");
     } catch (error) {
       setMessage(webexAssociationErrorMessage(error, "Failed to auto-fix Webex association"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteRoute = async () => {
-    if (!selected || !routePendingDelete) return;
-    setLoading(true);
-    setMessage(null);
-    try {
-      const response = await fetch(
-        `/api/admin/webex/spaces/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.space_id)}/routes`,
-        {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agent_id: routePendingDelete.agent_id }),
-        }
-      );
-      if (!response.ok) throw new Error(await response.text());
-      if (editingRouteAgentId === routePendingDelete.agent_id) {
-        resetRouteForm();
-      }
-      setRoutePendingDelete(null);
-      await Promise.all([loadSpaces(), loadRoutes(), loadDiagnostics()]);
-      toast("Webex space-agent association deleted.", "success");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to delete Webex association");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const refreshDefaults = async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      await Promise.all([loadSpaces(), loadDynamicAgents(), loadTeams(), loadAssociationDefaults()]);
-      toast("Webex space association default lists refreshed.", "success");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to refresh Webex space association defaults");
     } finally {
       setLoading(false);
     }
@@ -608,16 +474,6 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     }
   };
 
-  const applyMigrationDefaults = () => {
-    if (!defaultTeamSlug || !defaultAgentId) return;
-    setMigrationConfirmOpen(true);
-  };
-
-  const applyManualSpaceDefaults = () => {
-    if (!defaultTeamSlug || !defaultAgentId || !manualSpaceId.trim()) return;
-    setManualSpaceConfirmOpen(true);
-  };
-
   const fetchBotSpaces = async (): Promise<DiscoveredWebexSpace[]> => {
     const discovered: DiscoveredWebexSpace[] = [];
     let cursor: string | null | undefined;
@@ -685,31 +541,19 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     setDiscoveredImportRows((rows) => rows.map((row) => ({ ...row, selected })));
   };
 
-  const confirmMigrationDefaults = async (
-    manualSpaces: ManualWebexSpaceInput[] | WebexSpaceImportRow[] = []
-  ) => {
-    const selectedImports = manualSpaces.filter((space) =>
-      isWebexSpaceImportRow(space) ? space.selected : true
-    );
-    const hasDiscoveredImports = selectedImports.some(isWebexSpaceImportRow);
+  const confirmMigrationDefaults = async (spacesToImport: WebexSpaceImportRow[] = []) => {
+    const selectedImports = spacesToImport.filter((space) => space.selected);
     const hasRowDefaults = selectedImports.every(
-      (space) =>
-        !isWebexSpaceImportRow(space) || (Boolean(space.team_slug) && Boolean(space.agent_id))
+      (space) => Boolean(space.team_slug) && Boolean(space.agent_id)
     );
-    if (hasDiscoveredImports) {
-      if (!hasRowDefaults || selectedImports.length === 0) return;
-    } else if (!defaultTeamSlug || !defaultAgentId) {
-      return;
-    }
+    if (!hasRowDefaults || selectedImports.length === 0) return;
     setLoading(true);
     setMessage(null);
     try {
-      const groupedImports = new Map<string, ManualWebexSpaceInput[]>();
+      const groupedImports = new Map<string, Array<{ id: string; name?: string }>>();
       selectedImports.forEach((space) => {
-        const teamSlug =
-          isWebexSpaceImportRow(space) && space.team_slug ? space.team_slug : defaultTeamSlug;
-        const agentId =
-          isWebexSpaceImportRow(space) && space.agent_id ? space.agent_id : defaultAgentId;
+        const teamSlug = space.team_slug;
+        const agentId = space.agent_id;
         const groupKey = `${teamSlug}\u0000${agentId}`;
         const current = groupedImports.get(groupKey) ?? [];
         current.push({
@@ -773,26 +617,16 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
         loadDiagnostics(),
         loadAssociationDefaults(),
       ]);
-      if (manualSpaces.length > 0 && !hasDiscoveredImports) {
-        setManualSpaceId("");
-        setManualSpaceName("");
-        setManualSpaceConfirmOpen(false);
-        toast(
-          `Webex manual space defaults applied: onboarded ${summary.spaces_onboarded ?? 0} spaces, ensured ${summary.space_grants_ensured} space grants, ensured ${summary.routes_ensured} routes, preserved ${summary.routes_preserved ?? 0} existing routes.`,
-          "success"
-        );
-      } else if (hasDiscoveredImports) {
-        toast(
-          `Discovered Webex spaces applied: onboarded ${summary.spaces_onboarded ?? 0} spaces, assigned ${summary.spaces_assigned_team} spaces, ensured ${summary.space_grants_ensured} space grants, ensured ${summary.routes_ensured} routes, preserved ${summary.routes_preserved ?? 0} existing routes.`,
-          "success"
-        );
-      } else {
-        toast(
-          `Webex space association defaults applied: assigned ${summary.spaces_assigned_team} spaces, ensured ${summary.space_grants_ensured} space grants, ensured ${summary.routes_ensured} routes.`,
-          "success"
-        );
-      }
-      setMigrationConfirmOpen(false);
+      const selectedImportIds = new Set(selectedImports.map((space) => space.id));
+      setDiscoveredImportRows((rows) =>
+        rows.map((row) =>
+          selectedImportIds.has(row.id) ? { ...row, is_existing: true, selected: false } : row
+        )
+      );
+      toast(
+        `Discovered Webex spaces applied: onboarded ${summary.spaces_onboarded ?? 0} spaces, assigned ${summary.spaces_assigned_team} spaces, ensured ${summary.space_grants_ensured} space grants, ensured ${summary.routes_ensured} routes, preserved ${summary.routes_preserved ?? 0} existing routes.`,
+        "success"
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to apply Webex space association defaults");
     } finally {
@@ -886,7 +720,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
               bot's static YAML space config into MongoDB/OpenFGA.
             </p>
           </div>
-          <div className="grid gap-2 text-sm md:grid-cols-3">
+          <div className="grid gap-2 text-sm md:grid-cols-4">
             <div className="rounded-md border bg-background/60 p-3">
               <div className="text-xs text-muted-foreground">Route mode</div>
               <div className="font-medium">{webexRuntimeStatus?.route_mode ?? "unknown"}</div>
@@ -910,6 +744,10 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                 TTL {webexRuntimeStatus?.route_cache.ttl_seconds ?? "?"}s
               </div>
             </div>
+            <div className="rounded-md border bg-background/60 p-3">
+              <div className="text-xs text-muted-foreground">Thread context</div>
+              <div className="font-medium">{threadContextLabel(webexRuntimeStatus)}</div>
+            </div>
           </div>
           <div
             role="region"
@@ -927,6 +765,10 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
             <div>
               <span className="font-medium text-foreground">Route cache:</span>{" "}
               shows cached runtime space routes and how soon they expire.
+            </div>
+            <div>
+              <span className="font-medium text-foreground">Thread context:</span>{" "}
+              shows whether the bot sends bounded prior Webex thread messages to the selected agent.
             </div>
             <div>
               <span className="font-medium text-foreground">Refresh Runtime Status:</span>{" "}
@@ -1068,202 +910,63 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           </DialogContent>
         </Dialog>
 
-        <div
-          role="region"
-          aria-label="Step 1: Discover and Setup"
-          data-section-tone="sky"
-          data-section-order="1"
-          className="order-1 space-y-3 rounded-md border border-sky-500/25 bg-sky-500/5 p-4 text-sm"
-        >
-          <div>
-            <h3 className="text-base font-semibold tracking-tight">Step 1: Discover and Setup</h3>
-            <p className="text-xs text-muted-foreground">
-              Find Webex spaces where the bot is already installed, then choose what to import.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void discoverDefaults()}
-              disabled={disabled || loading || discoverDefaultsLoading}
-            >
-              <Search className="h-4 w-4" aria-hidden="true" />
-              {discoverDefaultsLoading
-                ? "Finding Webex spaces..."
-                : discoveredBotSpaces.length > 0
-                  ? "Refresh Webex Spaces with Bot Integration"
-                  : "Find Webex Spaces with Bot Integration"}
-            </Button>
-            <span
-              role="status"
-              aria-label={discoveryStatusText}
-              className="text-xs text-muted-foreground"
-            >
-              {discoveryStatusText}
-            </span>
-          </div>
-          {(discoverDefaultsError || discoveredBotSpaces.length > 0) && (
-            <>
-              <div>
-                <div className="font-medium">Review spaces found by the bot</div>
-                <p className="text-xs text-muted-foreground">
-                  Select spaces to import, then choose team and Dynamic Agent per space.
-                </p>
-              </div>
-              {discoverDefaultsError ? (
-                <div className="text-destructive">{discoverDefaultsError}</div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary">
-                      {pluralize(discoveredBotSpaces.length, "bot-visible space")} discovered
-                    </Badge>
-                    <Badge variant="outline">
-                      {pluralize(discoveredNewSpaceCount, "new space")} new
-                    </Badge>
-                    <Badge variant="outline">
-                      {pluralize(selectedDiscoveredImportRows.length, "space")} selected
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      Routes:{" "}
-                      {createDefaultRoutes
-                        ? "create missing defaults and preserve existing route metadata"
-                        : "do not create Webex routes"}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAllDiscoveredImportRowsSelected(true)}
-                      disabled={loading || discoveredImportRows.length === 0}
-                    >
-                      Select all
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAllDiscoveredImportRowsSelected(false)}
-                      disabled={loading || discoveredImportRows.length === 0}
-                    >
-                      Clear selection
-                    </Button>
-                  </div>
-                  <div className="max-h-[420px] overflow-auto rounded-md border bg-background/80">
-                    <div className="grid min-w-[760px] grid-cols-[minmax(220px,1fr)_190px_220px_110px] gap-3 border-b bg-sky-500/5 px-3 py-2 text-xs font-medium text-muted-foreground">
-                      <div>Space</div>
-                      <div>Team</div>
-                      <div>Dynamic Agent</div>
-                      <div>Status</div>
-                    </div>
-                    {discoveredImportRows.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-muted-foreground">
-                        No bot-visible Webex spaces were discovered.
-                      </div>
-                    ) : (
-                      discoveredImportRows.map((space) => (
-                        <div
-                          key={space.id}
-                          className="grid min-w-[760px] grid-cols-[minmax(220px,1fr)_190px_220px_110px] gap-3 border-b px-3 py-3 last:border-b-0"
-                        >
-                          <label className="flex items-start gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              aria-label={`Import ${space.name}`}
-                              checked={space.selected}
-                              onChange={(event) =>
-                                updateDiscoveredImportRow(space.id, {
-                                  selected: event.target.checked,
-                                })
-                              }
-                              disabled={loading}
-                            />
-                            <span>
-                              <span className="font-medium">{space.name}</span>
-                              <span className="block text-xs text-muted-foreground">
-                                {space.id}
-                                {space.type ? ` · ${space.type}` : ""}
-                                {space.is_locked ? " · locked" : ""}
-                              </span>
-                            </span>
-                          </label>
-                          <select
-                            aria-label={`Team for ${space.name}`}
-                            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                            value={space.team_slug}
-                            onChange={(event) =>
-                              updateDiscoveredImportRow(space.id, {
-                                team_slug: event.target.value,
-                              })
-                            }
-                            disabled={loading || !space.selected}
-                          >
-                            {teams.map((team) => (
-                              <option key={team.slug} value={team.slug}>
-                                {team.name || team.slug}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            aria-label={`Dynamic Agent for ${space.name}`}
-                            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                            value={space.agent_id}
-                            onChange={(event) =>
-                              updateDiscoveredImportRow(space.id, {
-                                agent_id: event.target.value,
-                              })
-                            }
-                            disabled={loading || !space.selected}
-                          >
-                            {dynamicAgents.map((agent) => (
-                              <option key={agent._id} value={agent._id}>
-                                {agent.name || agent._id}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex items-center">
-                            <Badge variant={space.is_existing ? "outline" : "secondary"}>
-                              {space.is_existing ? "Managed" : "New"}
-                            </Badge>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
-              )}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="max-w-3xl text-xs text-muted-foreground">
-                  Existing UI-managed or config-synced route metadata is preserved. This action imports only
-                  selected spaces, applies each selected row's team and agent, ensures space grants, and
-                  creates missing default routes when route creation is enabled.
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => void confirmMigrationDefaults(discoveredImportRows)}
-                    disabled={
-                      loading ||
-                      Boolean(discoverDefaultsError) ||
-                      selectedDiscoveredImportRows.length === 0 ||
-                      selectedDiscoveredImportRows.some((space) => !space.team_slug || !space.agent_id)
-                    }
-                  >
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    {loading ? "Applying..." : "Apply discovered defaults"}
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <ConnectorOnboardingWizard
+          connectorName="Webex"
+          itemSingular="space"
+          itemPlural="spaces"
+          discoveredLabel="bot-visible space"
+          findLabel="Find Webex Spaces with Bot Integration"
+          refreshLabel="Refresh Webex Spaces with Bot Integration"
+          loadingLabel="Finding Webex spaces..."
+          emptyLabel="No bot-visible Webex spaces were discovered."
+          description="Find Webex spaces where the bot is already installed, then choose what to import."
+          discoveryStatusText={discoveryStatusText}
+          discoveredCount={discoveredBotSpaces.length}
+          newCount={discoveredNewSpaceCount}
+          selectedCount={selectedDiscoveredImportRows.length}
+          routeModeDescription={
+            createDefaultRoutes
+              ? "create missing defaults and preserve existing route metadata"
+              : "do not create Webex routes"
+          }
+          rows={discoveredImportRows.map((space) => ({
+            id: space.id,
+            name: space.name,
+            secondary: [
+              space.id,
+              space.type,
+              space.is_locked ? "locked" : "",
+            ].filter(Boolean).join(" · "),
+            selected: space.selected,
+            teamSlug: space.team_slug,
+            agentId: space.agent_id,
+            isExisting: space.is_existing,
+            importLabel: `Import ${space.name}`,
+            teamLabel: `Team for ${space.name}`,
+            agentLabel: `Dynamic Agent for ${space.name}`,
+          }))}
+          teams={teams.map((team) => ({ value: team.slug, label: team.name || team.slug }))}
+          agents={dynamicAgents.map((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+          error={discoverDefaultsError}
+          disabled={disabled}
+          loading={loading}
+          discovering={discoverDefaultsLoading}
+          onDiscover={() => void discoverDefaults()}
+          onSelectAll={() => setAllDiscoveredImportRowsSelected(true)}
+          onClearSelection={() => setAllDiscoveredImportRowsSelected(false)}
+          onRowChange={(spaceId, updates) =>
+            updateDiscoveredImportRow(spaceId, {
+              ...(typeof updates.selected === "boolean" ? { selected: updates.selected } : {}),
+              ...(typeof updates.teamSlug === "string" ? { team_slug: updates.teamSlug } : {}),
+              ...(typeof updates.agentId === "string" ? { agent_id: updates.agentId } : {}),
+            })
+          }
+          onApply={() => void confirmMigrationDefaults(discoveredImportRows)}
+        />
 
         <div
           role="region"
-          aria-label="[Optional] Global Space Defaults"
+          aria-label="Onboarding Default Selection"
           data-section-tone="teal"
           data-section-order="3"
           className="order-3 rounded-md border border-teal-500/25 bg-teal-500/5 p-4 space-y-4"
@@ -1271,26 +974,25 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           <div>
             <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
               <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-              [Optional] Global Space Defaults
+              Onboarding Default Selection
             </h3>
             <p className="text-xs text-muted-foreground">
-              Use this to assign unconfigured Webex spaces to the configured default team
-              and grant onboarded spaces access to the configured default Dynamic Agent.
+              Only changes what is preselected when you onboard spaces. Each space still needs an explicit setup action.
             </p>
           </div>
           <div className="grid gap-2 rounded-md border bg-muted/20 p-3 text-xs md:grid-cols-2">
             <div>
-              <div className="text-muted-foreground">Current default team</div>
+              <div className="text-muted-foreground">Saved onboarding team</div>
               <code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code>
             </div>
             <div>
-              <div className="text-muted-foreground">Current default Dynamic Agent</div>
+              <div className="text-muted-foreground">Saved onboarding Dynamic Agent</div>
               <code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="webex-default-team">Default Team</Label>
+              <Label htmlFor="webex-default-team">Preselected Team</Label>
               <select
                 id="webex-default-team"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1298,7 +1000,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                 onChange={(event) => setDefaultTeamSlug(event.target.value)}
                 disabled={disabled || teams.length === 0}
               >
-                <option value="">{teams.length === 0 ? "No teams configured" : "Select default team"}</option>
+                <option value="">{teams.length === 0 ? "No teams configured" : "Select preselected team"}</option>
                 {teams.map((team) => (
                   <option key={team.slug || team.id || team._id} value={team.slug}>
                     {team.name || team.slug} ({team.slug})
@@ -1307,7 +1009,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="webex-default-agent">Default Dynamic Agent</Label>
+              <Label htmlFor="webex-default-agent">Preselected Dynamic Agent</Label>
               <select
                 id="webex-default-agent"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -1316,7 +1018,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                 disabled={disabled || dynamicAgents.length === 0}
               >
                 <option value="">
-                  {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select default Dynamic Agent"}
+                  {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}
                 </option>
                 {dynamicAgents.map((agent) => (
                   <option key={agent._id} value={agent._id}>
@@ -1328,182 +1030,10 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           </div>
           {(teams.length === 0 || dynamicAgents.length === 0) && (
             <p className="text-xs text-muted-foreground">
-              Configure a team or Dynamic Agent in the admin UI, then use Refresh lists to reload this menu.
+              Configure a team or Dynamic Agent in the admin UI, then reload this page.
             </p>
           )}
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createDefaultRoutes}
-              onChange={(event) => setCreateDefaultRoutes(event.target.checked)}
-              disabled={disabled}
-            />
-            Create matching Webex routes for the default Dynamic Agent
-          </label>
-          <div className="rounded-md border bg-muted/20 p-3 space-y-3">
-            <div>
-              <div className="text-sm font-medium">Manually add a Webex space</div>
-              <p className="text-xs text-muted-foreground">
-                Use this when the bot is already in a space but the bot token cannot list spaces.
-                The space will be onboarded, assigned to the default team, granted the default
-                Dynamic Agent, and optionally given matching route metadata.
-              </p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="webex-manual-space-id">Manual Space ID</Label>
-                <Input
-                  id="webex-manual-space-id"
-                  value={manualSpaceId}
-                  onChange={(event) => setManualSpaceId(event.target.value)}
-                  placeholder="space ID from Webex"
-                  disabled={disabled || loading}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="webex-manual-space-name">Manual Space Name</Label>
-                <Input
-                  id="webex-manual-space-name"
-                  value={manualSpaceName}
-                  onChange={(event) => setManualSpaceName(event.target.value)}
-                  placeholder="Optional display name"
-                  disabled={disabled || loading}
-                />
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={applyManualSpaceDefaults}
-              disabled={disabled || loading || !defaultTeamSlug || !defaultAgentId || !manualSpaceId.trim()}
-            >
-              Add Space & Apply Defaults
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              onClick={applyMigrationDefaults}
-              disabled={disabled || loading || !defaultTeamSlug || !defaultAgentId || spaces.length === 0}
-            >
-              {loading ? "Applying..." : "Apply Defaults To Webex Spaces"}
-            </Button>
-            <Button type="button" variant="outline" onClick={refreshDefaults} disabled={disabled || loading}>
-              Refresh lists
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {spaces.length} spaces loaded, {unassignedSpaceCount} without a team.
-            </span>
-          </div>
         </div>
-
-        <Dialog open={migrationConfirmOpen} onOpenChange={setMigrationConfirmOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Apply Webex space association defaults?</DialogTitle>
-              <DialogDescription>
-                This will update {spaces.length} onboarded Webex space{spaces.length === 1 ? "" : "s"}.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 rounded-md border bg-muted/30 p-3 text-sm">
-              <div>
-                <span className="font-medium">Default team:</span>{" "}
-                <code>team:{defaultTeamSlug}</code>
-              </div>
-              <div>
-                <span className="font-medium">Default Dynamic Agent:</span>{" "}
-                <code>agent:{defaultAgentId}</code>
-              </div>
-              <div>
-                <span className="font-medium">Unassigned spaces:</span>{" "}
-                {unassignedSpaceCount}
-              </div>
-              <div>
-                <span className="font-medium">Routes:</span>{" "}
-                {createDefaultRoutes ? "Create matching Webex routes" : "Do not create Webex routes"}
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              This ensures space grants and the default team grant in OpenFGA. Existing grants are left in place.
-            </p>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setMigrationConfirmOpen(false)}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() => void confirmMigrationDefaults()}
-                disabled={disabled || loading}
-              >
-                {loading ? "Applying..." : "Apply defaults"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={manualSpaceConfirmOpen} onOpenChange={setManualSpaceConfirmOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Webex space and apply defaults?</DialogTitle>
-              <DialogDescription>
-                This will onboard one manually entered Webex space and apply the selected defaults.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 rounded-md border bg-muted/30 p-3 text-sm">
-              <div>
-                <span className="font-medium">Space ID:</span>{" "}
-                <code>{manualSpaceId.trim()}</code>
-              </div>
-              <div>
-                <span className="font-medium">Space name:</span>{" "}
-                {manualSpaceName.trim() || manualSpaceId.trim()}
-              </div>
-              <div>
-                <span className="font-medium">Default team:</span>{" "}
-                <code>team:{defaultTeamSlug}</code>
-              </div>
-              <div>
-                <span className="font-medium">Default Dynamic Agent:</span>{" "}
-                <code>agent:{defaultAgentId}</code>
-              </div>
-              <div>
-                <span className="font-medium">Routes:</span>{" "}
-                {createDefaultRoutes ? "Create a matching Webex route if one is missing" : "Do not create Webex routes"}
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Existing route metadata for this space and agent is preserved, including routes created by Sync From Config.
-            </p>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setManualSpaceConfirmOpen(false)}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={() =>
-                  void confirmMigrationDefaults([
-                    {
-                      id: manualSpaceId.trim(),
-                      name: manualSpaceName.trim() || undefined,
-                    },
-                  ])
-                }
-                disabled={disabled || loading || !manualSpaceId.trim()}
-              >
-                {loading ? "Applying..." : "Apply space defaults"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         <div
           role="region"
@@ -1534,7 +1064,6 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
               value={selectedKey}
               onChange={(event) => {
                 setSelectedKey(event.target.value);
-                setRoutePendingDelete(null);
               }}
               disabled={disabled || loading}
             >
@@ -1664,168 +1193,6 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           )}
         </div>
 
-        <div
-          role="region"
-          aria-label="Step 2b: Specify agent priority"
-          data-section-tone="violet"
-          data-section-order="2b"
-          className="order-2 rounded-md border border-violet-500/25 bg-violet-500/5 p-4 space-y-3"
-        >
-          <div>
-            <h3 className="text-base font-semibold tracking-tight">Step 2b: Specify agent priority</h3>
-            <p className="text-xs text-muted-foreground">
-              Creating an association writes the OpenFGA space <code>can_use agent</code>{" "}
-              tuple. Listen mode and priority are saved as dependent route metadata.
-            </p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="webex-route-agent-id">Dynamic Agent</Label>
-              <select
-                id="webex-route-agent-id"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={routeAgentId}
-                onChange={(event) => setRouteAgentId(event.target.value)}
-                disabled={disabled || dynamicAgents.length === 0}
-              >
-                <option value="">
-                  {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
-                </option>
-                {dynamicAgents.map((agent) => (
-                  <option key={agent._id} value={agent._id}>
-                    {agentLabel(agent)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="webex-route-listen">Listen</Label>
-              <select
-                id="webex-route-listen"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={routeListen}
-                onChange={(event) => setRouteListen(event.target.value as "message" | "mention" | "all")}
-                disabled={disabled}
-              >
-                <option value="mention">mention</option>
-                <option value="message">message</option>
-                <option value="all">all</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="webex-route-priority">Priority</Label>
-              <Input
-                id="webex-route-priority"
-                type="number"
-                value={routePriority}
-                onChange={(event) => {
-                  const next =
-                    event.target.value === "" ? Number.NaN : Number(event.target.value);
-                  setRoutePriority(normalizeRoutePriority(next));
-                }}
-                disabled={disabled || loading}
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={saveRoute} disabled={disabled || loading || !selected || !routeAgentId.trim()}>
-              {loading
-                ? "Saving..."
-                : editingRouteAgentId
-                  ? "Update Association"
-                  : "Create Association"}
-            </Button>
-            {editingRouteAgentId && (
-              <Button type="button" variant="outline" onClick={resetRouteForm} disabled={loading}>
-                Cancel edit
-              </Button>
-            )}
-          </div>
-          {message && <p className="text-sm text-muted-foreground">{message}</p>}
-          {routes.length > 0 && (
-            <div className="space-y-2">
-              {routes.map((route) => (
-                <div
-                  key={route.agent_id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>agent:{route.agent_id}</span>
-                    <Badge>{route.users?.listen ?? "mention"} / priority {route.priority}</Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => editRoute(route)}
-                      disabled={disabled || loading}
-                      aria-label={`Edit agent:${route.agent_id}`}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setRoutePendingDelete(route)}
-                      disabled={disabled || loading}
-                      aria-label={`Delete agent:${route.agent_id}`}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <Dialog
-          open={Boolean(routePendingDelete)}
-          onOpenChange={(open) => {
-            if (!open && !loading) setRoutePendingDelete(null);
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete space-agent association?</DialogTitle>
-              <DialogDescription>
-                {routePendingDelete
-                  ? `This removes agent:${routePendingDelete.agent_id} from the selected Webex space.`
-                  : "This removes the selected agent from the Webex space."}
-              </DialogDescription>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen
-              mode and priority will be deleted as well.
-            </p>
-            {routePendingDelete && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <div>
-                  <span className="font-medium">Listen:</span>{" "}
-                  {routePendingDelete.users?.listen ?? "mention"}
-                </div>
-                <div>
-                  <span className="font-medium">Priority:</span> {routePendingDelete.priority}
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setRoutePendingDelete(null)}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-              <Button type="button" variant="destructive" onClick={deleteRoute} disabled={loading}>
-                {loading ? "Deleting..." : "Delete association"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </CardContent>
     </Card>
   );

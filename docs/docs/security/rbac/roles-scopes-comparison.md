@@ -83,7 +83,7 @@ A client (e.g. `agentgateway`, `caipe-slack-bot`) can have client scopes attache
 - **Default scope** — always added to every token issued for that client.
 - **Optional scope** — only added when the client explicitly requests it via the `scope` parameter.
 
-We bind `team-<slug>` scopes as **default scopes on the `agentgateway` audience client** because Keycloak's RFC 8693 token-exchange (used in OBO — On-Behalf-Of) silently drops the `scope` request parameter. The audience client's default scopes are the only reliable way to inject the claim during token-exchange.
+We bind `team-<slug>` scopes as **default scopes on the `CAIPE_PLATFORM_AUDIENCE` client** (`caipe-platform` by default) because Keycloak's RFC 8693 token-exchange (used in OBO — On-Behalf-Of) silently drops the `scope` request parameter. The audience client's default scopes are the only reliable way to inject the claim during token-exchange.
 
 The known caveat (documented in `architecture.md` around line 625): with multiple `team-<slug>` scopes all bound as defaults, every hardcoded mapper fires on every token, and the *last one wins* (Keycloak does not guarantee mapper ordering). We compensate by having the Slack bot's OBO module **verify** the returned JWT's `active_team` claim matches what was requested — mismatch raises `OboExchangeError`. Follow-up work tracked in Spec 104 is to switch to a script-mapper that reads the requested team from a custom request parameter rather than per-team default scopes.
 
@@ -210,7 +210,7 @@ The selected team context is the key bit. OpenFGA doesn't ask "is the user a mem
 
 1. **Token size does not grow with team count.** Membership fan-out is stored in OpenFGA instead of `realm_access.roles`.
 
-2. **The "last mapper wins" caveat is only about `active_team`.** With multiple `team-<slug>` scopes bound as defaults on `agentgateway`, every hardcoded mapper fires on every token and the *last one wins* (Keycloak does not guarantee mapper ordering). The slack-bot's `obo_exchange.impersonate_user` **verifies** the returned `active_team` matches the requested team and raises `OboExchangeError` on mismatch.
+2. **The "last mapper wins" caveat is only about `active_team`.** With multiple `team-<slug>` scopes bound as defaults on the `CAIPE_PLATFORM_AUDIENCE` client, every hardcoded mapper fires on every token and the *last one wins* (Keycloak does not guarantee mapper ordering). The slack-bot's `obo_exchange.impersonate_user` **verifies** the returned `active_team` matches the requested team and raises `OboExchangeError` on mismatch.
 
 3. **AGW gets the right answer from OpenFGA.** If Keycloak minted a wrong `active_team`, the OpenFGA check would evaluate the wrong team context. The bot's pre-flight check (requested != returned -> reject) is what prevents that privilege confusion.
 
@@ -243,7 +243,7 @@ Client scopes are **not** permissions. They are per-team claim injectors that de
 | Scope | `active_team` claim value | Bound to | Bound how |
 |---|---|---|---|
 | `team-personal` | `__personal__` | `caipe-slack-bot` | optional (provisioned by the realm-init script on every boot) |
-| `team-<slug>` | `<slug>` | `agentgateway` | **default** (auto-created on team creation, plus startup auto-sync for pre-existing teams) |
+| `team-<slug>` | `<slug>` | `caipe-platform` (`CAIPE_PLATFORM_AUDIENCE`) | **default** (auto-created on team creation, plus startup auto-sync for pre-existing teams) |
 | `team-<slug>` | `<slug>` | `caipe-slack-bot` | optional (for code symmetry with `team-personal`) |
 
 **Why we need scopes at all:** the `active_team` value has to be **signed into the JWT itself** so AgentGateway and Dynamic Agents can trust it without a callback to MongoDB. Keycloak's RFC 8693 token-exchange silently drops the `scope` request parameter, so the audience client's default scopes are the only reliable injection path.
@@ -275,7 +275,7 @@ End-to-end flow when an admin POSTs to `/api/admin/teams` (`ui/src/app/api/admin
 3. **Call `ensureTeamClientScope(slug)`** (`ui/src/lib/rbac/keycloak-admin.ts`), which idempotently:
    - Creates a Keycloak **client scope** named `team-<slug>` (`POST /client-scopes`).
    - Adds an `oidc-hardcoded-claim-mapper` to the scope, configured to inject `active_team=<slug>` into the access token.
-   - Binds the scope as a **default scope** on the `agentgateway` client.
+   - Binds the scope as a **default scope** on the `CAIPE_PLATFORM_AUDIENCE` client (`caipe-platform` by default).
    - Binds the scope as an **optional scope** on the `caipe-slack-bot` client.
 4. **If scope provisioning fails, the Mongo insert is rolled back.** We never want a team without its scope, because that team's channels would silently fail OBO token-exchange.
 

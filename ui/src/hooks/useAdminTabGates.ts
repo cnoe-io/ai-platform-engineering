@@ -27,10 +27,42 @@ interface AdminTabGatesState {
   gates: AdminTabGatesMap;
   loading: boolean;
   error: string | null;
+  simulation: AdminTabGateSimulation | null;
   /** Visible tab keys (convenience filter of gates with `true` values). */
   visibleTabs: AdminTabKey[];
   /** Force a re-fetch (e.g. after an admin updates a policy). */
   refresh: () => void;
+}
+
+export interface AdminTabGateSimulationTarget {
+  type: "user" | "team";
+  id: string;
+  relation?: "member" | "admin";
+}
+
+interface AdminTabGateSimulation {
+  active: boolean;
+  readonly: true;
+  subject?: {
+    type: "user" | "team";
+    id: string;
+    relation?: "member" | "admin";
+    openfga_user: string;
+  };
+}
+
+function adminTabGatesUrl(simulationTarget?: AdminTabGateSimulationTarget | null): string {
+  if (!simulationTarget?.type || !simulationTarget.id) {
+    return "/api/rbac/admin-tab-gates";
+  }
+  const params = new URLSearchParams({
+    simulate_type: simulationTarget.type,
+    simulate_id: simulationTarget.id,
+  });
+  if (simulationTarget.relation) {
+    params.set("simulate_relation", simulationTarget.relation);
+  }
+  return `/api/rbac/admin-tab-gates?${params.toString()}`;
 }
 
 /**
@@ -40,12 +72,18 @@ interface AdminTabGatesState {
  * Gates default to `false` (fail-closed) until the Web UI backend responds.
  * Results are cached per session and invalidated on token refresh.
  */
-export function useAdminTabGates(): AdminTabGatesState {
+export function useAdminTabGates(
+  simulationTarget?: AdminTabGateSimulationTarget | null
+): AdminTabGatesState {
   const { data: session, status } = useSession();
   const [gates, setGates] = useState<AdminTabGatesMap>(EMPTY_GATES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [simulation, setSimulation] = useState<AdminTabGateSimulation | null>(null);
   const lastTokenRef = useRef<string | undefined>(undefined);
+  const simulationKey = simulationTarget?.type && simulationTarget.id
+    ? `${simulationTarget.type}:${simulationTarget.id}:${simulationTarget.relation ?? ""}`
+    : "";
 
   const fetchGates = useCallback(async () => {
     if (status !== "authenticated") {
@@ -57,7 +95,7 @@ export function useAdminTabGates(): AdminTabGatesState {
     setError(null);
 
     try {
-      const res = await fetch("/api/rbac/admin-tab-gates");
+      const res = await fetch(adminTabGatesUrl(simulationTarget));
       if (!res.ok) {
         throw new Error(`Failed to fetch tab gates: ${res.status}`);
       }
@@ -65,13 +103,15 @@ export function useAdminTabGates(): AdminTabGatesState {
       if (data.gates) {
         setGates(data.gates);
       }
+      setSimulation(data.simulation ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setGates(EMPTY_GATES);
+      setSimulation(null);
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [simulationTarget, status]);
 
   useEffect(() => {
     if (status === "loading") {
@@ -79,6 +119,7 @@ export function useAdminTabGates(): AdminTabGatesState {
     }
     if (status === "unauthenticated") {
       setGates(EMPTY_GATES);
+      setSimulation(null);
       setLoading(false);
       return;
     }
@@ -91,15 +132,16 @@ export function useAdminTabGates(): AdminTabGatesState {
       ?.accessToken;
     const stableKey =
       token ?? `session:${(session as { user?: { email?: string | null } } | null)?.user?.email ?? ""}`;
-    if (stableKey !== lastTokenRef.current) {
-      lastTokenRef.current = stableKey;
+    const cacheKey = `${stableKey}|${simulationKey}`;
+    if (cacheKey !== lastTokenRef.current) {
+      lastTokenRef.current = cacheKey;
       fetchGates();
     }
-  }, [session, status, fetchGates]);
+  }, [session, status, fetchGates, simulationKey]);
 
   const visibleTabs = (Object.entries(gates) as [AdminTabKey, boolean][])
     .filter(([, v]) => v)
     .map(([k]) => k);
 
-  return { gates, loading, error, visibleTabs, refresh: fetchGates };
+  return { gates, loading, error, simulation, visibleTabs, refresh: fetchGates };
 }

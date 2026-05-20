@@ -465,7 +465,7 @@ describe('auth-config', () => {
       expect(result.error).toBeUndefined()
     })
 
-    it('should return RefreshTokenExpired when token expired by more than 1 hour', async () => {
+    it('refreshes stale access tokens when a refresh token is still available', async () => {
       const now = Math.floor(Date.now() / 1000)
 
       const result = await (authOptions.callbacks!.jwt! as Function)({
@@ -476,9 +476,10 @@ describe('auth-config', () => {
         },
       })
 
-      expect(result.error).toBe('RefreshTokenExpired')
-      // Should NOT call fetch when token is that stale
-      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(result.accessToken).toBe('new-access-token')
+      expect(result.refreshToken).toBe('new-refresh-token')
+      expect(result.error).toBeUndefined()
+      expect(fetchSpy).toHaveBeenCalled()
     })
 
     it('should skip refresh attempt when token already has an error', async () => {

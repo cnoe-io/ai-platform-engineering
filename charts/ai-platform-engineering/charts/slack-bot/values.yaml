@@ -50,6 +50,7 @@ serviceAccount:
 #   SLACK_ADMIN_JWT_ISSUER:                   Expected issuer for UI BFF service tokens
 #   SLACK_ADMIN_JWT_AUDIENCE:                 Expected audience for UI BFF service tokens
 #   SLACK_ADMIN_ALLOWED_CLIENT_IDS:           Comma-separated client IDs allowed to call admin API
+#   CAIPE_PLATFORM_AUDIENCE:                  OBO audience for bot → CAIPE UI BFF access checks
 #
 # Spec 103 (Just-In-Time Keycloak user creation):
 #   SLACK_JIT_CREATE_USER:               "true" (default) auto-creates a
@@ -86,6 +87,7 @@ config:
   SLACK_ADMIN_JWT_ISSUER: ""
   SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
   SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+  CAIPE_PLATFORM_AUDIENCE: "caipe-platform"
   SLACK_JIT_CREATE_USER: "true"
   SLACK_JIT_ALLOWED_EMAIL_DOMAINS: ""
 

@@ -663,16 +663,6 @@ export const authOptions: NextAuthOptions = {
       if (ENABLE_REFRESH_TOKEN && expiresAt) {
         const timeUntilExpiry = expiresAt - now;
 
-        // Don't attempt refresh if token is already expired by more than 1 hour
-        // This prevents infinite refresh loops when refresh token is invalid
-        if (timeUntilExpiry < -3600) {
-          console.warn(`[Auth] Token expired ${Math.abs(timeUntilExpiry)}s ago - refresh token likely invalid, marking session as expired`);
-          return {
-            ...token,
-            error: "RefreshTokenExpired",
-          };
-        }
-
         const shouldRefresh = timeUntilExpiry < 5 * 60; // Refresh if less than 5 min remaining
 
         if (shouldRefresh) {

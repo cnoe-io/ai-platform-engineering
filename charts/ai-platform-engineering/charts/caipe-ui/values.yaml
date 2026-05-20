@@ -220,6 +220,9 @@ config:
   # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
   WEBEX_DEFAULT_TEAM_SLUG: ""
   WEBEX_DEFAULT_AGENT_ID: ""
+  WEBEX_THREAD_CONTEXT_ENABLED: "true"
+  WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
+  WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
   LOGO_URL: "/logo.svg"
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""

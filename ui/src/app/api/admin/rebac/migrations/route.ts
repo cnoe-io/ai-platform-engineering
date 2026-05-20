@@ -7,5 +7,6 @@ import { requireMigrationAdmin } from "./_lib";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   await requireMigrationAdmin(request);
-  return successResponse(await listReleaseMigrations());
+  const includeCompleted = request.nextUrl.searchParams.get("include_completed") === "true";
+  return successResponse(await listReleaseMigrations({ includeCompleted }));
 });

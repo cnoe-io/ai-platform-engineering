@@ -215,6 +215,15 @@ operator has admin rights, **Grant this access** creates and applies a staged
 change set for the selected base relationship, then re-runs the check. When a
 check is allowed, admins can use **Revoke this access** from the same panel.
 
+Use the subtle **View as** control beside the Admin top-level category tabs to
+preview the Admin console as a real OpenFGA principal. The modal searches users by
+email/name/Keycloak subject and teams by name/slug, with a `member`/`admin`
+userset relation for team previews. The preview is read-only: tab visibility is
+evaluated as the selected `user:<sub>` or `team:<slug>#relation`, but the browser
+session remains the signed-in admin and Slack/Webex mutation controls are
+disabled. Use this to answer "what would this manager see?" before granting or
+revoking relationships in Access Manager.
+
 Use **Admin → Security & Policy → OpenFGA ReBAC → Policy Graph** to inspect the
 same relationships visually without starting from the full tuple blast radius.
 The graph starts with teams and team usersets only; direct user nodes remain
@@ -247,6 +256,29 @@ Policy → RBAC Audit as the durable view for OpenFGA checks and authorization
 decisions; the dev compose stack does not start a separate trace backend.
 
 See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5-dynamic-agents--the-workshop-floor) for the full env var table and what each one does.
+
+### Slack and Webex Onboarding
+
+Slack channel and Webex space setup use the same guided admin path:
+**Discover → Configure → Apply → Verify**. The discovery step lists bot-visible
+channels/spaces with row-level readiness labels:
+
+- **Already managed** means the channel/space is already known to CAIPE; selecting
+  it refreshes grants and routes.
+- **Needs setup** means the bot can see the channel/space, but CAIPE still needs
+  to import it, bind a team, grant the selected Dynamic Agent, and create route
+  metadata.
+- **Blocked** means the selected row is missing a team or Dynamic Agent and cannot
+  be applied yet.
+
+Use the outcome button (`Set up selected Slack channels` or `Set up selected
+Webex spaces`) after every selected row has a team and Dynamic Agent. The apply
+step flips successfully applied discovery rows back to **Already managed** in the
+table, so admins can see the setup state change without opening a separate result
+dialog. Use **Refresh setup status** to re-run discovery and reconcile the row
+colors against the latest bot-visible state. The operation is intentionally
+upsert-only: existing UI-managed or config-synced route metadata is preserved
+while missing grants and default routes are ensured.
 
 ---
 
@@ -326,9 +358,26 @@ OpenFGA tuples for removed tools are deleted during apply mode.
 
 ### Admin Migration Cards
 
-Admins can run the 0.5.1 schema-versioned migrations from **Admin → System →
-Migrations**. Dry-run each card first, review warnings and sample diffs, then
-type the exact confirmation phrase shown by the UI before applying.
+Admins can run schema-versioned migrations from **Admin → System → Migrations**.
+The runtime seeds a DB-managed `migration_manifest`, compares it with
+`data_schema_versions`, and shows every MongoDB collection with its current
+recorded version. Collections without a `data_schema_versions` row show
+`unknown`; collections that have a registered migration target also show the
+runtime target version. The migration list below the version grid shows only
+active pending/failed migrations by default. Use **Show completed migrations** to
+review completed cards backed by `schema_migrations`. Dry-run each active card
+first, review warnings and sample diffs, then type the exact confirmation phrase
+shown by the UI before applying.
+If an environment upgrades across multiple releases, every required migration
+whose target version is newer than the collection's current DB version is
+surfaced.
+
+Bootstrap admins see a persistent **Migrations required** alert beside the header
+connection status while blocking required migrations are pending. This alert is
+not dismissible; it clears when migrations complete. A bootstrap admin can record
+a break-glass override from the migration tab by entering a reason. Overrides are
+stored in `migration_overrides`, are time-boxed, and change the alert to
+**Migration override active** until the schema catches up or the override expires.
 
 Release notes notifications are managed from **Admin → System → Settings →
 Release notes**. Admins can enable the notification, set the active release
@@ -391,7 +440,8 @@ Use **Admin → Integrations → Slack → Channel Setup** when onboarding an ex
 1. **Step 1: Discover and Setup** — use **Find Slack Channels with Bot Integration** to find bot-member channels, select the channels to import, and override the team or Dynamic Agent per selected channel.
 2a. **Step 2a: Verify Slack Channel ReBAC** — select the channel, inspect its team scope, OpenFGA reachability, tuple counts, runtime route candidates, and fix common drift.
 2b. **Step 2b: Specify agent priority** — create or edit channel-agent associations, listen mode, and priority for the selected channel.
-3. **[Optional] Global Channel Defaults** — choose fallback team/agent values and whether to create matching Slack route metadata.
+3. **Onboarding Default Selection** — choose only the team/agent values
+   preselected in the onboarding form.
 5. **Advanced Setup - Import/Sync with Slackbot** — inspect bot runtime state, reload caches, preview YAML import, and apply static Slackbot route config.
 
 Use **Admin → Teams → Slack Channels** when assigning bot-visible channels to a
@@ -403,14 +453,10 @@ invalidates the cache and re-runs discovery. The manual ID entry stays as a
 fallback for private or newly-created channels that Slack discovery cannot return
 yet.
 
-The **Apply Defaults to Managed Channels** action is explicit and idempotent:
-
-- Slack channels without a team mapping get the selected `team_slug`.
-- Every active onboarded channel gets `slack_channel:<channel> can_use agent:<id>`.
-- The selected team gets `team:<slug>#member can_use agent:<id>`.
-- If selected, matching bootstrap rows are added to `slack_channel_agent_routes`.
-
-If the Team or Dynamic Agent dropdown is empty, create the missing object in the admin UI and click **Refresh lists** before applying defaults. Submitted actions show a short-lived inline confirmation beside the button so operators can see what just completed without leaving stale success pills on the page.
+If the Team or Dynamic Agent dropdown is empty, create the missing object in the
+admin UI and reload the page. There is no implicit channel default at runtime:
+each channel still needs an explicit setup action from discovery or the route
+editor.
 
 For runtime onboarding of new Slack channels, set `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true` on the Slack bot together with `SLACK_DEFAULT_TEAM_SLUG` and `SLACK_DEFAULT_AGENT_ID`. On the first message from an unmapped group channel, the bot creates the same channel-team mapping, OpenFGA channel-agent tuple, and route metadata for the configured defaults. Keep this off unless the default team and agent are intentionally broad enough for newly invited channels.
 
@@ -444,7 +490,7 @@ that the static config does not enumerate.
 
 The Web UI backend must be configured with `SLACK_BOT_ADMIN_URL`, `SLACK_BOT_ADMIN_CLIENT_ID`, `SLACK_BOT_ADMIN_CLIENT_SECRET`, and `SLACK_BOT_ADMIN_AUDIENCE`. The Keycloak init job enables client credentials on `caipe-ui` and adds the `caipe-slack-bot-admin` audience mapper. The Slack bot must have `SLACK_ADMIN_API_ENABLED=true`, `SLACK_ADMIN_JWT_ISSUER`, `SLACK_ADMIN_JWKS_URL` when an internal JWKS URL is needed, `SLACK_ADMIN_JWT_AUDIENCE`, and `SLACK_ADMIN_ALLOWED_CLIENT_IDS` configured. Keep the Slack bot admin API internal to the cluster; it is not a browser-facing API.
 
-If Slack replies with `Could not establish your team-scoped session` and bot logs show `Client not allowed to exchange`, verify the `caipe-slack-bot-token-exchange` policy is attached to all three Keycloak permissions: `caipe-slack-bot` token-exchange, users `impersonate`, and `agentgateway` token-exchange. Re-run `keycloak-init` / `keycloak-init-token-exchange` after deploying the init-script fix so existing Slack and Webex policy associations are merged instead of overwritten.
+If Slack replies with `Could not establish your team-scoped session` and bot logs show `Client not allowed to exchange`, verify the `caipe-slack-bot-token-exchange` policy is attached to all three Keycloak permissions: `caipe-slack-bot` token-exchange, users `impersonate`, and the `CAIPE_PLATFORM_AUDIENCE` target client's token-exchange permission (`caipe-platform` by default). Re-run `keycloak-init` / `keycloak-init-token-exchange` after deploying the init-script fix so existing Slack and Webex policy associations are merged instead of overwritten.
 
 ---
 
@@ -465,6 +511,9 @@ KEYCLOAK_REALM=caipe
 OPENFGA_HTTP=http://openfga:8080
 OPENFGA_STORE_NAME=caipe-openfga
 WEBEX_AGENT_ROUTES_MODE=db_prefer
+WEBEX_THREAD_CONTEXT_ENABLED=true
+WEBEX_THREAD_CONTEXT_MAX_MESSAGES=10
+WEBEX_THREAD_CONTEXT_MAX_CHARS=4000
 WEBEX_ADMIN_API_ENABLED=true
 WEBEX_ADMIN_API_AUDIENCE=caipe-webex-bot-admin
 ```
@@ -491,7 +540,7 @@ secrets.
 ### Webex Space Setup
 
 Use **Admin → Integrations → Webex** when onboarding Webex spaces for the bot.
-The tab now follows the same five-section operator flow as Slack:
+The tab follows a simplified Webex operator flow:
 
 1. **Step 1: Discover and Setup** finds spaces the bot can see through
    `GET /api/admin/webex/available-spaces?refresh=1`, which calls Webex
@@ -500,17 +549,14 @@ The tab now follows the same five-section operator flow as Slack:
    team and Dynamic Agent per space.
 2. **Step 2a: Verify Webex Space ReBAC** selects an onboarded space and runs
    the same OpenFGA/route diagnostics the Webex runtime depends on.
-3. **Step 2b: Specify agent priority** creates or edits space-agent routes,
-   including listen mode and dispatch priority.
-4. **[Optional] Global Space Defaults** sets the default team and Dynamic Agent,
-   applies defaults to existing managed spaces, and keeps manual raw room UUID
-   entry as a fallback when Webex discovery is unavailable.
-5. **Advanced Setup - Import/Sync with Webex Bot** shows runtime route mode,
-   static config counts, cache state, and a legend explaining refresh, cache
-   reload, preview, and YAML import actions.
+3. **Onboarding Default Selection** sets only the team and Dynamic Agent
+   preselected during discovery-based onboarding.
+4. **Advanced Setup - Import/Sync with Webex Bot** shows runtime route mode,
+   static config counts, cache state, thread-context limits, and a legend
+   explaining refresh, cache reload, preview, and YAML import actions.
 
-Discovery and manual onboarding both converge through
-`POST /api/admin/webex/spaces/defaults`: CAIPE records active
+Discovery onboarding converges through `POST /api/admin/webex/spaces/defaults`:
+CAIPE records active
 `webex_space_team_mappings`, denormalises the `webex_spaces` display list on the
 team document, ensures the `webex_space` OpenFGA grant for the selected Dynamic
 Agent, creates missing route metadata when enabled, and invalidates the Webex
@@ -521,43 +567,27 @@ Webex public room IDs (`Y2lz...`) decode to
 canonical `space_id` in MongoDB and OpenFGA, then re-encodes the public room ID
 only when it sends messages through the Webex API.
 
-### Grant Agents and Routes
+### Grant Agents Through Onboarding
 
 1. Open **Admin → Integrations → Webex**.
-2. Select the mapped space.
-3. Add the Dynamic Agent route and choose listen mode, priority, and enabled state.
-4. Save routes.
+2. Use **Step 1: Discover and Setup** for bot-visible spaces.
+3. Choose the team and Dynamic Agent before applying.
 
 The UI writes `webex_space:<workspace_alias>--<raw_room_uuid> user agent:<agent_id>`
-to OpenFGA and stores dispatch metadata in `webex_space_agent_routes`. MongoDB
-metadata is valid only while the matching OpenFGA tuple exists.
+to OpenFGA and creates default dispatch metadata in `webex_space_agent_routes`.
+The Webex panel no longer exposes a separate manual priority editor; route
+metadata is created through onboarding/default convergence or repaired from the
+diagnostics panel. MongoDB metadata is valid only while the matching OpenFGA tuple exists.
 At runtime the bot reads OpenFGA route tuples with an `agent:` object-type
 filter, then joins the matching MongoDB route metadata.
 
 The **Step 2a: Verify Webex Space ReBAC** panel checks the selected space using the same
 OpenFGA tuple read shape that runtime dispatch uses. If a space has no routeable
 agent, diagnostics shows **Fix missing association with agent:<id>** when a
-default Dynamic Agent or selected Dynamic Agent is available. That repair creates
-the missing OpenFGA-backed association with `listen: all` and refreshes the
-diagnostics. If the repair reports `fetch failed`, check that the UI server can
-reach OpenFGA with `OPENFGA_HTTP` and the expected `OPENFGA_STORE_ID`.
-
-### Add a Manual Space and Apply Defaults
-
-Use **[Optional] Global Space Defaults → Add Space & Apply Defaults** when the bot
-is already a member of a Webex space but the bot token cannot reliably list that
-space. Enter either the Webex raw room UUID or public `Y2lz...` room ID,
-optionally add a display name, choose the default team and Dynamic Agent, then
-review the confirmation modal before applying.
-
-This UI flow delegates to the BFF onboarding control plane. The same convergence
-logic is available as `POST /api/admin/webex/spaces/onboard` for a single space:
-it canonicalizes public Webex room IDs to raw UUIDs, ensures the Keycloak team
-scope, onboards the space into `webex_space_team_mappings`, assigns the team,
-ensures the `webex_space` OpenFGA grant for the default Dynamic Agent, ensures
-the team's default agent grant, creates a missing `webex_space_agent_routes` row
-with `listen: all`, and invalidates the Webex bot route cache. Existing route
-metadata is preserved, including routes created by **Import from YAML Config**.
+default Dynamic Agent is available. That repair creates the missing OpenFGA-backed
+association with `listen: all`, priority `100`, and refreshes the diagnostics. If
+the repair reports `fetch failed`, check that the UI server can reach OpenFGA with
+`OPENFGA_HTTP` and the expected `OPENFGA_STORE_ID`.
 
 Runtime denials, account-link prompts, and Dynamic Agent responses are sent as
 threaded replies by preserving the incoming Webex message ID and using it as the
@@ -586,10 +616,11 @@ Keycloak client-credentials token.
 If `WEBEX_OBO_FAILED` logs show `403 Forbidden`, verify the
 `caipe-webex-bot-token-exchange` Keycloak policy is attached to all three
 permissions: `caipe-webex-bot` token-exchange, users `impersonate`, and
-`agentgateway` token-exchange. If token exchange succeeds but the bot logs an
-`active_team` mismatch, the `agentgateway` client has multiple `team-*` default
-client scopes; re-run the Webex BFF onboarding flow for the space/team so it
-selects the expected `team-<slug>` scope.
+the `CAIPE_PLATFORM_AUDIENCE` target client's token-exchange permission
+(`caipe-platform` by default). If token exchange succeeds but the bot logs an
+`active_team` mismatch, the `CAIPE_PLATFORM_AUDIENCE` client has multiple
+`team-*` default client scopes; re-run the Webex BFF onboarding flow for the
+space/team so it selects the expected `team-<slug>` scope.
 
 If the bot replies `I could not complete the request. Please try again.` after
 `WEBEX_DISPATCH_ALLOWED`, check the Webex bot logs for the downstream BFF

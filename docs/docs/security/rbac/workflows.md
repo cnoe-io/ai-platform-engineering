@@ -8,7 +8,7 @@ Sequence diagrams and flow narratives for "what happens when X". Pair this with 
 
 ## Login + First-Time Broker Login
 
-This is the **once-per-session** flow. After it completes, the user holds a Keycloak-signed JWT in their session and never sees Keycloak (or the upstream IdP — Okta / Duo SSO / etc.) again until the JWT expires.
+This is the **once-per-session** flow. After it completes, the user holds a Keycloak-backed UI session and usually never sees Keycloak (or the upstream IdP — Okta / Duo SSO / etc.) again until the Keycloak SSO session can no longer be refreshed.
 
 The default Keycloak "first broker login" flow shows a "Review Profile" page and, if a local account with the same email already exists, a "Confirm Link Account" page. **Both are eliminated** by the custom flow patched in by `init-idp.sh`:
 
@@ -30,7 +30,7 @@ Production installs should also keep `keycloak.idp.forceRedirect=true` (exported
 
 **Security implication:** if the upstream IdP can be compromised to issue arbitrary email claims, an attacker could link to any existing account. This is acceptable here because Okta and Duo SSO (and other supported IdPs) are corporate SSO providers — trust in the email claim is the same as trust in the IdP.
 
-The complete one-time login sequence (Browser → Keycloak → upstream IdP → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. It only happens once per workday.
+The complete one-time login sequence (Browser → Keycloak → upstream IdP → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. With the default realm policy, active users refresh silently through Keycloak for up to the configured SSO idle and max lifetimes.
 
 ---
 
@@ -60,7 +60,7 @@ sequenceDiagram
     end
 
     rect rgb(252, 250, 240)
-      note over User, KC: One-time login path (per user session,<br/>typically once per workday)
+      note over User, KC: One-time login path (per user session;<br/>refresh is silent while Keycloak SSO remains valid)
       User->>UI: opens CAIPE UI
       UI->>KC: GET /auth?kc_idp_hint=duo-sso
       KC->>Duo: OIDC auth code request<br/>(IDP_CLIENT_ID, redirect_uri=KC/broker/duo-sso/endpoint)
@@ -115,10 +115,10 @@ sequenceDiagram
 
 1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human exactly **once per session** (typically once per workday; SAML assertion / OIDC id_token then carries forward via Duo's own session). Keycloak exchanges that Duo assertion for a CAIPE-signed JWT that travels through every subsequent request. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
-> **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once per day". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
+> **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once, then Keycloak refreshes the CAIPE access token while the SSO session is active". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
 
 ---
 
@@ -214,6 +214,7 @@ OpenFGA-backed space route, and a user/resource allow decision before dispatch.
 sequenceDiagram
     autonumber
     actor User as Webex user
+    participant Webex as Webex
     participant WB as Webex Bot
     participant UI as CAIPE UI BFF
     participant KC as Keycloak
@@ -226,7 +227,12 @@ sequenceDiagram
     WB->>WB: decode public roomId to raw room UUID, validate personId and spaceId
     WB->>KC: lookup user by webex_user_id
     alt unlinked or identity unavailable
-        WB-->>User: deny with link prompt or retryable error
+        alt unlinked with link URL
+            WB->>Webex: send 1:1 Adaptive Card to personId<br/>with SSO link
+            WB-->>User: generic group-thread notice<br/>(no signed URL)
+        else identity unavailable
+            WB-->>User: retryable group-thread error
+        end
     else linked
         WB->>MDB: resolve webex_space_team_mappings
         alt no active mapping
@@ -246,9 +252,13 @@ sequenceDiagram
                 UI-->>WB: denied or unavailable
                 WB-->>User: deny before dispatch
             else allowed
-                WB->>DA: dispatch with Bearer OBO token
+                opt WEBEX_THREAD_CONTEXT_ENABLED
+                    WB->>Webex: GET /v1/messages/{parentId}<br/>and /v1/messages?roomId&parentId&beforeMessage
+                    Webex-->>WB: bounded thread context
+                end
+                WB->>DA: dispatch current request + bounded thread context<br/>with Bearer OBO token
                 DA-->>WB: streamed response
-                WB-->>User: threaded Webex response using parentId
+                WB-->>User: threaded Webex response using parentId<br/>with responding agent_id and follow-up hint
             end
         end
     end
@@ -259,6 +269,15 @@ Failure categories are explicit and fail closed: `WEBEX_USER_NOT_LINKED`,
 `WEBEX_OBO_FAILED`, `WEBEX_ROUTE_DENIED`, `missing_space_grant`, and
 `pdp_unavailable`. Audit records use `component=webex_bot` and hash Webex person
 IDs before logging.
+
+`WEBEX_USER_NOT_LINKED` is handled privately by default. In a group space, the
+bot sends only a generic thread notice and delivers the signed SSO link in a 1:1
+Webex Adaptive Card addressed to the requesting `personId`. If the 1:1 send
+fails, the fallback message asks the user to open the app and retry linking
+without exposing the signed URL in the shared room. Slack-style implicit Webex
+profile linking remains an explicit user-choice path and requires strict Webex
+org, verified-email, no-conflict, and audit checks before it can bind
+`webex_user_id` without an SSO click.
 
 For Webex spaces, the raw room UUID is the policy identifier in
 `webex_space:<alias>--<space>`. Public Webex room IDs are decoded from
@@ -305,6 +324,30 @@ Admins run release migrations from Admin → System → Migrations. The tab load
 0.5.1 migration manifest, lets the admin select and dry-run each migration, and
 requires typing the exact confirmation string before applying writes.
 
+`init-idp.sh` remains the first-run bootstrap escape hatch because it runs before
+the Web UI backend is healthy and can use direct Keycloak admin credentials. It
+prevents a chicken-and-egg dependency where BFF startup needs Keycloak client/realm
+state that only BFF startup could create.
+
+After that bootstrap, the Web UI backend owns the long-term Keycloak reconciliation
+path through `keycloak_rbac_mapping_reconciliation_v1`. This migration is
+code-backed in TypeScript rather than shell-backed by `init-idp.sh`; on BFF startup
+it reads Mongo teams, reconciles Keycloak `team-*` client scopes and bot OBO
+permissions, records the run in Mongo migration tables, and leaves a blocking
+migration status if the Keycloak repair fails. The header checks
+`GET /api/rbac/migration-status` for every authenticated UI session so non-admin
+users see the same "migrations required" indicator. Admins can inspect persisted
+Keycloak run details, counts, warnings, and errors from `GET
+/api/admin/keycloak/migration-health` in Admin → Security & Policy → Keycloak.
+The metric tiles open read-only Keycloak value tables rather than raw migration
+JSON, so operators can see the live `team-*` scope, `active_team` mapper,
+client-scope binding, OBO permission, and service-account role values that the
+reconciler is checking.
+If the stored run is failed or the `keycloak_rbac_mappings` schema area is behind,
+the **Reconcile now** button posts to the existing migration apply route for
+`keycloak_rbac_mapping_reconciliation_v1` and then reloads the health panel from
+Mongo.
+
 Dynamic Agent migrations include both tool tuple reconciliation and
 `agent_org_admin_inheritance_v1`, which backfills
 `organization:<org>#admin manager agent:<id>` for existing agents so
@@ -324,6 +367,17 @@ sequenceDiagram
     BFF->>BFF: require admin_ui#admin
     BFF->>MDB: Read data_schema_versions + schema_migrations
     BFF-->>UI: Manifest + current schema status
+    UI->>BFF: GET /api/admin/keycloak/migration-health
+    BFF->>MDB: Read keycloak_rbac_mapping_reconciliation_v1 run details
+    BFF->>KC: Read team scopes, mapper values, OBO permissions, service-account roles
+    BFF-->>UI: Keycloak health, counts, warnings, errors, live Keycloak values
+    Admin->>UI: Click Reconcile now when failed/behind
+    UI->>BFF: POST /api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply
+    BFF->>KC: Reconcile team scopes + OBO permissions
+    BFF->>MDB: Update schema_migrations + data_schema_versions
+    UI->>BFF: GET /api/admin/keycloak/migration-health
+    BFF->>KC: Startup migration checks/applies<br/>Keycloak team scopes + OBO permissions
+    BFF->>MDB: Record keycloak_rbac_mapping_reconciliation_v1<br/>in schema_migrations + data_schema_versions
     Admin->>UI: Select a migration and Dry run
     UI->>BFF: POST /migrations/{id}/plan
     BFF->>BFF: require admin_ui#admin
@@ -344,11 +398,11 @@ must still pass explicit OpenFGA checks for shared conversation access.
 
 ---
 
-## OBO Token Exchange — Slack Identity Propagation
+## OBO Token Exchange — Bot Identity Propagation
 
-> **Badge analogy:** The Slack bot is a courier service. When Alice asks the courier to pick something up from the server room on her behalf, the courier can't use their own badge — the server room requires Alice's clearance. Instead, the courier goes to HR (Keycloak), presents their credentials and Alice's employee ID, and HR issues a *delegated badge*: it opens the same doors as Alice's badge, but it has a second chip that says "issued on behalf of Alice, presented by courier bot." The delegation chain is physically stamped on the badge — it's auditable and unforgeable.
+> **Badge analogy:** The Slack or Webex bot is a courier service. When Alice asks the courier to pick something up from the server room on her behalf, the courier can't use their own badge — the server room requires Alice's clearance. Instead, the courier goes to HR (Keycloak), presents their credentials and Alice's employee ID, and HR issues a *delegated badge*: it opens the same doors as Alice's badge, but it has a second chip that says "issued on behalf of Alice, presented by courier bot." The delegation chain is physically stamped on the badge — it's auditable and unforgeable.
 
-**The hardest part to get right technically.** Without OBO, every Slack request carries the bot's service account identity. OpenFGA would evaluate the bot instead of the human, and all per-user/team authorization would be meaningless.
+**The hardest part to get right technically.** Without OBO, every Slack or Webex request carries the bot's service account identity. OpenFGA would evaluate the bot instead of the human, and all per-user/team authorization would be meaningless.
 
 ### RFC 8693 Token Exchange
 
@@ -365,6 +419,8 @@ grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 &subject_token_type=urn:ietf:params:oauth:token-type:access_token
 &requested_subject=<keycloak-user-id>
 &requested_token_type=urn:ietf:params:oauth:token-type:access_token
+&audience=${CAIPE_PLATFORM_AUDIENCE:-caipe-platform}
+&scope=openid team-<slug-or-personal>
 ```
 
 Keycloak responds with an OBO JWT where:
@@ -372,6 +428,88 @@ Keycloak responds with an OBO JWT where:
 - `sub` = the impersonated user's Keycloak ID
 - `email` = the user's email
 - `act.sub` = the bot's client ID — the delegation chain is cryptographically recorded
+- `aud` includes `caipe-platform` by default because the bot's immediate next hop is the CAIPE UI BFF access-check/proxy surface, not AgentGateway
+- `active_team` is the selected channel/space team slug, or `__personal__` for direct messages
+
+### Bot → BFF Audience and Active Team
+
+Slack and Webex use the same audience model. The bot mints a user OBO token for the **next hop it is calling**: the CAIPE UI BFF. That is why `CAIPE_PLATFORM_AUDIENCE` defaults to `caipe-platform`. AgentGateway still accepts `agentgateway` for direct data-plane callers and legacy paths, but bot pre-dispatch checks should not mint `aud=agentgateway`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Slack/Webex user
+    participant Surface as Slack channel<br/>or Webex space
+    participant Bot as Slack/Webex bot
+    participant MDB as MongoDB<br/>identity + mappings + route metadata
+    participant KC as Keycloak<br/>token exchange + client scopes
+    participant BFF as CAIPE UI BFF<br/>access-check + chat proxy
+    participant FGA as OpenFGA PDP
+    participant DA as Dynamic Agents
+    participant AG as AgentGateway
+    participant MCP as MCP/RAG tool server
+
+    User->>Surface: Send message in DM, channel, or space
+    Surface->>Bot: Event payload<br/>(channelId/roomId, user/personId, text)
+
+    Bot->>MDB: Resolve external user id → Keycloak sub
+    alt no linked identity
+        Bot-->>User: Link account prompt<br/>(Webex sends signed SSO link in 1:1 card)
+    else linked
+        MDB-->>Bot: keycloak_user_id
+        Bot->>MDB: Resolve conversation container → team context
+        alt direct message / personal context
+            Bot->>Bot: active_team = "__personal__"<br/>scope = openid team-personal
+        else mapped channel/space
+            Bot->>MDB: channel_team_mappings or webex_space_team_mappings
+            MDB-->>Bot: team slug (for example platform-eng)
+            Bot->>FGA: Pre-check user:{sub} member team:{slug}
+            FGA-->>Bot: allowed or denied
+            Bot->>Bot: active_team = team slug<br/>scope = openid team-{slug}
+        end
+
+        alt team mapping or membership denied
+            Bot-->>User: Fail closed before token exchange
+        else team context selected
+            Bot->>KC: POST /token (RFC 8693)<br/>client_id=bot client<br/>requested_subject=user sub<br/>audience=CAIPE_PLATFORM_AUDIENCE<br/>(default caipe-platform)<br/>scope=openid team-...
+            note over KC: Target audience client (`caipe-platform` by default)<br/>must allow bot token-exchange and carry the selected<br/>team-* default client scope mapper.
+            KC-->>Bot: OBO JWT<br/>sub=user sub, act.sub=bot client,<br/>aud=[caipe-platform], active_team=slug or __personal__
+
+            Bot->>Bot: Decode JWT payload and verify<br/>returned active_team == requested active_team
+            alt active_team mismatch or token exchange failure
+                Bot-->>User: OBO failed; do not dispatch<br/>(prevents wrong-team privilege confusion)
+            else OBO token is scoped correctly
+                Bot->>BFF: POST access-check route<br/>Authorization: Bearer OBO_JWT
+                note over BFF: BFF validates issuer, signature, expiry,<br/>and accepted audience includes `caipe-platform`.
+                BFF->>FGA: Check channel/space route grant and<br/>user/team/resource relationship
+                FGA-->>BFF: allowed or denied
+
+                alt denied, wrong audience, or PDP unavailable
+                    BFF-->>Bot: structured deny/unavailable
+                    Bot-->>User: Deny before Dynamic Agent dispatch
+                else dispatch allowed
+                    Bot->>BFF: POST /api/v1/chat/stream/start<br/>Authorization: Bearer OBO_JWT
+                    BFF->>FGA: Conversation write + agent-use checks
+                    BFF->>DA: Proxy request with same Bearer OBO_JWT
+                    DA->>DA: JwtAuthMiddleware binds current_user_token<br/>sub + active_team
+                    DA->>AG: MCP/tool request with same Bearer OBO_JWT<br/>+ signed agent context
+                    AG->>FGA: ext_authz checks user, agent, and tool relationships
+                    AG->>MCP: Forward authorized call<br/>Authorization: Bearer OBO_JWT
+                    MCP-->>AG: tool result
+                    AG-->>DA: tool result
+                    DA-->>BFF: streamed agent response
+                    BFF-->>Bot: streamed response
+                    Bot-->>User: Threaded Slack/Webex reply
+                end
+            end
+        end
+    end
+```
+
+The two load-bearing invariants are:
+
+1. **Audience follows the next hop.** Bot pre-dispatch calls target the CAIPE UI BFF, so OBO uses `CAIPE_PLATFORM_AUDIENCE` (`caipe-platform` by default). The same bearer can still be forwarded later because Dynamic Agents and AgentGateway accept `caipe-platform`.
+2. **Team context is signed, then verified.** The bot derives `active_team` from the channel/space mapping, requests the matching `team-*` scope, and rejects the request if Keycloak returns any other `active_team`.
 
 ```mermaid
 sequenceDiagram

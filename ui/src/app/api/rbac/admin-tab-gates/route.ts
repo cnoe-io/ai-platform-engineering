@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
+import { ApiError } from "@/lib/api-middleware";
 import { getConfig } from "@/lib/config";
+import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
@@ -80,6 +83,49 @@ const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
   action_audit: "actionAuditEnabled",
 };
 
+const BASELINE_TABS = new Set<AdminTabKey>(["users", "teams", "skills", "metrics", "health"]);
+
+const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
+  roles: "roles",
+  identity_group_sync: "identity_group_sync",
+  slack: "slack",
+  webex: "webex",
+  feedback: "feedback",
+  nps: "nps",
+  stats: "stats",
+  audit_logs: "audit_logs",
+  action_audit: "action_audit",
+  openfga: "openfga",
+  migrations: "migrations",
+};
+
+async function checkTupleAllowed(tuple: { user: string; relation: string; object: string }): Promise<boolean> {
+  try {
+    const result = await checkOpenFgaTuple(tuple);
+    return result.allowed;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSimulatedOrganizationAdmin(openfgaUser: string): Promise<boolean> {
+  return checkTupleAllowed({
+    user: openfgaUser,
+    relation: "can_manage",
+    object: organizationObjectId(),
+  });
+}
+
+async function hasSimulatedAdminSurface(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
+  const surface = TAB_ADMIN_SURFACES[tab];
+  if (!surface) return false;
+  return checkTupleAllowed({
+    user: openfgaUser,
+    relation: "can_manage",
+    object: `admin_surface:${surface}`,
+  });
+}
+
 /**
  * GET /api/rbac/admin-tab-gates
  *
@@ -88,7 +134,7 @@ const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
  * storage; tab visibility follows the organization-level OpenFGA admin
  * relationship plus the bootstrap-admin break-glass fallback.
  */
-export async function GET() {
+export async function GET(request?: NextRequest) {
   const session = (await getServerSession(authOptions)) as {
     accessToken?: string;
     sub?: string;
@@ -101,16 +147,34 @@ export async function GET() {
   }
 
   const isAdmin = await hasOrganizationAdmin(session);
+  let simulation;
+  try {
+    const searchParams = request ? new URL(request.url).searchParams : new URLSearchParams();
+    simulation = parseAdminSimulation(searchParams);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    }
+    throw error;
+  }
+
+  if (simulation.active && !isAdmin) {
+    return NextResponse.json(
+      { error: "Simulation requires organization admin access" },
+      { status: 403 }
+    );
+  }
+  const simulatedUser = simulation.subject?.openfga_user;
+  const simulatedOrgAdmin = simulatedUser
+    ? await hasSimulatedOrganizationAdmin(simulatedUser)
+    : false;
 
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   for (const tab of ALL_TABS) {
-    let allowed =
-      tab === "users" ||
-      tab === "teams" ||
-      tab === "skills" ||
-      tab === "metrics" ||
-      tab === "health"
-        ? true
+    let allowed = BASELINE_TABS.has(tab)
+      ? true
+      : simulatedUser
+        ? simulatedOrgAdmin || await hasSimulatedAdminSurface(simulatedUser, tab)
         : isAdmin;
 
     const flagKey = TAB_FEATURE_FLAGS[tab];
@@ -121,5 +185,5 @@ export async function GET() {
     gates[tab] = allowed;
   }
 
-  return NextResponse.json({ gates });
+  return NextResponse.json({ gates, simulation });
 }

@@ -31,6 +31,7 @@ import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
@@ -211,6 +212,7 @@ export function AppHeader() {
   // Fetch version info
   const { versionInfo } = useVersion();
   const releasePrompt = useReleaseUpgradePrompt();
+  const migrationStatus = useMigrationStatus();
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -771,6 +773,24 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
+          {migrationStatus.status?.is_blocking && (
+            <GuardedLink
+              href="/admin?cat=security&tab=migrations"
+              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Migrations required: {migrationStatus.status.blocking_required_count}
+            </GuardedLink>
+          )}
+          {migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
+            <GuardedLink
+              href="/admin?cat=security&tab=migrations"
+              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Migration override active
+            </GuardedLink>
+          )}
         </div>
 
         {/* Personalization, Links & User */}

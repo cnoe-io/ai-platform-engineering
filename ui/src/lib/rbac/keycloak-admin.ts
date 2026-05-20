@@ -611,13 +611,13 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
 // `oidc-hardcoded-claim-mapper` injecting `active_team=<slug>` into the
 // access token. We bind the scope BOTH as an optional scope on the
 // `caipe-slack-bot` client (for code symmetry with team-personal) AND as
-// a *default* scope on the `agentgateway` audience client. Keycloak's
+// a *default* scope on the bot OBO audience client. Keycloak's
 // RFC 8693 token-exchange silently drops the `scope` request parameter,
 // so the only reliable way to inject the `active_team` claim is via the
 // target audience client's default scopes — see Spec 104 and the
 // `_apply_active_team` comment in the slack-bot OBO module.
 //
-// CAVEAT: with multiple teams bound as defaults on agentgateway, every
+// CAVEAT: with multiple teams bound as defaults on the OBO audience, every
 // hardcoded mapper fires and the last one wins (mapper order is
 // undefined). The bot's mismatch check (`_do_exchange`) catches this and
 // rejects, but multi-team users will see denials. Follow-up work should
@@ -634,8 +634,15 @@ const SLACK_BOT_CLIENT_ID =
 const WEBEX_BOT_CLIENT_ID =
   process.env.KEYCLOAK_WEBEX_BOT_CLIENT_ID?.trim() || "caipe-webex-bot";
 
-const AGENTGATEWAY_CLIENT_ID =
-  process.env.KEYCLOAK_AGENTGATEWAY_CLIENT_ID?.trim() || "agentgateway";
+const BOT_OBO_AUDIENCE_CLIENT_ID =
+  process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
+
+function canonicalBotPolicyName(policyName: string): string {
+  if (policyName === "caipe-webex-bot-token-exchange-policy") {
+    return "caipe-webex-bot-token-exchange";
+  }
+  return policyName;
+}
 
 interface KeycloakClient {
   id: string;
@@ -670,6 +677,50 @@ interface KeycloakScopePermission {
   name?: string;
   policies?: string[];
   [key: string]: unknown;
+}
+
+interface KeycloakScopePermissionDetails {
+  id?: string;
+  name?: string;
+  decisionStrategy?: string;
+  policies: Array<{ id: string; name: string }>;
+}
+
+export interface KeycloakRbacDiagnosticValues {
+  team_scopes: Array<{
+    scope: string;
+    scope_id: string;
+    active_team: string;
+    active_team_mapper: string;
+    optional_on_slack_bot: boolean;
+    optional_on_webex_bot: boolean;
+    default_on_obo_audience: boolean;
+  }>;
+  obo_permissions: Array<{
+    bot_client_id: string;
+    policy_name: string;
+    policy_id: string;
+    token_exchange_permission_id: string;
+    token_exchange_policy_attached: boolean;
+    users_impersonate_permission_id: string;
+    users_impersonate_policy_attached: boolean;
+  }>;
+  bot_service_accounts: Array<{
+    client_id: string;
+    service_account_id: string;
+    realm_management_roles: string[];
+    impersonation_role_assigned: boolean;
+  }>;
+  token_exchange_permissions: Array<{
+    client_id: string;
+    token_exchange_permission_id: string;
+    decision_strategy: string;
+    policy_names: string[];
+  }>;
+  active_team_defaults: Array<{
+    audience_client_id: string;
+    default_team_scopes: string[];
+  }>;
 }
 
 async function getClientByClientId(clientId: string): Promise<KeycloakClient | null> {
@@ -715,6 +766,17 @@ async function getUsersImpersonatePermissionId(): Promise<string | null> {
   await assertOk(response, "getUsersImpersonatePermissionId");
   const payload = (await response.json()) as KeycloakManagementPermissions;
   return payload.scopePermissions?.impersonate ?? null;
+}
+
+async function enableUsersManagementPermissions(): Promise<KeycloakManagementPermissions> {
+  const response = await adminFetch("/users-management-permissions", {
+    method: "PUT",
+    body: JSON.stringify({ enabled: true }),
+  });
+  await assertOk(response, "enableUsersManagementPermissions");
+  const readResponse = await adminFetch("/users-management-permissions", { method: "GET" });
+  await assertOk(readResponse, "readUsersManagementPermissions");
+  return (await readResponse.json()) as KeycloakManagementPermissions;
 }
 
 async function getClientPolicyByName(
@@ -801,6 +863,53 @@ async function attachPolicyToScopePermission(
     body: JSON.stringify({ ...permission, policies: [...policies] }),
   });
   await assertOk(updateResponse, `attachPolicyToScopePermission(${permissionId})`);
+}
+
+async function setScopePermissionDecisionStrategy(
+  realmManagementUuid: string,
+  permissionId: string,
+  decisionStrategy: "AFFIRMATIVE" | "UNANIMOUS"
+): Promise<void> {
+  const permissionPath = `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/permission/scope/${encodeURIComponent(permissionId)}`;
+  const response = await adminFetch(permissionPath, { method: "GET" });
+  await assertOk(response, `readScopePermission(${permissionId})`);
+  const permission = (await response.json()) as KeycloakScopePermission & { decisionStrategy?: string };
+  if (permission.decisionStrategy === decisionStrategy) return;
+  const updateResponse = await adminFetch(permissionPath, {
+    method: "PUT",
+    body: JSON.stringify({ ...permission, decisionStrategy }),
+  });
+  await assertOk(updateResponse, `setScopePermissionDecisionStrategy(${permissionId})`);
+}
+
+async function readScopePermissionDetails(
+  realmManagementUuid: string,
+  permissionId: string
+): Promise<KeycloakScopePermissionDetails> {
+  const permissionPath = `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/permission/scope/${encodeURIComponent(permissionId)}`;
+  const [response, associatedResponse] = await Promise.all([
+    adminFetch(permissionPath, { method: "GET" }),
+    adminFetch(`${permissionPath}/associatedPolicies`, { method: "GET" }),
+  ]);
+  await assertOk(response, `readScopePermissionDetails(${permissionId})`);
+  await assertOk(associatedResponse, `readScopePermissionDetailsPolicies(${permissionId})`);
+  const permission = (await response.json()) as KeycloakScopePermission & {
+    decisionStrategy?: string;
+  };
+  const associatedPolicies = await parseJsonArray<Record<string, unknown>>(associatedResponse);
+  return {
+    id: typeof permission.id === "string" ? permission.id : permissionId,
+    name: typeof permission.name === "string" ? permission.name : undefined,
+    decisionStrategy:
+      typeof permission.decisionStrategy === "string" ? permission.decisionStrategy : undefined,
+    policies: associatedPolicies
+      .map((policy) => {
+        const id = typeof policy.id === "string" ? policy.id : "";
+        const name = typeof policy.name === "string" ? policy.name : id;
+        return id ? { id, name } : null;
+      })
+      .filter((policy): policy is { id: string; name: string } => policy !== null),
+  };
 }
 
 async function listClientScopes(): Promise<KeycloakClientScope[]> {
@@ -943,7 +1052,7 @@ async function bindScopeAsOptional(
 
 /**
  * Bind a client scope as a *default* scope on a client. Used for the
- * agentgateway audience client because Keycloak's RFC 8693 token-exchange
+ * bot OBO audience client because Keycloak's RFC 8693 token-exchange
  * silently drops the `scope` request parameter — the only way to get a
  * scope's mappers (and therefore the `active_team` claim) into the minted
  * token is via default scopes on the *target audience* client.
@@ -970,6 +1079,23 @@ async function listDefaultClientScopes(clientUuid: string): Promise<KeycloakClie
     { method: "GET" }
   );
   await assertOk(response, "listDefaultClientScopes");
+  const raw = await parseJsonArray<Record<string, unknown>>(response);
+  return raw
+    .map((s) => {
+      const id = typeof s.id === "string" ? s.id : "";
+      const name = typeof s.name === "string" ? s.name : "";
+      if (!id || !name) return null;
+      return { id, name } as KeycloakClientScope;
+    })
+    .filter((scope): scope is KeycloakClientScope => scope !== null);
+}
+
+async function listOptionalClientScopes(clientUuid: string): Promise<KeycloakClientScope[]> {
+  const response = await adminFetch(
+    `/clients/${encodeURIComponent(clientUuid)}/optional-client-scopes`,
+    { method: "GET" }
+  );
+  await assertOk(response, "listOptionalClientScopes");
   const raw = await parseJsonArray<Record<string, unknown>>(response);
   return raw
     .map((s) => {
@@ -1052,8 +1178,11 @@ export async function ensureTeamClientScope(slug: string): Promise<void> {
   const scopeName = `team-${slug}`;
   const description = `Spec 104: marks the user as acting in team "${slug}"`;
 
-  const botClient = await getClientByClientId(SLACK_BOT_CLIENT_ID);
-  if (!botClient) {
+  const [slackBotClient, webexBotClient] = await Promise.all([
+    getClientByClientId(SLACK_BOT_CLIENT_ID),
+    getClientByClientId(WEBEX_BOT_CLIENT_ID),
+  ]);
+  if (!slackBotClient) {
     throw new Error(
       `Keycloak bot client "${SLACK_BOT_CLIENT_ID}" not found; cannot bind team scope`
     );
@@ -1065,28 +1194,31 @@ export async function ensureTeamClientScope(slug: string): Promise<void> {
   }
 
   await ensureHardcodedActiveTeamMapper(scope.id, `active-team-${slug}`, slug);
-  await bindScopeAsOptional(botClient.id, scope.id);
+  await bindScopeAsOptional(slackBotClient.id, scope.id);
+  if (webexBotClient) {
+    await bindScopeAsOptional(webexBotClient.id, scope.id);
+  }
 
-  // Spec 104: bind as DEFAULT on agentgateway too. Token-exchange ignores
+  // Spec 104: bind as DEFAULT on the OBO audience too. Token-exchange ignores
   // the `scope=` request parameter, so optional-on-bot alone produces a
   // token without the `active_team` claim. Default-on-audience is the only
   // wiring that actually injects the claim. Best-effort: if the
-  // agentgateway client doesn't exist yet (older stack pre Spec 104), log
+  // audience client doesn't exist yet, log
   // and skip rather than failing team creation entirely.
-  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
-  if (!agwClient) {
+  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
+  if (!oboAudienceClient) {
     console.warn(
-      `[keycloak-admin] agentgateway client "${AGENTGATEWAY_CLIENT_ID}" not found; ` +
+      `[keycloak-admin] OBO audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found; ` +
         `team scope "${scopeName}" will not appear in OBO tokens until you run ` +
-        `init-idp.sh or create the client manually.`
+        `init-idp.sh or create the target audience client manually.`
     );
     return;
   }
-  await bindScopeAsDefault(agwClient.id, scope.id);
+  await bindScopeAsDefault(oboAudienceClient.id, scope.id);
 }
 
 /**
- * Select the single agentgateway `team-*` default scope that should contribute
+ * Select the single bot OBO audience `team-*` default scope that should contribute
  * `active_team` to token-exchange results.
  *
  * This is a narrow repair for Keycloak's token-exchange behavior: when multiple
@@ -1099,68 +1231,59 @@ export async function selectAgentGatewayActiveTeamScope(slug: string): Promise<v
       `Invalid team slug "${slug}" — must be lowercase alphanumerics with hyphens, max 63 chars`
     );
   }
-  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
-  if (!agwClient) {
-    throw new Error(`Keycloak audience client "${AGENTGATEWAY_CLIENT_ID}" not found`);
+  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
+  if (!oboAudienceClient) {
+    throw new Error(`Keycloak audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found`);
   }
   const targetScope = await getClientScopeByName(`team-${slug}`);
   if (!targetScope) {
     throw new Error(`Keycloak client scope "team-${slug}" not found`);
   }
 
-  const defaultScopes = await listDefaultClientScopes(agwClient.id);
+  const defaultScopes = await listDefaultClientScopes(oboAudienceClient.id);
   await Promise.all(
     defaultScopes
       .filter((scope) => scope.name.startsWith("team-") && scope.id !== targetScope.id)
-      .map((scope) => unbindDefaultScope(agwClient.id, scope.id))
+      .map((scope) => unbindDefaultScope(oboAudienceClient.id, scope.id))
   );
-  await bindScopeAsDefault(agwClient.id, targetScope.id);
+  await bindScopeAsDefault(oboAudienceClient.id, targetScope.id);
 }
 
-/**
- * Idempotently repairs the Keycloak token-exchange permissions required for
- * the Webex bot to mint user-scoped tokens whose target audience is
- * `agentgateway`.
- *
- * Keycloak authorizes token exchange on the target audience client. Enabling
- * management permissions on `caipe-webex-bot` is not enough; the Webex bot's
- * client policy must also be attached to `agentgateway`'s token-exchange scope
- * permission.
- */
-export async function ensureWebexBotOboPermissions(): Promise<void> {
-  const [webexBotClient, agentGatewayClient, realmManagementClient] = await Promise.all([
-    getClientByClientId(WEBEX_BOT_CLIENT_ID),
-    getClientByClientId(AGENTGATEWAY_CLIENT_ID),
+async function ensureBotOboPermissions(botClientId: string, policyName: string): Promise<void> {
+  const [botClient, oboAudienceClient, realmManagementClient] = await Promise.all([
+    getClientByClientId(botClientId),
+    getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
     getClientByClientId("realm-management"),
   ]);
 
-  if (!webexBotClient) {
-    throw new Error(`Keycloak Webex bot client "${WEBEX_BOT_CLIENT_ID}" not found`);
+  if (!botClient) {
+    throw new Error(`Keycloak bot client "${botClientId}" not found`);
   }
-  if (!agentGatewayClient) {
-    throw new Error(`Keycloak audience client "${AGENTGATEWAY_CLIENT_ID}" not found`);
+  if (!oboAudienceClient) {
+    throw new Error(`Keycloak audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found`);
   }
   if (!realmManagementClient) {
     throw new Error('Keycloak client "realm-management" not found');
   }
 
-  const [webexPerms, agentGatewayPerms, usersImpersonatePermissionId] = await Promise.all([
-    enableClientManagementPermissions(webexBotClient.id, webexBotClient.clientId),
-    enableClientManagementPermissions(agentGatewayClient.id, agentGatewayClient.clientId).catch(() =>
-      readClientManagementPermissions(agentGatewayClient.id, agentGatewayClient.clientId)
+  const [botPerms, oboAudiencePerms, usersPerms] = await Promise.all([
+    enableClientManagementPermissions(botClient.id, botClient.clientId),
+    enableClientManagementPermissions(oboAudienceClient.id, oboAudienceClient.clientId).catch(() =>
+      readClientManagementPermissions(oboAudienceClient.id, oboAudienceClient.clientId)
     ),
-    getUsersImpersonatePermissionId(),
+    enableUsersManagementPermissions(),
   ]);
 
-  const webexTokenExchangePermissionId = webexPerms.scopePermissions?.["token-exchange"];
-  const agentGatewayTokenExchangePermissionId =
-    agentGatewayPerms.scopePermissions?.["token-exchange"];
-  if (!webexTokenExchangePermissionId) {
-    throw new Error(`Keycloak client "${WEBEX_BOT_CLIENT_ID}" has no token-exchange permission`);
+  const botTokenExchangePermissionId = botPerms.scopePermissions?.["token-exchange"];
+  const oboAudienceTokenExchangePermissionId =
+    oboAudiencePerms.scopePermissions?.["token-exchange"];
+  const usersImpersonatePermissionId = usersPerms.scopePermissions?.impersonate;
+  if (!botTokenExchangePermissionId) {
+    throw new Error(`Keycloak client "${botClientId}" has no token-exchange permission`);
   }
-  if (!agentGatewayTokenExchangePermissionId) {
+  if (!oboAudienceTokenExchangePermissionId) {
     throw new Error(
-      `Keycloak client "${AGENTGATEWAY_CLIENT_ID}" has no token-exchange permission`
+      `Keycloak client "${BOT_OBO_AUDIENCE_CLIENT_ID}" has no token-exchange permission`
     );
   }
   if (!usersImpersonatePermissionId) {
@@ -1169,15 +1292,15 @@ export async function ensureWebexBotOboPermissions(): Promise<void> {
 
   const policy = await ensureClientPolicy(
     realmManagementClient.id,
-    "caipe-webex-bot-token-exchange",
-    "Allows caipe-webex-bot to perform token exchange / OBO impersonation.",
-    webexBotClient.id
+    policyName,
+    `Allows ${botClientId} to perform token exchange / OBO impersonation.`,
+    botClient.id
   );
 
   await Promise.all([
     attachPolicyToScopePermission(
       realmManagementClient.id,
-      webexTokenExchangePermissionId,
+      botTokenExchangePermissionId,
       policy.id
     ),
     attachPolicyToScopePermission(
@@ -1187,10 +1310,260 @@ export async function ensureWebexBotOboPermissions(): Promise<void> {
     ),
     attachPolicyToScopePermission(
       realmManagementClient.id,
-      agentGatewayTokenExchangePermissionId,
+      oboAudienceTokenExchangePermissionId,
       policy.id
     ),
   ]);
+}
+
+export async function ensureSlackBotOboPermissions(): Promise<void> {
+  return ensureBotOboPermissions(SLACK_BOT_CLIENT_ID, "caipe-slack-bot-token-exchange");
+}
+
+/**
+ * Idempotently repairs the Keycloak token-exchange permissions required for
+ * the Webex bot to mint user-scoped tokens whose target audience is the
+ * CAIPE UI BFF resource server (`caipe-platform` by default).
+ *
+ * Keycloak authorizes token exchange on the target audience client. Enabling
+ * management permissions on `caipe-webex-bot` is not enough; the Webex bot's
+ * client policy must also be attached to the target audience client's
+ * token-exchange scope permission.
+ */
+export async function ensureWebexBotOboPermissions(): Promise<void> {
+  return ensureBotOboPermissions(WEBEX_BOT_CLIENT_ID, "caipe-webex-bot-token-exchange");
+}
+
+export async function ensureCaipePlatformTokenExchangeDecisionStrategy(
+  decisionStrategy: "AFFIRMATIVE" | "UNANIMOUS" = "AFFIRMATIVE"
+): Promise<void> {
+  const [oboAudienceClient, realmManagementClient] = await Promise.all([
+    getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
+    getClientByClientId("realm-management"),
+  ]);
+  if (!oboAudienceClient) {
+    throw new Error(`Keycloak audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found`);
+  }
+  if (!realmManagementClient) {
+    throw new Error('Keycloak client "realm-management" not found');
+  }
+  const perms = await enableClientManagementPermissions(
+    oboAudienceClient.id,
+    oboAudienceClient.clientId
+  ).catch(() => readClientManagementPermissions(oboAudienceClient.id, oboAudienceClient.clientId));
+  const tokenExchangePermissionId = perms.scopePermissions?.["token-exchange"];
+  if (!tokenExchangePermissionId) {
+    throw new Error(
+      `Keycloak client "${BOT_OBO_AUDIENCE_CLIENT_ID}" has no token-exchange permission`
+    );
+  }
+  await setScopePermissionDecisionStrategy(
+    realmManagementClient.id,
+    tokenExchangePermissionId,
+    decisionStrategy
+  );
+}
+
+export async function ensureBotServiceAccountImpersonationRoles(
+  botClientIds: string[] = [SLACK_BOT_CLIENT_ID, WEBEX_BOT_CLIENT_ID]
+): Promise<void> {
+  const realmManagementClient = await getClientByClientId("realm-management");
+  if (!realmManagementClient) {
+    throw new Error('Keycloak client "realm-management" not found');
+  }
+  const roleResponse = await adminFetch(
+    `/clients/${encodeURIComponent(realmManagementClient.id)}/roles/impersonation`,
+    { method: "GET" }
+  );
+  await assertOk(roleResponse, "getRealmManagementImpersonationRole");
+  const impersonationRole = (await roleResponse.json()) as KeycloakRole;
+
+  for (const botClientId of botClientIds) {
+    const botClient = await getClientByClientId(botClientId);
+    if (!botClient) {
+      throw new Error(`Keycloak bot client "${botClientId}" not found`);
+    }
+    const serviceAccountResponse = await adminFetch(
+      `/clients/${encodeURIComponent(botClient.id)}/service-account-user`,
+      { method: "GET" }
+    );
+    await assertOk(serviceAccountResponse, `getServiceAccountUser(${botClientId})`);
+    const serviceAccount = (await serviceAccountResponse.json()) as { id?: string };
+    if (!serviceAccount.id) {
+      throw new Error(`Keycloak bot client "${botClientId}" service account has no id`);
+    }
+    const mappingsPath = `/users/${encodeURIComponent(serviceAccount.id)}/role-mappings/clients/${encodeURIComponent(realmManagementClient.id)}`;
+    const currentResponse = await adminFetch(mappingsPath, { method: "GET" });
+    await assertOk(currentResponse, `listServiceAccountRoleMappings(${botClientId})`);
+    const current = await parseJsonArray<KeycloakRole>(currentResponse);
+    if (current.some((role) => role.name === "impersonation")) continue;
+    const assignResponse = await adminFetch(mappingsPath, {
+      method: "POST",
+      body: JSON.stringify([{ id: impersonationRole.id, name: impersonationRole.name }]),
+    });
+    await assertOk(assignResponse, `assignServiceAccountImpersonation(${botClientId})`);
+  }
+}
+
+async function serviceAccountRoleValues(
+  botClientId: string,
+  realmManagementClient: KeycloakClient
+): Promise<KeycloakRbacDiagnosticValues["bot_service_accounts"][number]> {
+  const botClient = await getClientByClientId(botClientId);
+  if (!botClient) {
+    return {
+      client_id: botClientId,
+      service_account_id: "missing client",
+      realm_management_roles: [],
+      impersonation_role_assigned: false,
+    };
+  }
+  const serviceAccountResponse = await adminFetch(
+    `/clients/${encodeURIComponent(botClient.id)}/service-account-user`,
+    { method: "GET" }
+  );
+  await assertOk(serviceAccountResponse, `inspectServiceAccountUser(${botClientId})`);
+  const serviceAccount = (await serviceAccountResponse.json()) as { id?: string };
+  if (!serviceAccount.id) {
+    return {
+      client_id: botClientId,
+      service_account_id: "missing service account id",
+      realm_management_roles: [],
+      impersonation_role_assigned: false,
+    };
+  }
+  const mappingsPath = `/users/${encodeURIComponent(serviceAccount.id)}/role-mappings/clients/${encodeURIComponent(realmManagementClient.id)}`;
+  const currentResponse = await adminFetch(mappingsPath, { method: "GET" });
+  await assertOk(currentResponse, `inspectServiceAccountRoleMappings(${botClientId})`);
+  const current = await parseJsonArray<KeycloakRole>(currentResponse);
+  const roles = current.map((role) => role.name).filter(Boolean).sort();
+  return {
+    client_id: botClientId,
+    service_account_id: serviceAccount.id,
+    realm_management_roles: roles,
+    impersonation_role_assigned: roles.includes("impersonation"),
+  };
+}
+
+/**
+ * Read the Keycloak-side values managed by the RBAC reconciler. This is used
+ * by the admin diagnostics UI and intentionally avoids mutating Keycloak.
+ */
+export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDiagnosticValues> {
+  const [slackBotClient, webexBotClient, oboAudienceClient, realmManagementClient] =
+    await Promise.all([
+      getClientByClientId(SLACK_BOT_CLIENT_ID),
+      getClientByClientId(WEBEX_BOT_CLIENT_ID),
+      getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
+      getClientByClientId("realm-management"),
+    ]);
+  const teamScopes = (await listClientScopes())
+    .filter((scope) => scope.name.startsWith("team-"))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const [slackOptionalScopes, webexOptionalScopes, audienceDefaultScopes] = await Promise.all([
+    slackBotClient ? listOptionalClientScopes(slackBotClient.id) : Promise.resolve([]),
+    webexBotClient ? listOptionalClientScopes(webexBotClient.id) : Promise.resolve([]),
+    oboAudienceClient ? listDefaultClientScopes(oboAudienceClient.id) : Promise.resolve([]),
+  ]);
+  const slackOptionalNames = new Set(slackOptionalScopes.map((scope) => scope.name));
+  const webexOptionalNames = new Set(webexOptionalScopes.map((scope) => scope.name));
+  const audienceDefaultNames = new Set(audienceDefaultScopes.map((scope) => scope.name));
+
+  const teamScopeValues = await Promise.all(
+    teamScopes.map(async (scope) => {
+      const mappers = await listProtocolMappers(scope.id);
+      const activeTeamMapper = mappers.find(
+        (mapper) => mapper.config?.["claim.name"] === "active_team"
+      );
+      return {
+        scope: scope.name,
+        scope_id: scope.id,
+        active_team: activeTeamMapper?.config?.["claim.value"] ?? "missing",
+        active_team_mapper: activeTeamMapper?.name ?? "missing",
+        optional_on_slack_bot: slackOptionalNames.has(scope.name),
+        optional_on_webex_bot: webexOptionalNames.has(scope.name),
+        default_on_obo_audience: audienceDefaultNames.has(scope.name),
+      };
+    })
+  );
+
+  const tokenExchangePermissionId =
+    oboAudienceClient
+      ? (await readClientManagementPermissions(
+          oboAudienceClient.id,
+          oboAudienceClient.clientId
+        ).catch(() => null))?.scopePermissions?.["token-exchange"]
+      : undefined;
+  const usersImpersonatePermissionId = await getUsersImpersonatePermissionId().catch(() => null);
+  const tokenExchangeDetails =
+    realmManagementClient && tokenExchangePermissionId
+      ? await readScopePermissionDetails(realmManagementClient.id, tokenExchangePermissionId)
+      : null;
+  const usersImpersonateDetails =
+    realmManagementClient && usersImpersonatePermissionId
+      ? await readScopePermissionDetails(realmManagementClient.id, usersImpersonatePermissionId)
+      : null;
+
+  const oboPermissionRows = await Promise.all(
+    [
+      { clientId: SLACK_BOT_CLIENT_ID, policyName: "caipe-slack-bot-token-exchange" },
+      { clientId: WEBEX_BOT_CLIENT_ID, policyName: "caipe-webex-bot-token-exchange" },
+    ].map(async ({ clientId, policyName }) => {
+      const policy = realmManagementClient
+        ? await getClientPolicyByName(realmManagementClient.id, policyName)
+        : null;
+      return {
+        bot_client_id: clientId,
+        policy_name: policyName,
+        policy_id: policy?.id ?? "missing",
+        token_exchange_permission_id: tokenExchangePermissionId ?? "missing",
+        token_exchange_policy_attached: Boolean(
+          policy?.id && tokenExchangeDetails?.policies.some((item) => item.id === policy.id)
+        ),
+        users_impersonate_permission_id: usersImpersonatePermissionId ?? "missing",
+        users_impersonate_policy_attached: Boolean(
+          policy?.id && usersImpersonateDetails?.policies.some((item) => item.id === policy.id)
+        ),
+      };
+    })
+  );
+
+  const serviceAccountRows = realmManagementClient
+    ? await Promise.all(
+        [SLACK_BOT_CLIENT_ID, WEBEX_BOT_CLIENT_ID].map((clientId) =>
+          serviceAccountRoleValues(clientId, realmManagementClient)
+        )
+      )
+    : [];
+
+  return {
+    team_scopes: teamScopeValues,
+    obo_permissions: oboPermissionRows,
+    bot_service_accounts: serviceAccountRows,
+    token_exchange_permissions: oboAudienceClient
+      ? [
+          {
+            client_id: oboAudienceClient.clientId,
+            token_exchange_permission_id: tokenExchangePermissionId ?? "missing",
+            decision_strategy: tokenExchangeDetails?.decisionStrategy ?? "missing",
+            policy_names:
+              tokenExchangeDetails?.policies.map((policy) => canonicalBotPolicyName(policy.name)) ?? [],
+          },
+        ]
+      : [],
+    active_team_defaults: oboAudienceClient
+      ? [
+          {
+            audience_client_id: oboAudienceClient.clientId,
+            default_team_scopes: audienceDefaultScopes
+              .map((scope) => scope.name)
+              .filter((name) => name.startsWith("team-"))
+              .sort(),
+          },
+        ]
+      : [],
+  };
 }
 
 /**
@@ -1210,9 +1583,9 @@ export async function deleteTeamClientScope(slug: string): Promise<void> {
   if (botClient) {
     await unbindOptionalScope(botClient.id, scope.id);
   }
-  const agwClient = await getClientByClientId(AGENTGATEWAY_CLIENT_ID);
-  if (agwClient) {
-    await unbindDefaultScope(agwClient.id, scope.id);
+  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
+  if (oboAudienceClient) {
+    await unbindDefaultScope(oboAudienceClient.id, scope.id);
   }
   await deleteClientScope(scope.id);
 }

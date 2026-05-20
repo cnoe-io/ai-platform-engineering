@@ -1,4 +1,10 @@
-import { getCollection } from "@/lib/mongodb";
+import { connectToDatabase, getCollection } from "@/lib/mongodb";
+import {
+  applyKeycloakRbacReconciliationMigration,
+  KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
+  planKeycloakRbacReconciliationMigration,
+} from "@/lib/rbac/keycloak-rbac-reconciliation";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 
@@ -8,7 +14,15 @@ import {
   CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
   deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
-import type { MigrationApplyResult, MigrationDefinition, MigrationListItem, MigrationPlanResult } from "./types";
+import type {
+  MigrationApplyResult,
+  MigrationBlockingStatus,
+  MigrationDefinition,
+  MigrationListItem,
+  MigrationListResult,
+  MigrationPlanResult,
+  MigrationSchemaVersionStatus,
+} from "./types";
 
 export const RELEASE_051 = "0.5.1";
 const UNIVERSAL_REBAC_MIGRATION_ID = "universal_rebac_relationship_backfill_v1";
@@ -161,6 +175,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
   },
+  KEYCLOAK_RBAC_MIGRATION_DEFINITION,
 ];
 
 interface SchemaVersionDoc {
@@ -174,6 +189,22 @@ interface SchemaMigrationDoc {
   status?: MigrationListItem["status"];
   completed_at?: string;
   updated_at?: string;
+}
+
+interface MigrationManifestDoc extends MigrationDefinition {
+  _id: string;
+  migration_id?: string;
+  blocking?: boolean;
+  registered_at?: string;
+  updated_at?: string;
+}
+
+interface MigrationOverrideDoc {
+  _id: string;
+  release: string;
+  reason?: string;
+  status?: "active" | "revoked";
+  expires_at?: string;
 }
 
 interface MigrationRuntimePlan extends MigrationPlanResult {
@@ -851,30 +882,220 @@ export function getMigrationDefinition(migrationId: string): MigrationDefinition
   return MIGRATION_DEFINITIONS.find((migration) => migration.id === migrationId) ?? null;
 }
 
-export async function listReleaseMigrations(): Promise<{ release: string; migrations: MigrationListItem[] }> {
+function manifestDefinition(doc: MigrationManifestDoc): MigrationDefinition {
+  return {
+    id: doc.migration_id ?? doc.id ?? doc._id,
+    release: doc.release,
+    schema_area: doc.schema_area,
+    from_version: doc.from_version,
+    to_version: doc.to_version,
+    kind: doc.kind,
+    title: doc.title,
+    description: doc.description,
+    confirmation: doc.confirmation,
+    required: doc.required,
+    blocking: doc.blocking,
+    implemented: doc.implemented,
+    dependencies: doc.dependencies,
+  };
+}
+
+function isMigrationComplete(definition: MigrationDefinition, version?: SchemaVersionDoc, run?: SchemaMigrationDoc): boolean {
+  return run?.status === "completed" || (version?.version ?? 0) >= definition.to_version;
+}
+
+async function seedMigrationManifest(now = new Date().toISOString()): Promise<void> {
+  const manifest = await getCollection<MigrationManifestDoc>("migration_manifest");
+  await Promise.all(
+    MIGRATION_DEFINITIONS.map((definition) =>
+      manifest.updateOne(
+        { _id: definition.id },
+        {
+          $set: {
+            migration_id: definition.id,
+            release: definition.release,
+            schema_area: definition.schema_area,
+            from_version: definition.from_version,
+            to_version: definition.to_version,
+            kind: definition.kind,
+            title: definition.title,
+            description: definition.description,
+            confirmation: definition.confirmation,
+            required: definition.required,
+            blocking: definition.blocking ?? definition.required,
+            implemented: definition.implemented,
+            dependencies: definition.dependencies ?? [],
+            handler_checksum: `${definition.id}:${definition.from_version}->${definition.to_version}:${definition.confirmation}`,
+            updated_at: now,
+            managed_by: "runtime",
+          },
+          $setOnInsert: { created_at: now, registered_at: now },
+        },
+        { upsert: true },
+      ),
+    ),
+  );
+}
+
+function deriveSchemaVersionStatuses(
+  definitions: MigrationDefinition[],
+  versionByArea: Map<string, SchemaVersionDoc>,
+  collectionNames: string[] = [],
+): MigrationSchemaVersionStatus[] {
+  const targets = new Map<string, number>();
+  for (const definition of definitions) {
+    targets.set(definition.schema_area, Math.max(targets.get(definition.schema_area) ?? 0, definition.to_version));
+  }
+
+  const schemaAreas = new Set<string>([
+    ...collectionNames.filter((name) => !name.startsWith("system.")),
+    ...versionByArea.keys(),
+    ...targets.keys(),
+  ]);
+
+  return Array.from(schemaAreas)
+    .sort((left, right) => left.localeCompare(right))
+    .map((schemaArea) => {
+      const version = versionByArea.get(schemaArea);
+      const currentVersion = version?.version ?? null;
+      const targetVersion = targets.get(schemaArea) ?? null;
+      return {
+        schema_area: schemaArea,
+        current_version: currentVersion,
+        target_version: targetVersion,
+        status:
+          currentVersion === null
+            ? "unknown"
+            : targetVersion === null || currentVersion >= targetVersion
+              ? "current"
+              : "behind",
+        last_migration_id: version?.last_migration_id,
+      };
+    });
+}
+
+async function listMongoCollectionNames(): Promise<string[]> {
+  try {
+    const { db } = await connectToDatabase();
+    const collections = await db.listCollections({}, { nameOnly: true }).toArray();
+    return collections.map((collection) => collection.name).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function listReleaseMigrations(options: { includeCompleted?: boolean } = {}): Promise<MigrationListResult> {
+  await seedMigrationManifest();
+  const manifest = await getCollection<MigrationManifestDoc>("migration_manifest");
   const versions = await getCollection<SchemaVersionDoc>("data_schema_versions");
   const runs = await getCollection<SchemaMigrationDoc>("schema_migrations");
-  const [versionDocs, runDocs] = await Promise.all([
+  const [manifestDocs, versionDocs, runDocs, collectionNames] = await Promise.all([
+    manifest.find({}).toArray(),
     versions.find({}).toArray(),
     runs.find({ release: RELEASE_051 }).toArray(),
+    listMongoCollectionNames(),
   ]);
+  const definitions = (manifestDocs.length > 0 ? manifestDocs.map(manifestDefinition) : MIGRATION_DEFINITIONS).sort(
+    (left, right) => left.release.localeCompare(right.release) || left.schema_area.localeCompare(right.schema_area) || left.from_version - right.from_version,
+  );
   const versionByArea = new Map(versionDocs.map((doc) => [doc._id, doc]));
   const runById = new Map(runDocs.map((doc) => [doc._id, doc]));
+  const migrations = definitions.map((definition) => {
+    const version = versionByArea.get(definition.schema_area);
+    const run = runById.get(definition.id);
+    const completed = isMigrationComplete(definition, version, run);
+    return {
+      ...definition,
+      blocking: definition.blocking ?? definition.required,
+      current_version: version?.version ?? null,
+      target_version: definition.to_version,
+      status: completed ? "completed" : run?.status ?? "not_started",
+      last_run_at: run?.completed_at ?? run?.updated_at,
+    };
+  });
+  const completedMigrations = migrations.filter((migration) => migration.status === "completed");
 
   return {
     release: RELEASE_051,
-    migrations: MIGRATION_DEFINITIONS.map((definition) => {
-      const version = versionByArea.get(definition.schema_area);
-      const run = runById.get(definition.id);
-      return {
-        ...definition,
-        current_version: version?.version ?? null,
-        target_version: definition.to_version,
-        status: run?.status ?? "not_started",
-        last_run_at: run?.completed_at ?? run?.updated_at,
-      };
-    }),
+    runtime: {
+      migration_release: RELEASE_051,
+      manifest_count: definitions.length,
+    },
+    schema_versions: deriveSchemaVersionStatuses(definitions, versionByArea, collectionNames),
+    migrations: options.includeCompleted ? migrations : migrations.filter((migration) => migration.status !== "completed"),
+    completed_migrations: completedMigrations,
   };
+}
+
+function overrideKey(release: string, actor: string): string {
+  return `${release}:${actor.toLowerCase()}`;
+}
+
+function isOverrideActive(override: MigrationOverrideDoc | null, now: string): boolean {
+  if (!override || override.status !== "active") return false;
+  if (!override.expires_at) return true;
+  return override.expires_at > now;
+}
+
+export async function getMigrationBlockingStatus(input: {
+  actor: string;
+  now?: string;
+}): Promise<MigrationBlockingStatus> {
+  const now = input.now ?? new Date().toISOString();
+  const state = await listReleaseMigrations();
+  const overrides = await getCollection<MigrationOverrideDoc>("migration_overrides");
+  const override = await overrides.findOne({ _id: overrideKey(state.release, input.actor) });
+  const overrideActive = isOverrideActive(override, now);
+  const pendingRequired = state.migrations.filter((migration) => migration.required);
+  const blockingRequired = pendingRequired.filter((migration) => migration.blocking ?? migration.required);
+
+  return {
+    release: state.release,
+    runtime: state.runtime,
+    schema_versions: state.schema_versions,
+    pending_required_count: pendingRequired.length,
+    blocking_required_count: blockingRequired.length,
+    is_blocking: blockingRequired.length > 0 && !overrideActive,
+    override_active: overrideActive,
+    override_reason: overrideActive ? override?.reason : undefined,
+    override_expires_at: overrideActive ? override?.expires_at : undefined,
+  };
+}
+
+export async function recordMigrationOverride(input: {
+  actor: string;
+  reason: string;
+  now?: string;
+}): Promise<MigrationBlockingStatus> {
+  const reason = input.reason.trim();
+  if (reason.length < 10) {
+    const error = new Error("Override reason must be at least 10 characters") as Error & { statusCode?: number; code?: string };
+    error.statusCode = 400;
+    error.code = "MIGRATION_OVERRIDE_REASON_REQUIRED";
+    throw error;
+  }
+
+  const now = input.now ?? new Date().toISOString();
+  const expiresAt = new Date(Date.parse(now) + 24 * 60 * 60 * 1000).toISOString();
+  const overrides = await getCollection<MigrationOverrideDoc>("migration_overrides");
+  await overrides.updateOne(
+    { _id: overrideKey(RELEASE_051, input.actor) },
+    {
+      $set: {
+        release: RELEASE_051,
+        reason,
+        status: "active",
+        expires_at: expiresAt,
+        created_by: input.actor,
+        created_at: now,
+        updated_at: now,
+      },
+      $setOnInsert: {},
+    },
+    { upsert: true },
+  );
+
+  return getMigrationBlockingStatus({ actor: input.actor, now });
 }
 
 export async function planMigration(migrationId: string, now = new Date().toISOString()): Promise<MigrationPlanResult> {
@@ -966,6 +1187,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   }
   if (migrationId === MESSAGING_REBAC_INDEXES_MIGRATION_ID) {
     return deriveMessagingIndexPlan();
+  }
+  if (migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
+    return planKeycloakRbacReconciliationMigration(now);
   }
 
   throw new Error(`Migration is not plannable: ${migrationId}`);
@@ -1159,6 +1383,10 @@ export async function applyMigration(input: {
   }
 
   const now = input.now ?? new Date().toISOString();
+
+  if (input.migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
+    return applyKeycloakRbacReconciliationMigration({ actor: input.actor, now });
+  }
 
   if (input.migrationId !== CONVERSATION_OWNER_IDENTITY_MIGRATION_ID) {
     const plan = (await planMigration(input.migrationId, now)) as MigrationRuntimePlan;

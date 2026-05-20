@@ -109,6 +109,14 @@ jest.mock('@/hooks/use-release-upgrade-prompt', () => ({
   useReleaseUpgradePrompt: () => mockReleasePrompt,
 }))
 
+let mockMigrationStatus = {
+  status: null as any,
+  isLoading: false,
+}
+jest.mock('@/hooks/use-migration-status', () => ({
+  useMigrationStatus: () => mockMigrationStatus,
+}))
+
 jest.mock('@/components/release/ReleaseUpgradeDialog', () => ({
   ReleaseUpgradeDialog: ({ open, isAdmin, releaseVersion }: any) =>
     open ? (
@@ -214,6 +222,13 @@ import { AppHeader } from '../AppHeader'
 // ============================================================================
 // Tests
 // ============================================================================
+
+beforeEach(() => {
+  mockMigrationStatus = {
+    status: null,
+    isLoading: false,
+  }
+})
 
 describe('AppHeader — nav tabs', () => {
   beforeEach(() => {
@@ -828,6 +843,27 @@ describe('AppHeader — Chat tab notification dots', () => {
       12000,
     )
     expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
+  })
+
+  it('shows a persistent migrations-required alert next to connection status', () => {
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 3,
+        blocking_required_count: 2,
+        is_blocking: true,
+        override_active: false,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Migrations required: 2/i })).toHaveAttribute(
+      'href',
+      '/admin?cat=security&tab=migrations',
+    )
   })
 })
 

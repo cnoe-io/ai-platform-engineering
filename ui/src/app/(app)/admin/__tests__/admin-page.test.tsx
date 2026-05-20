@@ -108,8 +108,16 @@ jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
   RagTeamAccessPanel: () => <div data-testid="rag-team-access-panel">RagTeamAccessPanel</div>,
 }));
 
+jest.mock('@/components/admin/identity-group-sync/IdentityGroupSyncTab', () => ({
+  IdentityGroupSyncTab: () => <div data-testid="identity-group-sync-tab">IdentityGroupSyncTab</div>,
+}));
+
 jest.mock('@/components/admin/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
+}));
+
+jest.mock('@/components/admin/KeycloakMigrationHealthPanel', () => ({
+  KeycloakMigrationHealthPanel: () => <div data-testid="keycloak-health-tab">KeycloakHealthTab</div>,
 }));
 
 jest.mock('@/components/admin/AuditLogsTab', () => ({
@@ -255,6 +263,7 @@ const allGatesOpen = {
   action_audit: true,
   openfga: true,
   migrations: true,
+  identity_group_sync: true,
 };
 
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
@@ -457,6 +466,34 @@ describe('Admin Dashboard Page', () => {
       setupFetchMock();
     });
 
+    it('opens a subtle searchable view-as modal from the category bar', async () => {
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /view as/i })).toBeInTheDocument();
+      });
+      expect(screen.queryByText(/Read-only simulator\. The UI stays authenticated as you/i)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /view as/i }));
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByText('View As Effective Permissions')).toBeInTheDocument();
+      const search = screen.getByPlaceholderText(/search by email, name, or keycloak sub/i);
+      fireEvent.change(search, { target: { value: 'user' } });
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith('/api/admin/users?search=user&pageSize=20');
+      });
+
+      fireEvent.click(await screen.findByRole('button', { name: /Regular User user@example.com kc-user/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      expect(replaceMock).toHaveBeenCalledWith(
+        expect.stringContaining('simulate_type=user&simulate_id=kc-user'),
+        { scroll: false }
+      );
+    });
+
     it('does not show Read-Only badge', async () => {
       render(<AdminPage />);
 
@@ -564,6 +601,7 @@ describe('Admin Dashboard Page', () => {
         'OpenFGA ReBAC',
         'RBAC Audit',
         'Chat Audit',
+        'Keycloak',
         'Migrations',
       ]);
       expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toHaveAttribute(
@@ -663,6 +701,57 @@ describe('Admin Dashboard Page', () => {
       );
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
+        scroll: false,
+      });
+    });
+
+    it('opens the Release notes settings tab from the query string', async () => {
+      currentSearchParams = new URLSearchParams('cat=settings&tab=release-notes');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Settings')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Release notes$/i })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      expect(screen.getByTestId('release-notes-settings-tab')).toBeInTheDocument();
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
+        scroll: false,
+      });
+    });
+
+    it.each([
+      ['settings', 'settings', /^Default Agent$/i],
+      ['settings', 'release-notes', /^Release notes$/i],
+      ['settings', 'ai-review', /^AI Review$/i],
+      ['settings', 'rag-access', /^Knowledge Bases$/i],
+      ['settings', 'skills', /^Skills$/i],
+      ['people', 'users', /^Users$/i],
+      ['people', 'teams', /^Teams$/i],
+      ['people', 'identity-groups', /^Identity Groups$/i],
+      ['integrations', 'slack', /^Slack$/i],
+      ['integrations', 'webex', /^Webex$/i],
+      ['insights', 'stats', /^Statistics$/i],
+      ['insights', 'feedback', /^Feedback$/i],
+      ['insights', 'nps', /^NPS$/i],
+      ['platform', 'metrics', /^Metrics$/i],
+      ['platform', 'health', /^Health$/i],
+      ['security', 'openfga', /^OpenFGA ReBAC$/i],
+      ['security', 'keycloak', /^Keycloak$/i],
+      ['security', 'action-audit', /^RBAC Audit$/i],
+      ['security', 'audit-logs', /^Chat Audit$/i],
+      ['security', 'migrations', /^Migrations$/i],
+    ])('keeps direct sub-tab route cat=%s tab=%s selected', async (category, tab, label) => {
+      currentSearchParams = new URLSearchParams(`cat=${category}&tab=${tab}`);
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
+      });
+      expect(replaceMock).not.toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
         scroll: false,
       });
     });
