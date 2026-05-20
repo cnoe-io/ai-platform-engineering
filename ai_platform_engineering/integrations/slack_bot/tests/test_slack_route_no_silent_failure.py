@@ -1,16 +1,40 @@
-"""Smoke-check Slack route miss handling does not silently return."""
+"""Slack runtime response policy tests."""
 
 from __future__ import annotations
 
-import pathlib
+from utils.slack_runtime_policy import (
+    should_post_route_miss_notice,
+    should_process_slack_payload,
+)
 
 
-_APP_PY = pathlib.Path(__file__).resolve().parents[1] / "app.py"
+def test_silence_env_stops_slack_payload_processing() -> None:
+    assert should_process_slack_payload(silence_env=False) is True
+    assert should_process_slack_payload(silence_env=True) is False
 
 
-def test_channel_route_miss_posts_ephemeral_notice() -> None:
-    src = _APP_PY.read_text(encoding="utf-8")
+def test_route_miss_notice_requires_explicit_invocation() -> None:
+    assert (
+        should_post_route_miss_notice(
+            silence_env=False,
+            explicit_invocation=True,
+        )
+        is True
+    )
+    assert (
+        should_post_route_miss_notice(
+            silence_env=False,
+            explicit_invocation=False,
+        )
+        is False
+    )
 
-    assert "explain_no_route_match" in src
-    assert "chat_postEphemeral" in src
-    assert "Slack route miss notice" in src
+
+def test_route_miss_notice_is_suppressed_in_setup_mode() -> None:
+    assert (
+        should_post_route_miss_notice(
+            silence_env=True,
+            explicit_invocation=True,
+        )
+        is False
+    )
