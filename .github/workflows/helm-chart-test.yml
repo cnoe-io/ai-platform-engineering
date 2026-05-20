@@ -130,6 +130,10 @@ jobs:
           --set agent-github.enabled=false \
           --set tags.rag-stack=false
 
+    - name: Validate ai-platform-engineering image channels
+      run: |
+        python3 scripts/validate-helm-image-channel.py
+
     - name: Test rag-stack with different configurations
       run: |
         cd charts/rag-stack
