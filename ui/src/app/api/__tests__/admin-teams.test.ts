@@ -303,6 +303,32 @@ describe('POST /api/admin/teams', () => {
     const body = await res.json();
     expect(body.error).toContain('already exists');
   });
+
+  it('returns a friendly message when identity setup fails', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(null);
+    mockCollections['teams'] = teamsCol;
+    const { ensureTeamClientScope } = require('@/lib/rbac/keycloak-admin') as {
+      ensureTeamClientScope: jest.Mock;
+    };
+    ensureTeamClientScope.mockRejectedValueOnce(new Error('raw scope failure'));
+
+    const req = makeRequest('/api/admin/teams', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'New Team' }),
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.error).toContain("We couldn't finish setting up this team");
+    expect(body.error).not.toContain('Keycloak');
+    expect(body.error).not.toContain('scope');
+    expect(body.error).not.toContain('raw scope failure');
+    expect(teamsCol.deleteOne).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============================================================================

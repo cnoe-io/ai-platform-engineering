@@ -280,6 +280,17 @@ colors against the latest bot-visible state. The operation is intentionally
 upsert-only: existing UI-managed or config-synced route metadata is preserved
 while missing grants and default routes are ensured.
 
+Slack bulk migrations can reuse the running Slackbot's loaded static channel
+config as a convenience only. **Use existing Slackbot channel agents as defaults**
+is checked by default in the Slack onboarding default selector. When checked,
+discovery calls the Slack bot admin config-defaults endpoint and preselects each
+row's Dynamic Agent from the legacy channel config when that agent still exists
+in CAIPE. If the legacy agent is missing, or the admin unchecks the box, the row
+falls back to the saved onboarding Dynamic Agent, then to the first enabled
+Dynamic Agent alphabetically. A channel that only exists in legacy Slackbot YAML
+still shows **Needs setup** until CAIPE has the team mapping, OpenFGA grants, and
+route metadata required by the RBAC runtime.
+
 ---
 
 ## Backfill OpenFGA Relationships
@@ -482,7 +493,14 @@ channel.
 This flow preserves existing UI-managed and config-synced route metadata; it
 only imports selected channel rows, writes each selected row's channel-team
 mapping, ensures channel-agent OpenFGA grants, ensures the selected team-agent
-grant, and creates missing default routes when route creation is enabled.
+grant, repairs the Slack bot's OBO/active-team Keycloak wiring, reloads the
+running Slack bot route cache when the admin API is reachable, and creates
+missing default routes when route creation is enabled.
+
+The discovery table marks a channel **Already managed** only when CAIPE has both
+a team assignment and an active grant for it. A channel that merely exists in
+MongoDB but is missing setup still shows **Needs setup** and remains selected so
+the onboarding action can finish the missing pieces.
 
 The two workflows are complementary: run **Import from YAML Config** for explicit YAML
 routes, and run **Find Slack Channels with Bot Integration** to bootstrap bot-member channels
@@ -490,7 +508,7 @@ that the static config does not enumerate.
 
 The Web UI backend must be configured with `SLACK_BOT_ADMIN_URL`, `SLACK_BOT_ADMIN_CLIENT_ID`, `SLACK_BOT_ADMIN_CLIENT_SECRET`, and `SLACK_BOT_ADMIN_AUDIENCE`. The Keycloak init job enables client credentials on `caipe-ui` and adds the `caipe-slack-bot-admin` audience mapper. The Slack bot must have `SLACK_ADMIN_API_ENABLED=true`, `SLACK_ADMIN_JWT_ISSUER`, `SLACK_ADMIN_JWKS_URL` when an internal JWKS URL is needed, `SLACK_ADMIN_JWT_AUDIENCE`, and `SLACK_ADMIN_ALLOWED_CLIENT_IDS` configured. Keep the Slack bot admin API internal to the cluster; it is not a browser-facing API.
 
-If Slack replies with `Could not establish your team-scoped session` and bot logs show `Client not allowed to exchange`, verify the `caipe-slack-bot-token-exchange` policy is attached to all three Keycloak permissions: `caipe-slack-bot` token-exchange, users `impersonate`, and the `CAIPE_PLATFORM_AUDIENCE` target client's token-exchange permission (`caipe-platform` by default). Re-run `keycloak-init` / `keycloak-init-token-exchange` after deploying the init-script fix so existing Slack and Webex policy associations are merged instead of overwritten.
+If Slack replies with `I couldn't start your CAIPE session for this channel` and bot logs show `Client not allowed to exchange`, verify the `caipe-slack-bot-token-exchange` policy is attached to all three Keycloak permissions: `caipe-slack-bot` token-exchange, users `impersonate`, and the `CAIPE_PLATFORM_AUDIENCE` target client's token-exchange permission (`caipe-platform` by default). Re-run `keycloak-init` / `keycloak-init-token-exchange` after deploying the init-script fix so existing Slack and Webex policy associations are merged instead of overwritten.
 
 ---
 
@@ -612,6 +630,11 @@ Keycloak client-credentials token.
 | `WEBEX_ROUTE_DENIED` | Add an enabled route for the selected space and agent |
 | `missing_space_grant` | Ensure the `webex_space` OpenFGA tuple exists for the requested agent/resource |
 | `pdp_unavailable` | Check CAIPE UI BFF, OpenFGA, and Webex bot route diagnostics |
+
+Bot replies use plain-language versions of these denials. For example,
+`WEBEX_OBO_FAILED` is shown as `I couldn't start your CAIPE session for this
+Webex space`; use the reason code in logs and diagnostics for operator
+troubleshooting.
 
 If `WEBEX_OBO_FAILED` logs show `403 Forbidden`, verify the
 `caipe-webex-bot-token-exchange` Keycloak policy is attached to all three

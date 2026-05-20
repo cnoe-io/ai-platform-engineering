@@ -126,6 +126,18 @@ interface SlackChannelImportRow extends DiscoveredSlackChannel {
   is_existing: boolean;
 }
 
+interface SlackLegacyConfigDefault {
+  suggested_agent_id?: string | null;
+  agents?: Array<{
+    agent_id?: string;
+    priority?: number;
+  }>;
+}
+
+interface SlackLegacyConfigDefaultsPayload {
+  channels?: Record<string, SlackLegacyConfigDefault>;
+}
+
 interface SlackChannelDiscoveryPayload {
   channels: DiscoveredSlackChannel[];
   next_cursor?: string | null;
@@ -171,6 +183,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   const [defaultTeamSlug, setDefaultTeamSlug] = useState("");
   const [defaultAgentId, setDefaultAgentId] = useState("");
   const [configuredDefaults, setConfiguredDefaults] = useState<SlackChannelAssociationDefaults | null>(null);
+  const [useSlackbotConfigDefaults, setUseSlackbotConfigDefaults] = useState(true);
   const [slackRuntimeStatus, setSlackRuntimeStatus] = useState<SlackBotRuntimeStatus | null>(null);
   const [runtimeSyncSummary, setRuntimeSyncSummary] = useState<SlackBotRuntimeSyncSummary | null>(null);
   const [runtimeSyncModalOpen, setRuntimeSyncModalOpen] = useState(false);
@@ -199,6 +212,22 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     () => new Set(channels.map((channel) => channel.channel_id)),
     [channels]
   );
+  const configuredChannelsById = useMemo(
+    () => new Map(channels.map((channel) => [channel.channel_id, channel])),
+    [channels]
+  );
+  const sortedDynamicAgents = useMemo(
+    () => [...dynamicAgents].sort((left, right) => agentLabel(left).localeCompare(agentLabel(right))),
+    [dynamicAgents]
+  );
+  const dynamicAgentIds = useMemo(
+    () => new Set(dynamicAgents.map((agent) => agent._id)),
+    [dynamicAgents]
+  );
+  const fallbackAgentId = useMemo(() => {
+    if (defaultAgentId && dynamicAgentIds.has(defaultAgentId)) return defaultAgentId;
+    return sortedDynamicAgents[0]?._id ?? "";
+  }, [defaultAgentId, dynamicAgentIds, sortedDynamicAgents]);
   const discoveredNewChannelCount = useMemo(
     () => discoveredBotChannels.filter((channel) => !configuredChannelIds.has(channel.id)).length,
     [configuredChannelIds, discoveredBotChannels]
@@ -209,8 +238,8 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   );
   const discoveryStatusText =
     discoveredBotChannels.length > 0
-      ? `${discoveredBotChannels.length} bot-visible found · ${discoveredNewChannelCount} new · ${channels.length} managed in CAIPE · ${unassignedChannelCount} missing team`
-      : `${channels.length} managed in CAIPE · ${unassignedChannelCount} missing team`;
+      ? `${discoveredBotChannels.length} bot-visible found · ${discoveredNewChannelCount} new · ${channels.length} in CAIPE · ${unassignedChannelCount} missing team`
+      : `${channels.length} in CAIPE · ${unassignedChannelCount} missing team`;
 
   const loadChannels = useCallback(async () => {
     setLoading(true);
@@ -500,24 +529,46 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     return discovered.filter((channel) => channel.is_member !== false);
   };
 
+  const fetchSlackbotConfigDefaults = async (): Promise<SlackLegacyConfigDefaultsPayload | null> => {
+    if (!useSlackbotConfigDefaults) return null;
+    const response = await fetch("/api/admin/slack/runtime/config-defaults", { cache: "no-store" });
+    if (!response.ok) throw new Error(await response.text());
+    return apiData<SlackLegacyConfigDefaultsPayload>(await response.json());
+  };
+
+  const resolveDiscoveredAgentId = (
+    channel: DiscoveredSlackChannel,
+    legacyDefaults: SlackLegacyConfigDefaultsPayload | null
+  ): string => {
+    const legacyAgentId = legacyDefaults?.channels?.[channel.id]?.suggested_agent_id?.trim();
+    if (legacyAgentId && dynamicAgentIds.has(legacyAgentId)) return legacyAgentId;
+    return fallbackAgentId;
+  };
+
   const discoverDefaults = async () => {
-    if (!defaultTeamSlug || !defaultAgentId) return;
+    if (!defaultTeamSlug) return;
     setDiscoverDefaultsLoading(true);
     setDiscoverDefaultsError(null);
     setMessage(null);
     try {
-      const discovered = await fetchBotMemberChannels();
+      const [discovered, legacyDefaults] = await Promise.all([
+        fetchBotMemberChannels(),
+        fetchSlackbotConfigDefaults(),
+      ]);
       setDiscoveredBotChannels(discovered);
       const hasNewChannels = discovered.some((channel) => !configuredChannelIds.has(channel.id));
       setDiscoveredImportRows(
         discovered.map((channel) => {
-          const isExisting = configuredChannelIds.has(channel.id);
+          const existingChannel = configuredChannelsById.get(channel.id);
+          const isSetupComplete = Boolean(
+            existingChannel?.team_slug && (existingChannel.active_grants ?? 0) > 0
+          );
           return {
             ...channel,
-            selected: hasNewChannels ? !isExisting : true,
+            selected: hasNewChannels ? !isSetupComplete : true,
             team_slug: defaultTeamSlug,
-            agent_id: defaultAgentId,
-            is_existing: isExisting,
+            agent_id: resolveDiscoveredAgentId(channel, legacyDefaults),
+            is_existing: isSetupComplete,
           };
         })
       );
@@ -918,7 +969,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 <option value="">
                   {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}
                 </option>
-                {dynamicAgents.map((agent) => (
+                {sortedDynamicAgents.map((agent) => (
                   <option key={agent._id} value={agent._id}>
                     {agentLabel(agent)}
                   </option>
@@ -926,6 +977,20 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
               </select>
             </div>
           </div>
+          <label className="flex items-start gap-2 rounded-md border border-teal-500/15 bg-background/60 p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={useSlackbotConfigDefaults}
+              onChange={(event) => setUseSlackbotConfigDefaults(event.target.checked)}
+              disabled={disabled}
+            />
+            <span>
+              <span className="font-medium">Use existing Slackbot channel agents as defaults</span>
+              <span className="block text-xs text-muted-foreground">
+                Checked by default for migrations. Uncheck only if you want one selected Dynamic Agent for all discovered channels.
+              </span>
+            </span>
+          </label>
           {(teams.length === 0 || dynamicAgents.length === 0) && (
             <p className="text-xs text-muted-foreground">
               Configure a team or Dynamic Agent in the admin UI, then reload this page.
@@ -1208,7 +1273,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
             agentLabel: `Dynamic Agent for #${channel.name}`,
           }))}
           teams={teams.map((team) => ({ value: team.slug, label: team.name || team.slug }))}
-          agents={dynamicAgents.map((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+          agents={sortedDynamicAgents.map((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
           error={discoverDefaultsError}
           disabled={disabled}
           loading={loading}

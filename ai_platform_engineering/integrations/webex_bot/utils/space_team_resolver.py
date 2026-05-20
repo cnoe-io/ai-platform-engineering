@@ -16,6 +16,7 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from .obo_exchange import is_valid_team_slug
+from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
 
 logger = logging.getLogger("caipe.webex_bot.space_team_resolver")
 
@@ -158,10 +159,7 @@ class WebexSpaceTeamResolver:
                 team_slug=None,
                 team_id=team_id,
                 team_name=team_name,
-                deny_message=(
-                    f"Team {team_name!r} is not fully provisioned yet "
-                    "(missing slug). Ask your admin to retry."
-                ),
+                deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="Webex space"),
             )
 
         slug_value = slug.strip()
@@ -176,10 +174,7 @@ class WebexSpaceTeamResolver:
                 team_slug=None,
                 team_id=team_id,
                 team_name=team_name,
-                deny_message=(
-                    f"Team {team_name!r} is not fully provisioned yet "
-                    "(invalid team slug). Ask your admin to retry."
-                ),
+                deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="Webex space"),
             )
 
         member_key = (space_id, keycloak_user_id)

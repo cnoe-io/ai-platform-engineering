@@ -80,6 +80,31 @@ beforeEach(() => {
         },
       });
     }
+    if (url === "/api/admin/slack/runtime/config-defaults") {
+      return response({
+        data: {
+          workspace_id: "T123456789",
+          channels_seen: 2,
+          routes_seen: 2,
+          channels: {
+            C123456789: {
+              workspace_id: "T123456789",
+              channel_id: "C123456789",
+              channel_name: "#incidents",
+              agents: [{ agent_id: "incident-agent", priority: 100 }],
+              suggested_agent_id: "incident-agent",
+            },
+            CNEWMISSING: {
+              workspace_id: "T123456789",
+              channel_id: "CNEWMISSING",
+              channel_name: "#new-alerts",
+              agents: [{ agent_id: "test-april-2025", priority: 100 }],
+              suggested_agent_id: "test-april-2025",
+            },
+          },
+        },
+      });
+    }
     if (url === "/api/admin/slack/runtime/reload") {
       return response({ data: { reloaded: "all" } });
     }
@@ -366,16 +391,16 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   expect(await screen.findByText(/2 bot-member channels discovered/i)).toBeInTheDocument();
   expect(screen.getByText(/Select channels to import, then choose team and Dynamic Agent per channel/i)).toBeInTheDocument();
   expect(screen.getByText("Onboarding path")).toBeInTheDocument();
-  expect(screen.getByText("Needs setup")).toBeInTheDocument();
-  expect(screen.getByText("Already managed")).toBeInTheDocument();
+  expect(screen.getAllByText("Needs setup").length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByText("Already managed")).not.toBeInTheDocument();
   expect(
     screen.getByRole("status", {
-      name: /2 bot-visible found .* 1 new .* 1 managed in CAIPE .* 1 missing team/i,
+      name: /2 bot-visible found .* 1 new .* 1 in CAIPE .* 1 missing team/i,
     })
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh Slack Channels with Bot Integration" })).toBeInTheDocument();
 
-  expect(screen.getByRole("checkbox", { name: /Import #incidents/i })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /Import #incidents/i })).toBeChecked();
   fireEvent.change(screen.getByLabelText("Team for #new-alerts"), {
     target: { value: "security" },
   });
@@ -406,7 +431,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
       body: expect.stringContaining('"id":"CNEWMISSING"'),
     })
   );
-  expect(fetchMock).not.toHaveBeenCalledWith(
+  expect(fetchMock).toHaveBeenCalledWith(
     "/api/admin/slack/channels/defaults",
     expect.objectContaining({
       body: expect.stringContaining('"id":"C123456789"'),
@@ -429,6 +454,154 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
       expect.stringContaining("Discovered defaults applied"),
       "success"
     )
+  );
+});
+
+it("prefills discovered Slack channels from legacy Slackbot config by default", async () => {
+  render(<SlackChannelRebacPanel />);
+
+  await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
+  const legacyDefaultsCheckbox = screen.getByRole("checkbox", {
+    name: /Use existing Slackbot channel agents as defaults/i,
+  });
+  expect(legacyDefaultsCheckbox).toBeChecked();
+
+  fireEvent.click(screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/slack/runtime/config-defaults", {
+      cache: "no-store",
+    })
+  );
+  expect(await screen.findByText(/2 bot-member channels discovered/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("test-april-2025");
+  expect(screen.getByLabelText("Dynamic Agent for #incidents")).toHaveValue("incident-agent");
+  expect(screen.getAllByText("Needs setup").length).toBeGreaterThanOrEqual(2);
+  expect(screen.queryByText("Already managed")).not.toBeInTheDocument();
+});
+
+it("falls back to onboarding default and then alphabetical agent when legacy config is ignored or unavailable", async () => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/slack/channels") {
+      return response({
+        data: {
+          channels: [
+            {
+              workspace_id: "T123456789",
+              channel_id: "C123456789",
+              channel_name: "incidents",
+              active_grants: 0,
+            },
+          ],
+        },
+      });
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({
+        data: {
+          items: [
+            { _id: "zeta-agent", name: "Zeta Agent" },
+            { _id: "alpha-agent", name: "Alpha Agent" },
+            { _id: "incident-agent", name: "Incident Agent" },
+          ],
+        },
+      });
+    }
+    if (url === "/api/admin/teams") {
+      return response({
+        data: {
+          teams: [{ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" }],
+        },
+      });
+    }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return response({ data: { defaults: { team_slug: "platform-engineering" } } });
+    }
+    if (url === "/api/admin/slack/runtime/status") {
+      return response({
+        data: {
+          route_mode: "db_prefer",
+          static_config: { channels: 1, routes: 1 },
+          route_cache: { ttl_seconds: 60, cache_size: 1, cached_channels: ["CAIPE/C123456789"] },
+          last_sync: null,
+        },
+      });
+    }
+    if (url === "/api/admin/slack/runtime/config-defaults") {
+      return response({
+        data: {
+          workspace_id: "T123456789",
+          channels_seen: 1,
+          routes_seen: 1,
+          channels: {
+            CNEWMISSING: {
+              workspace_id: "T123456789",
+              channel_id: "CNEWMISSING",
+              channel_name: "#new-alerts",
+              agents: [{ agent_id: "legacy-missing-from-caipe", priority: 100 }],
+              suggested_agent_id: "legacy-missing-from-caipe",
+            },
+          },
+        },
+      });
+    }
+    if (url.startsWith("/api/admin/slack/available-channels")) {
+      return response({
+        data: {
+          channels: [
+            { id: "C123456789", name: "incidents", is_private: false, is_member: true, num_members: 10 },
+            { id: "CNEWMISSING", name: "new-alerts", is_private: false, is_member: true, num_members: 7 },
+          ],
+          next_cursor: null,
+          has_more: false,
+        },
+      });
+    }
+    if (url.endsWith("/resources")) {
+      return response({ data: { grants: [] } });
+    }
+    if (url.endsWith("/routes")) {
+      return response({
+        data: {
+          routes: [
+            {
+              agent_id: "incident-agent",
+              enabled: true,
+              priority: 100,
+              users: { enabled: true, listen: "mention" },
+            },
+          ],
+        },
+      });
+    }
+    if (url.endsWith("/diagnostics")) {
+      return response({
+        data: {
+          openfga: { reachable: true, tuple_count: 1 },
+          warnings: [],
+          routes: [],
+          last_runtime_error: null,
+        },
+      });
+    }
+    return response({});
+  });
+
+  render(<SlackChannelRebacPanel />);
+
+  await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
+  fireEvent.click(screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" }));
+  expect(await screen.findByText(/2 bot-member channels discovered/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("alpha-agent");
+
+  fireEvent.change(screen.getByRole("combobox", { name: "Preselected Dynamic Agent" }), {
+    target: { value: "incident-agent" },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: /Use existing Slackbot channel agents as defaults/i }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh Slack Channels with Bot Integration" }));
+
+  await waitFor(() =>
+    expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("incident-agent")
   );
 });
 

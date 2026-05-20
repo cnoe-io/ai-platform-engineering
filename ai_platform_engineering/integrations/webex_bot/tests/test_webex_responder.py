@@ -184,6 +184,38 @@ def test_unlinked_user_dm_failure_does_not_post_signed_link_publicly(
     assert "webex-link" not in api.created[0]["markdown"]
 
 
+def test_reason_code_fallback_is_user_friendly() -> None:
+    api = FakeWebexApi()
+    responder = WebexResponder(webex_api=api)
+    event = {
+        "data": {
+            "id": "message-public-id",
+            "webexRoomId": "room-public-id",
+        }
+    }
+    result = WebexMessageResult(
+        allowed=False,
+        dispatched=False,
+        ignored=False,
+        reason_code="WEBEX_OBO_FAILED",
+    )
+
+    asyncio.run(responder.reply_to_result(event, result))
+
+    assert api.created == [
+        {
+            "room_id": "room-public-id",
+            "parent_id": "message-public-id",
+            "markdown": (
+                "I couldn't start your CAIPE session for this Webex space. "
+                "Please try again in a minute. If it still doesn't work, ask an "
+                "admin to refresh this space's team setup in CAIPE."
+            ),
+        }
+    ]
+    assert "WEBEX_OBO_FAILED" not in api.created[0]["markdown"]
+
+
 def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
     api = FakeWebexApi()
     sse = FakeSseClient(

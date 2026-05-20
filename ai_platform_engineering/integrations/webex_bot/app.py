@@ -12,6 +12,7 @@ from .utils.audit import log_webex_authz_decision
 from .utils.identity_linker import WebexIdentityLinker
 from .utils.obo_exchange import OboExchangeError, OboToken, impersonate_user
 from .utils.space_team_resolver import SpaceTeamResolution, WebexSpaceTeamResolver
+from .utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 from .utils.webex_ids import (
     canonicalize_webex_space_id,
     is_valid_webex_person_id,
@@ -470,10 +471,7 @@ async def handle_webex_message(
         )
         return _deny(
             REASON_OBO_FAILED,
-            deny_message=(
-                "Could not establish your team-scoped session. "
-                "Please try again or contact your admin."
-            ),
+            deny_message=TEAM_SESSION_UNAVAILABLE_MESSAGE,
             keycloak_user_id=keycloak_user_id,
             active_team=active_team,
         )

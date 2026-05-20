@@ -151,6 +151,67 @@ describe("useReleaseUpgradePrompt", () => {
     expect(result.current.open).toBe(false);
   });
 
+  it("closes release notes locally when dismissal persistence fails", async () => {
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href === "/api/settings") {
+        return jsonResponse({
+          success: true,
+          data: {
+            preferences: {
+              releaseNotesDismissedVersions: [],
+              releaseNotesDismissedAnnouncementIds: [],
+            },
+          },
+        });
+      }
+      if (href === "/api/changelog") {
+        return jsonResponse(changelogPayload);
+      }
+      if (href === "/api/admin/platform-config") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release_notes: {
+              enabled: true,
+              release_version: "0.5.1",
+              announcement_revision: 1,
+              announcement_id: "0.5.1:revision-1",
+              show_toast: true,
+              toast_duration_ms: 8000,
+              show_migration_cta: true,
+            },
+          },
+        });
+      }
+      if (href === "/api/settings/preferences" && init?.method === "PATCH") {
+        return jsonResponse({ success: false }, false);
+      }
+      return jsonResponse({}, false);
+    });
+
+    try {
+      const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+      await waitFor(() => expect(result.current.open).toBe(true));
+
+      await act(async () => {
+        await result.current.dismissPermanently();
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/settings/preferences",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+      expect(window.sessionStorage.getItem("release-notes:0.5.1:revision-1:skip")).toBe("true");
+      expect(result.current.open).toBe(false);
+      expect(result.current.toastNotification).toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("shows non-admin release notes without admin mode and permanently dismisses", async () => {
     mockUseAdminRole.mockReturnValue({ isAdmin: false, loading: false });
     const { result } = renderHook(() => useReleaseUpgradePrompt());

@@ -33,6 +33,8 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
+
 logger = logging.getLogger("caipe.slack_bot.channel_team_resolver")
 
 
@@ -208,10 +210,7 @@ class ChannelTeamResolver:
                 team_slug=None,
                 team_id=team_id,
                 team_name=team_name,
-                deny_message=(
-                    f"Team {team_name!r} is not fully provisioned yet "
-                    f"(missing slug). Ask your admin to retry."
-                ),
+                deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="channel"),
             )
 
         # Membership pre-check: bot is the first checkpoint, AgentGateway

@@ -190,6 +190,10 @@ def test_obo_failure_denies() -> None:
         )
     )
     assert result.reason_code == REASON_OBO_FAILED
+    assert result.deny_message is not None
+    assert "I couldn't start your CAIPE session for this Webex space." in result.deny_message
+    for internal_term in ("Keycloak", "scope", "team-scoped", "provisioned", "slug"):
+        assert internal_term not in result.deny_message
     assert dispatcher.calls == []
 
 

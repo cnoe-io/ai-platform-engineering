@@ -167,7 +167,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
       await teams.deleteOne({ _id: result.insertedId });
       throw new ApiError(
-        `Team Keycloak scope provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
+        "We couldn't finish setting up this team. Please try again. If it still fails, " +
+          'open Security & Policy, run Reconcile now, and retry creating the team.',
         502
       );
     }

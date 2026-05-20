@@ -1,0 +1,78 @@
+<h2>Admin Simulator: View As "Manager"</h2>
+<p class="subtitle">Recommended direction: simulate effective OpenFGA permissions for a selected user/team/role profile without taking over their real session.</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Admin / Integrations / Slack — Simulation Mode</div>
+    <div class="mockup-body">
+      <div class="mock-nav" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Admin Console</span>
+        <span style="padding:6px 10px;border-radius:999px;background:#eef6ff;border:1px solid #c9def8">Viewing as: Manager ▾</span>
+      </div>
+      <div style="display:grid;grid-template-columns:230px 1fr;gap:14px;margin-top:14px">
+        <div class="mock-sidebar">
+          <div class="label">Simulator</div>
+          <input class="mock-input" value="Role profile: Manager" readonly>
+          <input class="mock-input" value="Team: platform" readonly style="margin-top:8px">
+          <input class="mock-input" value="Scope: Slack tab" readonly style="margin-top:8px">
+          <button class="mock-button" style="margin-top:10px">Run permission preview</button>
+          <div style="margin-top:14px;font-size:12px;color:#5a6473">
+            No writes are executed. Every visible tab, row, and button is based on OpenFGA checks for the simulated subject.
+          </div>
+        </div>
+        <div class="mock-content">
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="mock-button">Slack</button>
+            <button class="mock-button" style="opacity:.45">OpenFGA</button>
+            <button class="mock-button" style="opacity:.45">Migrations</button>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="placeholder">
+              <div class="label">Visible Channels</div>
+              <h3>#team-oncall</h3>
+              <p>can_manage slack_channel:T123--C456</p>
+              <button class="mock-button">Edit route</button>
+            </div>
+            <div class="placeholder" style="opacity:.55">
+              <div class="label">Hidden or Disabled</div>
+              <h3>#exec-ops</h3>
+              <p>No can_read or can_manage relationship</p>
+              <button class="mock-button" disabled>Not visible in real view</button>
+            </div>
+          </div>
+          <div style="margin-top:12px;padding:10px;border:1px solid #f0d48a;border-radius:10px;background:#fff9e8">
+            <strong>Privilege boundary:</strong> this simulated manager can attach only agents they can use/manage. Platform-only controls stay hidden or disabled.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>What Should "Manager" Mean?</h3>
+  <p class="subtitle">OpenFGA does not have a single global Manager role. We need to choose how the simulator constructs the simulated subject.</p>
+  <div class="options">
+    <div class="option" data-choice="profile-template" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Role Profile Template</h3>
+        <p>"Manager" means a canned permission profile, useful for design demos and policy testing before assigning a real user.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="concrete-principal" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Concrete User or Team</h3>
+        <p>"Manager" means select an actual user/team and evaluate their real OpenFGA relationships. Best for support and audits.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="both" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Both Modes</h3>
+        <p>Start with real user/team simulation, then add role templates for planned policy changes and demos.</p>
+      </div>
+    </div>
+  </div>
+</div>

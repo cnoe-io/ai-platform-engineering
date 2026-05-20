@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     AgentBinding,
     ChannelConfig,
@@ -52,9 +54,27 @@ def _config() -> Config:
                         users=UsersConfig(enabled=True, listen="all"),
                     )
                 ],
-            )
+            ),
         }
     )
+
+
+def _legacy_config() -> Config:
+    base = _config()
+    base.channels["C999"] = ChannelConfig(
+        name="#legacy",
+        agents=[
+            AgentBinding(
+                agent_id="legacy-agent",
+                users=UsersConfig(enabled=True, listen="mention"),
+            ),
+            AgentBinding(
+                agent_id="disabled-user-agent",
+                users=UsersConfig(enabled=False, listen=None),
+            ),
+        ],
+    )
+    return base
 
 
 def test_status_reports_route_cache_and_static_config() -> None:
@@ -65,6 +85,31 @@ def test_status_reports_route_cache_and_static_config() -> None:
     assert status["route_mode"] in {"config", "db_prefer", "db_only"}
     assert status["static_config"]["channels"] == 1
     assert status["route_cache"]["cache_size"] == 1
+
+
+def test_config_defaults_returns_loaded_channel_agents_without_yaml_body() -> None:
+    service = SlackBotAdminService(config=_legacy_config(), resolver=_Resolver())
+
+    defaults = service.config_defaults(workspace_id="CAIPE")
+
+    assert defaults["workspace_id"] == "CAIPE"
+    assert defaults["channels_seen"] == 2
+    assert defaults["routes_seen"] == 3
+    assert defaults["channels"]["C123"] == {
+        "workspace_id": "CAIPE",
+        "channel_id": "C123",
+        "channel_name": "#incidents",
+        "agents": [
+            {
+                "agent_id": "incident-agent",
+                "priority": 100,
+                "users": {"enabled": True, "listen": "all"},
+            }
+        ],
+        "suggested_agent_id": "incident-agent",
+    }
+    assert defaults["channels"]["C999"]["suggested_agent_id"] == "legacy-agent"
+    assert "yaml" not in json.dumps(defaults).lower()
 
 
 def test_reload_clears_all_or_one_channel_cache() -> None:

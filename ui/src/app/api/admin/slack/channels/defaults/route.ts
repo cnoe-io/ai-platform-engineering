@@ -3,10 +3,16 @@ import type { Document } from "mongodb";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import {
+  ensureSlackBotOboPermissions,
+  ensureTeamClientScope,
+  selectAgentGatewayActiveTeamScope,
+} from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
 import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../_lib";
@@ -65,6 +71,13 @@ interface DiscoveredSlackChannel {
 interface SlackChannelImportDefault extends DiscoveredSlackChannel {
   team_slug: string;
   agent_id: string;
+}
+
+interface SlackRuntimeReloadResult {
+  attempted: boolean;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 function readRequiredString(value: unknown, field: string): string {
@@ -138,6 +151,22 @@ function normalizeChannelDefaults(
   return Array.from(byKey.values());
 }
 
+async function reloadSlackRuntime(): Promise<SlackRuntimeReloadResult> {
+  try {
+    const result = await callSlackBotAdmin("/admin/slack/routes/reload", {
+      method: "POST",
+      body: {},
+    });
+    return { attempted: true, ok: true, result };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      error: error instanceof Error ? error.message : "Slack bot runtime reload failed",
+    };
+  }
+}
+
 export const POST = withErrorHandler(async (request: NextRequest) =>
   withSlackChannelRebacManageAuth(request, async () => {
     const body = (await request.json()) as SlackMigrationDefaultsRequest;
@@ -203,6 +232,24 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           404
         );
       }
+    }
+
+    try {
+      await Promise.all(requestedTeamSlugs.map((slug) => ensureTeamClientScope(slug)));
+      await ensureSlackBotOboPermissions();
+      const scopedTeamSlugs = uniqueStrings(
+        hasChannelScopedDefaults ? channelDefaults.map((channel) => channel.team_slug) : [teamSlug]
+      );
+      await selectAgentGatewayActiveTeamScope(
+        scopedTeamSlugs.length === 1 ? scopedTeamSlugs[0] : teamSlug
+      );
+    } catch (error) {
+      console.error("[Slack ReBAC] Failed to prepare Slack bot team session setup:", error);
+      throw new ApiError(
+        "We couldn't finish preparing Slack access for this team. Open Security & Policy, " +
+          "run Reconcile now, then try setting up the channel again.",
+        502
+      );
     }
 
     let channelsOnboarded = 0;
@@ -411,6 +458,8 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       })
     );
 
+    const runtimeReload = await reloadSlackRuntime();
+
     return successResponse({
       summary: {
         channels_seen: channels.length,
@@ -428,6 +477,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
         agent_id: agentId,
       },
       openfga,
+      runtime_reload: runtimeReload,
     });
   })
 );

@@ -158,6 +158,32 @@ class SlackBotAdminService:
             "last_sync": self._last_sync,
         }
 
+    def config_defaults(self, *, workspace_id: str | None = None) -> dict[str, Any]:
+        """Return structured legacy channel-agent defaults from loaded config."""
+        workspace_ref = slack_workspace_ref(workspace_id)
+        channels: dict[str, dict[str, Any]] = {}
+        routes_seen = 0
+        for channel_id, channel in self._config.channels.items():
+            agents: list[dict[str, Any]] = []
+            for index, agent in enumerate(channel.agents):
+                agents.append(_agent_config_default(agent, index))
+                routes_seen += 1
+
+            channels[channel_id] = {
+                "workspace_id": workspace_ref,
+                "channel_id": channel_id,
+                "channel_name": channel.name,
+                "agents": agents,
+                "suggested_agent_id": _suggested_agent_id(agents),
+            }
+
+        return {
+            "workspace_id": workspace_ref,
+            "channels_seen": len(channels),
+            "routes_seen": routes_seen,
+            "channels": channels,
+        }
+
     def reload_routes(
         self,
         *,
@@ -301,10 +327,14 @@ class _SlackAdminRequestHandler(BaseHTTPRequestHandler):
     validator: SlackAdminTokenValidator
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
-        if urlparse(self.path).path != "/admin/slack/routes/status":
+        path = urlparse(self.path).path
+        if path not in {"/admin/slack/routes/status", "/admin/slack/routes/config-defaults"}:
             self._write_json({"error": "not_found"}, status=404)
             return
         if not self._authorize(scope_env="SLACK_ADMIN_STATUS_SCOPE"):
+            return
+        if path == "/admin/slack/routes/config-defaults":
+            self._write_json(self.service.config_defaults())
             return
         self._write_json(self.service.status())
 
@@ -379,6 +409,39 @@ def _optional_string(value: object) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _suggested_agent_id(agents: list[dict[str, Any]]) -> str | None:
+    for agent in agents:
+        users = agent.get("users")
+        if isinstance(users, dict) and users.get("enabled") is not False:
+            agent_id = agent.get("agent_id")
+            return str(agent_id) if agent_id else None
+    for agent in agents:
+        agent_id = agent.get("agent_id")
+        if agent_id:
+            return str(agent_id)
+    return None
+
+
+def _agent_config_default(agent: AgentBinding, index: int) -> dict[str, Any]:
+    default: dict[str, Any] = {
+        "agent_id": agent.agent_id,
+        "priority": (index + 1) * 100,
+    }
+    if agent.users is not None:
+        default["users"] = {
+            "enabled": agent.users.enabled,
+            **({"listen": agent.users.listen} if agent.users.listen else {}),
+        }
+    if agent.bots is not None:
+        default["bots"] = {
+            "enabled": agent.bots.enabled,
+            **({"listen": agent.bots.listen} if agent.bots.listen else {}),
+        }
+    if agent.escalation is not None:
+        default["escalation"] = agent.escalation.model_dump(exclude_none=True)
+    return default
 
 
 def start_slack_admin_api_server(config: Config) -> ThreadingHTTPServer | None:

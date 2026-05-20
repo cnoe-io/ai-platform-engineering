@@ -9,6 +9,10 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockEnsureTeamClientScope = jest.fn();
+const mockEnsureSlackBotOboPermissions = jest.fn();
+const mockSelectAgentGatewayActiveTeamScope = jest.fn();
+const mockCallSlackBotAdmin = jest.fn();
 
 const mockCollections: Record<string, any> = {};
 
@@ -22,6 +26,16 @@ jest.mock("@/lib/rbac/openfga", () => ({
     mockCheckUniversalRebacRelationship(...args),
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
+jest.mock("@/lib/rbac/keycloak-admin", () => ({
+  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
+  ensureSlackBotOboPermissions: (...args: unknown[]) => mockEnsureSlackBotOboPermissions(...args),
+  selectAgentGatewayActiveTeamScope: (...args: unknown[]) => mockSelectAgentGatewayActiveTeamScope(...args),
+}));
+
+jest.mock("@/lib/slack-bot-admin", () => ({
+  callSlackBotAdmin: (...args: unknown[]) => mockCallSlackBotAdmin(...args),
 }));
 
 jest.mock("@/lib/jwt-validation", () => ({
@@ -132,6 +146,10 @@ beforeEach(() => {
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockEnsureTeamClientScope.mockResolvedValue(undefined);
+  mockEnsureSlackBotOboPermissions.mockResolvedValue(undefined);
+  mockSelectAgentGatewayActiveTeamScope.mockResolvedValue(undefined);
+  mockCallSlackBotAdmin.mockResolvedValue({ reloaded: "all" });
   process.env.SLACK_DEFAULT_TEAM_SLUG = "platform-engineering";
   process.env.SLACK_DEFAULT_AGENT_ID = "incident-agent";
   mockCollections.channel_team_mappings = createMockCollection([
@@ -671,6 +689,14 @@ describe("Slack channel ReBAC APIs", () => {
       routes_ensured: 2,
       team_grant_ensured: true,
     });
+    expect(mockEnsureTeamClientScope).toHaveBeenCalledWith("platform-engineering");
+    expect(mockEnsureSlackBotOboPermissions).toHaveBeenCalledTimes(1);
+    expect(mockSelectAgentGatewayActiveTeamScope).toHaveBeenCalledWith("platform-engineering");
+    expect(mockCallSlackBotAdmin).toHaveBeenCalledWith("/admin/slack/routes/reload", {
+      method: "POST",
+      body: {},
+    });
+    expect(body.data.runtime_reload).toMatchObject({ attempted: true, ok: true });
     expect(mockCollections.channel_team_mappings.updateOne).toHaveBeenCalledWith(
       { slack_channel_id: channelId },
       expect.objectContaining({
@@ -843,6 +869,41 @@ describe("Slack channel ReBAC APIs", () => {
       ]),
       deletes: [],
     });
+  });
+
+  it("returns a friendly setup error when Slack OBO repair fails", async () => {
+    mockEnsureSlackBotOboPermissions.mockRejectedValueOnce(new Error("raw Keycloak scope error"));
+    mockCollections.teams = createMockCollection([
+      {
+        _id: "team-1",
+        slug: "platform-engineering",
+        name: "Platform Engineering",
+        resources: { agents: [] },
+      },
+    ]);
+    mockCollections.dynamic_agents = createMockCollection([
+      { _id: "incident-agent", name: "Incident Agent", enabled: true },
+    ]);
+    const { POST } = await import("../defaults/route");
+
+    const response = await POST(
+      request("/api/admin/slack/channels/defaults", {
+        method: "POST",
+        body: JSON.stringify({
+          team_slug: "platform-engineering",
+          agent_id: "incident-agent",
+          channel_defaults: [{ id: "CNEWMISSING", name: "new-alerts" }],
+        }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.error).toContain("couldn't finish preparing Slack access");
+    expect(body.error).not.toContain("Keycloak");
+    expect(body.error).not.toContain("scope");
+    expect(body.error).not.toContain("raw Keycloak scope error");
+    expect(mockCollections.channel_team_mappings.updateOne).not.toHaveBeenCalled();
   });
 
   it("applies per-channel import defaults for selected discovered channels", async () => {

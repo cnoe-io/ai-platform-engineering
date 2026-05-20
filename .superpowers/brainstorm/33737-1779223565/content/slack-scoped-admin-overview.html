@@ -1,0 +1,88 @@
+<h2>Scoped Slack Admin: Current Fit</h2>
+<p class="subtitle">OpenFGA already has the right primitives; the main design choice is how much of the admin UI becomes delegated self-service.</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Authorization Shape</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;align-items:stretch">
+        <div class="placeholder" style="min-height:120px">
+          <div class="label">Who</div>
+          <h3>User or Team</h3>
+          <p>user:&lt;sub&gt;<br>team:platform#admin<br>external_group:okta/...</p>
+        </div>
+        <div class="placeholder" style="min-height:120px">
+          <div class="label">Can Manage</div>
+          <h3>Admin Surface</h3>
+          <p>admin_surface:slack<br>admin_surface:slack_channels<br>admin_surface:slack_runtime</p>
+        </div>
+        <div class="placeholder" style="min-height:120px">
+          <div class="label">And Concrete Objects</div>
+          <h3>Slack Channel</h3>
+          <p>slack_channel:T123--C456<br>can_read / can_write / can_manage</p>
+        </div>
+      </div>
+      <div style="margin-top:16px;padding:12px;border:1px solid #d6e3f3;border-radius:10px;background:#f8fbff">
+        <strong>Decision rule:</strong> show tabs by admin_surface access, then scope rows and mutations by each concrete slack_channel plus each target agent/tool permission.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>What A Scoped Slack Manager Would See</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Platform Admin</div>
+      <div class="mockup-body">
+        <div class="mock-nav">Admin / Integrations / Slack</div>
+        <div class="mock-sidebar">All workspaces<br>All channels<br>Runtime controls<br>Defaults import</div>
+        <div class="mock-content">
+          <button class="mock-button">Onboard channels</button>
+          <button class="mock-button">Reload bot runtime</button>
+          <div class="placeholder">Can manage every channel, route, and migration default.</div>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Scoped Channel Manager</div>
+      <div class="mockup-body">
+        <div class="mock-nav">Admin / Integrations / Slack</div>
+        <div class="mock-sidebar">Only managed channels<br>Team-owned channels<br>Readonly diagnostics</div>
+        <div class="mock-content">
+          <button class="mock-button">Edit routes for #team-oncall</button>
+          <button class="mock-button">Attach allowed agent</button>
+          <div class="placeholder">Cannot see unrelated channels or grant agents they cannot manage/use.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>First Product Choice</h3>
+  <p class="subtitle">Pick the UX direction you want to optimize for. This choice affects routing, tab gates, and how visible delegated admin becomes.</p>
+  <div class="options">
+    <div class="option" data-choice="admin-tabs" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>Scoped Admin Inside Existing Admin Tabs</h3>
+        <p>Users see Admin, but each tab and row is filtered by OpenFGA. Best if delegated admins should feel like admins.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="my-integrations" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>Separate "My Integrations" Self-Service Area</h3>
+        <p>Keep platform Admin reserved for full admins; channel managers get a simpler scoped workspace.</p>
+      </div>
+    </div>
+    <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>Hybrid</h3>
+        <p>Admin tab is visible for scoped operators, but a simplified landing page hides platform-only controls.</p>
+      </div>
+    </div>
+  </div>
+</div>

@@ -75,6 +75,7 @@ if RBAC_ENABLED:
     from utils.obo_exchange import impersonate_user, OboExchangeError
     from utils.slack_rebac import get_slack_channel_rebac_evaluator
     from utils.rbac_middleware import format_slack_channel_rebac_denial
+    from utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
@@ -172,10 +173,7 @@ if RBAC_ENABLED:
                 "OBO impersonation failed for user=%s active_team=%s: %s",
                 keycloak_user_id, active_team, e,
             )
-            return ("deny",
-                    "Could not establish your team-scoped session. "
-                    "This usually means the team's Keycloak scope hasn't "
-                    "been provisioned — ask your admin to retry.")
+            return ("deny", TEAM_SESSION_UNAVAILABLE_MESSAGE)
 
         return "ok"
 

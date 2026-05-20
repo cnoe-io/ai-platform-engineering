@@ -294,6 +294,11 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
     const nextDismissedAnnouncements = Array.from(
       new Set([...dismissedAnnouncementIds, announcementId]),
     );
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(sessionSkipKey(announcementId), "true");
+    }
+    setOpen(false);
+    setToastNotification(null);
     setIsDismissing(true);
     try {
       const response = await fetch("/api/settings/preferences", {
@@ -309,8 +314,6 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
       }
       setDismissedVersions(nextDismissed);
       setDismissedAnnouncementIds(nextDismissedAnnouncements);
-      setOpen(false);
-      setToastNotification(null);
     } catch (error) {
       console.warn("[release-upgrade-prompt] Failed to persist release dismissal:", error);
     } finally {

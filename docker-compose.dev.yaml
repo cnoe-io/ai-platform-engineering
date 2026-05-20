@@ -2479,7 +2479,7 @@ services:
   # docs, so the system silently drifts: BFF startup re-creates the
   # `team-<slug>` client scopes (via syncTeamScopesOnStartup), but realm
   # roles + role assignments + identity links are NOT reconciled, leading
-  # to OBO failures like "Could not establish your team-scoped session".
+  # to OBO failures like "I couldn't start your CAIPE session".
   #
   # Putting Keycloak on Postgres with a named volume makes the dev stack
   # behave like prod: `docker compose down && up` preserves state;

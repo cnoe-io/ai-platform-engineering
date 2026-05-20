@@ -13,6 +13,7 @@ import httpx
 
 from .a2a_client import SSEEventType, WebexSSEClient, space_message_to_conversation_id
 from .app import WebexMessageResult
+from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIED_MESSAGE
 
 logger = logging.getLogger("caipe.webex_bot.webex_responder")
 
@@ -364,7 +365,7 @@ def _markdown_for_result(result: WebexMessageResult) -> str | None:
     if result.deny_message:
         parts.append(result.deny_message)
     elif result.reason_code:
-        parts.append(f"Request denied: `{result.reason_code}`")
+        parts.append(FRIENDLY_REASON_MESSAGES.get(result.reason_code, GENERIC_REQUEST_DENIED_MESSAGE))
     if result.linking_url:
         parts.append(f"Link your account: {result.linking_url}")
     return "\n\n".join(parts) if parts else None
