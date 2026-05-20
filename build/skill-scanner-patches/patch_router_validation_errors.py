@@ -23,6 +23,26 @@ _VALIDATION_HELPER = '''
 def _sanitize_validation_detail(detail: str) -> str:
     """Return a single-line validation message safe for API callers."""
     normalized = " ".join(str(detail).split())
+    if "Traceback (most recent call last):" in normalized:
+        normalized = normalized.split("Traceback (most recent call last):", 1)[0].strip()
+
+    lowered = normalized.lower()
+    sensitive_markers = (
+        "secret",
+        "token",
+        "password",
+        "api_key",
+        "apikey",
+        "credential",
+        "authorization",
+        "bearer ",
+    )
+    runtime_markers = ("/app/", "/usr/", "site-packages", ".venv")
+    if any(marker in lowered for marker in sensitive_markers) or any(
+        marker in normalized for marker in runtime_markers
+    ):
+        return "Invalid skill definition"
+
     return (normalized or "Invalid skill definition")[:240]
 '''
 _ORIGINAL_HANDLER = '''    except ValueError as e:
@@ -44,6 +64,26 @@ _PATCHED_HANDLER = '''    except ValueError as e:
 def _sanitize_validation_detail(detail: str) -> str:
     """Return a single-line validation message safe for API callers."""
     normalized = " ".join(str(detail).split())
+    if "Traceback (most recent call last):" in normalized:
+        normalized = normalized.split("Traceback (most recent call last):", 1)[0].strip()
+
+    lowered = normalized.lower()
+    sensitive_markers = (
+        "secret",
+        "token",
+        "password",
+        "api_key",
+        "apikey",
+        "credential",
+        "authorization",
+        "bearer ",
+    )
+    runtime_markers = ("/app/", "/usr/", "site-packages", ".venv")
+    if any(marker in lowered for marker in sensitive_markers) or any(
+        marker in normalized for marker in runtime_markers
+    ):
+        return "Invalid skill definition"
+
     return (normalized or "Invalid skill definition")[:240]
 
 

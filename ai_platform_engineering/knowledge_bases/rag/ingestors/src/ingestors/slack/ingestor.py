@@ -27,6 +27,15 @@ sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hour
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 
+def get_message_fresh_until(message_ts: str, lookback_days: int) -> int:
+  """Calculate fresh_until based on when the message was posted.
+
+  A message should remain in the system until it falls outside the lookback window.
+  For example, with lookback_days=30, a message posted 5 days ago expires in 25 days.
+  """
+  return int(float(message_ts)) + (lookback_days * 86400)
+
+
 def ts_to_readable(timestamp):
   """Convert Unix timestamp to human-readable datetime string."""
   try:
@@ -137,7 +146,7 @@ class SlackChannelSyncer:
       logger.error(f"Error fetching messages from {channel_name}: {e}")
       return [], oldest_ts
 
-  def group_messages_by_thread(self, messages: List[Dict], channel_id: str, channel_name: str, include_bots: bool, datasource_id: str, ingestor_id: str) -> List[Document]:
+  def group_messages_by_thread(self, messages: List[Dict], channel_id: str, channel_name: str, include_bots: bool, datasource_id: str, ingestor_id: str, lookback_days: int = 30) -> List[Document]:
     """Group messages into thread documents for RAG ingestion."""
     documents = []
 
@@ -172,19 +181,19 @@ class SlackChannelSyncer:
 
     # Create documents for threads
     for thread_ts, thread_messages in threads.items():
-      doc = self._create_thread_document(thread_messages, channel_id, channel_name, thread_ts, datasource_id, ingestor_id)
+      doc = self._create_thread_document(thread_messages, channel_id, channel_name, thread_ts, datasource_id, ingestor_id, lookback_days)
       if doc:
         documents.append(doc)
 
     # Create documents for standalone messages
     for msg in standalone:
-      doc = self._create_standalone_document(msg, channel_id, channel_name, datasource_id, ingestor_id)
+      doc = self._create_standalone_document(msg, channel_id, channel_name, datasource_id, ingestor_id, lookback_days)
       if doc:
         documents.append(doc)
 
     return documents
 
-  def _create_thread_document(self, thread_messages: List[Dict], channel_id: str, channel_name: str, thread_ts: str, datasource_id: str, ingestor_id: str) -> Optional[Document]:
+  def _create_thread_document(self, thread_messages: List[Dict], channel_id: str, channel_name: str, thread_ts: str, datasource_id: str, ingestor_id: str, lookback_days: int = 30) -> Optional[Document]:
     """Create a document from a thread of messages."""
     if not thread_messages:
       return None
@@ -225,7 +234,7 @@ class SlackChannelSyncer:
       document_type="slack_thread",
       document_ingested_at=int(time.time()),
       document_id=f"slack-thread-{channel_id}-{thread_ts}",
-      fresh_until=sync_interval * 3,
+      fresh_until=get_message_fresh_until(thread_messages[-1].get("ts", "0"), lookback_days),
       title=f"Thread: {parent_text}",
       metadata={
         "channel_name": channel_name,
@@ -242,7 +251,7 @@ class SlackChannelSyncer:
 
     return Document(page_content=content, metadata=metadata.model_dump())
 
-  def _create_standalone_document(self, msg: Dict, channel_id: str, channel_name: str, datasource_id: str, ingestor_id: str) -> Optional[Document]:
+  def _create_standalone_document(self, msg: Dict, channel_id: str, channel_name: str, datasource_id: str, ingestor_id: str, lookback_days: int = 30) -> Optional[Document]:
     """Create a document from a standalone message."""
     user = msg.get("user", "Unknown")
     text = msg.get("text", "")
@@ -272,7 +281,7 @@ class SlackChannelSyncer:
       document_ingested_at=int(time.time()),
       document_id=f"slack-message-{channel_id}-{ts}",
       title=f"Message: {message_preview}",
-      fresh_until=sync_interval * 3,
+      fresh_until=get_message_fresh_until(ts, lookback_days),
       metadata={
         "channel_name": channel_name,
         "channel_id": channel_id,
@@ -371,7 +380,7 @@ async def sync_slack_channels(client: Client):
       continue
 
     # Convert messages to thread documents
-    documents = syncer.group_messages_by_thread(messages, channel_id, channel_name, include_bots, datasource_id, client.ingestor_id or "")
+    documents = syncer.group_messages_by_thread(messages, channel_id, channel_name, include_bots, datasource_id, client.ingestor_id or "", lookback_days)
 
     if not documents:
       logger.info(f"No documents created for #{channel_name}")

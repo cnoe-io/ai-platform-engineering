@@ -24,6 +24,11 @@ import type {
   TransportType,
   VisibilityType,
 } from "@/types/dynamic-agent";
+import type {
+  WorkflowConfig,
+  WorkflowConfigVisibility,
+  StepEntry,
+} from "@/types/workflow-config";
 
 // Pattern to match ${VAR_NAME} or ${VAR_NAME:-default}
 const ENV_VAR_PATTERN = /\$\{([^}:]+)(?::-([^}]*))?\}/g;
@@ -43,6 +48,7 @@ interface SeedConfig {
   models: SeedModel[];
   agents: Record<string, unknown>[];
   mcp_servers: Record<string, unknown>[];
+  workflow_configs: Record<string, unknown>[];
 }
 
 /** Shape of documents in the llm_models collection. */
@@ -107,7 +113,7 @@ function loadSeedConfig(configPath: string): SeedConfig {
     console.warn(
       `[seed-config] Config not found at ${configPath}, skipping seed`,
     );
-    return { models: [], agents: [], mcp_servers: [] };
+    return { models: [], agents: [], mcp_servers: [], workflow_configs: [] };
   }
 
   const raw = fs.readFileSync(configPath, "utf-8");
@@ -124,8 +130,12 @@ function loadSeedConfig(configPath: string): SeedConfig {
     string,
     unknown
   >[];
+  const workflow_configs = expandEnvVars(parsed.workflow_configs ?? []) as Record<
+    string,
+    unknown
+  >[];
 
-  return { models, agents, mcp_servers };
+  return { models, agents, mcp_servers, workflow_configs };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -276,6 +286,60 @@ async function seedModels(models: SeedModel[]): Promise<number> {
   return count;
 }
 
+async function seedWorkflowConfigs(
+  configs: Record<string, unknown>[],
+): Promise<number> {
+  if (configs.length === 0) return 0;
+
+  const collection = await getCollection<WorkflowConfig>("workflow_configs");
+  let count = 0;
+
+  for (const cfgData of configs) {
+    const cfgId = cfgData.id as string | undefined;
+    if (!cfgId) {
+      console.warn(
+        `[seed-config] Skipping workflow config without id: ${cfgData.name ?? "unknown"}`,
+      );
+      continue;
+    }
+
+    const now = new Date().toISOString();
+
+    // Preserve created_at if document already exists
+    const existing = await collection.findOne({ _id: cfgId });
+    const createdAt = existing?.created_at ?? now;
+
+    const visibility = ((cfgData.visibility as string) ?? "global") as WorkflowConfigVisibility;
+    const steps = (cfgData.steps ?? []) as StepEntry[];
+
+    // Ensure each step has type: "step" (YAML may omit it)
+    for (const step of steps) {
+      if (!step.type) {
+        (step as unknown as Record<string, unknown>).type = "step";
+      }
+    }
+
+    const doc = {
+      _id: cfgId,
+      name: (cfgData.name as string) ?? cfgId,
+      description: (cfgData.description as string) ?? "",
+      steps,
+      owner_id: "system",
+      visibility,
+      shared_with_teams: visibility === "team" ? (cfgData.shared_with_teams as string[]) : undefined,
+      config_driven: true,
+      created_at: createdAt,
+      updated_at: now,
+    };
+
+    await collection.replaceOne({ _id: cfgId }, doc, { upsert: true });
+    console.log(`[seed-config] Seeded workflow config: ${cfgId}`);
+    count++;
+  }
+
+  return count;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Stale cleanup
 // ═══════════════════════════════════════════════════════════════
@@ -290,6 +354,7 @@ async function cleanupStaleConfigDriven(
   currentAgentIds: Set<string>,
   currentServerIds: Set<string>,
   currentModelIds: Set<string>,
+  currentWorkflowIds: Set<string>,
 ): Promise<void> {
   // Cleanup stale agents
   const agentCollection =
@@ -341,10 +406,26 @@ async function cleanupStaleConfigDriven(
     }
   }
 
-  if (agentsDeleted || serversDeleted || modelsDeleted) {
+  // Cleanup stale workflow configs
+  const workflowCollection = await getCollection<WorkflowConfig>("workflow_configs");
+  const staleWorkflows = await workflowCollection
+    .find({ config_driven: true })
+    .toArray();
+  let workflowsDeleted = 0;
+  for (const wf of staleWorkflows) {
+    if (!currentWorkflowIds.has(wf._id)) {
+      console.log(
+        `[seed-config] Removing stale config-driven workflow config: ${wf._id}`,
+      );
+      await workflowCollection.deleteOne({ _id: wf._id });
+      workflowsDeleted++;
+    }
+  }
+
+  if (agentsDeleted || serversDeleted || modelsDeleted || workflowsDeleted) {
     console.log(
       `[seed-config] Cleaned up stale config-driven entities: ` +
-        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models`,
+        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models, ${workflowsDeleted} workflows`,
     );
   }
 }
@@ -381,7 +462,8 @@ export async function applySeedConfig(): Promise<void> {
     console.log(
       `[seed-config] Found ${config.models.length} models, ` +
         `${config.mcp_servers.length} MCP servers, ` +
-        `${config.agents.length} agents in config`,
+        `${config.agents.length} agents, ` +
+        `${config.workflow_configs.length} workflow configs in config`,
     );
 
     // Extract current IDs for stale cleanup
@@ -400,22 +482,29 @@ export async function applySeedConfig(): Promise<void> {
         .map((m) => m.model_id)
         .filter(Boolean),
     );
+    const currentWorkflowIds = new Set(
+      config.workflow_configs
+        .map((w) => w.id as string)
+        .filter(Boolean),
+    );
 
     // Seed entities
     const modelCount = await seedModels(config.models);
     const serverCount = await seedMCPServers(config.mcp_servers);
     const agentCount = await seedAgents(config.agents);
+    const workflowCount = await seedWorkflowConfigs(config.workflow_configs);
 
     // Cleanup stale config-driven entities
     await cleanupStaleConfigDriven(
       currentAgentIds,
       currentServerIds,
       currentModelIds,
+      currentWorkflowIds,
     );
 
     console.log(
       `[seed-config] Applied: ${modelCount} models, ` +
-        `${serverCount} MCP servers, ${agentCount} agents`,
+        `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs`,
     );
   } catch (err) {
     // Log but don't crash — seeding failure shouldn't prevent startup

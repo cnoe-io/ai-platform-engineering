@@ -199,6 +199,12 @@ export interface StreamEvent {
 
   /** HITL metadata */
   metadata?: HITLMetadata;
+
+  // ─── Workflow run fields (used by workflow runs; ignored by TimelineManager for DA chats) ──
+  /** Dynamic agent that produced this event (set by workflow service) */
+  agent_id?: string;
+  /** Step index within the workflow run (set by workflow service) */
+  step_index?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -369,6 +375,22 @@ export function isTodoToolName(name: string): boolean {
  * When tool_name === "task", the tool call is a subagent invocation.
  */
 export const SUBAGENT_TOOL_NAME = "task" as const;
+
+/**
+ * Tool names for workflow operations.
+ * Used to detect when workflow tools are called and render a WorkflowRunCard.
+ */
+export const WORKFLOW_TOOL_NAMES = ["start_workflow_run", "get_workflow_run_status"] as const;
+
+/** Type for workflow tool names */
+export type WorkflowToolName = (typeof WORKFLOW_TOOL_NAMES)[number];
+
+/**
+ * Type-safe check if a tool name is a workflow tool.
+ */
+export function isWorkflowToolName(name: string): name is WorkflowToolName {
+  return (WORKFLOW_TOOL_NAMES as readonly string[]).includes(name);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Backwards-compatible aliases for code that still uses old names.

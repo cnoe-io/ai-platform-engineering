@@ -367,11 +367,9 @@ def handle_mention(event, say, client):
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
       "humble_followup": is_humble_followup,
-      "overthink": bool(overthink and overthink.enabled),
-      "is_overthink_message": not is_thread_reply,
+      "overthink": False,
+      "overthink_boilerplate": "",
     }
-    if overthink and overthink.enabled:
-      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
     if user_email:
       client_context["user_email"] = user_email
 
@@ -386,7 +384,6 @@ def handle_mention(event, say, client):
       team_id=team_id,
       agent_id=agent_id,
       conversation_id=conversation_id,
-      overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
     )
@@ -526,17 +523,17 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     elif not is_bot and agent_match.users:
       overthink = agent_match.users.overthink
 
+    is_overthink = bool(overthink and overthink.enabled)
     client_context = {
       "source": "slack",
       "channel_type": "channel",
       "channel_name": channel_config.name,
       "channel_topic": channel_info.get("topic", ""),
       "channel_purpose": channel_info.get("purpose", ""),
-      "overthink": bool(overthink and overthink.enabled),
+      "overthink": is_overthink,
+      "overthink_boilerplate": ai.OVERTHINK_BOILERPLATE if is_overthink else "",
       "timestamp": thread_ts,
     }
-    if overthink and overthink.enabled:
-      client_context["overthink_boilerplate"] = ai.OVERTHINK_BOILERPLATE
     if user_email:
       client_context["user_email"] = user_email
     if bot_username:

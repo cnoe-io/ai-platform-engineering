@@ -1,13 +1,15 @@
 """Chat endpoint for Dynamic Agents with SSE streaming."""
 
 import logging
-from typing import AsyncGenerator
+from contextlib import AsyncExitStack
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
+from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -15,6 +17,126 @@ from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runt
 from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
+
+# Fields that CANNOT be overridden via config_override
+_REJECTED_OVERRIDE_FIELDS: set[str] = {
+    "ui",
+    "name",
+    "description",
+    "owner_id",
+    "visibility",
+    "shared_with_teams",
+    "enabled",
+    "is_system",
+    "config_driven",
+    "id",
+    "created_at",
+    "updated_at",
+}
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge override into base dict. Override values win for scalars/lists.
+
+    For nested dicts, recurse so partial overrides don't clobber sibling keys.
+    """
+    merged = base.copy()
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, Any]) -> DynamicAgentConfig:
+    """Apply config_override to a DynamicAgentConfig, returning a new instance.
+
+    Validates that only allowed fields are overridden and uses deep merge
+    to avoid clobbering nested structures (e.g., backend.config).
+
+    Raises:
+        HTTPException(400): If rejected fields are present in the override.
+        HTTPException(400): If allowed_tools override is not a subset of base.
+    """
+    rejected = _REJECTED_OVERRIDE_FIELDS & set(config_override.keys())
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"config_override contains disallowed fields: {sorted(rejected)}",
+        )
+
+    # Validate allowed_tools subset constraint before merging
+    if "allowed_tools" in config_override:
+        _validate_allowed_tools_subset(agent.allowed_tools, config_override["allowed_tools"])
+
+    # Convert agent to dict, deep merge, reconstruct
+    agent_dict = agent.model_dump(by_alias=True)
+    merged = _deep_merge(agent_dict, config_override)
+    return DynamicAgentConfig.model_validate(merged)
+
+
+def _validate_allowed_tools_subset(
+    base: dict[str, list[str] | bool],
+    override: dict[str, list[str] | bool],
+) -> None:
+    """Ensure override allowed_tools is a strict subset of base config.
+
+    Rules:
+    - Cannot add servers not in base
+    - Cannot enable a server that is disabled (False) in base
+    - Cannot add tools not in base's tool list (when base has a specific list)
+    - Setting False (disable) is always allowed
+    - Setting True (all) is allowed if base allows the server
+
+    Raises:
+        HTTPException(400): If override violates subset constraint.
+    """
+    if not isinstance(override, dict):
+        return
+
+    for server_id, override_val in override.items():
+        if server_id not in base:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"config_override.allowed_tools adds server '{server_id}' which is not configured on the base agent"
+                ),
+            )
+
+        base_val = base[server_id]
+
+        # Cannot re-enable a server that is explicitly disabled in base
+        if base_val is False and override_val is not False:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"config_override.allowed_tools enables server '{server_id}' "
+                    f"which is disabled in the base agent config"
+                ),
+            )
+
+        # Disabling is always fine
+        if override_val is False:
+            continue
+
+        # "All tools" is fine if base allows the server at all
+        if override_val is True:
+            continue
+
+        # Override is a specific list — validate each tool
+        if isinstance(override_val, list) and isinstance(base_val, list):
+            extra = set(override_val) - set(base_val)
+            if extra:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"config_override.allowed_tools['{server_id}'] includes tools "
+                        f"not in base config: {sorted(extra)}"
+                    ),
+                )
+        # override is list, base is True — any subset is fine (all tools available)
+
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -34,6 +156,18 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    config_override: dict | None = Field(
+        None,
+        description=(
+            "Same config_override used in the original /stream/start call. "
+            "Required to reconstruct the runtime with the correct checkpoint "
+            "collection if it was evicted from cache. "
+            "WARNING: This must exactly match the config_override from /stream/start. "
+            "Passing a different override (e.g. different checkpoint_collection or "
+            "backend config) will cause the agent to lose conversation context, "
+            "since the runtime will be reconstructed against a different checkpoint store."
+        ),
+    )
 
 
 async def _generate_sse_events(
@@ -119,6 +253,10 @@ async def chat_start_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (deep merge, validated)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
@@ -128,6 +266,7 @@ async def chat_start_stream(
         f"provider={agent.model.provider}, model={agent.model.id}, "
         f"mcp_servers={len(mcp_servers)}, "
         f"protocol={request.protocol}, "
+        f"config_override={request.config_override}, "
         f"trace_id={request.trace_id or 'auto'}"
     )
 
@@ -228,12 +367,18 @@ async def chat_resume_stream(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (same as /stream/start)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
-        f"protocol={request.protocol}, trace_id={request.trace_id or 'auto'}"
+        f"protocol={request.protocol}, "
+        f"config_override={request.config_override}, "
+        f"trace_id={request.trace_id or 'auto'}"
     )
 
     encoder = get_encoder(request.protocol)
@@ -276,26 +421,45 @@ async def chat_invoke(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Apply config_override if provided (deep merge, validated)
+    if request.config_override:
+        agent = apply_config_override(agent, request.config_override)
+
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
 
-    logger.info(f"Invoke request: agent={agent.name}, user={user.email}, trace_id={request.trace_id or 'auto'}")
+    settings = get_settings()
+    persist_history = settings.invoke_persist_history
 
-    # Collect all content from streaming
+    logger.info(
+        f"Invoke request: agent={agent.name}, user={user.email}, "
+        f"trace_id={request.trace_id or 'auto'}, persist_history={persist_history}"
+    )
+
     cache = get_runtime_cache()
-
-    # Set MongoDB service for subagent resolution
     cache.set_mongo_service(mongo)
 
     try:
-        async with cache.ephemeral(
-            agent,
-            mcp_servers,
-            request.conversation_id,
-            user=user,
-            client_context=request.client_context,
-        ) as runtime:
-            # Use custom encoder for invoke — we just need accumulated content
+        async with AsyncExitStack() as stack:
+            if persist_history:
+                runtime = await cache.get_or_create(
+                    agent,
+                    mcp_servers,
+                    request.conversation_id,
+                    user=user,
+                    client_context=request.client_context,
+                )
+            else:
+                runtime = await stack.enter_async_context(
+                    cache.ephemeral(
+                        agent,
+                        mcp_servers,
+                        request.conversation_id,
+                        user=user,
+                        client_context=request.client_context,
+                    )
+                )
+
             encoder = get_encoder("custom")
 
             async for _frame in runtime.stream(
@@ -303,7 +467,6 @@ async def chat_invoke(
             ):
                 pass  # Frames are SSE strings, we don't need them for invoke
 
-            # Check if the agent was interrupted (HITL: tool approval or user input form)
             interrupt = await runtime.has_pending_interrupt(request.conversation_id)
             if interrupt:
                 interrupt_type = interrupt.get("type", "unknown")
@@ -332,6 +495,18 @@ async def chat_invoke(
                 "trace_id": request.trace_id,
             }
 
+    except RuntimeCapacityError as e:
+        logger.warning(f"Agent runtime at capacity for invoke: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error": "This agent is at capacity right now. Please try again in a moment.",
+                "agent_id": agent.id,
+                "conversation_id": request.conversation_id,
+                "trace_id": request.trace_id,
+            },
+        )
     except Exception as e:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return JSONResponse(
@@ -401,9 +576,7 @@ async def cancel_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    logger.info(
-        f"[cancel] Cancel request received: agent={request.agent_id}, conv={request.conversation_id}, user={user.email}"
-    )
+    logger.info(f"[cancel] Cancel request received: agent={request.agent_id}, user={user.email}")
 
     # Get agent config to verify it exists (access control is handled by the gateway)
     agent = mongo.get_agent(request.agent_id)

@@ -62,7 +62,9 @@ def test_validation_detail_is_sanitized_and_bounded() -> None:
 
     sanitized = patcher._sanitize_validation_detail(detail)
 
-    assert sanitized.startswith("bad Traceback")
+    assert sanitized == "bad"
+    assert "Traceback" not in sanitized
+    assert "secret-token" not in sanitized
     assert "\n" not in sanitized
     assert len(sanitized) <= 240
 

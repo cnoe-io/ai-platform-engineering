@@ -27,12 +27,9 @@ jobs:
   determine-changes:
     runs-on: ubuntu-latest
     if: |
-      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
-      (
-        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
-        (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
-        (github.event_name == 'workflow_dispatch')
-      )
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
+      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'prebuild/')) ||
+      (github.event_name == 'workflow_dispatch')
     outputs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
@@ -121,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
 
@@ -156,7 +153,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
 
@@ -211,7 +208,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
 
