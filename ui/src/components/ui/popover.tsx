@@ -245,7 +245,7 @@ export function PopoverContent({
         visibility: coords ? "visible" : "hidden",
       }}
       className={cn(
-        "z-50 rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
+        "z-[60] pointer-events-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
         "animate-in fade-in-0 zoom-in-95",
         side === "bottom" && "slide-in-from-top-2",
         side === "top" && "slide-in-from-bottom-2",

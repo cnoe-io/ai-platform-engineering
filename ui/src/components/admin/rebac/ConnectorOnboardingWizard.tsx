@@ -254,6 +254,7 @@ export function ConnectorOnboardingWizard({
                           onChange={(event) => onRowChange(row.id, { teamSlug: event.target.value })}
                           disabled={loading || !row.selected}
                         >
+                          {!row.teamSlug && <option value="">Select team</option>}
                           {teams.map((team) => (
                             <option key={team.value} value={team.value}>
                               {team.label}

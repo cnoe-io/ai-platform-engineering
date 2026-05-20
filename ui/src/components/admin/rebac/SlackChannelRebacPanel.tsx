@@ -546,7 +546,6 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   };
 
   const discoverDefaults = async () => {
-    if (!defaultTeamSlug) return;
     setDiscoverDefaultsLoading(true);
     setDiscoverDefaultsError(null);
     setMessage(null);

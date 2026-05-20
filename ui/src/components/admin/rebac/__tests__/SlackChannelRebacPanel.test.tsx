@@ -590,7 +590,9 @@ it("falls back to onboarding default and then alphabetical agent when legacy con
   render(<SlackChannelRebacPanel />);
 
   await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
-  fireEvent.click(screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" }));
+  const discoverButton = screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" });
+  await waitFor(() => expect(discoverButton).not.toBeDisabled());
+  fireEvent.click(discoverButton);
   expect(await screen.findByText(/2 bot-member channels discovered/i)).toBeInTheDocument();
   expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("alpha-agent");
 
@@ -603,6 +605,82 @@ it("falls back to onboarding default and then alphabetical agent when legacy con
   await waitFor(() =>
     expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("incident-agent")
   );
+});
+
+it("discovers Slack channels even when no onboarding default team is configured", async () => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/slack/channels") {
+      return response({ data: { channels: [] } });
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({
+        data: {
+          items: [{ _id: "incident-agent", name: "Incident Agent" }],
+        },
+      });
+    }
+    if (url === "/api/admin/teams") {
+      return response({
+        data: {
+          teams: [{ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" }],
+        },
+      });
+    }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return response({ data: { defaults: {} } });
+    }
+    if (url === "/api/admin/slack/runtime/status") {
+      return response({
+        data: {
+          route_mode: "db_prefer",
+          static_config: { channels: 0, routes: 0 },
+          route_cache: { ttl_seconds: 60, cache_size: 0, cached_channels: [] },
+          last_sync: null,
+        },
+      });
+    }
+    if (url === "/api/admin/slack/runtime/config-defaults") {
+      return response({ data: { workspace_id: "T123456789", channels_seen: 0, routes_seen: 0, channels: {} } });
+    }
+    if (url.startsWith("/api/admin/slack/available-channels")) {
+      return response({
+        data: {
+          channels: [
+            { id: "CNEWMISSING", name: "new-alerts", is_private: false, is_member: true, num_members: 7 },
+          ],
+          next_cursor: null,
+          has_more: false,
+        },
+      });
+    }
+    if (url.endsWith("/resources")) {
+      return response({ data: { grants: [] } });
+    }
+    if (url.endsWith("/routes")) {
+      return response({ data: { routes: [] } });
+    }
+    if (url.endsWith("/diagnostics")) {
+      return response({
+        data: {
+          openfga: { reachable: true, tuple_count: 0 },
+          warnings: [],
+          routes: [],
+          last_runtime_error: null,
+        },
+      });
+    }
+    return response({});
+  });
+
+  render(<SlackChannelRebacPanel />);
+
+  await screen.findByText("Step 2a: Verify Slack Channel ReBAC");
+  const discoverButton = screen.getByRole("button", { name: "Find Slack Channels with Bot Integration" });
+  await waitFor(() => expect(discoverButton).not.toBeDisabled());
+  fireEvent.click(discoverButton);
+
+  expect(await screen.findByText(/1 bot-member channel discovered/i)).toBeInTheDocument();
+  expect(screen.getByLabelText("Team for #new-alerts")).toHaveValue("");
 });
 
 it("shows discovered channel setup feedback as a toast without shifting the action row", async () => {
