@@ -205,7 +205,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       getCollection<TeamDoc>("teams"),
       getCollection<DynamicAgentDoc>("dynamic_agents"),
       getCollection<ChannelTeamMappingDoc>("channel_team_mappings"),
-      getCollection("slack_channel_grants"),
+      getCollection<SlackChannelGrantDoc>("slack_channel_grants"),
       getCollection("slack_channel_agent_routes"),
     ]);
 
@@ -387,7 +387,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           } as never)
           .toArray();
         channelGrantsReplaced += staleGrants.length;
-        for (const staleGrant of staleGrants as SlackChannelGrantDoc[]) {
+        for (const staleGrant of staleGrants) {
           const staleAgentId = staleGrant.resource?.id;
           if (!staleAgentId) continue;
           deleteRelationships.push(

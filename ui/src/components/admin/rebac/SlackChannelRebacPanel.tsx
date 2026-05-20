@@ -641,7 +641,6 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           : `Slack channel association defaults applied: assigned ${data.summary.channels_assigned_team} channels, ensured ${data.summary.channel_grants_ensured} channel grants, ensured ${data.summary.routes_ensured} routes.`,
         "success"
       );
-      setMigrationConfirmOpen(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to apply Slack channel association defaults");
     } finally {

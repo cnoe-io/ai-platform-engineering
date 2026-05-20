@@ -201,7 +201,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflow config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const body: UpdateWorkflowConfigInput = await request.json();
 
     if (Object.keys(body).length === 0) {

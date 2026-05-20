@@ -37,6 +37,10 @@ interface TeamRow {
   slug?: string;
 }
 
+interface StringIdRow {
+  _id: string;
+}
+
 type StartupMigrationStatus = "skipped" | "completed" | "failed";
 
 export interface KeycloakRbacStartupMigrationResult {
@@ -69,7 +73,7 @@ function configuredActiveTeamSlug(teamSlugs: string[]): string | null {
 }
 
 async function seedManifest(now: string): Promise<void> {
-  const manifest = await getCollection("migration_manifest");
+  const manifest = await getCollection<StringIdRow>("migration_manifest");
   await manifest.updateOne(
     { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
     {
@@ -126,7 +130,7 @@ async function loadTeamSlugs(now: string, warnings: string[]): Promise<string[]>
 }
 
 async function recordRunning(actor: string, now: string): Promise<void> {
-  const migrations = await getCollection("schema_migrations");
+  const migrations = await getCollection<StringIdRow>("schema_migrations");
   await migrations.updateOne(
     { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
     {
@@ -152,8 +156,8 @@ async function recordCompleted(input: {
   counts: Record<string, number>;
   warnings: string[];
 }): Promise<void> {
-  const migrations = await getCollection("schema_migrations");
-  const versions = await getCollection("data_schema_versions");
+  const migrations = await getCollection<StringIdRow>("schema_migrations");
+  const versions = await getCollection<StringIdRow>("data_schema_versions");
   await migrations.updateOne(
     { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
     {
@@ -197,7 +201,7 @@ async function recordFailed(input: {
   counts: Record<string, number>;
   warnings: string[];
 }): Promise<void> {
-  const migrations = await getCollection("schema_migrations");
+  const migrations = await getCollection<StringIdRow>("schema_migrations");
   await migrations.updateOne(
     { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
     {

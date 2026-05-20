@@ -406,6 +406,7 @@ interface OverwriteArgs {
   scanResult: { scan_status: ScanStatus; scan_summary?: string };
   user: { email: string; role?: string };
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
   durationMs: number;
 }
 
