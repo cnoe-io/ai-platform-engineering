@@ -1,3 +1,28 @@
+## 0.4.15 (2026-05-20)
+
+### Feat
+
+- **curl**: SDPL-1874 add allow_non_public_urls option to curl builtin tool
+
+### Refactor
+
+- **curl**: SDPL-1874 pass allow_non_public_urls through _validate_fetch_url
+
+## 0.4.14-dev.2 (2026-05-20)
+
+### Fix
+
+- **jira**: quiet MCP server logs by default
+
+## 0.4.14-dev.1 (2026-05-20)
+
+## 0.4.14 (2026-05-20)
+
+### Fix
+
+- **security**: avoid logging HTTP error metadata
+- **security**: close active CodeQL alerts
+
 ## 0.4.13-dev.9 (2026-05-20)
 
 ## 0.4.13-dev.8 (2026-05-20)
