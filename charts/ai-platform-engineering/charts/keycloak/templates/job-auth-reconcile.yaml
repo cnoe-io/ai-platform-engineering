@@ -29,6 +29,11 @@ spec:
             - /bin/sh
             - -ec
             - |
+              if [ ! -f /scripts/init-idp.sh ]; then
+                echo "[auth-reconcile] Keycloak init-scripts ConfigMap not yet deployed, skipping auth reconcile."
+                exit 0
+              fi
+
               if [ -z "${KEYCLOAK_ADMIN:-}" ] || [ -z "${KEYCLOAK_ADMIN_PASSWORD:-}" ]; then
                 echo "[auth-reconcile] Keycloak admin Secret is not available yet; skipping early reconcile."
                 exit 0
@@ -104,4 +109,5 @@ spec:
           configMap:
             name: {{ include "keycloak.fullname" . }}-init-scripts
             defaultMode: 0755
+            optional: true
 {{- end }}
