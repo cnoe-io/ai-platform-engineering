@@ -95,6 +95,8 @@ ui/node_modules/
 test-results/
 ui/test-results/
 ui/playwright-report/
+!build/skill-scanner-patches/
+!build/skill-scanner-patches/**
 develop-eggs/
 dist/
 downloads/

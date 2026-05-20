@@ -31,6 +31,8 @@ Auto-generated from all feature plans. Last updated: 2026-05-16
 - MongoDB for sync rules, sync runs, external group links, membership sources, team/channel/resource intent, audit metadata, and policy ownership metadata; OpenFGA for authorization tuples; Keycloak for identity, token issuance, limited realm roles, users, and upstream attributes. (2026-05-11-identity-group-rebac)
 - TypeScript 5.x / Node 20+ for the BFF; Python 3.11+ for Dynamic Agents + Next.js route handlers, existing BFF auth helpers, FastAPI, Starlette middleware, OpenFGA HTTP API, existing ReBAC tuple helpers (2026-05-16-dynamic-agent-pdp-gate)
 - Existing OpenFGA store and MongoDB-backed Dynamic Agent records; no schema migration required (2026-05-16-dynamic-agent-pdp-gate)
+- Python 3.13 runtime in the scanner image; TypeScript client behavior only for verification if needed + `cisco-ai-skill-scanner`, FastAPI scanner API, Docker/Helm scanner packaging, Next.js server-side scanner client (2026-05-13-skill-scanner-load-error)
+- N/A — no persisted storage change (2026-05-13-skill-scanner-load-error)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -50,6 +52,7 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
+- 2026-05-13-skill-scanner-load-error: Added Python 3.13 runtime in the scanner image; TypeScript client behavior only for verification if needed + `cisco-ai-skill-scanner`, FastAPI scanner API, Docker/Helm scanner packaging, Next.js server-side scanner client
 - 2026-05-16-dynamic-agent-pdp-gate: Added TypeScript 5.x / Node 20+ for the BFF; Python 3.11+ for Dynamic Agents + Next.js route handlers, existing BFF auth helpers, FastAPI, Starlette middleware, OpenFGA HTTP API, existing ReBAC tuple helpers
 - 2026-05-11-identity-group-rebac: Added TypeScript / Next.js 16 + React 19 for CAIPE Admin UI and BFF APIs; Python 3.11+ for Slack bot and AgentGateway OpenFGA bridge. + NextAuth.js, MongoDB driver, Keycloak Admin REST, OpenFGA HTTP API, AgentGateway ext_authz, Slack Web API/Bolt, React Flow for graph visualization.
 - 102-comprehensive-rbac-tests-and-completion: Added Python 3.11+ (supervisor, dynamic_agents, RAG server, agent MCPs, slack bot), TypeScript / Next.js 16 + React 19 (UI BFF + Playwright suite) + Keycloak Authorization Services, MongoDB (`authz_decisions` collection NEW), Playwright (NEW for E2E), `tests/rbac/rbac-matrix.yaml` (NEW source-of-truth), `make test-rbac` target (NEW)

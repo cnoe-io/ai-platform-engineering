@@ -295,10 +295,24 @@ async function createIndexes(db: Db) {
 
   console.log('✅ MongoDB indexes ensured');
 
-  // To add a one-time startup migration: write an async function that takes
-  // `db: Db`, guards itself with an early return when already applied (e.g.
-  // check a sentinel document, a renamed collection, or a document count),
-  // then call it here before this function returns.
+  // Drop stale indexes left by previous schema versions (v1 used { id: 1 }
+  // as unique key; v2 uses _id directly). MongoDB never drops indexes
+  // automatically when createIndex calls are removed from code.
+  const staleIndexes: Array<{ collection: string; index: string }> = [
+    { collection: 'workflow_runs', index: 'id_1' },
+    { collection: 'workflow_runs', index: 'workflow_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1_workflow_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1_started_at_-1' },
+  ];
+  for (const { collection, index } of staleIndexes) {
+    try {
+      await db.collection(collection).dropIndex(index);
+      console.log(`🗑️  Dropped stale index ${collection}.${index}`);
+    } catch {
+      // Index doesn't exist — nothing to do
+    }
+  }
 }
 
 /**
