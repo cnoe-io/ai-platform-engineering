@@ -514,13 +514,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         body = _fetch(url, api_key=api_key)
     except urllib.error.HTTPError as exc:
-        # Surface the catalog's own error body when present (helpful for 401/403).
-        try:
-            detail = _redact_sensitive_text(exc.read().decode("utf-8", errors="replace"))
-        except Exception:
-            detail = ""
         sys.stderr.write(
-            f"caipe-skills: HTTP {exc.code} from {safe_base_url}: {detail}\n"
+            f"caipe-skills: HTTP {exc.code} from {safe_base_url}; response body withheld\n"
         )
         return 1
     except urllib.error.URLError as exc:
