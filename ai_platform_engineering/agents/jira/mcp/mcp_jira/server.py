@@ -9,6 +9,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from mcp_jira.utils.logging import setup_logging
 
 # Import tools
 from mcp_jira.tools.jira import attachments
@@ -30,8 +31,11 @@ def main():
     # Load environment variables
     load_dotenv()
 
-    # Configure logging
-    logging.basicConfig(level=logging.DEBUG)
+    # Configure logging. Default to WARNING to avoid noisy MCP protocol logs
+    # and accidental Jira payload disclosure; opt into DEBUG locally when needed.
+    log_level_name = os.getenv("MCP_JIRA_LOG_LEVEL", "WARNING").upper()
+    log_level = getattr(logging, log_level_name, logging.WARNING)
+    setup_logging(log_level)
 
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")
