@@ -72,15 +72,16 @@ def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _validate_fetch_url(url: str, allowed_domains: str) -> tuple[bool, str, str]:
+def _validate_fetch_url(url: str, allowed_domains: str, allow_non_public_urls: bool = False) -> tuple[bool, str, str]:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return False, "Invalid URL - must start with http:// or https://", ""
 
     domain = (parsed.hostname or "").lower()
-    is_routable, route_error = _is_publicly_routable_host(domain)
-    if not is_routable:
-        return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+    if not allow_non_public_urls:
+        is_routable, route_error = _is_publicly_routable_host(domain)
+        if not is_routable:
+            return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
 
     is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
     if not is_allowed:
@@ -435,19 +436,10 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True, allow_
         for token in args[1:]:
             if token.startswith("https://") or token.startswith("http://"):
                 try:
-                    if allow_non_public_urls:
-                        # Skip IP routing check; still enforce domain ACL
-                        parsed = urlparse(token)
-                        domain = (parsed.hostname or "").lower()
-                        is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
-                        if not is_allowed:
-                            logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
-                            return f"ERROR: {error_msg}"
-                    else:
-                        is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
-                        if not is_valid:
-                            logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
-                            return f"ERROR: {error_msg}"
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains, allow_non_public_urls)
+                    if not is_valid:
+                        logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
+                        return f"ERROR: {error_msg}"
                 except Exception as e:
                     return f"ERROR: Failed to parse URL: {e}"
                 break
