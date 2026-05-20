@@ -137,6 +137,17 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                     default=True,
                     required=False,
                 ),
+                BuiltinToolConfigField(
+                    name="allow_non_public_urls",
+                    type="boolean",
+                    label="Allow Non-Public URLs",
+                    description=(
+                        "If enabled, allow curl to reach URLs that resolve to private/internal IP addresses. "
+                        "Disabled by default (SSRF protection). Only enable for agents that need internal network access."
+                    ),
+                    default=False,
+                    required=False,
+                ),
             ],
         ),
         BuiltinToolDefinition(
@@ -350,7 +361,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     return fetch_url
 
 
-def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True, allow_non_public_urls: bool = False):
     """Create a curl tool with domain restrictions.
 
     Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
@@ -359,6 +370,8 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
     Args:
         allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
         https_only: If True (default), reject non-https URLs.
+        allow_non_public_urls: If True, skip SSRF IP routing validation so the tool can
+            reach private/internal addresses. Off by default.
 
     Returns:
         A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
@@ -418,14 +431,23 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
                     logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
                     return msg
 
-        # Check domain ACL and SSRF protection (same validation as fetch_url)
+        # Check domain ACL and SSRF protection
         for token in args[1:]:
             if token.startswith("https://") or token.startswith("http://"):
                 try:
-                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
-                    if not is_valid:
-                        logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
-                        return f"ERROR: {error_msg}"
+                    if allow_non_public_urls:
+                        # Skip IP routing check; still enforce domain ACL
+                        parsed = urlparse(token)
+                        domain = (parsed.hostname or "").lower()
+                        is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
+                        if not is_allowed:
+                            logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
+                            return f"ERROR: {error_msg}"
+                    else:
+                        is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
+                        if not is_valid:
+                            logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
+                            return f"ERROR: {error_msg}"
                 except Exception as e:
                     return f"ERROR: Failed to parse URL: {e}"
                 break

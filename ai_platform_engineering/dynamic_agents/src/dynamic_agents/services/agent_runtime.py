@@ -634,8 +634,9 @@ class AgentRuntime:
         if curl_config and curl_config.enabled:
             allowed_domains = curl_config.allowed_domains or "*"
             https_only = curl_config.https_only if curl_config.https_only is not None else True
-            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only))
-            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only}
+            allow_non_public_urls = curl_config.allow_non_public_urls if curl_config.allow_non_public_urls is not None else False
+            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only, allow_non_public_urls=allow_non_public_urls))
+            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only, "allow_non_public_urls": allow_non_public_urls}
 
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime
