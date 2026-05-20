@@ -4,6 +4,17 @@ import nextTypescript from "eslint-config-next/typescript";
 // assisted-by Codex Codex-sonnet-4-6
 
 const eslintConfig = [
+  {
+    ignores: [
+      "node_modules/",
+      ".next/",
+      "out/",
+      "dist/",
+      "build/",
+      "coverage/",
+      "*.min.js",
+    ],
+  },
   ...nextVitals,
   ...nextTypescript,
   {

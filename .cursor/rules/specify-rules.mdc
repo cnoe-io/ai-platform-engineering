@@ -6,7 +6,7 @@ alwaysApply: true
 
 # ai-platform-engineering-fix-thinking-collapse Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-29
+Auto-generated from all feature plans. Last updated: 2026-05-13
 
 ## Active Technologies
 - N/A (UI state only) (095-fix-thinking-panel-expand)
@@ -23,6 +23,8 @@ Auto-generated from all feature plans. Last updated: 2026-04-29
 - MongoDB (checkpoints, store), Redis (alternative checkpointer), InMemorySaver (fallback) (098-unify-single-distributed-binding)
 - TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware (fix/skills-ai-generate-use-dynamic-agents)
 - MongoDB collection `agent_skills` only (no new collection); chart-mounted `SKILL.md` + `metadata.json` for packaged templates (fix/skills-ai-generate-use-dynamic-agents)
+- Python 3.13 runtime in the scanner image; TypeScript client behavior only for verification if needed + `cisco-ai-skill-scanner`, FastAPI scanner API, Docker/Helm scanner packaging, Next.js server-side scanner client (2026-05-13-skill-scanner-load-error)
+- N/A — no persisted storage change (2026-05-13-skill-scanner-load-error)
 
 - TypeScript (UI), React 19 + Next.js 16, React, Tailwind CSS, feature-flag store (e.g. Zustand) (094-fix-thinking-panel-expand)
 
@@ -42,9 +44,9 @@ npm test && npm run lint
 TypeScript (UI), React 19: Follow standard conventions
 
 ## Recent Changes
+- 2026-05-13-skill-scanner-load-error: Added Python 3.13 runtime in the scanner image; TypeScript client behavior only for verification if needed + `cisco-ai-skill-scanner`, FastAPI scanner API, Docker/Helm scanner packaging, Next.js server-side scanner client
 - fix/skills-ai-generate-use-dynamic-agents: Added TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware
 - fix/skills-ai-generate-use-dynamic-agents: Added TypeScript 5.x, Node 20+, Next.js App Router (16), React 19 + Next.js route handlers, Motor-backed patterns via existing Mongo helpers in UI (`getCollection`), JWT/session auth via existing API middleware
-- 098-unify-single-distributed-binding: Added Python 3.11+ + LangGraph, LangChain, FastAPI, A2A Protocol, deepagents (≥0.3.8)
 
 
 <!-- MANUAL ADDITIONS START -->

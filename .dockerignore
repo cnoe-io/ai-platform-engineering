@@ -74,6 +74,8 @@ build/
 # Allow build directory files needed for Docker builds
 !build/Dockerfile*
 !build/*.sh
+!build/skill-scanner-patches/
+!build/skill-scanner-patches/**
 develop-eggs/
 dist/
 downloads/
