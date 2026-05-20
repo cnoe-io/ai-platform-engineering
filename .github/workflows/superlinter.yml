@@ -1,6 +1,8 @@
 ---
 name: "[Lint] Secret Scan"
 
+# assisted-by Codex Codex-sonnet-4-6
+
 on:
   push:
     branches:
@@ -27,8 +29,39 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-      - name: 🔍 scan for secrets
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: 🔍 scan for secrets
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="HEAD"
+          else
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          fi
+
+          zero_sha="0000000000000000000000000000000000000000"
+          if [[ -n "${base_sha}" && "${base_sha}" != "${zero_sha}" ]] && git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+            log_opts="${base_sha}..${head_sha}"
+          elif git rev-parse "${head_sha}^" >/dev/null 2>&1; then
+            log_opts="${head_sha}^..${head_sha}"
+          else
+            log_opts="${head_sha}"
+          fi
+
+          echo "Scanning git range: ${log_opts}"
+          gitleaks git --log-opts="${log_opts}" --redact --no-banner --verbose .
