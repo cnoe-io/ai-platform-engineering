@@ -269,7 +269,7 @@ def test_http_error_response_body_is_withheld(
     captured = capsys.readouterr()
     assert rc == 1
     assert out == ""
-    assert "HTTP 403" in captured.err
+    assert "catalog request failed" in captured.err
     assert "response body withheld" in captured.err
     assert "password" not in captured.err
     assert "super-secret" not in captured.err
