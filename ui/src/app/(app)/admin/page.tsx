@@ -482,7 +482,7 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       nps: Boolean(gates.nps && npsEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
-      settings: isAdmin && !isSimulationActive,
+      settings: !isSimulationActive,
       ai_review: isAdmin && !isSimulationActive,
     }),
     [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
@@ -909,16 +909,17 @@ function AdminPage() {
         return;
       }
 
-      if (statsRes.status === 403) {
+      const statsForbidden = statsRes.status === 403;
+      if (statsForbidden && !tabGateValues.settings) {
         setError('Access denied. Try signing out and back in to refresh your session.');
         setLoading(false);
         return;
       }
 
       const [statsResponse, globalStatsResponse, usersResponse] = await Promise.all([
-        statsRes.json(),
+        statsForbidden ? Promise.resolve({ success: false }) : statsRes.json(),
         globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
-        usersRes.json(),
+        usersRes.json().catch(() => ({ success: false, data: { users: [] } })),
       ]);
 
       if (statsResponse.success) {
@@ -927,7 +928,7 @@ function AdminPage() {
         // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
-      } else {
+      } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
 

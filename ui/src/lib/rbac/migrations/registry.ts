@@ -14,6 +14,12 @@ import {
   CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
   deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
+export {
+  getUnclassifiedSchemaAreas,
+  SCHEMA_AREA_CLASSIFICATIONS,
+  type SchemaAreaClassification,
+  type SchemaAreaClassificationEntry,
+} from "./schema-area-classifications";
 import type {
   MigrationApplyResult,
   MigrationBlockingStatus,
@@ -22,10 +28,16 @@ import type {
   MigrationListResult,
   MigrationPlanResult,
   MigrationSchemaVersionStatus,
+  SchemaVersionBootstrapApplyResult,
+  SchemaVersionBootstrapPlanResult,
 } from "./types";
 
 export const RELEASE_051 = "0.5.1";
+export const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
+export const SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID = "schema_version_bootstrap_v1";
 const UNIVERSAL_REBAC_MIGRATION_ID = "universal_rebac_relationship_backfill_v1";
+const ORGANIZATION_MEMBERSHIP_MIGRATION_ID = "organization_membership_backfill_v1";
+const SKILL_HUB_TEAM_GRANTS_MIGRATION_ID = "skill_hub_team_grants_backfill_v1";
 const AGENT_TOOL_MIGRATION_ID = "agent_tool_openfga_backfill_v1";
 export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
@@ -70,6 +82,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   {
+    id: ORGANIZATION_MEMBERSHIP_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "organization_membership",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Organization membership backfill",
+    description:
+      "Grant existing linked users organization membership so baseline supervisor, RAG, and chat access survive the OpenFGA cutover.",
+    confirmation: "MIGRATE organization_membership TO v2",
+    required: true,
+    implemented: true,
+    dependencies: [CONVERSATION_OWNER_IDENTITY_MIGRATION_ID],
+  },
+  {
     id: "universal_rebac_relationship_backfill_v1",
     release: RELEASE_051,
     schema_area: "team_resources",
@@ -82,6 +109,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
     dependencies: [CONVERSATION_OWNER_IDENTITY_MIGRATION_ID],
+  },
+  {
+    id: SKILL_HUB_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "skill_hubs",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Skill Hub team grants",
+    description:
+      "Grant selected teams use access to already-crawled Skill Hub skills based on each hub's shared_with_teams policy.",
+    confirmation: "MIGRATE skill_hubs TO v2",
+    required: true,
+    implemented: true,
+    dependencies: [UNIVERSAL_REBAC_MIGRATION_ID],
   },
   {
     id: "agent_tool_openfga_backfill_v1",
@@ -398,6 +440,190 @@ function deriveUniversalRebacPlan(input: {
     tuples: unique,
     relationships,
     membershipSources,
+  };
+}
+
+export function deriveOrganizationMembershipPlan(
+  users: Array<Record<string, any>>,
+  organizationId = caipeOrgKey(),
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let usersWithSubjects = 0;
+  let invalidSubjects = 0;
+  let missingSubjects = 0;
+
+  for (const user of users) {
+    const subject = userSubject(user);
+    if (!subject) {
+      missingSubjects += 1;
+      warnings.push(`Skipping user without keycloak subject: ${String(user.email ?? user._id ?? "unknown")}`);
+      continue;
+    }
+    if (!isOpenFgaId(subject)) {
+      invalidSubjects += 1;
+      warnings.push(`Skipping user with invalid OpenFGA subject: ${String(user.email ?? user._id ?? subject)}`);
+      continue;
+    }
+    usersWithSubjects += 1;
+    tuples.push({
+      user: `user:${subject}`,
+      relation: "member",
+      object: `organization:${organizationId}`,
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: ORGANIZATION_MEMBERSHIP_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "organization_membership",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      users_scanned: users.length,
+      users_with_subjects: usersWithSubjects,
+      tuples_planned: unique.length,
+      invalid_subjects: invalidSubjects,
+      missing_subjects: missingSubjects,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${ORGANIZATION_MEMBERSHIP_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE organization_membership TO v2",
+    tuples: unique,
+  };
+}
+
+function normalizeStringArray(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function mongoId(doc: Record<string, any>): string | null {
+  if (!doc._id) return null;
+  if (typeof doc._id?.toHexString === "function") return doc._id.toHexString();
+  return String(doc._id);
+}
+
+export function deriveSkillHubTeamGrantPlan(input: {
+  hubs: Array<Record<string, any>>;
+  hubSkills: Array<Record<string, any>>;
+  teams: Array<Record<string, any>>;
+}): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  const skillIdsByHub = new Map<string, string[]>();
+  const teamSlugByRef = new Map<string, string>();
+
+  for (const team of input.teams) {
+    const slug = typeof team.slug === "string" ? team.slug.trim() : "";
+    if (!slug) continue;
+    const id = mongoId(team);
+    if (id) teamSlugByRef.set(id, slug);
+    teamSlugByRef.set(slug, slug);
+  }
+
+  for (const skill of input.hubSkills) {
+    const hubId = String(skill.hub_id ?? "").trim();
+    const skillId = String(skill.skill_id ?? "").trim();
+    if (!hubId || !skillId) {
+      warnings.push(`Skipping hub skill with missing hub_id or skill_id: ${String(skill.name ?? skill._id ?? "unknown")}`);
+      continue;
+    }
+    const existing = skillIdsByHub.get(hubId) ?? [];
+    existing.push(skillId);
+    skillIdsByHub.set(hubId, existing);
+  }
+
+  let hubsWithTeamGrants = 0;
+  let hubsWithoutCachedSkills = 0;
+  let invalidIdentifiers = 0;
+
+  for (const hub of input.hubs) {
+    const hubId = String(hub.id ?? "").trim();
+    if (!hubId) {
+      invalidIdentifiers += 1;
+      warnings.push(`Skipping skill hub without id: ${String(hub.location ?? hub._id ?? "unknown")}`);
+      continue;
+    }
+
+    const teamSlugs = normalizeStringArray(hub.shared_with_teams)
+      .map((teamRef) => teamSlugByRef.get(teamRef) ?? teamRef)
+      .filter((teamSlug) => {
+        if (isOpenFgaId(teamSlug)) return true;
+        invalidIdentifiers += 1;
+        warnings.push(`Skipping skill hub ${hubId} team with invalid OpenFGA id: ${teamSlug}`);
+        return false;
+      });
+    if (teamSlugs.length === 0) continue;
+
+    const hubSkillIds = skillIdsByHub.get(hubId) ?? [];
+    if (hubSkillIds.length === 0) {
+      hubsWithoutCachedSkills += 1;
+      warnings.push(`Skill hub ${hubId} has team grants but no cached hub_skills rows.`);
+      continue;
+    }
+
+    hubsWithTeamGrants += 1;
+    for (const teamSlug of teamSlugs) {
+      for (const skillId of hubSkillIds) {
+        const catalogSkillId = `hub-${hubId}-${skillId}`;
+        if (!isOpenFgaId(catalogSkillId)) {
+          invalidIdentifiers += 1;
+          warnings.push(`Skipping invalid Skill Hub catalog skill id: ${catalogSkillId}`);
+          continue;
+        }
+        tuples.push({
+          user: `team:${teamSlug}#member`,
+          relation: "user",
+          object: `skill:${catalogSkillId}`,
+        });
+      }
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: SKILL_HUB_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "skill_hubs",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      hubs_scanned: input.hubs.length,
+      hubs_with_team_grants: hubsWithTeamGrants,
+      hubs_without_cached_skills: hubsWithoutCachedSkills,
+      hub_skills_scanned: input.hubSkills.length,
+      teams_scanned: input.teams.length,
+      tuples_planned: unique.length,
+      invalid_identifiers: invalidIdentifiers,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${SKILL_HUB_TEAM_GRANTS_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE skill_hubs TO v2",
+    tuples: unique,
   };
 }
 
@@ -841,6 +1067,35 @@ async function loadUniversalMigrationInputs() {
   return { teamDocs, userDocs, agentDocs, configDoc };
 }
 
+async function loadSkillHubTeamGrantMigrationInputs() {
+  const [skillHubs, hubSkills, teams] = await Promise.all([
+    getCollection("skill_hubs"),
+    getCollection("hub_skills"),
+    getCollection("teams"),
+  ]);
+  const [hubDocs, hubSkillDocs, teamDocs] = await Promise.all([
+    skillHubs.find({}).toArray(),
+    hubSkills.find({}).toArray(),
+    teams.find({}).toArray(),
+  ]);
+  return { hubDocs, hubSkillDocs, teamDocs };
+}
+
+async function loadOrganizationMembershipMigrationInputs() {
+  const users = await getCollection("users");
+  return users
+    .find({})
+    .project({
+      email: 1,
+      keycloak_sub: 1,
+      "metadata.keycloak_sub": 1,
+      subject: 1,
+      sub: 1,
+      "metadata.sso_id": 1,
+    })
+    .toArray();
+}
+
 async function loadAgentToolMigrationInputs() {
   const dynamicAgents = await getCollection("dynamic_agents");
   return dynamicAgents.find({}).toArray();
@@ -1027,6 +1282,138 @@ export async function listReleaseMigrations(options: { includeCompleted?: boolea
   };
 }
 
+async function listDerivedSchemaVersionStatuses(): Promise<MigrationSchemaVersionStatus[]> {
+  await seedMigrationManifest();
+  const manifest = await getCollection<MigrationManifestDoc>("migration_manifest");
+  const versions = await getCollection<SchemaVersionDoc>("data_schema_versions");
+  const [manifestDocs, versionDocs, collectionNames] = await Promise.all([
+    manifest.find({}).toArray(),
+    versions.find({}).toArray(),
+    listMongoCollectionNames(),
+  ]);
+  const definitions = (manifestDocs.length > 0 ? manifestDocs.map(manifestDefinition) : MIGRATION_DEFINITIONS).sort(
+    (left, right) => left.release.localeCompare(right.release) || left.schema_area.localeCompare(right.schema_area) || left.from_version - right.from_version,
+  );
+  return deriveSchemaVersionStatuses(definitions, new Map(versionDocs.map((doc) => [doc._id, doc])), collectionNames);
+}
+
+function normalizeSchemaAreas(schemaAreas: unknown): string[] | null {
+  if (!Array.isArray(schemaAreas)) return null;
+  return Array.from(
+    new Set(
+      schemaAreas
+        .map((schemaArea) => (typeof schemaArea === "string" ? schemaArea.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+export async function planSchemaVersionBootstrap(input: {
+  schemaAreas?: unknown;
+} = {}): Promise<SchemaVersionBootstrapPlanResult> {
+  const statuses = await listDerivedSchemaVersionStatuses();
+  const unversionedSchemaAreas = statuses
+    .filter((schema) => schema.current_version === null)
+    .map((schema) => schema.schema_area);
+  const unversionedSet = new Set(unversionedSchemaAreas);
+  const requestedSchemaAreas = normalizeSchemaAreas(input.schemaAreas);
+  const selectedSchemaAreas = requestedSchemaAreas ?? unversionedSchemaAreas;
+  const invalidSchemaAreas = selectedSchemaAreas.filter((schemaArea) => !unversionedSet.has(schemaArea));
+
+  if (invalidSchemaAreas.length > 0) {
+    const error = new Error(`Schema areas are not eligible for v1 initialization: ${invalidSchemaAreas.join(", ")}`) as Error & {
+      statusCode?: number;
+      code?: string;
+    };
+    error.statusCode = 400;
+    error.code = "SCHEMA_VERSION_BOOTSTRAP_INVALID_AREAS";
+    throw error;
+  }
+
+  return {
+    migration_id: SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_areas: selectedSchemaAreas,
+    counts: {
+      unversioned_schema_areas: unversionedSchemaAreas.length,
+      selected_schema_areas: selectedSchemaAreas.length,
+      schema_versions_planned: selectedSchemaAreas.length,
+      collection_documents_touched: 0,
+    },
+    warnings: [],
+    confirmation: SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION,
+  };
+}
+
+export async function applySchemaVersionBootstrap(input: {
+  schemaAreas?: unknown;
+  confirmation: string;
+  actor: string;
+  now?: string;
+}): Promise<SchemaVersionBootstrapApplyResult> {
+  if (input.confirmation !== SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION) {
+    const error = new Error(`Confirmation must exactly match: ${SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION}`) as Error & {
+      statusCode?: number;
+      code?: string;
+    };
+    error.statusCode = 400;
+    error.code = "CONFIRMATION_REQUIRED";
+    throw error;
+  }
+
+  const now = input.now ?? new Date().toISOString();
+  const plan = await planSchemaVersionBootstrap({ schemaAreas: input.schemaAreas });
+  const schemaVersions = await getCollection<SchemaVersionDoc>("data_schema_versions");
+  const schemaMigrations = await getCollection<SchemaMigrationDoc>("schema_migrations");
+
+  for (const schemaArea of plan.schema_areas) {
+    await schemaVersions.updateOne(
+      { _id: schemaArea },
+      {
+        $set: {
+          version: 1,
+          updated_at: now,
+          updated_by: input.actor,
+          last_migration_id: SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID,
+        },
+        $setOnInsert: { created_at: now },
+      },
+      { upsert: true },
+    );
+  }
+
+  const appliedCounts = {
+    schema_versions_initialized: plan.schema_areas.length,
+    collection_documents_touched: 0,
+  };
+  await schemaMigrations.updateOne(
+    { _id: SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID },
+    {
+      $set: {
+        release: RELEASE_051,
+        schema_area: "data_schema_versions",
+        kind: "version",
+        status: "completed",
+        planned_counts: plan.counts,
+        applied_counts: appliedCounts,
+        schema_areas: plan.schema_areas,
+        completed_at: now,
+        updated_at: now,
+        updated_by: input.actor,
+      },
+      $setOnInsert: { created_at: now, created_by: input.actor },
+    },
+    { upsert: true },
+  );
+
+  return {
+    ...plan,
+    applied_counts: appliedCounts,
+    applied_at: now,
+    applied_by: input.actor,
+  };
+}
+
 function overrideKey(release: string, actor: string): string {
   return `${release}:${actor.toLowerCase()}`;
 }
@@ -1048,6 +1435,12 @@ export async function getMigrationBlockingStatus(input: {
   const overrideActive = isOverrideActive(override, now);
   const pendingRequired = state.migrations.filter((migration) => migration.required);
   const blockingRequired = pendingRequired.filter((migration) => migration.blocking ?? migration.required);
+  const versionBootstrapSchemaAreas = state.schema_versions
+    .filter((schema) => schema.current_version === null)
+    .map((schema) => schema.schema_area)
+    .sort((left, right) => left.localeCompare(right));
+  const needsVersionBootstrap = versionBootstrapSchemaAreas.length > 0;
+  const isBlocking = blockingRequired.length > 0 && !overrideActive;
 
   return {
     release: state.release,
@@ -1055,7 +1448,11 @@ export async function getMigrationBlockingStatus(input: {
     schema_versions: state.schema_versions,
     pending_required_count: pendingRequired.length,
     blocking_required_count: blockingRequired.length,
-    is_blocking: blockingRequired.length > 0 && !overrideActive,
+    version_bootstrap_required_count: versionBootstrapSchemaAreas.length,
+    version_bootstrap_schema_areas: versionBootstrapSchemaAreas,
+    needs_version_bootstrap: needsVersionBootstrap,
+    requires_attention: isBlocking || needsVersionBootstrap,
+    is_blocking: isBlocking,
     override_active: overrideActive,
     override_reason: overrideActive ? override?.reason : undefined,
     override_expires_at: overrideActive ? override?.expires_at : undefined,
@@ -1135,6 +1532,18 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
       dynamicAgents: agentDocs as Array<Record<string, any>>,
       platformConfig: configDoc as Record<string, any> | null,
     });
+  }
+  if (migrationId === SKILL_HUB_TEAM_GRANTS_MIGRATION_ID) {
+    const { hubDocs, hubSkillDocs, teamDocs } = await loadSkillHubTeamGrantMigrationInputs();
+    return deriveSkillHubTeamGrantPlan({
+      hubs: hubDocs as Array<Record<string, any>>,
+      hubSkills: hubSkillDocs as Array<Record<string, any>>,
+      teams: teamDocs as Array<Record<string, any>>,
+    });
+  }
+  if (migrationId === ORGANIZATION_MEMBERSHIP_MIGRATION_ID) {
+    const userDocs = await loadOrganizationMembershipMigrationInputs();
+    return deriveOrganizationMembershipPlan(userDocs as Array<Record<string, any>>);
   }
   if (migrationId === AGENT_TOOL_MIGRATION_ID) {
     const agentDocs = await loadAgentToolMigrationInputs();

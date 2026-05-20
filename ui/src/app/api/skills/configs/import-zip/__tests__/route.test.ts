@@ -177,6 +177,28 @@ describe("runZipImport — import phase", () => {
     expect(recordRevisionMock.mock.calls[0][0].trigger).toBe("import");
   });
 
+  it("applies selected team permissions to imported skills", async () => {
+    const buffer = await makeZipBuffer({
+      "SKILL.md": FRONTMATTER("team-imported"),
+    });
+    const persistSpy = jest.fn().mockResolvedValue(undefined);
+    const grantTeamAccess = jest.fn().mockResolvedValue(undefined);
+    const result = await runZipImport({
+      buffer,
+      resolutions: [],
+      user: baseUser,
+      teamRefs: ["platform"],
+      loadVisibleSkills: async () => [],
+      persistSkill: persistSpy,
+      grantTeamAccess,
+    });
+    if (result.phase !== "import") throw new Error("expected import");
+    const [savedSkill] = persistSpy.mock.calls[0];
+    expect(savedSkill.visibility).toBe("team");
+    expect(savedSkill.shared_with_teams).toEqual(["platform"]);
+    expect(grantTeamAccess).toHaveBeenCalledWith(["platform"], [savedSkill.id]);
+  });
+
   it("respects a 'skip' decision and does not call the scanner or persist", async () => {
     const buffer = await makeZipBuffer({
       "SKILL.md": FRONTMATTER("foo"),

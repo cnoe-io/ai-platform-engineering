@@ -9,6 +9,10 @@ export interface MigrationStatusSummary {
   release: string;
   pending_required_count: number;
   blocking_required_count: number;
+  version_bootstrap_required_count?: number;
+  version_bootstrap_schema_areas?: string[];
+  needs_version_bootstrap?: boolean;
+  requires_attention?: boolean;
   is_blocking: boolean;
   override_active: boolean;
 }

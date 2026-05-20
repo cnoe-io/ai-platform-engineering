@@ -29,6 +29,7 @@ import {
   filterResourcesByPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
+import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 
 /**
@@ -117,6 +118,7 @@ interface RunZipImportArgs {
   buffer: ArrayBuffer;
   resolutions?: ImportConflictDecision[];
   user: { email: string; role?: string };
+  teamRefs?: string[];
   /**
    * Provider for the user's existing skills. Injected so tests can
    * skip Mongo and the production handler can use the real
@@ -129,6 +131,7 @@ interface RunZipImportArgs {
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
   /** Concrete authorization hook for overwriting an existing skill. */
   canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
+  grantTeamAccess?: (teamRefs: string[], skillIds: string[]) => Promise<void>;
 }
 
 function triggerSupervisorRefresh(): void {
@@ -199,6 +202,7 @@ export async function runZipImport(
   }
 
   const imported: ImportedSkillSummary[] = [];
+  const teamRefs = normalizeStringList(args.teamRefs);
 
   for (const cand of parsed.candidates) {
     const decision = resolutionByCandidate.get(cand.candidateId);
@@ -208,6 +212,7 @@ export async function runZipImport(
         decision,
         existingByName: visibleByName,
         user: args.user,
+        teamRefs,
         persistSkill: args.persistSkill,
         canOverwriteSkill: args.canOverwriteSkill,
       });
@@ -234,6 +239,14 @@ export async function runZipImport(
     }
   }
 
+  const grantSkillIds = imported
+    .filter((skill) => skill.outcome === "created" || skill.outcome === "overwritten")
+    .map((skill) => skill.skillId)
+    .filter(Boolean);
+  if (teamRefs.length > 0 && grantSkillIds.length > 0 && args.grantTeamAccess) {
+    await args.grantTeamAccess(teamRefs, grantSkillIds);
+  }
+
   return { phase: "import", imported };
 }
 
@@ -242,6 +255,7 @@ interface ImportOneArgs {
   decision: ImportConflictDecision | undefined;
   existingByName: Map<string, AgentSkill>;
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
   canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
 }
@@ -249,7 +263,7 @@ interface ImportOneArgs {
 async function importOne(
   args: ImportOneArgs,
 ): Promise<ImportedSkillSummary> {
-  const { candidate, decision, existingByName, user, persistSkill, canOverwriteSkill } = args;
+  const { candidate, decision, existingByName, user, teamRefs, persistSkill, canOverwriteSkill } = args;
 
   // No conflict resolution provided: the candidate name didn't
   // collide at analyze time, so we treat it as a brand-new import.
@@ -304,6 +318,7 @@ async function importOne(
       saveAsName,
       scanResult,
       user,
+      teamRefs,
       persistSkill,
       canOverwriteSkill,
       durationMs: Date.now() - tStart,
@@ -316,6 +331,7 @@ async function importOne(
     saveAsName,
     scanResult,
     user,
+    teamRefs,
     persistSkill,
     durationMs: Date.now() - tStart,
   });
@@ -326,14 +342,16 @@ interface CreateNewArgs {
   saveAsName: string;
   scanResult: { scan_status: ScanStatus; scan_summary?: string };
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
   durationMs: number;
 }
 
 async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
-  const { candidate, saveAsName, scanResult, user, persistSkill, durationMs } = args;
+  const { candidate, saveAsName, scanResult, user, teamRefs, persistSkill, durationMs } = args;
   const id = generateSkillIdFromName(saveAsName);
   const now = new Date();
+  const normalizedTeamRefs = normalizeStringList(teamRefs);
 
   // Synthesize a single quick-start task so the imported skill has
   // something runnable. Mirrors how the templates importer seeds
@@ -356,7 +374,8 @@ async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
     is_system: false,
     created_at: now,
     updated_at: now,
-    visibility: "private",
+    visibility: normalizedTeamRefs.length > 0 ? "team" : "private",
+    shared_with_teams: normalizedTeamRefs.length > 0 ? normalizedTeamRefs : undefined,
     skill_content: skillMdBody,
     ancillary_files: Object.keys(candidate.ancillaryFiles).length
       ? candidate.ancillaryFiles
@@ -405,6 +424,7 @@ interface OverwriteArgs {
   saveAsName: string;
   scanResult: { scan_status: ScanStatus; scan_summary?: string };
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
   canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
   durationMs: number;
@@ -420,6 +440,7 @@ async function overwriteExisting(
     saveAsName,
     scanResult,
     user,
+    teamRefs,
     persistSkill,
     canOverwriteSkill,
     durationMs,
@@ -442,6 +463,7 @@ async function overwriteExisting(
   }
 
   const now = new Date();
+  const normalizedTeamRefs = normalizeStringList(teamRefs);
   // Capture the pre-overwrite state as a revision BEFORE we mutate
   // the row. The Versions tab in the workspace lets the owner
   // restore that revision if the import wasn't what they wanted.
@@ -466,6 +488,9 @@ async function overwriteExisting(
     scan_summary: scanResult.scan_summary,
     scan_updated_at: candidate.skillContent.trim() ? now : existing.scan_updated_at,
     updated_at: now,
+    ...(normalizedTeamRefs.length > 0
+      ? { visibility: "team" as const, shared_with_teams: normalizedTeamRefs }
+      : {}),
     // Tasks: replace the prompt body so the runnable behaviour
     // matches the new SKILL.md, but keep the existing display_text /
     // subagent so users don't lose their custom labelling.
@@ -541,6 +566,37 @@ function normalise(s: string): string {
   return (s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeStringList(values: string[] | undefined | null): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function parseTeamRefsFromForm(form: FormData): string[] {
+  const raw = form.get("shared_with_teams") ?? form.get("team_refs");
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normalizeStringList(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch (err) {
+      throw new ApiError(
+        `Invalid 'shared_with_teams' JSON: ${err instanceof Error ? err.message : String(err)}`,
+        400,
+      );
+    }
+  }
+  return normalizeStringList(trimmed.split(","));
+}
+
 // ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
@@ -574,6 +630,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
     const buffer = await file.arrayBuffer();
+    const teamRefs = parseTeamRefsFromForm(form);
 
     let resolutions: ImportConflictDecision[] | undefined;
     const rawResolutions = form.get("resolutions");
@@ -611,9 +668,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       buffer,
       resolutions,
       user,
+      teamRefs,
       loadVisibleSkills: async () => visible,
       canOverwriteSkill: async (skill) => {
         await requireResourcePermission(session, { type: "skill", id: skill.id, action: "write" });
+      },
+      grantTeamAccess: async (refs, skillIds) => {
+        await grantSkillsToTeams({ teamRefs: refs, skillIds });
       },
       persistSkill: async (skill, mode) => {
         if (mode === "create") {

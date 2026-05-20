@@ -30,6 +30,7 @@ import {
   filterResourcesByPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
+import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -331,6 +332,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
 
     await syncSkillResource("create", id, body.name, visibility);
+    if (visibility === "team") {
+      await grantSkillsToTeams({
+        teamRefs: body.shared_with_teams,
+        skillIds: [id],
+      });
+    }
 
     triggerSupervisorRefresh();
 

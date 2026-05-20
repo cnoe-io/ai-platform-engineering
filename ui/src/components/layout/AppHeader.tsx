@@ -773,7 +773,7 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
-          {migrationStatus.status?.is_blocking && (
+          {isAdmin && migrationStatus.status?.is_blocking && (
             <GuardedLink
               href="/admin?cat=security&tab=migrations"
               className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
@@ -782,13 +782,31 @@ export function AppHeader() {
               Migrations required: {migrationStatus.status.blocking_required_count}
             </GuardedLink>
           )}
-          {migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
+          {isAdmin && !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap && (
+            <GuardedLink
+              href="/admin?cat=security&tab=migrations"
+              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Version metadata needed: {migrationStatus.status.version_bootstrap_required_count ?? 0}
+            </GuardedLink>
+          )}
+          {isAdmin && migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
             <GuardedLink
               href="/admin?cat=security&tab=migrations"
               className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
             >
               <AlertTriangle className="h-3 w-3" />
               Migration override active
+            </GuardedLink>
+          )}
+          {isAdmin && migrationStatus.status?.needs_version_bootstrap && !migrationStatus.status.is_blocking && (
+            <GuardedLink
+              href="/admin?cat=security&tab=migrations"
+              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              Version metadata needed: {migrationStatus.status.version_bootstrap_required_count}
             </GuardedLink>
           )}
         </div>

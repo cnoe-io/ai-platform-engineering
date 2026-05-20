@@ -286,6 +286,7 @@ export async function filterSkillsByOpenFga(
   const check = options.check ?? checkOpenFgaTuple;
   const decisions = await Promise.all(
     skills.map(async (skill) => {
+      if (options.mode === "read" && skill.source === "default") return skill;
       try {
         const result = await check({
           user: options.subject as string,

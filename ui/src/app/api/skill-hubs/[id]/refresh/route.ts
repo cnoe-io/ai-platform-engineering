@@ -8,6 +8,7 @@ import {
 } from "@/lib/api-middleware";
 import { getHubSkills, resolveHubToken } from "@/lib/hub-crawl";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
+import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
 import {
   apiHostFromBaseUrl,
   buildCrawlStreamResponse,
@@ -33,6 +34,18 @@ import {
  *     ``hub.last_crawl_log`` (capped) so the admin can re-open the
  *     last run via "View last crawl" without re-running it.
  */
+function hubTeamRefs(hub: SkillHubDoc): string[] {
+  return Array.isArray(hub.shared_with_teams)
+    ? hub.shared_with_teams.map((team) => String(team).trim()).filter(Boolean)
+    : [];
+}
+
+async function grantRefreshedHubSkills(hub: SkillHubDoc, skillIds: string[]): Promise<void> {
+  const teamRefs = hubTeamRefs(hub);
+  if (teamRefs.length === 0 || skillIds.length === 0) return;
+  await grantSkillsToTeams({ teamRefs, skillIds });
+}
+
 export const POST = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     if (!isMongoDBConfigured) {
@@ -80,6 +93,10 @@ export const POST = withErrorHandler(
               /* forceFresh */ true,
               emitter,
             );
+            await grantRefreshedHubSkills(
+              hub,
+              skills.map((skill) => skill.id),
+            );
             // The crawl helpers already record ``last_truncation`` on
             // the hub doc; surface it through the ``done`` event so
             // the dialog matches the row badge.
@@ -110,6 +127,10 @@ export const POST = withErrorHandler(
       }
 
       const skills = await getHubSkills(hub, /* forceFresh */ true);
+      await grantRefreshedHubSkills(
+        hub,
+        skills.map((skill) => skill.id),
+      );
 
       return NextResponse.json({ hub_id: id, skills_count: skills.length });
   },

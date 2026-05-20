@@ -33,6 +33,8 @@ interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels: string[];
+  /** Team ids or slugs granted can_use on every skill crawled from this hub. */
+  shared_with_teams?: string[];
   /** Optional path-prefix allow-list for hub crawl (FR-020). */
   include_paths?: string[];
   /**
@@ -58,6 +60,19 @@ interface SkillHubDoc {
 function sanitizeHub(doc: SkillHubDoc) {
   const { _id, ...rest } = doc;
   return rest;
+}
+
+function normalizeTeamRefs(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -165,6 +180,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const labels: string[] = Array.isArray(body.labels)
       ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [];
+    const sharedWithTeams = normalizeTeamRefs(body.shared_with_teams);
 
     const includePaths = validateIncludePaths(body.include_paths);
     // `max_tree_pages` only meaningfully changes GitLab behaviour — the
@@ -207,6 +223,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     };
     if (includePaths) hubDoc.include_paths = includePaths;
     if (maxTreePages !== undefined) hubDoc.max_tree_pages = maxTreePages;
+    if (sharedWithTeams) hubDoc.shared_with_teams = sharedWithTeams;
 
     await collection.insertOne(hubDoc as any);
 

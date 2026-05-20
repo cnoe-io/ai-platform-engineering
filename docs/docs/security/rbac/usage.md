@@ -374,20 +374,38 @@ The runtime seeds a DB-managed `migration_manifest`, compares it with
 `data_schema_versions`, and shows every MongoDB collection with its current
 recorded version. Collections without a `data_schema_versions` row show
 `unknown`; collections that have a registered migration target also show the
-runtime target version. The migration list below the version grid shows only
-active pending/failed migrations by default. Use **Show completed migrations** to
-review completed cards backed by `schema_migrations`. Dry-run each active card
-first, review warnings and sample diffs, then type the exact confirmation phrase
-shown by the UI before applying.
+runtime target version. By default the version grid shows only collections that
+need migration; use **Show collections without pending migrations** to reveal the
+full DB inventory. When unversioned schema areas exist, the tab shows a
+version-only bootstrap hint. **Select all version-only migrations** initializes
+the selected `data_schema_versions` rows to `v1` without modifying any collection
+documents, giving future release migrations a known baseline. The authenticated
+header alert links admins back to this tab when either blocking migrations are
+pending or version metadata needs initialization. The migration list below the
+version grid shows only active pending/failed migrations by default. Use
+**Show completed migrations** to review completed cards backed by
+`schema_migrations`. Dry-run each active data/index migration first, review
+warnings and sample diffs, then type the exact confirmation phrase shown by the
+UI before applying.
 If an environment upgrades across multiple releases, every required migration
 whose target version is newer than the collection's current DB version is
 surfaced.
 
+Developers adding a MongoDB collection must update
+`ui/src/lib/rbac/migrations/schema-area-classifications.ts` in the same change.
+Each schema area must be classified as `baseline_v1`, `migration`, `metadata`, or
+`intentionally_unversioned`; the registry guardrail test fails when a migration
+target lacks a classification. Use `baseline_v1` for new collections that do not
+need a data migration yet, and add a proper migration definition when persisted
+data shape or authorization semantics change.
+
 Bootstrap admins see a persistent **Migrations required** alert beside the header
-connection status while blocking required migrations are pending. This alert is
-not dismissible; it clears when migrations complete. A bootstrap admin can record
-a break-glass override from the migration tab by entering a reason. Overrides are
-stored in `migration_overrides`, are time-boxed, and change the alert to
+connection status while blocking required migrations are pending, or
+**Version metadata needed** when collections need the v1 metadata baseline. These
+alerts are not dismissible; they clear when migrations complete or version
+metadata is initialized. A bootstrap admin can record a break-glass override from
+the migration tab by entering a reason. Overrides are stored in
+`migration_overrides`, are time-boxed, and change the blocking migration alert to
 **Migration override active** until the schema catches up or the override expires.
 
 Release notes notifications are managed from **Admin → System → Settings →

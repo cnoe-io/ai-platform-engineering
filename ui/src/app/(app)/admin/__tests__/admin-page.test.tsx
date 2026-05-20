@@ -276,6 +276,13 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       });
     }
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
+      if (overrides.statsStatus) {
+        return Promise.resolve({
+          ok: overrides.statsStatus >= 200 && overrides.statsStatus < 300,
+          status: overrides.statsStatus,
+          json: () => Promise.resolve(overrides.stats || { success: false, error: 'Forbidden' }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -687,6 +694,37 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /skills/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', { name: /ai review/i })).not.toBeInTheDocument();
+    });
+
+    it('keeps the settings shell available for non-admin users when admin stats are forbidden', async () => {
+      currentSearchParams = new URLSearchParams('cat=settings&tab=settings');
+      setupFetchMock({
+        tabGates: {
+          users: false,
+          teams: false,
+          roles: false,
+          slack: false,
+          webex: false,
+          skills: false,
+          feedback: false,
+          nps: false,
+          stats: false,
+          metrics: false,
+          health: false,
+          audit_logs: false,
+          action_audit: false,
+          openfga: false,
+          migrations: false,
+          identity_group_sync: false,
+        },
+        statsStatus: 403,
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByTestId('platform-settings-tab')).toBeInTheDocument();
+      expect(screen.queryByText(/Access denied/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
     it('defaults bare /admin to the top-level Settings Default Agent tab', async () => {

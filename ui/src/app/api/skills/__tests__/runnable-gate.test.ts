@@ -122,6 +122,31 @@ describe("filterSkillsByOpenFga", () => {
     ]);
   });
 
+  it("keeps built-in catalog skills visible for signed-in readers without per-skill tuples", async () => {
+    const check = jest.fn(async () => ({ allowed: false }));
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "builtin-safe", source: "default", name: "Built in" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "read",
+        check,
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["builtin-safe"]);
+    expect(check).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_read",
+      object: "skill:team-private",
+    });
+    expect(check).not.toHaveBeenCalledWith(
+      expect.objectContaining({ object: "skill:builtin-safe" }),
+    );
+  });
+
   it("requires can_use when content is being loaded for runtime consumers", async () => {
     const filtered = await filterSkillsByOpenFga(
       [{ ...baseSkill, id: "hub-h1-runnable" }],

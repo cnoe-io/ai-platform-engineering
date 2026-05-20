@@ -59,6 +59,10 @@ interface MigrationListResponse {
 interface MigrationBlockingStatus {
   pending_required_count: number;
   blocking_required_count: number;
+  version_bootstrap_required_count?: number;
+  version_bootstrap_schema_areas?: string[];
+  needs_version_bootstrap?: boolean;
+  requires_attention?: boolean;
   is_blocking: boolean;
   override_active: boolean;
   override_reason?: string;
@@ -81,9 +85,17 @@ interface MigrationApplyResult {
   applied_counts: Record<string, number>;
 }
 
+interface SchemaVersionBootstrapApplyResult {
+  migration_id: string;
+  schema_areas: string[];
+  applied_counts: Record<string, number>;
+}
+
 interface MigrationTabProps {
   isAdmin: boolean;
 }
+
+const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as { data?: T; error?: string };
@@ -121,7 +133,15 @@ function statusColorClass(status: MigrationStatus | MigrationSchemaVersion["stat
   return "border-slate-300 bg-slate-50 text-slate-700";
 }
 
-function schemaStatusIconClass(status: MigrationSchemaVersion["status"]): string {
+function schemaVersionNeedsMigration(schema: MigrationSchemaVersion): boolean {
+  return (
+    schema.target_version !== null &&
+    (schema.current_version === null || schema.current_version < schema.target_version)
+  );
+}
+
+function schemaStatusIconClass(status: MigrationSchemaVersion["status"], needsMigration = false): string {
+  if (needsMigration) return "text-amber-600";
   if (status === "current") return "text-emerald-600";
   if (status === "behind") return "text-amber-600";
   return "text-slate-500";
@@ -134,21 +154,40 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const [migrations, setMigrations] = useState<MigrationListItem[]>([]);
   const [completedMigrations, setCompletedMigrations] = useState<MigrationListItem[]>([]);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showAllSchemaVersions, setShowAllSchemaVersions] = useState(false);
+  const [selectedVersionBootstrapAreas, setSelectedVersionBootstrapAreas] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [plan, setPlan] = useState<MigrationPlan | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [copiedConfirmation, setCopiedConfirmation] = useState(false);
   const [applyResult, setApplyResult] = useState<MigrationApplyResult | null>(null);
+  const [versionBootstrapResult, setVersionBootstrapResult] = useState<SchemaVersionBootstrapApplyResult | null>(null);
   const [blockingStatus, setBlockingStatus] = useState<MigrationBlockingStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [versionBootstrapApplying, setVersionBootstrapApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const visibleMigrations = useMemo(
     () => (showCompleted ? [...migrations, ...completedMigrations] : migrations),
     [completedMigrations, migrations, showCompleted],
   );
+
+  const schemaVersionsNeedingMigration = useMemo(
+    () => schemaVersions.filter(schemaVersionNeedsMigration),
+    [schemaVersions],
+  );
+
+  const visibleSchemaVersions = showAllSchemaVersions ? schemaVersions : schemaVersionsNeedingMigration;
+  const hiddenSchemaVersionCount = schemaVersions.length - schemaVersionsNeedingMigration.length;
+  const unversionedSchemaAreaNames = useMemo(
+    () => schemaVersions.filter((schema) => schema.current_version === null).map((schema) => schema.schema_area),
+    [schemaVersions],
+  );
+  const allVersionBootstrapAreasSelected =
+    unversionedSchemaAreaNames.length > 0 &&
+    selectedVersionBootstrapAreas.length === unversionedSchemaAreaNames.length;
 
   const selectedMigration = useMemo(
     () => visibleMigrations.find((migration) => migration.id === selectedId) ?? visibleMigrations[0] ?? null,
@@ -250,6 +289,32 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     }
   }
 
+  async function applySelectedVersionBootstrap() {
+    if (selectedVersionBootstrapAreas.length === 0) return;
+    setError(null);
+    setVersionBootstrapResult(null);
+    setVersionBootstrapApplying(true);
+    try {
+      const data = await readJson<SchemaVersionBootstrapApplyResult>(
+        await fetch("/api/admin/rebac/migrations/version-bootstrap/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schema_areas: selectedVersionBootstrapAreas,
+            confirmation: SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION,
+          }),
+        }),
+      );
+      setVersionBootstrapResult(data);
+      setSelectedVersionBootstrapAreas([]);
+      await loadMigrations({ keepSelection: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to initialize schema versions");
+    } finally {
+      setVersionBootstrapApplying(false);
+    }
+  }
+
   const canApply = Boolean(plan && selectedMigration && confirmation === selectedMigration.confirmation && !applying);
 
   async function copyConfirmationText() {
@@ -303,34 +368,108 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Runtime and DB Versions</CardTitle>
-          <CardDescription>
-            Runtime migration release: {runtime?.migration_release ?? release}. DB schema areas are versioned independently.
-          </CardDescription>
+        <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1.5">
+            <CardTitle className="text-base">Runtime and DB Versions</CardTitle>
+            <CardDescription>
+              Runtime migration release: {runtime?.migration_release ?? release}. DB schema areas are versioned independently.
+            </CardDescription>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showAllSchemaVersions}
+              onChange={(event) => setShowAllSchemaVersions(event.target.checked)}
+            />
+            Show collections without pending migrations ({hiddenSchemaVersionCount})
+          </label>
         </CardHeader>
-        <CardContent className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {schemaVersions.map((schema) => (
-            <div
-              key={schema.schema_area}
-              className="rounded-lg border bg-card/60 p-3 text-sm"
-            >
-              <div className="flex items-center gap-2 font-medium">
-                {schema.status === "current" ? (
-                  <CheckCircle2 className={cn("h-4 w-4", schemaStatusIconClass(schema.status))} />
-                ) : (
-                  <AlertCircle className={cn("h-4 w-4", schemaStatusIconClass(schema.status))} />
-                )}
-                <span>{schema.schema_area}</span>
+        <CardContent className="space-y-3">
+          {unversionedSchemaAreaNames.length > 0 && (
+            <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="flex gap-2">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div>
+                    <p className="font-medium">
+                      {unversionedSchemaAreaNames.length} schema areas are missing version metadata.
+                    </p>
+                    <p className="text-amber-900/80">
+                      Version-only initialization sets selected schema areas to v1 in data_schema_versions and does
+                      not modify collection documents.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allVersionBootstrapAreasSelected}
+                        onChange={(event) =>
+                          setSelectedVersionBootstrapAreas(event.target.checked ? unversionedSchemaAreaNames : [])
+                        }
+                      />
+                      Select all version-only migrations ({unversionedSchemaAreaNames.length})
+                    </label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={applySelectedVersionBootstrap}
+                      disabled={selectedVersionBootstrapAreas.length === 0 || versionBootstrapApplying}
+                    >
+                      {versionBootstrapApplying ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
+                      Initialize selected to v1
+                    </Button>
+                  </div>
+                  {versionBootstrapResult && (
+                    <div className="rounded-md border border-emerald-300/60 bg-emerald-50 p-2 text-emerald-900">
+                      {Object.entries(versionBootstrapResult.applied_counts).map(([key, value]) => (
+                        <div key={key}>
+                          {key}: {value}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="text-current/70">
-                {formatVersionRange(schema.current_version, schema.target_version)}
-              </div>
-              <Badge variant="outline" className={cn("mt-1", statusColorClass(schema.status))}>
-                {schema.status}
-              </Badge>
             </div>
-          ))}
+          )}
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {visibleSchemaVersions.length === 0 ? (
+              <div className="rounded-lg border bg-card/60 p-3 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">
+                No collections need migration.
+              </div>
+            ) : (
+              visibleSchemaVersions.map((schema) => {
+                const needsMigration = schemaVersionNeedsMigration(schema);
+                return (
+                  <div
+                    key={schema.schema_area}
+                    className="rounded-lg border bg-card/60 p-3 text-sm"
+                  >
+                    <div className="flex items-center gap-2 font-medium">
+                      {schema.status === "current" && !needsMigration ? (
+                        <CheckCircle2 className={cn("h-4 w-4", schemaStatusIconClass(schema.status, needsMigration))} />
+                      ) : (
+                        <AlertCircle className={cn("h-4 w-4", schemaStatusIconClass(schema.status, needsMigration))} />
+                      )}
+                      <span>{schema.schema_area}</span>
+                    </div>
+                    <div className="text-current/70">
+                      {formatVersionRange(schema.current_version, schema.target_version)}
+                    </div>
+                    <Badge variant="outline" className={cn("mt-1", statusColorClass(schema.status))}>
+                      {schema.status}
+                    </Badge>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </CardContent>
       </Card>
 

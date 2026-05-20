@@ -291,6 +291,26 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
+  it("includes unversioned schema areas in migration status so admins get a runtime warning", async () => {
+    collections.messages = createCollection();
+    collections.feedback = createCollection();
+    collections.data_schema_versions = createCollection([
+      { _id: "conversations", version: 2, last_migration_id: "conversation_owner_identity_v1" },
+    ]);
+    const statusRoute = await import("../migrations/status/route");
+
+    const statusResponse = await statusRoute.GET(request("/api/admin/rebac/migrations/status"));
+    const statusBody = await statusResponse.json();
+
+    expect(statusResponse.status).toBe(200);
+    expect(statusBody.data.needs_version_bootstrap).toBe(true);
+    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThanOrEqual(2);
+    expect(statusBody.data.version_bootstrap_schema_areas).toEqual(
+      expect.arrayContaining(["messages", "feedback"]),
+    );
+    expect(statusBody.data.requires_attention).toBe(true);
+  });
+
   it("returns Keycloak migration health with persisted run details", async () => {
     collections.schema_migrations = createCollection([
       {
@@ -404,6 +424,55 @@ describe("admin ReBAC migrations API", () => {
           status: "unknown",
         }),
       ]),
+    );
+  });
+
+  it("initializes selected unversioned schema areas to v1 without touching collection documents", async () => {
+    collections.messages = createCollection();
+    collections.feedback = createCollection();
+    collections.data_schema_versions = createCollection([
+      { _id: "conversations", version: 2, last_migration_id: "conversation_owner_identity_v1" },
+    ]);
+    const { POST } = await import("../migrations/version-bootstrap/apply/route");
+
+    const response = await POST(
+      request("/api/admin/rebac/migrations/version-bootstrap/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          schema_areas: ["messages", "feedback"],
+          confirmation: "INITIALIZE SCHEMA VERSIONS TO v1",
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.applied_counts).toMatchObject({
+      schema_versions_initialized: 2,
+      collection_documents_touched: 0,
+    });
+    expect(collections.messages.updateOne).not.toHaveBeenCalled();
+    expect(collections.feedback.updateOne).not.toHaveBeenCalled();
+    expect(collections.data_schema_versions.updateOne).toHaveBeenCalledWith(
+      { _id: "messages" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          version: 1,
+          last_migration_id: "schema_version_bootstrap_v1",
+          updated_by: "admin@example.com",
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(collections.data_schema_versions.updateOne).toHaveBeenCalledWith(
+      { _id: "feedback" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          version: 1,
+          last_migration_id: "schema_version_bootstrap_v1",
+        }),
+      }),
+      { upsert: true },
     );
   });
 

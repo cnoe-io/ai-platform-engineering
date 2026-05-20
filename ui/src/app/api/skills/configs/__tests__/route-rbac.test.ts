@@ -8,6 +8,7 @@ const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
+const mockGrantSkillsToTeams = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -53,6 +54,10 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
 }));
 
+jest.mock("@/lib/rbac/skill-team-grants", () => ({
+  grantSkillsToTeams: (...args: unknown[]) => mockGrantSkillsToTeams(...args),
+}));
+
 jest.mock("@/lib/rbac/keycloak-resource-sync", () => ({
   syncSkillResource: jest.fn(),
 }));
@@ -86,6 +91,7 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     mockGetUserTeamIds.mockResolvedValue(["legacy-team"]);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockGrantSkillsToTeams.mockResolvedValue({ enabled: true, writesApplied: 1 });
   });
 
   it("lists skills by OpenFGA discover instead of prefiltering by legacy visibility fields", async () => {
@@ -174,5 +180,31 @@ describe("GET /api/skills/configs RBAC cutover", () => {
         $set: expect.objectContaining({ description: "after" }),
       }),
     );
+  });
+
+  it("grants selected teams OpenFGA skill use when creating a team-visible skill", async () => {
+    const insertOne = jest.fn().mockResolvedValue({ insertedId: "inserted" });
+    mockGetCollection.mockResolvedValue({ insertOne });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      new NextRequest(new URL("/api/skills/configs", "http://localhost:3000"), {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Team Owned Skill",
+          category: "Custom",
+          tasks: [{ display_text: "Do it", llm_prompt: "Do it", subagent: "skills" }],
+          visibility: "team",
+          shared_with_teams: ["platform"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const savedSkill = insertOne.mock.calls[0][0];
+    expect(mockGrantSkillsToTeams).toHaveBeenCalledWith({
+      teamRefs: ["platform"],
+      skillIds: [savedSkill.id],
+    });
   });
 });

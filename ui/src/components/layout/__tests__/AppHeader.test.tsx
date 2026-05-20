@@ -845,7 +845,26 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
   })
 
-  it('shows a persistent migrations-required alert next to connection status', () => {
+  it('hides persistent migrations-required alerts from non-admin users', () => {
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 3,
+        blocking_required_count: 2,
+        is_blocking: true,
+        override_active: false,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Migrations required: 2/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a persistent migrations-required alert next to connection status for admins', () => {
+    mockIsAdmin = true
     mockMigrationStatus = {
       isLoading: false,
       status: {
@@ -861,6 +880,31 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Migrations required: 2/i })).toHaveAttribute(
+      'href',
+      '/admin?cat=security&tab=migrations',
+    )
+  })
+
+  it('shows a persistent version-metadata alert for admins when collections need v1 initialization', () => {
+    mockIsAdmin = true
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 0,
+        blocking_required_count: 0,
+        is_blocking: false,
+        override_active: false,
+        needs_version_bootstrap: true,
+        version_bootstrap_required_count: 2,
+        requires_attention: true,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /Version metadata needed: 2/i })[0]).toHaveAttribute(
       'href',
       '/admin?cat=security&tab=migrations',
     )

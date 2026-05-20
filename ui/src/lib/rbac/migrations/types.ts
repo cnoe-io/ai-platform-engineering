@@ -52,6 +52,10 @@ export interface MigrationBlockingStatus {
   schema_versions: MigrationSchemaVersionStatus[];
   pending_required_count: number;
   blocking_required_count: number;
+  version_bootstrap_required_count: number;
+  version_bootstrap_schema_areas: string[];
+  needs_version_bootstrap: boolean;
+  requires_attention: boolean;
   is_blocking: boolean;
   override_active: boolean;
   override_reason?: string;
@@ -80,6 +84,21 @@ export interface MigrationPlanResult {
 }
 
 export interface MigrationApplyResult extends MigrationPlanResult {
+  applied_counts: Record<string, number>;
+  applied_at: string;
+  applied_by: string;
+}
+
+export interface SchemaVersionBootstrapPlanResult {
+  migration_id: string;
+  release: string;
+  schema_areas: string[];
+  counts: Record<string, number>;
+  warnings: string[];
+  confirmation: string;
+}
+
+export interface SchemaVersionBootstrapApplyResult extends SchemaVersionBootstrapPlanResult {
   applied_counts: Record<string, number>;
   applied_at: string;
   applied_by: string;

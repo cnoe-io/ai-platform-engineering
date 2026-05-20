@@ -22,6 +22,19 @@ import {
  * Per contracts/skill-hubs-api.md
  */
 
+function normalizeTeamRefs(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export const PATCH = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     if (!isMongoDBConfigured) {
@@ -60,6 +73,14 @@ export const PATCH = withErrorHandler(
         update.credentials_ref = validateCredentialsRef(body.credentials_ref);
       if (Array.isArray(body.labels))
         update.labels = body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20);
+      if (body.shared_with_teams !== undefined) {
+        const teamRefs = normalizeTeamRefs(body.shared_with_teams);
+        if (teamRefs && teamRefs.length > 0) {
+          update.shared_with_teams = teamRefs;
+        } else {
+          unset.shared_with_teams = "";
+        }
+      }
       if (body.include_paths !== undefined) {
         const validated = validateIncludePaths(body.include_paths);
         if (validated && validated.length > 0) {

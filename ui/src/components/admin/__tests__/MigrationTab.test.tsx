@@ -209,6 +209,124 @@ describe("MigrationTab", () => {
     expect(screen.getByText("MIGRATE conversations TO v2")).toBeInTheDocument();
   });
 
+  it("shows only collections needing migration by default and marks unknown targeted areas amber", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
+      if (String(url) === "/api/admin/rebac/migrations") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [
+              { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
+              { schema_area: "messaging_rebac_indexes", current_version: null, target_version: 2, status: "unknown" },
+              { schema_area: "conversation_bookmarks", current_version: 2, target_version: 2, status: "current" },
+              { schema_area: "audit_events", current_version: null, target_version: null, status: "unknown" },
+            ],
+            migrations: [],
+            completed_migrations: [],
+          },
+        });
+      }
+      if (String(url) === "/api/admin/rebac/migrations/status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [],
+            pending_required_count: 0,
+            blocking_required_count: 0,
+            is_blocking: false,
+            override_active: false,
+          },
+        });
+      }
+      return jsonResponse({ success: false }, false, 404);
+    });
+
+    render(<MigrationTab isAdmin />);
+
+    expect(await screen.findByText("conversations")).toBeInTheDocument();
+    const messagingCard = screen.getByText("messaging_rebac_indexes").closest(".rounded-lg");
+    expect(messagingCard?.querySelector("svg")).toHaveClass("text-amber-600");
+    expect(screen.queryByText("conversation_bookmarks")).not.toBeInTheDocument();
+    expect(screen.queryByText("audit_events")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Show collections without pending migrations/i));
+
+    expect(await screen.findByText("conversation_bookmarks")).toBeInTheDocument();
+    expect(screen.getByText("audit_events")).toBeInTheDocument();
+  });
+
+  it("lets admins select all version-only schema areas and initialize them to v1", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href === "/api/admin/rebac/migrations") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [
+              { schema_area: "messages", current_version: null, target_version: null, status: "unknown" },
+              { schema_area: "feedback", current_version: null, target_version: null, status: "unknown" },
+              { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
+            ],
+            migrations: [],
+            completed_migrations: [],
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [],
+            pending_required_count: 0,
+            blocking_required_count: 0,
+            is_blocking: false,
+            override_active: false,
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/version-bootstrap/apply") {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        return jsonResponse({
+          success: true,
+          data: {
+            migration_id: "schema_version_bootstrap_v1",
+            schema_areas: body.schema_areas,
+            applied_counts: { schema_versions_initialized: body.schema_areas.length, collection_documents_touched: 0 },
+          },
+        });
+      }
+      return jsonResponse({ success: false }, false, 404);
+    });
+
+    render(<MigrationTab isAdmin />);
+
+    expect(await screen.findByText(/2 schema areas are missing version metadata/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Select all version-only migrations/i));
+    fireEvent.click(screen.getByRole("button", { name: /Initialize selected to v1/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/version-bootstrap/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            schema_areas: ["messages", "feedback"],
+            confirmation: "INITIALIZE SCHEMA VERSIONS TO v1",
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/schema_versions_initialized: 2/i)).toBeInTheDocument();
+  });
+
   it("allows registered migrations to be selected and dry-run", async () => {
     render(<MigrationTab isAdmin />);
 
@@ -339,6 +457,9 @@ describe("MigrationTab", () => {
     expect(completeCheckbox).toBeChecked();
     expect(screen.getAllByText("Conversation owner identity v2").length).toBeGreaterThan(0);
     expect(screen.getByText(/Migration complete/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(/Show collections without pending migrations/i));
+
     expect(screen.getByText(/v2 -> v2/i)).toBeInTheDocument();
     expect(screen.getByText("current")).toHaveClass("text-emerald-700");
   });
