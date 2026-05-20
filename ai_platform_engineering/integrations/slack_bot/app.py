@@ -41,6 +41,10 @@ from utils.slack_agent_routes import (  # noqa: E402
     slack_agent_route_mode,
     slack_workspace_ref,
 )
+from utils.slack_runtime_policy import (  # noqa: E402
+    should_post_route_miss_notice,
+    should_process_slack_payload,
+)
 from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
@@ -422,9 +426,31 @@ def _match_channel_agents(
   return config_matches
 
 
-def _post_route_miss_notice(client, channel_id: str, user_id: str | None, text: str) -> None:
+def _slack_responses_suppressed() -> bool:
+  """Return whether setup mode should suppress user-visible Slack responses."""
+  return not should_process_slack_payload(silence_env=bool(getattr(config, "silence_env", False)))
+
+
+def _post_route_miss_notice(
+  client,
+  channel_id: str,
+  user_id: str | None,
+  text: str,
+  *,
+  explicit_invocation: bool = False,
+) -> None:
   """Tell the sender why Slack routing did not dispatch an agent."""
   if not channel_id or not text:
+    return
+  silence_env = bool(getattr(config, "silence_env", False))
+  if silence_env:
+    logger.info("Suppressing Slack route miss notice because setup silence mode is enabled")
+    return
+  if not should_post_route_miss_notice(
+    silence_env=silence_env,
+    explicit_invocation=explicit_invocation,
+  ):
+    logger.debug("Suppressing Slack route miss notice for ambient channel message")
     return
   try:
     if user_id:
@@ -605,6 +631,9 @@ def rbac_global_middleware(body, context, next, logger):
             logger.debug("Ignoring duplicate event_id=%s", event_id)
             return
         _seen_events[event_id] = now
+    if _slack_responses_suppressed():
+        logger.info("Ignoring Slack payload while SLACK_INTEGRATION_SILENCE_ENV=true")
+        return
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:
@@ -1357,7 +1386,13 @@ def handle_message_events(body, say, client, context=None):
         route_required=mode == "db_only" or not utils.is_configured_channel(channel_id),
       )
       if notice:
-        _post_route_miss_notice(client, channel_id, sender_user_id, notice)
+        _post_route_miss_notice(
+          client,
+          channel_id,
+          sender_user_id,
+          notice,
+          explicit_invocation=False,
+        )
     return
 
   # First-match wins: config order is the priority order. Only one agent responds
