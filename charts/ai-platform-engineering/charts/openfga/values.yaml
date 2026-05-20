@@ -59,6 +59,9 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+extraVolumes: []
+extraVolumeMounts: []
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1001
