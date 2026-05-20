@@ -17,6 +17,8 @@ import sys
 
 import httpx
 
+# assisted-by Codex Codex-sonnet-4-6
+
 
 def get_token(issuer: str, client_id: str, client_secret: str) -> str:
     # Discover token endpoint
@@ -44,6 +46,11 @@ def main():
     parser.add_argument("--issuer", default=os.getenv("OIDC_ISSUER") or os.getenv("INGESTOR_OIDC_ISSUER"))
     parser.add_argument("--client-id", default=os.getenv("INGESTOR_OIDC_CLIENT_ID") or os.getenv("OIDC_CLIENT_ID"))
     parser.add_argument("--client-secret", default=os.getenv("INGESTOR_OIDC_CLIENT_SECRET") or os.getenv("OIDC_CLIENT_SECRET"))
+    parser.add_argument(
+        "--print-token",
+        action="store_true",
+        help="Print the bearer token to stdout. Use only in a trusted shell.",
+    )
     args = parser.parse_args()
 
     missing = [name for name, val in [("--issuer", args.issuer), ("--client-id", args.client_id), ("--client-secret", args.client_secret)] if not val]
@@ -53,7 +60,10 @@ def main():
         sys.exit(1)
 
     token = get_token(args.issuer, args.client_id, args.client_secret)
-    print(token)
+    if args.print_token:
+        print(token)  # lgtm[py/clear-text-logging-sensitive-data]
+    else:
+        print("Token acquired. Re-run with --print-token only in a trusted shell.", file=sys.stderr)
 
 
 if __name__ == "__main__":
