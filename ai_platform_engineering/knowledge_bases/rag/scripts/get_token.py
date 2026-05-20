@@ -69,9 +69,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    missing = [name for name, val in [("--issuer", args.issuer), ("--client-id", args.client_id), ("--client-secret", args.client_secret)] if not val]
-    if missing:
-        print(f"Error: missing required args: {', '.join(missing)}", file=sys.stderr)
+    if not (args.issuer and args.client_id and args.client_secret):
+        print("Error: one or more required arguments are missing.", file=sys.stderr)
         parser.print_help()
         return 1
 

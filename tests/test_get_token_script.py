@@ -74,3 +74,36 @@ def test_main_writes_token_without_printing_it(
     assert captured.out == ""
     assert "secret-token" not in captured.err
     assert output_file.read_text(encoding="utf-8") == "secret-token\n"
+
+
+def test_main_reports_missing_required_args_generically(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _load_script()
+    for name in (
+        "OIDC_ISSUER",
+        "INGESTOR_OIDC_ISSUER",
+        "INGESTOR_OIDC_CLIENT_ID",
+        "OIDC_CLIENT_ID",
+        "INGESTOR_OIDC_CLIENT_SECRET",
+        "OIDC_CLIENT_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "get_token.py",
+            "--issuer",
+            "https://issuer.example.com",
+            "--client-id",
+            "client",
+        ],
+    )
+
+    rc = script.main()
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert captured.err.splitlines()[0] == "Error: one or more required arguments are missing."
