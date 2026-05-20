@@ -99,11 +99,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       collection.find({}).sort({ name: 1 }).skip(skip).limit(pageSize).toArray(),
       collection.countDocuments({}),
     ]);
-    const visibleItems = await filterResourcesByPermission(session, items, {
-      type: "mcp_server",
-      action: "read",
-      id: (server) => String(server._id),
-    });
+    const listTarget = {
+      type: "mcp_server" as const,
+      action: "read" as const,
+      id: (server: MCPServerConfig) => String(server._id),
+    };
+    const visibleItems = session.role === "admin"
+      ? await filterResourcesByPermission(session, items, listTarget, { allowAdminBypass: true })
+      : await filterResourcesByPermission(session, items, listTarget);
 
     return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
 });
@@ -205,11 +208,16 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!server) {
       throw new ApiError("MCP server not found", 404);
     }
-    await requireResourcePermission(session, {
-      type: "mcp_server",
+    const updateTarget = {
+      type: "mcp_server" as const,
       id,
-      action: "write",
-    });
+      action: "write" as const,
+    };
+    if (session.role === "admin") {
+      await requireResourcePermission(session, updateTarget, { allowAdminBypass: true });
+    } else {
+      await requireResourcePermission(session, updateTarget);
+    }
 
     // Config-driven guard
     if (server.config_driven) {
@@ -268,11 +276,16 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     if (!server) {
       throw new ApiError("MCP server not found", 404);
     }
-    await requireResourcePermission(session, {
-      type: "mcp_server",
+    const deleteTarget = {
+      type: "mcp_server" as const,
       id,
-      action: "delete",
-    });
+      action: "delete" as const,
+    };
+    if (session.role === "admin") {
+      await requireResourcePermission(session, deleteTarget, { allowAdminBypass: true });
+    } else {
+      await requireResourcePermission(session, deleteTarget);
+    }
 
     // Config-driven guard
     if (server.config_driven) {

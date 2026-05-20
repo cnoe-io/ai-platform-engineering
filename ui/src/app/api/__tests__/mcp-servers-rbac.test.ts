@@ -8,6 +8,7 @@ const mockGetCollection = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
+let mockSession = { sub: "alice-sub", role: "user" };
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -24,7 +25,7 @@ jest.mock("@/lib/api-middleware", () => {
   }
   return {
     ApiError,
-    getAuthFromBearerOrSession: async () => ({ session: { sub: "alice-sub", role: "user" } }),
+    getAuthFromBearerOrSession: async () => ({ session: mockSession }),
     getPaginationParams: () => ({ page: 1, pageSize: 20, skip: 0 }),
     paginatedResponse: (items: unknown[], total: number, page: number, pageSize: number) =>
       Response.json({ success: true, data: { items, pagination: { total, page, pageSize } } }),
@@ -57,6 +58,7 @@ function request(path: string, init?: RequestInit): NextRequest {
 describe("MCP server per-resource RBAC", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSession = { sub: "alice-sub", role: "user" };
     mockRequireRbacPermission.mockResolvedValue(undefined);
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) =>
@@ -90,6 +92,36 @@ describe("MCP server per-resource RBAC", () => {
     expect(body.data.items).toEqual([{ _id: "mcp-visible", name: "Visible" }]);
   });
 
+  it("lets admins list legacy MCP servers that lack per-resource tuples", async () => {
+    mockSession = { sub: "admin-sub", role: "admin" };
+    mockFilterResourcesByPermission.mockImplementation(async (_session, items, _target, options) =>
+      options?.allowAdminBypass ? items : [],
+    );
+    const items = [
+      { _id: "jira", name: "Jira", endpoint: "http://mcp-jira:8000/mcp" },
+    ];
+    const limit = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(items) });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    mockGetCollection.mockResolvedValue({
+      countDocuments: jest.fn().mockResolvedValue(items.length),
+      find: jest.fn().mockReturnValue({ sort }),
+    });
+    const { GET } = await import("../mcp-servers/route");
+
+    const response = await GET(request("/api/mcp-servers"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      items,
+      { type: "mcp_server", action: "read", id: expect.any(Function) },
+      { allowAdminBypass: true },
+    );
+    expect(body.data.items).toEqual(items);
+  });
+
   it("requires mcp_server#write before updating a server", async () => {
     const server = { _id: "mcp-visible", name: "Visible", config_driven: false };
     mockGetCollection.mockResolvedValue({
@@ -110,5 +142,26 @@ describe("MCP server per-resource RBAC", () => {
       { sub: "alice-sub", role: "user" },
       { type: "mcp_server", id: "mcp-visible", action: "write" },
     );
+  });
+
+  it("lets admins delete legacy MCP servers that lack per-resource tuples", async () => {
+    mockSession = { sub: "admin-sub", role: "admin" };
+    const server = { _id: "jira", name: "Jira", config_driven: false };
+    const deleteOne = jest.fn().mockResolvedValue({ deletedCount: 1 });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(server),
+      deleteOne,
+    });
+    const { DELETE } = await import("../mcp-servers/route");
+
+    const response = await DELETE(request("/api/mcp-servers?id=jira", { method: "DELETE" }));
+
+    expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      { type: "mcp_server", id: "jira", action: "delete" },
+      { allowAdminBypass: true },
+    );
+    expect(deleteOne).toHaveBeenCalledWith({ _id: "jira" });
   });
 });
