@@ -832,10 +832,9 @@ caipe-ui:
     # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
     SLACK_WORKSPACE_ALIAS: "CAIPE"
     # Slack bot internal admin API used by the Web UI BFF for route reload and
-    # one-time static-config-to-MongoDB/OpenFGA migration. Provide
-    # SLACK_BOT_ADMIN_CLIENT_SECRET via existingSecret/externalSecrets.
+    # one-time static-config-to-MongoDB/OpenFGA migration. The BFF uses the
+    # existing OIDC_CLIENT_ID/OIDC_CLIENT_SECRET Keycloak client credentials.
     SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
-    SLACK_BOT_ADMIN_CLIENT_ID: "caipe-ui"
     SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
     # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
     # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"

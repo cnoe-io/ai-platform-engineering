@@ -1407,10 +1407,8 @@ services:
       # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
       - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
       # UI BFF -> Slack bot admin API. The browser never calls the bot directly;
-      # caipe-ui obtains this client_credentials token server-side.
+      # caipe-ui obtains this token server-side using OIDC_CLIENT_ID/_SECRET.
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
-      - SLACK_BOT_ADMIN_CLIENT_ID=${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}
-      - SLACK_BOT_ADMIN_CLIENT_SECRET=${SLACK_BOT_ADMIN_CLIENT_SECRET:-}
       - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
@@ -2617,7 +2615,6 @@ services:
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
-      SLACK_BOT_ADMIN_CLIENT_ID: ${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}
       SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe
       # Spec 104: comma-separated emails that get the admin_user role and the

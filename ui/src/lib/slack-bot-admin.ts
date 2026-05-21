@@ -27,10 +27,10 @@ async function getSlackBotAdminToken(): Promise<string> {
     return tokenCache.accessToken;
   }
 
-  const clientId = process.env.SLACK_BOT_ADMIN_CLIENT_ID || "caipe-ui";
-  const clientSecret = process.env.SLACK_BOT_ADMIN_CLIENT_SECRET;
+  const clientId = process.env.OIDC_CLIENT_ID || "caipe-ui";
+  const clientSecret = process.env.OIDC_CLIENT_SECRET;
   if (!clientSecret) {
-    throw new ApiError("SLACK_BOT_ADMIN_CLIENT_SECRET is not configured", 503);
+    throw new ApiError("OIDC_CLIENT_SECRET is not configured for Slack bot admin calls", 503);
   }
 
   const body = new URLSearchParams({

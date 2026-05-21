@@ -7,17 +7,17 @@ beforeEach(() => {
   global.fetch = fetchMock as unknown as typeof fetch;
   _resetSlackBotAdminTokenCacheForTests();
   process.env.OIDC_ISSUER = "http://keycloak:7080/realms/caipe";
+  process.env.OIDC_CLIENT_ID = "caipe-ui";
+  process.env.OIDC_CLIENT_SECRET = "__TEST_ONLY_PLACEHOLDER__";
   process.env.SLACK_BOT_ADMIN_URL = "http://slack-bot:3001";
-  process.env.SLACK_BOT_ADMIN_CLIENT_ID = "caipe-ui";
-  process.env.SLACK_BOT_ADMIN_CLIENT_SECRET = "__TEST_ONLY_PLACEHOLDER__";
   process.env.SLACK_BOT_ADMIN_AUDIENCE = "caipe-slack-bot-admin";
 });
 
 afterEach(() => {
   delete process.env.OIDC_ISSUER;
+  delete process.env.OIDC_CLIENT_ID;
+  delete process.env.OIDC_CLIENT_SECRET;
   delete process.env.SLACK_BOT_ADMIN_URL;
-  delete process.env.SLACK_BOT_ADMIN_CLIENT_ID;
-  delete process.env.SLACK_BOT_ADMIN_CLIENT_SECRET;
   delete process.env.SLACK_BOT_ADMIN_AUDIENCE;
   delete process.env.SLACK_BOT_ADMIN_TOKEN_URL;
 });

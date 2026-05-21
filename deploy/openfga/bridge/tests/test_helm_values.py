@@ -303,13 +303,14 @@ def test_keycloak_readiness_requires_imported_realm_jwks() -> None:
     assert "readinessProbe:" in rendered
 
 
-def test_caipe_ui_external_secrets_example_includes_webex_admin_secret() -> None:
+def test_caipe_ui_external_secrets_example_uses_oidc_for_slack_admin() -> None:
     root = _repo_root()
     values = yaml.safe_load(
         (root / "charts/ai-platform-engineering/charts/caipe-ui/values-external-secrets.yaml").read_text()
     )
     secret_keys = {entry["secretKey"] for entry in values["externalSecrets"]["data"]}
-    assert "SLACK_BOT_ADMIN_CLIENT_SECRET" in secret_keys
+    assert "OIDC_CLIENT_SECRET" in secret_keys
+    assert "SLACK_BOT_ADMIN_CLIENT_SECRET" not in secret_keys
     assert "WEBEX_BOT_ADMIN_CLIENT_SECRET" in secret_keys
     webex_entry = next(
         entry

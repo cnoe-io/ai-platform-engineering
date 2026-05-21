@@ -283,7 +283,7 @@ _ensure_realm_session_lifetimes
 # on a destructive realm re-import. The Slack bot verifies the token via JWKS
 # and expects the configured admin audience.
 _ensure_caipe_ui_slack_admin_client_credentials() {
-  local BFF_CLIENT_ID="${SLACK_BOT_ADMIN_CLIENT_ID:-caipe-ui}"
+  local BFF_CLIENT_ID="${OIDC_CLIENT_ID:-caipe-ui}"
   local SLACK_ADMIN_AUDIENCE="${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}"
   local AUDIENCE_MAPPER_NAME="slack-bot-admin-audience"
 
