@@ -20,6 +20,9 @@ load_dotenv()
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# assisted-by Codex Codex-sonnet-4-6
+EKS_MCP_SERVER_VERSION = "0.1.31"
+
 
 class AWSAgent(BaseStrandsAgent):
     """AWS Agent using Strands SDK with multi-MCP server support."""
@@ -248,13 +251,13 @@ class AWSAgent(BaseStrandsAgent):
             logger.info("Creating EKS MCP client...")
             if system == "windows":
                 eks_command_args = [
-                    "--from", "awslabs.eks-mcp-server@0.1.15",
+                    "--from", f"awslabs.eks-mcp-server@{EKS_MCP_SERVER_VERSION}",
                     "awslabs.eks-mcp-server.exe",
                     "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             else:
                 eks_command_args = [
-                    "awslabs.eks-mcp-server@0.1.15",
+                    f"awslabs.eks-mcp-server@{EKS_MCP_SERVER_VERSION}",
                     "--allow-write", "--no-allow-sensitive-data-access"
                 ]
             eks_client = MCPClient(lambda: stdio_client(

@@ -73,6 +73,12 @@ env/
 **/venv/
 **/env/
 
+# assisted-by Codex Codex-sonnet-4-6
+# Node dependencies are rebuilt inside their own images; copying local
+# node_modules into the backend image pulls host-only binaries into scans.
+node_modules/
+**/node_modules/
+
 # Python cache files
 __pycache__/
 *.py[cod]
