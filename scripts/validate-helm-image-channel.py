@@ -49,6 +49,8 @@ PARENT_HELM_ARGS = (
     "--set",
     "tags.keycloak=true",
     "--set",
+    "keycloak.admin.secretRef=caipe-keycloak-admin",
+    "--set",
     "global.skillScanner.enabled=true",
     "--set",
     "openfgaAuthzBridge.enabled=true",
