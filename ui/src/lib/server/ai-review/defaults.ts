@@ -68,7 +68,7 @@ const AGENT_SYSTEM_PROMPT_CRITERIA: ReviewCriterion[] = [
     severity: "info",
     weight: 1,
     micro_prompt:
-      "Does the prompt define what the agent should do when it cannot help — escalate to a human, hand off to another agent, or refuse politely? Pass if escalation/handoff behavior is described.",
+      "Does the prompt define what the agent should do when it cannot help — escalate to a user, hand off to another agent, or refuse politely? Pass if escalation/handoff behavior is described.",
     expects_fix: true,
   },
   {
