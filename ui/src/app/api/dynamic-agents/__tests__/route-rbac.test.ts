@@ -15,6 +15,7 @@ const mockDeleteAllAgentToolTuples = jest.fn();
 const mockAuthenticateRequest = jest.fn();
 const mockGetDynamicAgentsConfig = jest.fn();
 const mockProxyRequest = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -70,6 +71,10 @@ jest.mock("@/lib/rbac/openfga-agent-tools", () => ({
   reconcileAgentRelationships: (...args: unknown[]) => mockReconcileAgentRelationships(...args),
 }));
 
+jest.mock("@/lib/rbac/openfga", () => ({
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
   getDynamicAgentsConfig: (...args: unknown[]) => mockGetDynamicAgentsConfig(...args),
@@ -93,6 +98,7 @@ describe("dynamic agents RBAC routes", () => {
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockReconcileAgentRelationships.mockResolvedValue(undefined);
     mockDeleteAllAgentToolTuples.mockResolvedValue(undefined);
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockAuthenticateRequest.mockResolvedValue({
       subject: "alice-sub",
       email: "alice@example.com",
@@ -196,6 +202,132 @@ describe("dynamic agents RBAC routes", () => {
     expect(body.data).toEqual([expect.objectContaining({ _id: "incident-agent" })]);
   });
 
+  it("repairs the all-users default-agent OpenFGA grant before filtering chat-available agents", async () => {
+    const agents = [{ _id: "agent-default", name: "Default Agent", enabled: true }];
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue({ default_agent_id: "agent-default" }) };
+      }
+      if (name === "dynamic_agents") {
+        return {
+          find: jest.fn().mockReturnValue({
+            sort: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue(agents),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { GET } = await import("../available/route");
+
+    const response = await GET(request("/api/dynamic-agents/available"));
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: "user:*", relation: "user", object: "agent:agent-default" }],
+      deletes: [],
+    });
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      session,
+      agents,
+      { type: "agent", action: "use", id: expect.any(Function) },
+    );
+  });
+
+  it("repairs baseline member OpenFGA tuples before requiring chat-available agent view access", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue({ default_agent_id: null }) };
+      }
+      if (name === "dynamic_agents") {
+        return {
+          find: jest.fn().mockReturnValue({
+            sort: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { GET } = await import("../available/route");
+
+    const response = await GET(request("/api/dynamic-agents/available"));
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: "user:alice-sub", relation: "member", object: "organization:caipe" },
+        { user: "user:alice-sub", relation: "reader", object: "admin_surface:users" },
+      ]),
+      deletes: [],
+    });
+    expect(mockRequireRbacPermission).not.toHaveBeenCalledWith(session, "dynamic_agent", "view");
+  });
+
+  it("repairs all-users grants for enabled global agents before chat availability filtering", async () => {
+    const agents = [
+      { _id: "global-agent", name: "Global Agent", enabled: true, visibility: "global" },
+      { _id: "team-agent", name: "Team Agent", enabled: true, visibility: "team" },
+    ];
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue({ default_agent_id: null }) };
+      }
+      if (name === "dynamic_agents") {
+        return {
+          find: jest.fn().mockReturnValue({
+            sort: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue(agents),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { GET } = await import("../available/route");
+
+    const response = await GET(request("/api/dynamic-agents/available"));
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: "user:*", relation: "user", object: "agent:global-agent" }],
+      deletes: [],
+    });
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      session,
+      agents,
+      { type: "agent", action: "use", id: expect.any(Function) },
+    );
+  });
+
+  it("filters agent editor LLM models through OpenFGA llm_model read checks", async () => {
+    const models = [
+      { _id: "openai/gpt-4o", model_id: "openai/gpt-4o", name: "GPT-4o", provider: "openai" },
+      { _id: "hidden/model", model_id: "hidden/model", name: "Hidden", provider: "test" },
+    ];
+    mockFilterResourcesByPermission.mockResolvedValue([models[0]]);
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue(models),
+      }),
+    });
+    const { GET } = await import("../models/route");
+
+    const response = await GET(request("/api/dynamic-agents/models"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockRequireRbacPermission).not.toHaveBeenCalledWith(session, "dynamic_agent", "view");
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+      session,
+      models,
+      { type: "llm_model", action: "read", id: expect.any(Function) },
+    );
+    expect(body.data).toEqual([
+      expect.objectContaining({ model_id: "openai/gpt-4o", name: "GPT-4o" }),
+    ]);
+  });
+
   it("filters configurable subagents through OpenFGA can_use after cycle checks", async () => {
     const agents = [
       { _id: "parent", name: "Parent", enabled: true },
@@ -221,6 +353,10 @@ describe("dynamic agents RBAC routes", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      session,
+      { type: "agent", id: "parent", action: "write" },
+    );
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       session,
       [agents[1], agents[2]],
@@ -283,11 +419,16 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
-  it("rejects new agents without an owner team", async () => {
+  it("allows users to create private agents without an owner team", async () => {
     const insertOne = jest.fn();
-    mockGetCollection.mockResolvedValue({
-      findOne: jest.fn().mockResolvedValue(null),
-      insertOne,
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") {
+        return {
+          findOne: jest.fn().mockResolvedValue(null),
+          insertOne,
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
     });
     const { POST } = await import("../route");
 
@@ -299,14 +440,26 @@ describe("dynamic agents RBAC routes", () => {
           name: "Operations Helper",
           system_prompt: "Help ops",
           model: { id: "gpt-4.1", provider: "openai" },
+          visibility: "private",
         }),
       }),
     );
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ code: "OWNER_TEAM_REQUIRED" });
-    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
-    expect(insertOne).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-operations-helper",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: null,
+      }),
+    );
+    expect(insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibility: "private",
+        owner_subject: "alice-sub",
+        owner_team_slug: undefined,
+      }),
+    );
   });
 
   it("returns 404 when the requested owner team does not exist", async () => {
@@ -335,7 +488,7 @@ describe("dynamic agents RBAC routes", () => {
     expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
   });
 
-  it("allows a scoped owner-team admin to create an agent for that team", async () => {
+  it("allows a scoped owner-team member to create an agent for that team", async () => {
     const insertOne = jest.fn();
     mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string }) => {
       if (resource.type === "organization") throw new Error("not platform admin");
@@ -346,7 +499,7 @@ describe("dynamic agents RBAC routes", () => {
           findOne: jest.fn().mockResolvedValue({
             _id: "team-id",
             slug: "platform",
-            members: [{ user_id: "alice@example.com", role: "admin" }],
+            members: [{ user_id: "alice@example.com", role: "member" }],
           }),
         };
       }
@@ -369,13 +522,90 @@ describe("dynamic agents RBAC routes", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      session,
+      { type: "team", id: "platform", action: "use" },
+    );
     expect(insertOne).toHaveBeenCalled();
   });
 
-  it("returns 403 when a non-admin selects an owner team they do not administer", async () => {
+  it("requires a stable subject before writing dynamic agent owner tuples", async () => {
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      user,
+      session: { ...session, sub: "" },
+    });
     const insertOne = jest.fn();
     mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string }) => {
       if (resource.type === "organization") throw new Error("not platform admin");
+    });
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return { findOne: jest.fn().mockResolvedValue(null), insertOne };
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Operations Helper",
+          system_prompt: "Help ops",
+          model: { id: "gpt-4.1", provider: "openai" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
+    expect(insertOne).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when a non-admin selects an owner team they do not belong to", async () => {
+    const insertOne = jest.fn();
+    mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string }) => {
+      if (resource.type === "organization") throw new Error("not platform admin");
+      if (resource.type === "team") throw Object.assign(new Error("not team member"), { statusCode: 403 });
+    });
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "teams") {
+        return {
+          findOne: jest.fn().mockResolvedValue({
+            _id: "team-id",
+            slug: "platform",
+            members: [{ user_id: "bob@example.com", role: "member" }],
+          }),
+        };
+      }
+      if (name === "dynamic_agents") return { findOne: jest.fn().mockResolvedValue(null), insertOne };
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Operations Helper",
+          system_prompt: "Help ops",
+          model: { id: "gpt-4.1", provider: "openai" },
+          owner_team_slug: "platform",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "OWNER_TEAM_FORBIDDEN" });
+    expect(insertOne).not.toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to Mongo membership when OpenFGA denies owner-team use", async () => {
+    const insertOne = jest.fn();
+    mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string }) => {
+      if (resource.type === "organization") throw new Error("not platform admin");
+      if (resource.type === "team") throw Object.assign(new Error("not team member"), { statusCode: 403 });
     });
     mockGetCollection.mockImplementation(async (name: string) => {
       if (name === "teams") {
@@ -463,7 +693,6 @@ describe("dynamic agents RBAC routes", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "alice-sub", role: "admin", user: { email: "alice@example.com" } },
       { type: "tool", id: "dynamic-agents-builtin", action: "discover" },
-      { allowAdminBypass: true },
     );
     expect(mockProxyRequest).toHaveBeenCalledWith(
       "http://dynamic-agents:8000/api/v1/builtin-tools",

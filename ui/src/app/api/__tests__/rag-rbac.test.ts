@@ -26,6 +26,7 @@ import { NextRequest } from 'next/server';
 const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
+const mockReconcileKnowledgeBaseRelationships = jest.fn();
 
 jest.mock('@/lib/api-middleware', () => {
   class ApiError extends Error {
@@ -57,6 +58,10 @@ jest.mock('@/lib/rbac/resource-authz', () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
 }));
 
+jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
+  reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
+}));
+
 function ragRequest(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, 'http://localhost:3000'), init);
 }
@@ -67,6 +72,7 @@ describe('RAG RBAC Integration', () => {
     mockRequireRbacPermission.mockResolvedValue(undefined);
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, resources) => resources);
+    mockReconcileKnowledgeBaseRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
@@ -279,7 +285,7 @@ describe('RAG RBAC Integration', () => {
           user: { email: 'test@example.com' },
           groups,
         } as any);
-        const permissions = ['read', ...(canIngest ? ['ingest'] : []), ...(canDelete ? ['delete'] : [])];
+        const permissions = [...(canRead ? ['read'] : []), ...(canIngest ? ['ingest'] : []), ...(canDelete ? ['delete'] : [])];
         (global.fetch as jest.Mock).mockResolvedValueOnce({
           ok: true,
           status: 200,
@@ -291,7 +297,7 @@ describe('RAG RBAC Integration', () => {
         const data = await response.json();
 
         expect(data.role).toBe(expectedRole);
-        expect(data.permissions).toContain('read');
+        if (canRead) expect(data.permissions).toContain('read');
         if (canIngest) expect(data.permissions).toContain('ingest');
         if (canDelete) expect(data.permissions).toContain('delete');
       });
@@ -381,7 +387,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireRbacPermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', org: 'team-alpha' }),
         'rag',
-        'admin',
+        'query',
       );
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', role: 'kb_admin' }),
@@ -399,7 +405,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires RAG admin and filters datasource lists through OpenFGA for datasource tab callers', async () => {
+    it('allows datasource lists through RAG query scope and filters them through OpenFGA', async () => {
       const nextAuth = await import('next-auth');
       jest.mocked(nextAuth.getServerSession).mockResolvedValue({
         sub: 'alice-sub',
@@ -435,7 +441,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireRbacPermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', org: 'team-alpha' }),
         'rag',
-        'admin',
+        'query',
       );
       expect(body.datasources).toEqual([{ datasource_id: 'kb-allowed', name: 'Allowed KB' }]);
       expect(body.count).toBe(1);
@@ -452,6 +458,97 @@ describe('RAG RBAC Integration', () => {
         expect.objectContaining({ type: 'knowledge_base', action: 'read' }),
         expect.objectContaining({ allowAdminBypass: true }),
       );
+    });
+
+    it('lets a non-admin create a private datasource and writes owner tuples after upstream success', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'alice-sub',
+        role: 'user',
+        org: 'team-alpha',
+        accessToken: 'browser-token',
+        user: { email: 'alice@example.com' },
+      } as any);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ datasource_id: 'kb-private', status: 'created' }),
+      } as Response);
+      const { POST } = await import('@/app/api/rag/[...path]/route');
+      const body = { datasource_id: 'kb-private', url: 'https://docs.example.test' };
+
+      const response = await POST(
+        ragRequest('/api/rag/v1/datasource', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'datasource'] }) },
+      );
+
+      expect(response.status).toBe(201);
+      expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub', org: 'team-alpha' }),
+        'rag',
+        'query',
+      );
+      expect(mockRequireResourcePermission).not.toHaveBeenCalledWith(
+        expect.anything(),
+        { type: 'knowledge_base', id: 'kb-private', action: 'ingest' },
+      );
+      expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith({
+        knowledgeBaseId: 'kb-private',
+        ownerSubject: 'alice-sub',
+        ownerTeamSlug: null,
+      });
+    });
+
+    it('requires team membership before creating a team-owned datasource', async () => {
+      const nextAuth = await import('next-auth');
+      jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+        sub: 'alice-sub',
+        role: 'user',
+        org: 'team-alpha',
+        accessToken: 'browser-token',
+        user: { email: 'alice@example.com' },
+      } as any);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ datasource_id: 'kb-team', status: 'created' }),
+      } as Response);
+      const { POST } = await import('@/app/api/rag/[...path]/route');
+      const body = {
+        datasource_id: 'kb-team',
+        url: 'https://docs.example.test',
+        owner_team_slug: 'platform',
+      };
+
+      const response = await POST(
+        ragRequest('/api/rag/v1/datasource', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'content-length': String(JSON.stringify(body).length),
+          },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ path: ['v1', 'datasource'] }) },
+      );
+
+      expect(response.status).toBe(201);
+      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'alice-sub' }),
+        { type: 'team', id: 'platform', action: 'use' },
+      );
+      expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith({
+        knowledgeBaseId: 'kb-team',
+        ownerSubject: 'alice-sub',
+        ownerTeamSlug: 'platform',
+      });
     });
 
     it('forwards the Keycloak bearer for MCP tool config discovery after BFF RBAC passes', async () => {
@@ -549,12 +646,12 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires knowledge_base ingest for generic datasource writes from request body', async () => {
+    it('requires knowledge_base ingest for existing datasource writes from request body', async () => {
       const { POST } = await import('@/app/api/rag/[...path]/route');
-      const body = { datasource_id: 'kb-beta', url: 's3://bucket/docs' };
+      const body = { datasource_id: 'kb-beta', reload: true };
 
       const response = await POST(
-        ragRequest('/api/rag/v1/datasource', {
+        ragRequest('/api/rag/v1/ingest/webloader/reload', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -562,7 +659,7 @@ describe('RAG RBAC Integration', () => {
           },
           body: JSON.stringify(body),
         }),
-        { params: Promise.resolve({ path: ['v1', 'datasource'] }) },
+        { params: Promise.resolve({ path: ['v1', 'ingest', 'webloader', 'reload'] }) },
       );
 
       expect(response.status).toBe(200);
@@ -571,7 +668,7 @@ describe('RAG RBAC Integration', () => {
         { type: 'knowledge_base', id: 'kb-beta', action: 'ingest' },
       );
       expect(global.fetch).toHaveBeenCalledWith(
-        'http://localhost:9446/v1/datasource',
+        'http://localhost:9446/v1/ingest/webloader/reload',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify(body),
@@ -579,8 +676,9 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('allows admin sessions to re-ingest a datasource via the admin bypass option', async () => {
+    it('requires OpenFGA knowledge-base ingest access for admin re-ingest requests', async () => {
       const nextAuth = await import('next-auth');
+      const { ApiError } = await import('@/lib/api-middleware');
       jest.mocked(nextAuth.getServerSession).mockResolvedValue({
         sub: 'admin-sub',
         role: 'admin',
@@ -588,9 +686,8 @@ describe('RAG RBAC Integration', () => {
         accessToken: 'admin-token',
         user: { email: 'admin@example.com' },
       } as any);
-      mockRequireResourcePermission.mockImplementation(async (_session, _target, options) => {
-        if ((options as { allowAdminBypass?: boolean } | undefined)?.allowAdminBypass) return;
-        throw Object.assign(new Error('no ingest'), { statusCode: 403, code: 'knowledge_base#ingest' });
+      mockRequireResourcePermission.mockImplementation(async () => {
+        throw new ApiError('no ingest', 403, 'knowledge_base#ingest');
       });
       const { POST } = await import('@/app/api/rag/[...path]/route');
       const body = { datasource_id: 'kb-reload' };
@@ -607,18 +704,14 @@ describe('RAG RBAC Integration', () => {
         { params: Promise.resolve({ path: ['v1', 'ingest', 'webloader', 'reload'] }) },
       );
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(403);
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
         { type: 'knowledge_base', id: 'kb-reload', action: 'ingest' },
-        { allowAdminBypass: true },
       );
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(global.fetch).not.toHaveBeenCalledWith(
         'http://localhost:9446/v1/ingest/webloader/reload',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify(body),
-        }),
+        expect.anything(),
       );
     });
 

@@ -168,23 +168,23 @@ function toRouteInputs(routes: WebexSpaceAgentRoute[]): WebexSpaceAgentRouteInpu
   }));
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacViewAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacViewAuth(request, async () => {
     const [agentIds, metadataRoutes] = await Promise.all([
       listOpenFgaWebexSpaceAgentIds(workspaceId, spaceId),
       listWebexSpaceAgentRoutes(workspaceId, spaceId),
     ]);
     const routes = mergeOpenFgaAgentsWithMetadata(workspaceId, spaceId, agentIds, metadataRoutes);
     return successResponse({ routes });
-  })
-);
+  }, { workspaceId, spaceId });
+});
 
-export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacManageAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacManageAuth(request, async () => {
     const body = (await request.json()) as { routes?: unknown };
     if (!Array.isArray(body.routes)) {
       throw new ApiError("routes must be an array", 400);
@@ -224,13 +224,13 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
         502
       );
     }
-  })
-);
+  }, { workspaceId, spaceId });
+});
 
-export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacManageAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacManageAuth(request, async () => {
     const body = (await request.json()) as { agent_id?: unknown };
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     if (!agentId) {
@@ -269,5 +269,5 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
         502
       );
     }
-  })
-);
+  }, { workspaceId, spaceId });
+});

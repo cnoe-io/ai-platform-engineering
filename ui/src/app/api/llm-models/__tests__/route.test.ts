@@ -6,7 +6,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireRbacPermission = jest.fn();
+const mockRequireResourcePermission = jest.fn();
+const mockFilterResourcesByPermission = jest.fn();
 const mockGetCollection = jest.fn();
+const mockReconcileLlmModelRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -69,6 +72,16 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
+  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+  reconcileLlmModelRelationships: (...args: unknown[]) =>
+    mockReconcileLlmModelRelationships(...args),
+}));
+
 interface ModelDoc {
   _id: string;
   model_id: string;
@@ -124,13 +137,17 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetAuthFromBearerOrSession.mockResolvedValue({
     session: { sub: "admin-sub", user: { email: "admin@example.com" } },
+    user: { email: "admin@example.com" },
   });
   mockRequireRbacPermission.mockResolvedValue(undefined);
+  mockRequireResourcePermission.mockResolvedValue(undefined);
+  mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
+  mockReconcileLlmModelRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockResolvedValue(createCollection([]));
 });
 
 describe("/api/llm-models", () => {
-  it("lists models after admin_ui view authorization", async () => {
+  it("lists models through OpenFGA llm_model read checks instead of admin_ui view", async () => {
     const collection = createCollection([
       {
         _id: "openai/gpt-4o",
@@ -146,10 +163,11 @@ describe("/api/llm-models", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+    expect(mockRequireRbacPermission).not.toHaveBeenCalled();
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       { sub: "admin-sub", user: { email: "admin@example.com" } },
-      "admin_ui",
-      "view",
+      collection.rows,
+      { type: "llm_model", action: "read", id: expect.any(Function) },
     );
     expect(collection.find).toHaveBeenCalledWith({});
     expect(body.items).toHaveLength(1);
@@ -176,11 +194,7 @@ describe("/api/llm-models", () => {
     const body = await response.json();
 
     expect(response.status).toBe(201);
-    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
-      expect.any(Object),
-      "admin_ui",
-      "admin",
-    );
+    expect(mockRequireRbacPermission).not.toHaveBeenCalled();
     expect(collection.insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: "anthropic/claude-sonnet",
@@ -189,7 +203,16 @@ describe("/api/llm-models", () => {
         provider: "anthropic",
         description: "Fast model",
         config_driven: false,
+        owner_subject: "admin-sub",
       }),
+    );
+    expect(mockReconcileLlmModelRelationships).toHaveBeenCalledWith({
+      modelId: "anthropic/claude-sonnet",
+      ownerSubject: "admin-sub",
+    });
+    expect(mockRequireResourcePermission).not.toHaveBeenCalledWith(
+      expect.anything(),
+      { type: "admin_ui", id: expect.anything(), action: expect.anything() },
     );
     expect(body.data.config_driven).toBe(false);
   });
@@ -270,6 +293,10 @@ describe("/api/llm-models", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", user: { email: "admin@example.com" } },
+      { type: "llm_model", id: "model-1", action: "write" },
+    );
     expect(collection.updateOne).toHaveBeenCalledWith(
       { _id: "model-1" },
       {
@@ -349,6 +376,10 @@ describe("/api/llm-models", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", user: { email: "admin@example.com" } },
+      { type: "llm_model", id: "custom", action: "delete" },
+    );
     expect(collection.deleteOne).toHaveBeenCalledWith({ _id: "custom" });
     expect(body).toEqual({ success: true, data: { deleted: true } });
   });

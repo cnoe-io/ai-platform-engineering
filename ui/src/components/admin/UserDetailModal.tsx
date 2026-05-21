@@ -9,6 +9,7 @@ export interface UserDetailModalProps {
   userId: string;
   onClose: () => void;
   onSaved: () => void;
+  readOnly?: boolean;
 }
 
 type ProfileUser = {
@@ -59,6 +60,7 @@ export function UserDetailModal({
   userId,
   onClose,
   onSaved,
+  readOnly = false,
 }: UserDetailModalProps) {
   const { update: updateSession } = useSession();
   const [mounted, setMounted] = useState(false);
@@ -132,7 +134,11 @@ export function UserDetailModal({
       setLoading(true);
       setLoadError(null);
       try {
-        await Promise.all([refreshProfile(), loadTeams()]);
+        if (readOnly) {
+          await refreshProfile();
+        } else {
+          await Promise.all([refreshProfile(), loadTeams()]);
+        }
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Load failed");
@@ -145,7 +151,7 @@ export function UserDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [refreshProfile, loadTeams]);
+  }, [refreshProfile, loadTeams, readOnly]);
 
   const runAction = useCallback(
     async (key: string, fn: () => Promise<void>) => {
@@ -352,11 +358,11 @@ export function UserDetailModal({
                   type="button"
                   role="switch"
                   aria-checked={user.enabled}
-                  disabled={busy === "enabled"}
+                  disabled={readOnly || busy === "enabled"}
                   onClick={() => toggleEnabled()}
                   className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400 ${
                     user.enabled ? "bg-emerald-500" : "bg-muted"
-                  } ${busy === "enabled" ? "opacity-60 cursor-wait" : ""}`}
+                  } ${readOnly || busy === "enabled" ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <span
                     className={`pointer-events-none absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-transform ${
@@ -391,46 +397,50 @@ export function UserDetailModal({
                       <span className="text-muted-foreground font-normal">
                         ({t.tenant_id})
                       </span>
-                      <button
-                        type="button"
-                        className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                        aria-label={`Remove team ${t.team_id}`}
-                        disabled={busy != null}
-                        onClick={() => removeTeam(t.team_id)}
-                      >
-                        ×
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          aria-label={`Remove team ${t.team_id}`}
+                          disabled={busy != null}
+                          onClick={() => removeTeam(t.team_id)}
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   ))
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="add-team" className="text-sm text-muted-foreground">
-                  Add team
-                </label>
-                <select
-                  id="add-team"
-                  className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
-                  defaultValue=""
-                  disabled={busy != null || addableTeams.length === 0}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    e.target.value = "";
-                    if (v) addTeam(v);
-                  }}
-                >
-                  <option value="">
-                    {addableTeams.length === 0
-                      ? "No teams to add"
-                      : "Select a team…"}
-                  </option>
-                  {addableTeams.map((t) => (
-                    <option key={t.teamId} value={t.teamId}>
-                      {t.label}
+              {!readOnly && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="add-team" className="text-sm text-muted-foreground">
+                    Add team
+                  </label>
+                  <select
+                    id="add-team"
+                    className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
+                    defaultValue=""
+                    disabled={busy != null || addableTeams.length === 0}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      e.target.value = "";
+                      if (v) addTeam(v);
+                    }}
+                  >
+                    <option value="">
+                      {addableTeams.length === 0
+                        ? "No teams to add"
+                        : "Select a team…"}
                     </option>
-                  ))}
-                </select>
-              </div>
+                    {addableTeams.map((t) => (
+                      <option key={t.teamId} value={t.teamId}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </section>
 
             <section className="mt-6 border-t border-border pt-6">
@@ -453,14 +463,16 @@ export function UserDetailModal({
                           <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
                             Linked
                           </span>
-                          <button
-                            type="button"
-                            disabled={busy === "slack-unlink"}
-                            onClick={() => unlinkSlack()}
-                            className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            {busy === "slack-unlink" ? "Unlinking…" : "Unlink Slack"}
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              disabled={busy === "slack-unlink"}
+                              onClick={() => unlinkSlack()}
+                              className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {busy === "slack-unlink" ? "Unlinking…" : "Unlink Slack"}
+                            </button>
+                          )}
                         </span>
                         {slackUserId ? (
                           <span className="font-mono text-xs text-muted-foreground">{slackUserId}</span>
@@ -482,14 +494,16 @@ export function UserDetailModal({
                           <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
                             Linked
                           </span>
-                          <button
-                            type="button"
-                            disabled={busy === "webex-unlink"}
-                            onClick={() => unlinkWebex()}
-                            className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            {busy === "webex-unlink" ? "Unlinking…" : "Unlink Webex"}
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              disabled={busy === "webex-unlink"}
+                              onClick={() => unlinkWebex()}
+                              className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {busy === "webex-unlink" ? "Unlinking…" : "Unlink Webex"}
+                            </button>
+                          )}
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">{webexUserId}</span>
                       </span>

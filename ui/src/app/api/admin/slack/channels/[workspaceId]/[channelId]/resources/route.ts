@@ -94,17 +94,17 @@ function parseGrant(value: unknown, index: number): Omit<SlackChannelGrantInput,
   };
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacViewAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacViewAuth(request, async () => {
     const grants = await listOpenFgaAgentGrants(workspaceId, channelId);
     return successResponse({ grants });
-  })
-);
+  }, { workspaceId, channelId });
+});
 
-export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacManageAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacManageAuth(request, async () => {
     const body = (await request.json()) as { grants?: unknown };
     if (!Array.isArray(body.grants)) {
       throw new ApiError("grants must be an array", 400);
@@ -135,5 +135,5 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const saved = await replaceSlackChannelGrants(workspaceId, channelId, grants, actor);
 
     return successResponse({ grants: saved, openfga });
-  })
-);
+  }, { workspaceId, channelId });
+});

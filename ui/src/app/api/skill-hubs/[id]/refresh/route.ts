@@ -4,8 +4,8 @@ import {
   withErrorHandler,
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import { getHubSkills, resolveHubToken } from "@/lib/hub-crawl";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
 import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
@@ -53,7 +53,7 @@ export const POST = withErrorHandler(
     }
 
     const { session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "admin");
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
 
@@ -63,9 +63,8 @@ export const POST = withErrorHandler(
         throw new ApiError(`Hub not found: ${id}`, 404);
       }
 
-      const { _id, ...rest } = hubDoc as Record<string, unknown> & {
-        _id?: unknown;
-      };
+      const rest = { ...(hubDoc as Record<string, unknown>) };
+      delete rest._id;
       const hub = rest as unknown as SkillHubDoc;
 
       if (wantsNdjsonStream(request)) {

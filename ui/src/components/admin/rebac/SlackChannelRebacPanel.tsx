@@ -31,6 +31,7 @@ interface SlackChannelSummary {
   channel_name: string;
   team_slug?: string;
   active_grants: number;
+  can_manage?: boolean;
 }
 
 interface SlackChannelAgentRoute {
@@ -169,7 +170,13 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolean }) {
+export function SlackChannelRebacPanel({
+  disabled = false,
+  selfService = false,
+}: {
+  disabled?: boolean;
+  selfService?: boolean;
+}) {
   const { toast } = useToast();
   const [channels, setChannels] = useState<SlackChannelSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
@@ -204,6 +211,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
     () => channels.find((channel) => `${channel.workspace_id}/${channel.channel_id}` === selectedKey),
     [channels, selectedKey]
   );
+  const selectedCanManage = !selfService || selected?.can_manage === true;
   const unassignedChannelCount = useMemo(
     () => channels.filter((channel) => !channel.team_slug).length,
     [channels]
@@ -323,22 +331,25 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   }, [loadDynamicAgents]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadTeams().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load teams")
     );
-  }, [loadTeams]);
+  }, [loadTeams, selfService]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadAssociationDefaults().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load Slack channel association defaults")
     );
-  }, [loadAssociationDefaults]);
+  }, [loadAssociationDefaults, selfService]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadSlackRuntimeStatus().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load Slack bot runtime status")
     );
-  }, [loadSlackRuntimeStatus]);
+  }, [loadSlackRuntimeStatus, selfService]);
 
   useEffect(() => {
     void loadRoutes().catch((error) =>
@@ -699,20 +710,22 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Slack Channel Setup</CardTitle>
+        <CardTitle>{selfService ? "My Slack Channel Settings" : "Slack Channel Setup"}</CardTitle>
         <CardDescription>
-          Find bot-member channels, choose the team and agent, then review what will change.
-          OpenFGA is the source of truth.
+          {selfService
+            ? "Manage bot routing behavior only for Slack channels where OpenFGA grants you channel admin access."
+            : "Find bot-member channels, choose the team and agent, then review what will change. OpenFGA is the source of truth."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="order-0 rounded-md border p-3 text-sm text-muted-foreground">
           Slack authorization has two checks before dispatch: the channel must have
-          <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user's active
+          <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
           team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
           If either check fails, the Slack bot denies the request before calling the agent.
         </div>
 
+        {!selfService && (
         <div
           role="region"
           aria-label="Advanced Setup - Import/Sync with Slackbot"
@@ -819,6 +832,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
             </Button>
           </div>
         </div>
+        )}
 
         <Dialog open={runtimeSyncModalOpen} onOpenChange={setRuntimeSyncModalOpen}>
           <DialogContent>
@@ -829,7 +843,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                   : "Slack Bot Config Sync Apply"}
               </DialogTitle>
               <DialogDescription>
-                Preview reads the Slack bot's loaded static YAML config. Apply upserts matching
+                Preview reads the Slack bot&apos;s loaded static YAML config. Apply upserts matching
                 MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.
               </DialogDescription>
             </DialogHeader>
@@ -911,6 +925,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           </DialogContent>
         </Dialog>
 
+        {!selfService && (
         <div
           role="region"
           aria-label="Onboarding Default Selection"
@@ -995,6 +1010,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
             </p>
           )}
         </div>
+        )}
 
         <div
           role="region"
@@ -1109,7 +1125,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                           size="sm"
                           className="ml-auto"
                           onClick={() => void fixDiagnosticRoute(route)}
-                          disabled={disabled || loading}
+                          disabled={disabled || !selectedCanManage || loading}
                           aria-label={`Fix agent:${route.agent_id} routing`}
                         >
                           Fix it
@@ -1145,7 +1161,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={routeAgentId}
                 onChange={(event) => setRouteAgentId(event.target.value)}
-                disabled={disabled || dynamicAgents.length === 0}
+                disabled={disabled || !selectedCanManage || dynamicAgents.length === 0}
               >
                 <option value="">
                   {dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
@@ -1164,7 +1180,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={routeListen}
                 onChange={(event) => setRouteListen(event.target.value as "message" | "mention" | "all")}
-                disabled={disabled}
+                disabled={disabled || !selectedCanManage}
               >
                 <option value="mention">mention</option>
                 <option value="message">message</option>
@@ -1178,12 +1194,12 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                 type="number"
                 value={routePriority}
                 onChange={(event) => setRoutePriority(Number(event.target.value))}
-                disabled={disabled}
+                disabled={disabled || !selectedCanManage}
               />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={saveRoute} disabled={disabled || loading || !selected || !routeAgentId.trim()}>
+            <Button onClick={saveRoute} disabled={disabled || !selectedCanManage || loading || !selected || !routeAgentId.trim()}>
               {loading
                 ? "Saving..."
                 : editingRouteAgentId
@@ -1214,7 +1230,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                       variant="outline"
                       size="sm"
                       onClick={() => editRoute(route)}
-                      disabled={disabled || loading}
+                      disabled={disabled || !selectedCanManage || loading}
                       aria-label={`Edit agent:${route.agent_id}`}
                     >
                       Edit
@@ -1224,7 +1240,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
                       variant="destructive"
                       size="sm"
                       onClick={() => setRoutePendingDelete(route)}
-                      disabled={disabled || loading}
+                      disabled={disabled || !selectedCanManage || loading}
                       aria-label={`Delete agent:${route.agent_id}`}
                     >
                       Delete
@@ -1236,6 +1252,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           )}
         </div>
 
+        {!selfService && (
         <ConnectorOnboardingWizard
           connectorName="Slack"
           itemSingular="channel"
@@ -1288,6 +1305,7 @@ export function SlackChannelRebacPanel({ disabled = false }: { disabled?: boolea
           }
           onApply={() => void confirmMigrationDefaults(discoveredImportRows)}
         />
+        )}
 
         <Dialog
           open={Boolean(routePendingDelete)}

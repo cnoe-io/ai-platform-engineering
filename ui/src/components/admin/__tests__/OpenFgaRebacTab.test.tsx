@@ -43,22 +43,26 @@ beforeEach(() => {
           resource_types: [
             { type: "team", actions: ["read", "manage"], description: "Team scope" },
             { type: "user", actions: ["read", "manage"], description: "User identity" },
+            { type: "user_profile", actions: ["read", "manage"], description: "User profile" },
             { type: "slack_channel", actions: ["read", "use", "call"], description: "Slack channel" },
             { type: "agent", actions: ["read", "use", "manage"], description: "Agent" },
             { type: "mcp_gateway", actions: ["call"], description: "AgentGateway MCP gateway" },
             { type: "mcp_server", actions: ["read", "invoke", "manage"], description: "MCP server" },
             { type: "tool", actions: ["read", "call", "manage"], description: "Tool" },
             { type: "knowledge_base", actions: ["read", "ingest", "manage"], description: "Knowledge base" },
+            { type: "admin_surface", actions: ["read", "manage"], description: "Admin surface" },
           ],
           actions: {
             team: ["read", "manage"],
             user: ["read", "manage"],
+            user_profile: ["read", "manage"],
             slack_channel: ["read", "use", "call"],
             agent: ["read", "use", "manage"],
             mcp_gateway: ["call"],
             mcp_server: ["read", "invoke", "manage"],
             tool: ["read", "call", "manage"],
             knowledge_base: ["read", "ingest", "manage"],
+            admin_surface: ["read", "manage"],
           },
           resources: {
             agents: [{ id: "agent-1", name: "Agent One", description: "", object: "agent:agent-1" }],
@@ -69,6 +73,7 @@ beforeEach(() => {
             by_type: {
               team: [{ type: "team", id: "platform", display_name: "Platform", status: "active", enforcement_status: "rebac_shadowed" }],
               user: [{ type: "user", id: "alice-sub", display_name: "Alice Admin", status: "active", enforcement_status: "role_gated" }],
+              user_profile: [{ type: "user_profile", id: "alice-sub", display_name: "Alice Profile", status: "active", enforcement_status: "rebac_enforced" }],
               slack_channel: [
                 {
                   type: "slack_channel",
@@ -84,6 +89,7 @@ beforeEach(() => {
               mcp_server: [{ type: "mcp_server", id: "argocd", display_name: "Argo CD MCP Server", status: "active", enforcement_status: "role_gated" }],
               tool: [{ type: "tool", id: "argocd/*", display_name: "Argo CD tools", status: "active", enforcement_status: "rebac_shadowed" }],
               knowledge_base: [{ type: "knowledge_base", id: "kb-alpha", display_name: "KB Alpha", status: "active", enforcement_status: "rebac_shadowed" }],
+              admin_surface: [{ type: "admin_surface", id: "skills", display_name: "Skills Admin Surface", status: "active", enforcement_status: "rebac_enforced" }],
             },
           },
         },
@@ -117,9 +123,13 @@ beforeEach(() => {
             { id: "user:alice-sub", label: "Alice Admin", type: "user" },
             { id: "team:platform", label: "Platform", type: "team" },
             { id: "team:platform#member", label: "Platform members", type: "userset" },
+            { id: "team:platform#admin", label: "Platform admins", type: "userset" },
             { id: "slack_channel:C123", label: "#incidents", type: "slack_channel" },
             { id: "agent:agent-1", label: "Agent One", type: "agent" },
             { id: "knowledge_base:kb-alpha", label: "KB Alpha", type: "knowledge_base" },
+            { id: "admin_surface:skills", label: "Skills Admin Surface", type: "admin_surface" },
+            { id: "user_profile:alice-sub", label: "Alice Profile", type: "user_profile" },
+            { id: "mcp_server:argocd", label: "Argo CD MCP Server", type: "mcp_server" },
           ],
           edges: [
             {
@@ -139,6 +149,24 @@ beforeEach(() => {
               from: "team:platform#member",
               to: "knowledge_base:kb-alpha",
               relation: "reader",
+            },
+            {
+              id: "platform-admin-skills",
+              from: "team:platform#admin",
+              to: "admin_surface:skills",
+              relation: "manager",
+            },
+            {
+              id: "alice-profile",
+              from: "user:alice-sub",
+              to: "user_profile:alice-sub",
+              relation: "owner",
+            },
+            {
+              id: "alice-mcp",
+              from: "user:alice-sub",
+              to: "mcp_server:argocd",
+              relation: "owner",
             },
             {
               id: "slack-agent",
@@ -187,6 +215,36 @@ beforeEach(() => {
     if (url === "/api/admin/rebac/change-sets/change-set-1/apply") {
       rebacCheckAllowed = (lastChangeSetBody?.writes?.length ?? 0) > 0;
       return jsonResponse({ data: { applied: true } });
+    }
+    if (url.startsWith("/api/admin/openfga/baseline-diagnostics")) {
+      return jsonResponse({
+        data: {
+          user_id: "alice-sub",
+          summary: { total: 2, matches_member: 2, matches_admin: 1, member_drift: 0, admin_drift: 1 },
+          checks: [
+            {
+              id: "baseline-metrics-read",
+              label: "Read-only metrics admin surface",
+              tuple: { user: "user:alice-sub", relation: "can_read", object: "admin_surface:metrics" },
+              actual: true,
+              expected_member: true,
+              expected_admin: true,
+              matches_member: true,
+              matches_admin: true,
+            },
+            {
+              id: "organization-manage",
+              label: "Organization manage",
+              tuple: { user: "user:alice-sub", relation: "can_manage", object: "organization:caipe" },
+              actual: false,
+              expected_member: false,
+              expected_admin: true,
+              matches_member: true,
+              matches_admin: false,
+            },
+          ],
+        },
+      });
     }
     if (url === "/api/admin/slack/channels") {
       return jsonResponse({ data: { channels: [] } });
@@ -255,6 +313,7 @@ it("orders OpenFGA tabs by operational flow and defaults to tuples", async () =>
     "OpenFGA Tuples",
     "Policy Graph",
     "Access Manager",
+    "Diagnostics",
   ]);
   expect(await screen.findByText("OpenFGA Tuple Store")).toBeInTheDocument();
 
@@ -276,7 +335,7 @@ it("falls back to tuples for integration-owned Slack/Webex query strings", async
   expect(screen.queryByRole("tab", { name: "Webex Spaces" })).not.toBeInTheDocument();
 });
 
-it("keeps OpenFGA focused on tuples, graph, and access management", async () => {
+it("keeps OpenFGA focused on tuples, graph, access management, and diagnostics", async () => {
   currentSearchParams = new URLSearchParams("subtab=tuples");
 
   render(<OpenFgaRebacTab isAdmin />);
@@ -286,9 +345,30 @@ it("keeps OpenFGA focused on tuples, graph, and access management", async () => 
   expect(screen.queryByRole("tab", { name: "Effective Access" })).not.toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "Policy Graph" })).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "OpenFGA Tuples" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Diagnostics" })).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "RAG Team Access" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Slack Channels" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Webex Spaces" })).not.toBeInTheDocument();
+});
+
+it("runs baseline diagnostics for an individual user", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=diagnostics");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Diagnostics" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await user.type(screen.getByLabelText("User subject"), "alice-sub");
+  await user.click(screen.getByRole("button", { name: "Diagnose" }));
+
+  expect(await screen.findByText("Member baseline drift")).toBeInTheDocument();
+  expect(screen.getByText("Read-only metrics admin surface")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/admin/openfga/baseline-diagnostics?userId=alice-sub"
+  );
 });
 
 it("maps legacy relationship builder links to the access manager", async () => {
@@ -404,8 +484,46 @@ it("exposes universal catalog resources in the policy graph palette", async () =
   expect(within(palette).getByRole("checkbox", { name: /AgentGateway MCP list/ })).toBeInTheDocument();
 });
 
-it("shows selected catalog resources even before they have graph relationships", async () => {
+it("shows new OpenFGA relationship types in the policy graph palette and details", async () => {
   const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  const canvas = await screen.findByTestId("openfga-graph-canvas");
+  const palette = screen.getByTestId("openfga-graph-resource-palette");
+
+  expect(within(canvas).getByText("Platform admins")).toBeInTheDocument();
+
+  await user.type(within(palette).getByPlaceholderText("Search resources"), "skills");
+  expect(within(palette).getByText("Admin surface")).toBeInTheDocument();
+  await user.click(within(palette).getByRole("checkbox", { name: /Skills Admin Surface/ }));
+  expect(within(canvas).getByText("Skills Admin Surface")).toBeInTheDocument();
+
+  await user.clear(within(palette).getByPlaceholderText("Search resources"));
+  await user.type(within(palette).getByPlaceholderText("Search resources"), "alice");
+  expect(within(palette).getByText("User profile")).toBeInTheDocument();
+  await user.click(within(palette).getByRole("checkbox", { name: /Alice Profile/ }));
+  expect(within(canvas).getByText("Alice Profile")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Show node and edge details" }));
+
+  expect(
+    screen.getByText((_, element) => element?.textContent === "team:platform#admin manager admin_surface:skills")
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText((_, element) => element?.textContent === "user:alice-sub owner user_profile:alice-sub")
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText((_, element) => element?.textContent === "user:alice-sub owner mcp_server:argocd")
+  ).toBeInTheDocument();
+});
+
+it("shows selected catalog resources even before they have graph relationships", async () => {
   currentSearchParams = new URLSearchParams("openfgaTab=graph");
 
   render(<OpenFgaRebacTab isAdmin />);

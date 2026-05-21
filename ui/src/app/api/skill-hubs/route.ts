@@ -5,8 +5,8 @@ import {
   ApiError,
   validateCredentialsRef,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
   normalizeHubLocation,
   validateIncludePaths,
@@ -19,7 +19,7 @@ import type { CrawlEvent } from "@/lib/crawl-events";
 /**
  * Skill Hubs API — Admin endpoints for managing external skill hubs.
  *
- * GET  /api/skill-hubs       — List all registered hubs (admin only)
+ * GET  /api/skill-hubs       — List all registered hubs (authenticated read-only)
  * POST /api/skill-hubs       — Register a new hub (admin only)
  *
  * Per contracts/skill-hubs-api.md
@@ -58,7 +58,8 @@ interface SkillHubDoc {
 }
 
 function sanitizeHub(doc: SkillHubDoc) {
-  const { _id, ...rest } = doc;
+  const rest: Omit<SkillHubDoc, "_id"> & { _id?: ObjectId } = { ...doc };
+  delete rest._id;
   return rest;
 }
 
@@ -81,7 +82,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "view");
+  await requireBaselineAdminSurfaceRead(session, "skills");
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
@@ -149,7 +150,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  await requireAdminSurfaceManage(session, "skills");
 
     const body = await request.json();
 
@@ -225,7 +226,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (maxTreePages !== undefined) hubDoc.max_tree_pages = maxTreePages;
     if (sharedWithTeams) hubDoc.shared_with_teams = sharedWithTeams;
 
-    await collection.insertOne(hubDoc as any);
+    await collection.insertOne(hubDoc);
 
     return NextResponse.json(sanitizeHub(hubDoc), { status: 201 });
 });

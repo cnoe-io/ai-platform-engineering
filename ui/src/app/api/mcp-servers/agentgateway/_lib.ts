@@ -7,6 +7,8 @@ import {
 } from "@/lib/rbac/agentgateway-mcp-discovery";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 import { ApiError } from "@/lib/api-middleware";
+import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources";
+import { caipeOrgKey } from "@/lib/rbac/organization";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -37,6 +39,8 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
   );
   const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
   const added: string[] = [];
+  const migrated: string[] = [];
+  const refreshed: string[] = [];
   const skipped: Array<{ id: string; reason: string }> = [];
   const conflicts = discovery.targets.filter((target) => target.status === "conflict");
   const migration_warnings: AgentGatewayMigrationWarning[] = conflicts.map((target) => ({
@@ -51,12 +55,30 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
 
   for (const target of discovery.targets) {
     if (!selectedIds.has(target.id)) continue;
-    if (target.status !== "new") {
+    if (target.status === "existing") {
+      await reconcileConfigDrivenMcpServerRelationships({
+        serverId: target.id,
+        organizationId: caipeOrgKey(),
+      });
+      refreshed.push(target.id);
+      continue;
+    }
+    if (target.status === "conflict") {
       skipped.push({ id: target.id, reason: target.status });
       continue;
     }
-    await collection.insertOne(toAgentGatewayMcpServerDocument(target));
-    added.push(target.id);
+    const doc = toAgentGatewayMcpServerDocument(target);
+    if (target.status === "legacy") {
+      await collection.updateOne({ _id: target.id } as never, { $set: doc } as never);
+      migrated.push(target.id);
+    } else {
+      await collection.insertOne(doc);
+      added.push(target.id);
+    }
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId: target.id,
+      organizationId: caipeOrgKey(),
+    });
   }
 
   for (const id of selectedIds) {
@@ -67,10 +89,14 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
 
   return {
     added,
+    migrated,
+    refreshed,
     skipped,
     summary: {
       added: added.length,
       existing: discovery.targets.filter((target) => target.status === "existing").length,
+      migrated: migrated.length,
+      refreshed: refreshed.length,
       conflicts: conflicts.length,
       skipped: skipped.length,
     },

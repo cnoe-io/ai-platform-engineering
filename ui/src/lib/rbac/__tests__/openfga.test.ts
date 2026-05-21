@@ -15,6 +15,13 @@ import {
   buildAgentToolTupleDiff,
   deleteAllAgentToolTuples,
 } from "../openfga-agent-tools";
+import {
+  buildConfigDrivenLlmModelRelationshipTupleDiff,
+  buildConfigDrivenMcpServerRelationshipTupleDiff,
+  buildLlmModelRelationshipTupleDiff,
+  buildKnowledgeBaseRelationshipTupleDiff,
+  buildMcpServerRelationshipTupleDiff,
+} from "../openfga-owned-resources";
 
 function agentUserTypes(modelPath: string): Array<Record<string, unknown>> {
   const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
@@ -29,11 +36,35 @@ function agentUserTypes(modelPath: string): Array<Record<string, unknown>> {
   );
 }
 
+function directlyRelatedUserTypes(
+  modelPath: string,
+  type: string,
+  relation: string
+): Array<Record<string, unknown>> {
+  const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
+    type_definitions?: Array<{
+      type?: string;
+      metadata?: { relations?: Record<string, { directly_related_user_types?: Array<Record<string, unknown>> }> };
+    }>;
+  };
+  return (
+    model.type_definitions?.find((definition) => definition.type === type)?.metadata?.relations?.[relation]
+      ?.directly_related_user_types ?? []
+  );
+}
+
 function agentRelationNames(modelPath: string): string[] {
   const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
     type_definitions?: Array<{ type?: string; relations?: Record<string, unknown> }>;
   };
   return Object.keys(model.type_definitions?.find((definition) => definition.type === "agent")?.relations ?? {});
+}
+
+function resourceRelationNames(modelPath: string, type: string): string[] {
+  const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
+    type_definitions?: Array<{ type?: string; relations?: Record<string, unknown> }>;
+  };
+  return Object.keys(model.type_definitions?.find((definition) => definition.type === type)?.relations ?? {});
 }
 
 describe("OpenFGA team resource tuple reconciliation", () => {
@@ -61,7 +92,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
       { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
       {
-        user: "team:platform-engineering#member",
+        user: "team:platform-engineering#admin",
         relation: "manager",
         object: "agent:agent-admin",
       },
@@ -80,6 +111,34 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         object: "tool:github_*",
       },
     ]);
+  });
+
+  it("writes manager grants with admin usersets that match the OpenFGA model", () => {
+    const diff = buildTeamResourceTupleDiff({
+      teamSlug: "platform-engineering",
+      memberUserIds: [],
+      agents: { added: [], removed: [] },
+      agentAdmins: { added: ["agent-admin"], removed: ["agent-admin-old"] },
+      tools: { added: [], removed: [] },
+      knowledgeBases: { added: [], removed: [] },
+      toolWildcard: { added: false, removed: false },
+    });
+
+    expect(diff.writes).toContainEqual({
+      user: "team:platform-engineering#admin",
+      relation: "manager",
+      object: "agent:agent-admin",
+    });
+    expect(diff.deletes).toContainEqual({
+      user: "team:platform-engineering#admin",
+      relation: "manager",
+      object: "agent:agent-admin-old",
+    });
+    expect(diff.writes).not.toContainEqual({
+      user: "team:platform-engineering#member",
+      relation: "manager",
+      object: "agent:agent-admin",
+    });
   });
 
   it("allows typed user wildcards on agent user relation in shipped authorization models", () => {
@@ -102,6 +161,144 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     for (const modelPath of modelPaths) {
       expect(agentRelationNames(modelPath)).toContain("can_delete");
     }
+  });
+
+  it("defines self-service ownership relations in shipped authorization models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(resourceRelationNames(modelPath, "team")).toEqual(
+        expect.arrayContaining(["can_read", "can_use", "can_manage"]),
+      );
+      expect(resourceRelationNames(modelPath, "mcp_server")).toEqual(
+        expect.arrayContaining(["owner", "can_delete"]),
+      );
+      expect(resourceRelationNames(modelPath, "llm_model")).toEqual(
+        expect.arrayContaining(["owner", "can_read", "can_write", "can_delete"]),
+      );
+      expect(resourceRelationNames(modelPath, "slack_channel")).toContain("owner");
+      expect(resourceRelationNames(modelPath, "webex_space")).toContain("owner");
+    }
+  });
+
+  it("keeps manager tuple schemas aligned with tuple writers across all packaged models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).toContainEqual({
+        type: "team",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "agent", "manager")).not.toContainEqual({
+        type: "team",
+        relation: "member",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "knowledge_base", "manager")).toContainEqual({
+        type: "team",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "mcp_server", "manager")).toContainEqual({
+        type: "team",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "mcp_server", "reader")).toContainEqual({
+        type: "organization",
+        relation: "member",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "mcp_server", "manager")).toContainEqual({
+        type: "organization",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "llm_model", "manager")).toContainEqual({
+        type: "team",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "llm_model", "reader")).toContainEqual({
+        type: "organization",
+        relation: "member",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "llm_model", "manager")).toContainEqual({
+        type: "organization",
+        relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "admin_surface", "manager")).toContainEqual({
+        type: "organization",
+        relation: "admin",
+      });
+    }
+  });
+
+  it("builds owner and team-manager tuples for self-service resources", () => {
+    expect(
+      buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-team-tools",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: "platform",
+      }).writes,
+    ).toEqual([
+      { user: "user:alice-sub", relation: "owner", object: "mcp_server:mcp-team-tools" },
+      { user: "team:platform#member", relation: "user", object: "mcp_server:mcp-team-tools" },
+      { user: "team:platform#member", relation: "invoker", object: "mcp_server:mcp-team-tools" },
+      { user: "team:platform#admin", relation: "manager", object: "mcp_server:mcp-team-tools" },
+    ]);
+    expect(
+      buildConfigDrivenMcpServerRelationshipTupleDiff({
+        serverId: "argocd",
+        organizationId: "grid",
+      }).writes,
+    ).toEqual([
+      { user: "organization:grid#member", relation: "reader", object: "mcp_server:argocd" },
+      { user: "organization:grid#member", relation: "user", object: "mcp_server:argocd" },
+      { user: "organization:grid#member", relation: "invoker", object: "mcp_server:argocd" },
+      { user: "organization:grid#admin", relation: "manager", object: "mcp_server:argocd" },
+    ]);
+    expect(
+      buildLlmModelRelationshipTupleDiff({
+        modelId: "anthropic/claude-sonnet",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: "platform",
+      }).writes,
+    ).toEqual([
+      { user: "user:alice-sub", relation: "owner", object: "llm_model:anthropic/claude-sonnet" },
+      { user: "team:platform#member", relation: "reader", object: "llm_model:anthropic/claude-sonnet" },
+      { user: "team:platform#admin", relation: "manager", object: "llm_model:anthropic/claude-sonnet" },
+    ]);
+    expect(
+      buildConfigDrivenLlmModelRelationshipTupleDiff({
+        modelId: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        organizationId: "grid",
+      }).writes,
+    ).toEqual([
+      {
+        user: "organization:grid#member",
+        relation: "reader",
+        object: `llm_model:b64_${Buffer.from("global.anthropic.claude-haiku-4-5-20251001-v1:0", "utf8").toString("base64url")}`,
+      },
+      {
+        user: "organization:grid#admin",
+        relation: "manager",
+        object: `llm_model:b64_${Buffer.from("global.anthropic.claude-haiku-4-5-20251001-v1:0", "utf8").toString("base64url")}`,
+      },
+    ]);
+    expect(
+      buildKnowledgeBaseRelationshipTupleDiff({
+        knowledgeBaseId: "kb-team",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: "platform",
+      }).writes,
+    ).toEqual([
+      { user: "user:alice-sub", relation: "owner", object: "knowledge_base:kb-team" },
+      { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-team" },
+      { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-team" },
+    ]);
   });
 
   it("requires explicit opt-in and an OpenFGA URL", () => {

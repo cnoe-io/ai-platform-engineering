@@ -14,6 +14,98 @@
       "relations": {}
     },
     {
+      "type": "user_profile",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        },
+        "can_manage": {
+          "computedUserset": {
+            "relation": "manager"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "type": "external_group",
       "relations": {
         "member": {
@@ -40,6 +132,43 @@
         },
         "admin": {
           "this": {}
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "member"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
+        },
+        "can_use": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "member"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
+        },
+        "can_manage": {
+          "computedUserset": {
+            "relation": "admin"
+          }
         }
       },
       "metadata": {
@@ -442,6 +571,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -463,6 +597,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -479,13 +618,29 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
         },
         "can_manage": {
-          "computedUserset": {
-            "relation": "manager"
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
           }
         },
         "can_audit": {
@@ -503,6 +658,9 @@
               }
             ]
           }
+        },
+        "owner": {
+          "this": {}
         }
       },
       "metadata": {
@@ -598,6 +756,16 @@
               {
                 "type": "team",
                 "relation": "admin"
+              }
+            ]
+          },
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
               }
             ]
           }
@@ -644,6 +812,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -665,6 +838,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -681,13 +859,29 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
         },
         "can_manage": {
-          "computedUserset": {
-            "relation": "manager"
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
           }
         },
         "can_audit": {
@@ -705,6 +899,9 @@
               }
             ]
           }
+        },
+        "owner": {
+          "this": {}
         }
       },
       "metadata": {
@@ -800,6 +997,16 @@
               {
                 "type": "team",
                 "relation": "admin"
+              }
+            ]
+          },
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
               }
             ]
           }
@@ -1108,6 +1315,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -1129,6 +1341,11 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
@@ -1145,13 +1362,29 @@
                 "computedUserset": {
                   "relation": "can_manage"
                 }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
               }
             ]
           }
         },
         "can_manage": {
-          "computedUserset": {
-            "relation": "manager"
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
           }
         },
         "can_audit": {
@@ -1168,6 +1401,14 @@
                 }
               }
             ]
+          }
+        },
+        "owner": {
+          "this": {}
+        },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
           }
         }
       },
@@ -1198,6 +1439,10 @@
               },
               {
                 "type": "webex_space"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -1226,6 +1471,10 @@
               },
               {
                 "type": "webex_space"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -1254,6 +1503,10 @@
               },
               {
                 "type": "webex_space"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -1267,6 +1520,192 @@
               },
               {
                 "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          },
+          "auditor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "llm_model",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "auditor": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_write": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
+        "can_manage": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_audit": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "user",
+                "wildcard": {}
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
                 "relation": "admin"
               }
             ]
@@ -2813,6 +3252,10 @@
               },
               {
                 "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
                 "relation": "admin"
               }
             ]

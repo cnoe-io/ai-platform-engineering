@@ -26,10 +26,11 @@ import {
   getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
-import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { slackChannelSubjectId, slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import type { Team } from "@/types/teams";
 
 interface ChannelTeamMappingDoc {
@@ -48,6 +49,33 @@ interface SlackChannelInput {
   slack_channel_id: string;
   channel_name: string;
   slack_workspace_id?: string;
+}
+
+function teamSlug(team: Team, fallback: string): string {
+  return typeof team.slug === "string" && team.slug.trim() ? team.slug.trim() : fallback;
+}
+
+async function reconcileSlackChannelOwnership(
+  slug: string,
+  addedOrKept: SlackChannelInput[],
+  removed: ChannelTeamMappingDoc[],
+): Promise<void> {
+  await writeOpenFgaTupleDiff({
+    writes: addedOrKept.flatMap((channel) => {
+      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
+      return [
+        { user: `team:${slug}#member`, relation: "user", object },
+        { user: `team:${slug}#admin`, relation: "manager", object },
+      ];
+    }),
+    deletes: removed.flatMap((channel) => {
+      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
+      return [
+        { user: `team:${slug}#member`, relation: "user", object },
+        { user: `team:${slug}#admin`, relation: "manager", object },
+      ];
+    }),
+  });
 }
 
 function requireMongoDB() {
@@ -120,7 +148,6 @@ export const GET = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "team", "view");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -129,6 +156,7 @@ export const GET = withErrorHandler(
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
+      await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { allowAdminBypass: true });
 
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
 
@@ -168,7 +196,6 @@ export const PUT = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -196,6 +223,8 @@ export const PUT = withErrorHandler(
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
+      const ownerTeamSlug = teamSlug(team, teamIdStr);
+      await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { allowAdminBypass: true });
 
       const teamCol = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
 
@@ -242,6 +271,8 @@ export const PUT = withErrorHandler(
         );
       }
 
+      const removedMappings = previousMappings.filter((m) => !nextChannelIds.has(m.slack_channel_id));
+
       // ── 2. Upsert the active set.
       for (const c of next) {
         await teamCol.updateOne(
@@ -279,6 +310,8 @@ export const PUT = withErrorHandler(
           },
         }
       );
+
+      await reconcileSlackChannelOwnership(ownerTeamSlug, next, removedMappings);
 
       console.log(
         `[Admin TeamSlackChannels] PUT team=${teamIdStr} channels=${next.length} removed=${removedChannelIds.length} by=${user.email}`

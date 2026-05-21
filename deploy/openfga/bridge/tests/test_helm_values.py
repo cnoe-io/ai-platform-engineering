@@ -85,6 +85,21 @@ def test_caipe_ui_values_wire_webex_bot_admin_env() -> None:
         assert config["WEBEX_BOT_ADMIN_AUDIENCE"] == "caipe-webex-bot-admin", rel
 
 
+def test_caipe_ui_values_wire_credential_env_defaults() -> None:
+    root = _repo_root()
+    for rel in (
+        "charts/ai-platform-engineering/values.yaml",
+        "charts/ai-platform-engineering/charts/caipe-ui/values.yaml",
+    ):
+        values = yaml.safe_load((root / rel).read_text())
+        config = values.get("caipe-ui", values).get("config", values.get("config", {}))
+        assert config["CAIPE_CREDENTIALS_ENABLED"] == "false", rel
+        assert config["CREDENTIAL_STORE_BACKEND"] == "mongodb-envelope", rel
+        assert config["CREDENTIAL_KEY_PROVIDER"] == "local-cmk", rel
+        assert "CREDENTIAL_KMS_CMK_ID" in config, rel
+        assert config["CREDENTIAL_SERVICE_AUDIENCE"] == "caipe-credential-service", rel
+
+
 def test_webex_bot_chart_uses_secret_refs_not_literal_tokens() -> None:
     root = _repo_root()
     values = yaml.safe_load(
@@ -236,6 +251,56 @@ def test_keycloak_realm_config_uses_eight_hour_idle_sessions() -> None:
         assert realm["accessTokenLifespan"] == 3600
         assert realm["ssoSessionIdleTimeout"] == 8 * 60 * 60
         assert realm["ssoSessionMaxLifespan"] == 24 * 60 * 60
+
+
+def test_local_compose_keycloak_realm_import_mounts_existing_file() -> None:
+    """Local Keycloak must not bind-mount a missing path as a directory."""
+    root = _repo_root()
+    compose_files = [
+        root / "docker-compose.dev.yaml",
+        root / "deploy/keycloak/docker-compose.yml",
+    ]
+    for compose_file in compose_files:
+        compose = yaml.safe_load(compose_file.read_text())
+        keycloak = compose["services"]["keycloak"]
+        volumes = keycloak["volumes"]
+        realm_mount = next(
+            volume
+            for volume in volumes
+            if volume.endswith(":/opt/keycloak/data/import/realm-config.json:ro")
+            or volume.endswith(":/opt/keycloak/data/import/realm-config.json")
+        )
+        source = realm_mount.split(":", 1)[0]
+        source_path = (compose_file.parent / source).resolve()
+        assert source_path.is_file(), f"{source} in {compose_file} must exist as a file"
+
+
+def test_keycloak_readiness_requires_imported_realm_jwks() -> None:
+    """Kubernetes should not mark Keycloak ready before the CAIPE realm exists."""
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering"
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--namespace",
+            "caipe",
+            "--set",
+            "tags.keycloak=true",
+        ],
+        check=True,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+    rendered = result.stdout
+    assert "/realms/caipe/protocol/openid-connect/certs" in rendered
+    assert "startupProbe:" in rendered
+    assert "readinessProbe:" in rendered
 
 
 def test_caipe_ui_external_secrets_example_includes_webex_admin_secret() -> None:

@@ -38,8 +38,12 @@ jest.mock('next/navigation', () => ({
 
 // Mock admin role hook
 let mockIsAdmin = false
+let mockCanAccessDynamicAgents = false
 jest.mock('@/hooks/use-admin-role', () => ({
-  useAdminRole: () => ({ isAdmin: mockIsAdmin }),
+  useAdminRole: () => ({
+    isAdmin: mockIsAdmin,
+    canAccessDynamicAgents: mockCanAccessDynamicAgents,
+  }),
 }))
 
 // Mock chat store
@@ -133,6 +137,7 @@ jest.mock('@/components/ui/toast', () => ({
 
 // Mock config
 let mockReportProblemEnabled = false
+let mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -143,6 +148,7 @@ jest.mock('@/lib/config', () => ({
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
     envBadge: '',
+    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
   },
@@ -151,6 +157,7 @@ jest.mock('@/lib/config', () => ({
       appName: 'Test App',
       ssoEnabled: true,
       envBadge: '',
+      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
     }
@@ -236,7 +243,9 @@ describe('AppHeader — nav tabs', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockCanAccessDynamicAgents = false
     mockRagEnabled = false
+    mockDynamicAgentsEnabled = true
     mockReportProblemEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
@@ -337,6 +346,17 @@ describe('AppHeader — nav tabs', () => {
       mockRagEnabled = false
       render(<AppHeader />)
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
+    })
+
+    it('shows Agents when Dynamic Agents are enabled even without legacy AD group access', () => {
+      mockCanAccessDynamicAgents = false
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByText('Agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
     })
   })
 

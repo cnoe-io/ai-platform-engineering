@@ -11,8 +11,8 @@ import {
   withErrorHandler,
   successResponse,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 
 /**
  * GET /api/dynamic-agents/models
@@ -20,13 +20,17 @@ import {
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "dynamic_agent", "view");
 
     const collection = await getCollection("llm_models");
     const models = await collection.find({}).sort({ name: 1 }).toArray();
+    const visibleModels = await filterResourcesByPermission(session, models, {
+      type: "llm_model",
+      action: "read",
+      id: (model) => String(model._id),
+    });
 
     return successResponse(
-      models.map((m) => ({
+      visibleModels.map((m) => ({
         model_id: m.model_id,
         name: m.name,
         provider: m.provider,

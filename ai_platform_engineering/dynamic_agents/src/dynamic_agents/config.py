@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
     agent_gateway_url: str | None = None
 
+    # CAIPE credential service API used when USE_IMPERSONATION_TOKENS=true.
+    credential_api_url: str | None = None
+    credential_service_audience: str = "caipe-credential-service"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -25,7 +25,49 @@ interface ReleaseUpgradeDialogProps {
   isDismissing?: boolean;
 }
 
+const RELEASE_051_FALLBACK_SECTIONS: ReleaseNote["sections"] = [
+  {
+    type: "Highlights",
+    items: [
+      {
+        text: "Use the same agents and knowledge from the web UI, Slack, and Webex with more consistent permissions.",
+        scope: null,
+      },
+      {
+        text: "Get clearer next steps when a Slack channel or Webex space needs to be connected to your team.",
+        scope: null,
+      },
+      {
+        text: "Stay signed in through longer CAIPE sessions during normal work and validation.",
+        scope: null,
+      },
+    ],
+  },
+  {
+    type: "Admin and Operator Notes",
+    items: [
+      {
+        text: "ReBAC admin diagnostics now show migration health, graph views, tuple checks, and access decisions.",
+        scope: "admin",
+      },
+      {
+        text: "Keycloak reconciliation, token exchange, bot client secrets, and the CAIPE login theme are now chart-managed.",
+        scope: "admin",
+      },
+      {
+        text: "RBAC matrix, Playwright, and CI checks were expanded across Keycloak init, OpenFGA bridge, Webex bot, and docs validation.",
+        scope: "admin",
+      },
+    ],
+  },
+];
+
 function fallbackSections(releaseVersion: string): ReleaseNote["sections"] {
+  const normalizedReleaseVersion = releaseVersion.trim().replace(/^v/, "").toLowerCase();
+  if (normalizedReleaseVersion === "0.5.1" || normalizedReleaseVersion === "dev") {
+    return RELEASE_051_FALLBACK_SECTIONS;
+  }
+
   return [
     {
       type: "Highlights",
@@ -85,7 +127,7 @@ export function ReleaseUpgradeDialog({
           <DialogDescription>
             {isAdmin
               ? "This deployment includes new release updates and schema migrations. Review the notes, then open the migration assistant when you are ready."
-              : "This deployment includes new CAIPE features and improvements. Review the highlights below."}
+              : "This deployment includes CAIPE updates that make agent access and chat connector setup easier to understand."}
           </DialogDescription>
         </DialogHeader>
 
@@ -135,7 +177,7 @@ export function ReleaseUpgradeDialog({
             </>
           ) : (
             <Button onClick={onDismissPermanently} disabled={isDismissing}>
-              Got it
+              Do not show again
             </Button>
           )}
         </DialogFooter>

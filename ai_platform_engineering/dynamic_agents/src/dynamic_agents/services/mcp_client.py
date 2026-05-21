@@ -17,6 +17,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,68 @@ def build_mcp_connections(
         )
 
     return connections
+
+
+def _use_impersonation_tokens() -> bool:
+    return os.getenv("USE_IMPERSONATION_TOKENS", "false").strip().lower() == "true"
+
+
+async def resolve_mcp_credential_refs(
+    server: MCPServerConfig,
+    config: dict[str, Any],
+    *,
+    credential_client: CredentialExchangeClient | Any,
+) -> dict[str, Any]:
+    """Resolve MCP credential sources into env vars or headers.
+
+    Resolution is disabled unless ``USE_IMPERSONATION_TOKENS=true`` so existing
+    MCP deployments keep their current credential behavior.
+    """
+
+    if not _use_impersonation_tokens() or not server.credential_sources:
+        return config
+
+    resolved = dict(config)
+    for source in server.credential_sources:
+        if source.kind != "secret_ref" or not source.secret_ref:
+            continue
+        credential = await credential_client.retrieve_secret(source.secret_ref, intended_use="mcp_server")
+
+        if source.target == "env":
+            resolved["env"] = {**resolved.get("env", {}), source.name: credential}
+        elif source.target == "header":
+            header_value = credential
+            if source.name.lower() == "authorization" and not credential.lower().startswith("bearer "):
+                header_value = f"Bearer {credential}"
+            resolved["headers"] = {**resolved.get("headers", {}), source.name: header_value}
+
+    return resolved
+
+
+async def resolve_mcp_connections_credential_refs(
+    servers: list[MCPServerConfig],
+    connections: dict[str, dict[str, Any]],
+    *,
+    credential_client: CredentialExchangeClient | Any | None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve credential refs across a connection map."""
+
+    if credential_client is None or not _use_impersonation_tokens():
+        return connections
+
+    server_map = {server.id: server for server in servers}
+    resolved: dict[str, dict[str, Any]] = {}
+    for server_id, config in connections.items():
+        server = server_map.get(server_id)
+        if server is None:
+            resolved[server_id] = config
+            continue
+        resolved[server_id] = await resolve_mcp_credential_refs(
+            server,
+            config,
+            credential_client=credential_client,
+        )
+    return resolved
 
 
 def filter_tools_by_allowed(

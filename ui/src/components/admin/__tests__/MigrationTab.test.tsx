@@ -201,7 +201,7 @@ describe("MigrationTab", () => {
     expect(screen.getByText("Messaging ReBAC indexes")).toBeInTheDocument();
     expect(screen.queryByText("Keycloak Reconciliation Health")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[0]);
 
     expect(await screen.findByText("total_conversations")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
@@ -332,7 +332,7 @@ describe("MigrationTab", () => {
 
     fireEvent.click(await screen.findByText("Universal ReBAC team resources"));
     expect(screen.getByText("Selected migration:")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: /Dry run/i })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[1]);
 
     expect(await screen.findByText("MIGRATE team_resources TO v2")).toBeInTheDocument();
     await waitFor(() => {
@@ -346,7 +346,7 @@ describe("MigrationTab", () => {
   it("requires the typed confirmation before applying", async () => {
     render(<MigrationTab isAdmin />);
 
-    fireEvent.click((await screen.findAllByRole("button", { name: /Dry run/i }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Dry run$/i }))[0]);
     await screen.findByText("MIGRATE conversations TO v2");
 
     expect(screen.getByRole("button", { name: /^Apply$/i })).toBeDisabled();
@@ -368,13 +368,67 @@ describe("MigrationTab", () => {
     expect(await screen.findByText(/conversations_updated: 10/i)).toBeInTheDocument();
   });
 
+  it("selects all pending migrations and applies them after bulk confirmation", async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(<MigrationTab isAdmin />);
+
+    expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
+    fireEvent.click(screen.getByRole("button", { name: /Dry run selected/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/conversation_owner_identity_v1/plan",
+        { method: "POST" },
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/messaging_rebac_indexes_v1/plan",
+        { method: "POST" },
+      );
+    });
+    expect(await screen.findByText(/Bulk migration preview/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/6 migrations selected/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /Copy bulk confirmation/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("APPLY SELECTED MIGRATIONS");
+    });
+    expect(screen.getByRole("button", { name: /Apply selected/i })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Type bulk confirmation/i), {
+      target: { value: "APPLY SELECTED MIGRATIONS" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Apply selected/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/conversation_owner_identity_v1/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirmation: "MIGRATE conversations TO v2" }),
+        }),
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/messaging_rebac_indexes_v1/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirmation: "MIGRATE messaging_rebac_indexes TO v2" }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/Applied 6 selected migration/i)).toBeInTheDocument();
+  });
+
   it("copies the required confirmation text", async () => {
     const writeText = jest.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
     render(<MigrationTab isAdmin />);
 
-    fireEvent.click((await screen.findAllByRole("button", { name: /Dry run/i }))[0]);
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Dry run$/i }))[0]);
     await screen.findByText("MIGRATE conversations TO v2");
 
     fireEvent.click(screen.getByRole("button", { name: /Copy confirmation text/i }));

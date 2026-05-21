@@ -15,6 +15,7 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn(async () => ({ allowed: true })),
+  writeOpenFgaTupleDiff: jest.fn(async () => ({ enabled: true, writes: 2, deletes: 0 })),
 }));
 
 jest.mock("@/lib/jwt-validation", () => ({

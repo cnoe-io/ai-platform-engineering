@@ -6,6 +6,7 @@ import {
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
   searchRealmUsers,
   countRealmUsers,
@@ -190,6 +191,8 @@ async function userMatchesFilters(
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
+  await requireBaselineAdminSurfaceRead(session, "users");
+
   const hasAdminView = await requireRbacPermission(session, "admin_ui", "view").then(
     () => true,
     () => false

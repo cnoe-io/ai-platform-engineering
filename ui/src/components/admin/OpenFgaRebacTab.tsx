@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
 import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
 import { RebacGraphFilters, type RebacGraphUserOption } from "./rebac/RebacGraphFilters";
+import { UserBaselineDiagnosticsPanel } from "./rebac/UserBaselineDiagnosticsPanel";
 import type {
   UniversalRebacRelationship,
   UniversalRebacResourceAction,
@@ -59,7 +60,18 @@ import type {
   UniversalRebacSubjectType,
 } from "@/types/rbac-universal";
 
-type ResourceType = "agent" | "tool" | "knowledge_base";
+type ResourceType =
+  | "admin_surface"
+  | "agent"
+  | "conversation"
+  | "knowledge_base"
+  | "mcp_gateway"
+  | "mcp_server"
+  | "skill"
+  | "system_config"
+  | "task"
+  | "tool"
+  | "user_profile";
 type AccessResourceType = UniversalRebacResourceType;
 type AccessSubjectType = Extract<
   UniversalRebacSubjectType,
@@ -133,19 +145,32 @@ interface GraphEdge {
 }
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
+  admin_surface: ["reader", "manager"],
   agent: ["user", "manager"],
-  tool: ["caller"],
+  conversation: ["reader", "writer", "sharer", "manager"],
   knowledge_base: ["reader", "ingestor", "manager"],
+  mcp_gateway: ["caller"],
+  mcp_server: ["user", "invoker", "manager", "owner"],
+  skill: ["user", "writer", "manager", "owner"],
+  system_config: ["reader", "writer", "manager"],
+  task: ["user", "writer", "manager", "owner"],
+  tool: ["caller", "manager"],
+  user_profile: ["owner", "reader", "manager"],
 };
 
-const RESOURCE_TYPES = new Set<ResourceType>(["agent", "tool", "knowledge_base"]);
+const RESOURCE_TYPES = new Set<ResourceType>(Object.keys(RELATIONS_BY_TYPE) as ResourceType[]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["tuples", "graph", "access"]);
+const OPENFGA_TABS = new Set(["tuples", "graph", "access", "diagnostics"]);
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   user: "use",
+  owner: "create",
   manager: "manage",
   caller: "call",
+  writer: "write",
+  sharer: "share",
+  invoker: "invoke",
+  auditor: "audit",
   reader: "read",
   ingestor: "ingest",
 };
@@ -171,6 +196,7 @@ const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
 const ACCESS_RESOURCE_LABELS: Partial<Record<AccessResourceType, string>> = {
   organization: "Organization",
   user: "User",
+  user_profile: "User profile",
   external_group: "External group",
   team: "Team",
   slack_workspace: "Slack workspace",
@@ -483,9 +509,13 @@ function nodeKind(object: string): string {
 
 const GRAPH_KIND_META: Record<string, { label: string; icon: LucideIcon; className: string }> = {
   user: { label: "User", icon: User, className: "border-sky-400 bg-sky-500/10" },
+  user_profile: { label: "User Profile", icon: User, className: "border-sky-400 bg-sky-500/10" },
   team: { label: "Team", icon: Shield, className: "border-violet-400 bg-violet-500/10" },
   userset: { label: "Userset", icon: Users, className: "border-indigo-400 bg-indigo-500/10" },
+  admin_surface: { label: "Admin Surface", icon: Shield, className: "border-fuchsia-400 bg-fuchsia-500/10" },
   agent: { label: "Agent", icon: Bot, className: "border-emerald-400 bg-emerald-500/10" },
+  mcp_gateway: { label: "AgentGateway", icon: Wrench, className: "border-amber-400 bg-amber-500/10" },
+  mcp_server: { label: "MCP Server", icon: Wrench, className: "border-amber-400 bg-amber-500/10" },
   tool: { label: "Tool", icon: Wrench, className: "border-amber-400 bg-amber-500/10" },
   knowledge_base: { label: "Knowledge Base", icon: Database, className: "border-rose-400 bg-rose-500/10" },
   slack_channel: { label: "Slack Channel", icon: Hash, className: "border-cyan-400 bg-cyan-500/10" },
@@ -505,10 +535,15 @@ function resourceTypeFromObject(object: string): ResourceType | null {
   return RESOURCE_TYPES.has(type as ResourceType) ? (type as ResourceType) : null;
 }
 
-function defaultRelationForObject(object: string, preferredRelation?: string): string | null {
+function defaultRelationForUsersetObject(
+  userset: string,
+  object: string,
+  preferredRelation?: string
+): string | null {
   const resourceType = resourceTypeFromObject(object);
   if (!resourceType) return null;
   const relations = RELATIONS_BY_TYPE[resourceType];
+  if (userset.endsWith("#admin") && relations.includes("manager")) return "manager";
   return preferredRelation && relations.includes(preferredRelation) ? preferredRelation : relations[0];
 }
 
@@ -526,12 +561,12 @@ function tupleFromConnection(
     return { user: target, relation: "member", object: source };
   }
 
-  if (source.startsWith("team:") && source.endsWith("#member")) {
-    const relation = defaultRelationForObject(target, preferredRelation);
+  if (source.startsWith("team:") && (source.endsWith("#member") || source.endsWith("#admin"))) {
+    const relation = defaultRelationForUsersetObject(source, target, preferredRelation);
     return relation ? { user: source, relation, object: target } : null;
   }
-  if (target.startsWith("team:") && target.endsWith("#member")) {
-    const relation = defaultRelationForObject(source, preferredRelation);
+  if (target.startsWith("team:") && (target.endsWith("#member") || target.endsWith("#admin"))) {
+    const relation = defaultRelationForUsersetObject(target, source, preferredRelation);
     return relation ? { user: target, relation, object: source } : null;
   }
 
@@ -953,7 +988,22 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
           <TabsTrigger value="access" onClick={() => setActiveTab("access")}>Access Manager</TabsTrigger>
+          <TabsTrigger value="diagnostics" onClick={() => setActiveTab("diagnostics")}>Diagnostics</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="diagnostics">
+          <Card>
+            <CardHeader>
+              <CardTitle>User Baseline Diagnostics</CardTitle>
+              <CardDescription>
+                Compare one user&apos;s actual OpenFGA decisions against the default member and admin baselines.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <UserBaselineDiagnosticsPanel />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="access">
           <Card>
@@ -1647,7 +1697,6 @@ function OpenFgaGraphEditorInner({
   const selectedTuple = selectedEdge?.data?.tuple ?? null;
   const selectedMetadata = selectedEdge?.data?.metadata ?? null;
   const selectedIsPendingWrite = selectedEdge?.data?.staged === "write";
-  const hasPendingChanges = pendingWrites.length > 0 || pendingDeletes.length > 0;
 
   return (
     <div
@@ -1770,6 +1819,7 @@ function buildFlowNodes(
   if (teamSlug) {
     addNode(`team:${teamSlug}`, teamName ? `${teamName} team` : `team:${teamSlug}`, "team");
     addNode(`team:${teamSlug}#member`, teamName ? `${teamName} members` : `team:${teamSlug}#member`, "userset");
+    addNode(`team:${teamSlug}#admin`, teamName ? `${teamName} admins` : `team:${teamSlug}#admin`, "userset");
   }
 
   graph.nodes.forEach((node) => addNode(node.id, node.label, node.type));
@@ -1804,6 +1854,11 @@ function buildFlowNodes(
     mcp_gateway: 2,
     mcp_server: 2,
     conversation: 2,
+    admin_surface: 2,
+    skill: 2,
+    task: 2,
+    user_profile: 2,
+    system_config: 2,
   };
   const rowByColumn: Record<number, number> = {};
 

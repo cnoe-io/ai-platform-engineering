@@ -30,6 +30,7 @@ interface WebexSpaceSummary {
   space_name: string;
   team_slug?: string;
   active_grants: number;
+  can_manage?: boolean;
 }
 
 interface WebexSpaceAgentRoute {
@@ -191,7 +192,13 @@ function webexAssociationErrorMessage(error: unknown, fallback: string): string 
   return message;
 }
 
-export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean }) {
+export function WebexSpaceRebacPanel({
+  disabled = false,
+  selfService = false,
+}: {
+  disabled?: boolean;
+  selfService?: boolean;
+}) {
   const { toast } = useToast();
   const [spaces, setSpaces] = useState<WebexSpaceSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
@@ -220,6 +227,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
     () => spaces.find((space) => `${space.workspace_id}/${space.space_id}` === selectedKey),
     [spaces, selectedKey]
   );
+  const selectedCanManage = !selfService || selected?.can_manage === true;
   const unassignedSpaceCount = useMemo(
     () => spaces.filter((space) => !space.team_slug).length,
     [spaces]
@@ -334,22 +342,25 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
   }, [loadDynamicAgents]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadTeams().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load teams")
     );
-  }, [loadTeams]);
+  }, [loadTeams, selfService]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadAssociationDefaults().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load Webex space association defaults")
     );
-  }, [loadAssociationDefaults]);
+  }, [loadAssociationDefaults, selfService]);
 
   useEffect(() => {
+    if (selfService) return;
     void loadWebexRuntimeStatus().catch((error) =>
       setMessage(error instanceof Error ? error.message : "Failed to load Webex bot runtime status")
     );
-  }, [loadWebexRuntimeStatus]);
+  }, [loadWebexRuntimeStatus, selfService]);
 
   useEffect(() => {
     void loadRoutes().catch((error) =>
@@ -690,19 +701,23 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Webex Spaces</CardTitle>
+        <CardTitle>{selfService ? "My Webex Space Settings" : "Webex Spaces"}</CardTitle>
         <CardDescription>
-          Control which Dynamic Agents a Webex space may invoke.
+          {selfService
+            ? "Manage bot routing behavior only for Webex spaces where OpenFGA grants you space admin access."
+            : "Control which Dynamic Agents a Webex space may invoke."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="order-0 rounded-md border p-3 text-sm text-muted-foreground">
           Webex authorization has two checks before dispatch: the space must have
-          <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user's active
+          <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
           team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
           If either check fails, the Webex bot denies the request before calling the agent.
         </div>
+        {message && <p className="text-sm text-muted-foreground">{message}</p>}
 
+        {!selfService && (
         <div
           role="region"
           aria-label="Advanced Setup - Import/Sync with Webex Bot"
@@ -717,7 +732,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
             </h3>
             <p className="text-xs text-muted-foreground">
               Inspect the running Webex bot route cache, force a reload, or migrate the
-              bot's static YAML space config into MongoDB/OpenFGA.
+              bot&apos;s static YAML space config into MongoDB/OpenFGA.
             </p>
           </div>
           <div className="grid gap-2 text-sm md:grid-cols-4">
@@ -818,6 +833,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
             </Button>
           </div>
         </div>
+        )}
 
         <Dialog open={runtimeSyncModalOpen} onOpenChange={setRuntimeSyncModalOpen}>
           <DialogContent>
@@ -828,7 +844,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                   : "Webex Bot Config Sync Apply"}
               </DialogTitle>
               <DialogDescription>
-                Preview reads the Webex bot's loaded static YAML config. Apply upserts matching
+                Preview reads the Webex bot&apos;s loaded static YAML config. Apply upserts matching
                 MongoDB route metadata and space-agent OpenFGA tuples without deleting UI-managed associations.
               </DialogDescription>
             </DialogHeader>
@@ -910,6 +926,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           </DialogContent>
         </Dialog>
 
+        {!selfService && (
         <ConnectorOnboardingWizard
           connectorName="Webex"
           itemSingular="space"
@@ -963,7 +980,9 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
           }
           onApply={() => void confirmMigrationDefaults(discoveredImportRows)}
         />
+        )}
 
+        {!selfService && (
         <div
           role="region"
           aria-label="Onboarding Default Selection"
@@ -1034,6 +1053,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
             </p>
           )}
         </div>
+        )}
 
         <div
           role="region"
@@ -1140,7 +1160,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                     variant="outline"
                     size="sm"
                     onClick={() => void fixMissingRouteableAgent()}
-                    disabled={disabled || loading || !missingAssociationAutoFixAgentId}
+                    disabled={disabled || !selectedCanManage || loading || !missingAssociationAutoFixAgentId}
                   >
                     {missingAssociationAutoFixAgentId
                       ? `Fix missing association with agent:${missingAssociationAutoFixAgentId}`
@@ -1179,7 +1199,7 @@ export function WebexSpaceRebacPanel({ disabled = false }: { disabled?: boolean 
                           size="sm"
                           className="ml-auto"
                           onClick={() => void fixDiagnosticRoute(route)}
-                          disabled={disabled || loading}
+                          disabled={disabled || !selectedCanManage || loading}
                           aria-label={`Fix agent:${route.agent_id} routing`}
                         >
                           Fix it

@@ -85,6 +85,15 @@ interface MigrationApplyResult {
   applied_counts: Record<string, number>;
 }
 
+interface BulkMigrationApplyResult {
+  applied_count: number;
+  results: Array<{
+    migration_id: string;
+    title: string;
+    applied_counts: Record<string, number>;
+  }>;
+}
+
 interface SchemaVersionBootstrapApplyResult {
   migration_id: string;
   schema_areas: string[];
@@ -96,6 +105,7 @@ interface MigrationTabProps {
 }
 
 const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
+const BULK_MIGRATION_CONFIRMATION = "APPLY SELECTED MIGRATIONS";
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as { data?: T; error?: string };
@@ -157,15 +167,22 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const [showAllSchemaVersions, setShowAllSchemaVersions] = useState(false);
   const [selectedVersionBootstrapAreas, setSelectedVersionBootstrapAreas] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedBulkMigrationIds, setSelectedBulkMigrationIds] = useState<string[]>([]);
   const [plan, setPlan] = useState<MigrationPlan | null>(null);
+  const [bulkPlans, setBulkPlans] = useState<MigrationPlan[]>([]);
   const [confirmation, setConfirmation] = useState("");
+  const [bulkConfirmation, setBulkConfirmation] = useState("");
   const [copiedConfirmation, setCopiedConfirmation] = useState(false);
+  const [copiedBulkConfirmation, setCopiedBulkConfirmation] = useState(false);
   const [applyResult, setApplyResult] = useState<MigrationApplyResult | null>(null);
+  const [bulkApplyResult, setBulkApplyResult] = useState<BulkMigrationApplyResult | null>(null);
   const [versionBootstrapResult, setVersionBootstrapResult] = useState<SchemaVersionBootstrapApplyResult | null>(null);
   const [blockingStatus, setBlockingStatus] = useState<MigrationBlockingStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [planning, setPlanning] = useState(false);
+  const [bulkPlanning, setBulkPlanning] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [bulkApplying, setBulkApplying] = useState(false);
   const [versionBootstrapApplying, setVersionBootstrapApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -194,6 +211,21 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     [selectedId, visibleMigrations],
   );
 
+  const selectableBulkMigrations = useMemo(
+    () => migrations.filter((migration) => migration.implemented && migration.status !== "completed"),
+    [migrations],
+  );
+  const selectedBulkMigrationIdSet = useMemo(
+    () => new Set(selectedBulkMigrationIds),
+    [selectedBulkMigrationIds],
+  );
+  const selectedBulkMigrations = useMemo(
+    () => selectableBulkMigrations.filter((migration) => selectedBulkMigrationIdSet.has(migration.id)),
+    [selectableBulkMigrations, selectedBulkMigrationIdSet],
+  );
+  const allPendingMigrationsSelected =
+    selectableBulkMigrations.length > 0 && selectedBulkMigrations.length === selectableBulkMigrations.length;
+
   const loadMigrations = useCallback(async (options: { keepSelection?: boolean } = {}) => {
     setLoading(true);
     setError(null);
@@ -210,6 +242,14 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       setMigrations(data.migrations);
       setCompletedMigrations(data.completed_migrations ?? []);
       setBlockingStatus(status);
+      setSelectedBulkMigrationIds((current) => {
+        const selectableIds = new Set(
+          data.migrations
+            .filter((migration) => migration.implemented && migration.status !== "completed")
+            .map((migration) => migration.id),
+        );
+        return current.filter((migrationId) => selectableIds.has(migrationId));
+      });
       setSelectedId((current) => {
         const selectable = [...data.migrations, ...(data.completed_migrations ?? [])];
         if (options.keepSelection && current && selectable.some((migration) => migration.id === current)) {
@@ -268,6 +308,47 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     }
   }
 
+  function resetBulkPreview() {
+    setBulkPlans([]);
+    setBulkApplyResult(null);
+    setBulkConfirmation("");
+    setCopiedBulkConfirmation(false);
+  }
+
+  function toggleBulkMigration(migrationId: string, checked: boolean) {
+    resetBulkPreview();
+    setSelectedBulkMigrationIds((current) => {
+      if (checked) return Array.from(new Set([...current, migrationId]));
+      return current.filter((id) => id !== migrationId);
+    });
+  }
+
+  function toggleAllPendingMigrations(checked: boolean) {
+    resetBulkPreview();
+    setSelectedBulkMigrationIds(checked ? selectableBulkMigrations.map((migration) => migration.id) : []);
+  }
+
+  async function runBulkPlan() {
+    if (selectedBulkMigrations.length === 0) return;
+    setError(null);
+    resetBulkPreview();
+    setBulkPlanning(true);
+    try {
+      const plans = await Promise.all(
+        selectedBulkMigrations.map((migration) =>
+          fetch(`/api/admin/rebac/migrations/${migration.id}/plan`, { method: "POST" }).then((response) =>
+            readJson<MigrationPlan>(response),
+          ),
+        ),
+      );
+      setBulkPlans(plans);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to plan selected migrations");
+    } finally {
+      setBulkPlanning(false);
+    }
+  }
+
   async function applySelectedMigration() {
     if (!selectedMigration) return;
     setError(null);
@@ -316,11 +397,58 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   }
 
   const canApply = Boolean(plan && selectedMigration && confirmation === selectedMigration.confirmation && !applying);
+  const canApplySelectedMigrations = Boolean(
+    selectedBulkMigrations.length > 0 &&
+      bulkPlans.length === selectedBulkMigrations.length &&
+      bulkConfirmation === BULK_MIGRATION_CONFIRMATION &&
+      !bulkApplying,
+  );
+
+  async function applySelectedMigrations() {
+    if (!canApplySelectedMigrations) return;
+    setError(null);
+    setBulkApplying(true);
+    const results: BulkMigrationApplyResult["results"] = [];
+    try {
+      for (const migration of selectedBulkMigrations) {
+        const data = await readJson<MigrationApplyResult>(
+          await fetch(`/api/admin/rebac/migrations/${migration.id}/apply`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmation: migration.confirmation }),
+          }),
+        );
+        results.push({
+          migration_id: migration.id,
+          title: migration.title,
+          applied_counts: data.applied_counts,
+        });
+      }
+      setBulkApplyResult({ applied_count: results.length, results });
+      setSelectedBulkMigrationIds([]);
+      setBulkPlans([]);
+      setBulkConfirmation("");
+      setCopiedBulkConfirmation(false);
+      await loadMigrations({ keepSelection: true });
+    } catch (err) {
+      const failedMigration = selectedBulkMigrations[results.length];
+      const message = err instanceof Error ? err.message : "Failed to apply selected migrations";
+      setBulkApplyResult(results.length > 0 ? { applied_count: results.length, results } : null);
+      setError(failedMigration ? `Failed applying ${failedMigration.title}: ${message}` : message);
+    } finally {
+      setBulkApplying(false);
+    }
+  }
 
   async function copyConfirmationText() {
     if (!plan) return;
     await navigator.clipboard?.writeText(plan.confirmation);
     setCopiedConfirmation(true);
+  }
+
+  async function copyBulkConfirmationText() {
+    await navigator.clipboard?.writeText(BULK_MIGRATION_CONFIRMATION);
+    setCopiedBulkConfirmation(true);
   }
 
   return (
@@ -346,6 +474,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               setApplyResult(null);
               setConfirmation("");
               setCopiedConfirmation(false);
+              resetBulkPreview();
               loadMigrations({ keepSelection: true }).catch((err) =>
                 setError(err instanceof Error ? err.message : "Failed to refresh migrations"),
               );
@@ -492,14 +621,45 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
           <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={showCompleted}
-                onChange={(event) => setShowCompleted(event.target.checked)}
-              />
-              Show completed migrations ({completedMigrations.length})
-            </label>
+            <div className="space-y-3 rounded-lg border bg-card/60 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allPendingMigrationsSelected}
+                      disabled={selectableBulkMigrations.length === 0}
+                      onChange={(event) => toggleAllPendingMigrations(event.target.checked)}
+                    />
+                    Select all pending migrations ({selectableBulkMigrations.length})
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedBulkMigrations.length} migrations selected for bulk dry-run and apply.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={runBulkPlan}
+                  disabled={selectedBulkMigrations.length === 0 || bulkPlanning}
+                >
+                  {bulkPlanning ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlayCircle className="mr-2 h-4 w-4" />
+                  )}
+                  Dry run selected
+                </Button>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={showCompleted}
+                  onChange={(event) => setShowCompleted(event.target.checked)}
+                />
+                Show completed migrations ({completedMigrations.length})
+              </label>
+            </div>
             {visibleMigrations.length === 0 && (
               <Card>
                 <CardContent className="pt-6 text-sm text-muted-foreground">No active migrations.</CardContent>
@@ -552,7 +712,18 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       Migration complete
                     </label>
                   )}
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {migration.status !== "completed" && migration.implemented && (
+                      <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                        <input
+                          aria-label={`Select migration ${migration.title}`}
+                          type="checkbox"
+                          checked={selectedBulkMigrationIdSet.has(migration.id)}
+                          onChange={(event) => toggleBulkMigration(migration.id, event.target.checked)}
+                        />
+                        Select
+                      </label>
+                    )}
                     <Button
                       size="sm"
                       onClick={() => runPlan(migration)}
@@ -575,7 +746,110 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
             ))}
           </div>
 
-          <Card>
+          <div className="space-y-4">
+            {(selectedBulkMigrations.length > 0 || bulkApplyResult) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Bulk Migration Preview</CardTitle>
+                  <CardDescription>
+                    Dry-run selected migrations, then type the bulk confirmation before applying them in order.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    {selectedBulkMigrations.length > 0
+                      ? `${selectedBulkMigrations.length} migrations selected.`
+                      : "Bulk apply complete."}
+                  </p>
+                  {bulkPlans.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Run a bulk dry run to preview selected migrations.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {bulkPlans.map((bulkPlan) => {
+                        const migration = selectedBulkMigrations.find((item) => item.id === bulkPlan.migration_id);
+                        return (
+                          <div key={bulkPlan.migration_id} className="rounded-lg border p-3">
+                            <div className="text-sm font-medium">{migration?.title ?? bulkPlan.migration_id}</div>
+                            <div className="mt-2 grid grid-cols-2 gap-2">
+                              {Object.entries(bulkPlan.counts).map(([key, value]) => (
+                                <div key={key} className="rounded-md border p-2">
+                                  <div className="text-xs text-muted-foreground">{key}</div>
+                                  <div className="font-semibold">{value}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {bulkPlan.warnings.length > 0 && (
+                              <div className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-900">
+                                {bulkPlan.warnings.map((warning) => (
+                                  <div key={warning}>{warning}</div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <label htmlFor="bulk-migration-confirmation" className="text-sm font-medium">
+                      Type bulk confirmation
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1 text-xs">
+                        {BULK_MIGRATION_CONFIRMATION}
+                      </code>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={
+                          copiedBulkConfirmation ? "Copied bulk confirmation" : "Copy bulk confirmation"
+                        }
+                        onClick={copyBulkConfirmationText}
+                      >
+                        {copiedBulkConfirmation ? (
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                        ) : (
+                          <Copy className="mr-2 h-4 w-4" />
+                        )}
+                        {copiedBulkConfirmation ? "Copied" : "Copy"}
+                      </Button>
+                    </div>
+                    <Input
+                      id="bulk-migration-confirmation"
+                      value={bulkConfirmation}
+                      onChange={(event) => setBulkConfirmation(event.target.value)}
+                      placeholder={BULK_MIGRATION_CONFIRMATION}
+                    />
+                  </div>
+                  <Button onClick={applySelectedMigrations} disabled={!canApplySelectedMigrations}>
+                    {bulkApplying ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                    )}
+                    Apply selected
+                  </Button>
+                  {bulkApplyResult && (
+                    <div className="rounded-lg border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-900">
+                      <div>Applied {bulkApplyResult.applied_count} selected migration(s).</div>
+                      {bulkApplyResult.results.map((result) => (
+                        <div key={result.migration_id} className="mt-2">
+                          <div className="font-medium">{result.title}</div>
+                          {Object.entries(result.applied_counts).map(([key, value]) => (
+                            <div key={key}>
+                              {key}: {value}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
             <CardHeader>
               <CardTitle className="text-base">Migration Preview</CardTitle>
               <CardDescription>
@@ -672,6 +946,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               )}
             </CardContent>
           </Card>
+          </div>
         </div>
       )}
     </div>

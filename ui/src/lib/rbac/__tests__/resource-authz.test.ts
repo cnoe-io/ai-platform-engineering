@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/api-error";
 import {
   filterResourcesByPermission,
   openFgaRelationForResourceAction,
+  resourceObject,
   requireResourcePermission,
 } from "../resource-authz";
 
@@ -11,6 +12,7 @@ describe("resource-authz", () => {
     expect(openFgaRelationForResourceAction("list")).toBe("can_discover");
     expect(openFgaRelationForResourceAction("discover")).toBe("can_discover");
     expect(openFgaRelationForResourceAction("read")).toBe("can_read");
+    expect(openFgaRelationForResourceAction("read-metadata")).toBe("can_read_metadata");
     expect(openFgaRelationForResourceAction("use")).toBe("can_use");
     expect(openFgaRelationForResourceAction("write")).toBe("can_write");
     expect(openFgaRelationForResourceAction("admin")).toBe("can_manage");
@@ -21,6 +23,14 @@ describe("resource-authz", () => {
     expect(openFgaRelationForResourceAction("call")).toBe("can_call");
     expect(openFgaRelationForResourceAction("invoke")).toBe("can_invoke");
     expect(openFgaRelationForResourceAction("audit")).toBe("can_audit");
+  });
+
+  it("encodes provider model ids into OpenFGA-safe llm_model objects", () => {
+    const modelId = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
+    const encoded = Buffer.from(modelId, "utf8").toString("base64url");
+
+    expect(resourceObject("llm_model", modelId)).toBe(`llm_model:b64_${encoded}`);
+    expect(resourceObject("mcp_server", "jira")).toBe("mcp_server:jira");
   });
 
   it("requires a stable subject and fails closed when missing", async () => {
@@ -74,7 +84,32 @@ describe("resource-authz", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("bypasses object checks for admins only when explicitly allowed", async () => {
+  it("checks secret_ref use, manage, share, and audit through OpenFGA", async () => {
+    const checked: string[] = [];
+
+    for (const action of ["read-metadata", "use", "manage", "share", "audit"] as const) {
+      await requireResourcePermission(
+        { sub: "service-sub" },
+        { type: "secret_ref", id: "secret-1", action },
+        {
+          check: async (tuple) => {
+            checked.push(`${tuple.user} ${tuple.relation} ${tuple.object}`);
+            return { allowed: true };
+          },
+        },
+      );
+    }
+
+    expect(checked).toEqual([
+      "user:service-sub can_read_metadata secret_ref:secret-1",
+      "user:service-sub can_use secret_ref:secret-1",
+      "user:service-sub can_manage secret_ref:secret-1",
+      "user:service-sub can_share secret_ref:secret-1",
+      "user:service-sub can_audit secret_ref:secret-1",
+    ]);
+  });
+
+  it("does not bypass OpenFGA object checks for session-role admins", async () => {
     const check = jest.fn(async () => ({ allowed: false }));
 
     await expect(
@@ -83,9 +118,36 @@ describe("resource-authz", () => {
         { type: "admin_surface", id: "skill-scan-all", action: "admin" },
         { allowAdminBypass: true, check },
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: "admin_surface#admin",
+    });
 
-    expect(check).not.toHaveBeenCalled();
+    expect(check).toHaveBeenCalledWith({
+      user: "user:admin-sub",
+      relation: "can_manage",
+      object: "admin_surface:skill-scan-all",
+    });
+  });
+
+  it("filters session-role admins through OpenFGA instead of returning every resource", async () => {
+    const resources = [{ id: "visible" }, { id: "denied" }];
+
+    const visible = await filterResourcesByPermission(
+      { sub: "admin-sub", role: "admin" },
+      resources,
+      {
+        type: "mcp_server",
+        action: "read",
+        id: (resource) => resource.id,
+      },
+      {
+        allowAdminBypass: true,
+        check: async (tuple) => ({ allowed: tuple.object === "mcp_server:visible" }),
+      },
+    );
+
+    expect(visible).toEqual([{ id: "visible" }]);
   });
 
   it("filters resources by permission without leaking denied objects", async () => {

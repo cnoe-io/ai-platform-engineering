@@ -207,6 +207,78 @@ conversation write check, so a Slack OBO token for the conversation owner can
 update thread metadata such as `last_processed_ts` without a separate
 `conversation:<id>#writer` tuple.
 
+## Self-Service Resource Creation
+
+Private and team-scoped Dynamic Agents, MCP servers, and RAG data sources use the
+same OpenFGA-backed create flow. MongoDB persists the resource document, while
+OpenFGA is the PDP for who can see, use, or manage it.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Signed-in user
+    participant UI as CAIPE UI backend
+    participant FGA as OpenFGA PDP
+    participant MDB as MongoDB / RAG
+
+    User->>UI: Create agent, MCP server, or datasource
+    UI->>UI: authenticate session and derive user:<sub>
+    alt team-owned request
+        UI->>FGA: Check user:<sub> can_use team:<slug>
+        FGA-->>UI: allowed or denied
+    end
+    alt allowed private or team scope
+        UI->>FGA: Write owner/team base tuples
+        note over FGA: user:<sub> owner resource:<id><br/>team:<slug>#member user/read resource:<id><br/>team:<slug>#admin manager resource:<id>
+        UI->>MDB: Persist resource metadata / proxy datasource create
+        UI-->>User: 201 Created
+    else denied
+        UI-->>User: 403 pdp_denied
+    end
+```
+
+For private resources, the creator's direct `owner` tuple derives management
+rights. For team resources, team members get use/read access and team admins get
+the manager relationship. Team membership and team-admin status are evaluated by
+OpenFGA checks; Mongo team fields are metadata and compatibility context, not the
+primary authorization decision.
+
+## Credential OAuth Connector Flow
+
+The Connections & Secrets OAuth connector flow is a CAIPE credential-exchange
+flow, not a Keycloak login broker flow. Provider client IDs/secrets are seeded
+from `.env` in Docker Compose or ESO in Kubernetes into encrypted MongoDB
+connector records. Users then create per-provider connections from the
+Connections page. The browser opens the provider journey in a popup window when
+possible, with a `target="_blank"` tab fallback for popup blockers, so the user
+does not lose their place in CAIPE:
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant UI as CAIPE UI BFF
+  participant P as OAuth Provider
+  participant DB as MongoDB Envelope Store
+
+  B->>UI: Open popup/tab to GET /api/credentials/oauth/{provider}/connect
+  UI->>UI: Verify session, create state + PKCE verifier
+  UI->>B: 302 Location: provider authorize URL<br/>Set-Cookie: signed httpOnly state
+  B->>P: Provider authorize URL<br/>code_challenge_method=S256<br/>code_challenge=<43-char SHA256 base64url>
+  P->>B: Redirect to /api/credentials/oauth/{provider}/callback?code&state
+  B->>UI: Callback with signed state cookie
+  UI->>P: Exchange code + code_verifier for provider tokens
+  UI->>DB: Store access/refresh token refs encrypted
+  UI->>B: Closeable completion page<br/>BroadcastChannel/postMessage connection event
+  B->>B: Refresh Connections list in original CAIPE tab
+```
+
+The browser never receives provider tokens or decrypted secret material. Local
+development may use `http://localhost` redirect URIs, but production connector
+redirect URIs must use HTTPS. The popup is opened through a same-origin blank
+window before redirecting to the external provider, then clears `window.opener`;
+the final callback page notifies the original tab through `BroadcastChannel`
+and only uses `postMessage` when an opener is available.
+
 ## Webex Space ReBAC and Bot Dispatch
 
 Webex follows the Slack bot trust model with Webex spaces in place of channels.

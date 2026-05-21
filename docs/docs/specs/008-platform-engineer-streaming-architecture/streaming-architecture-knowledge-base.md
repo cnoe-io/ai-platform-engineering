@@ -1,3 +1,9 @@
+---
+sidebar_position: 3
+sidebar_label: v0.2.41 vs v0.3.0 Knowledge Base
+title: "Streaming Architecture Knowledge Base: v0.2.41 vs v0.3.0"
+---
+
 # Streaming Architecture Knowledge Base: v0.2.41 vs v0.3.0
 
 > **Date**: 2026-04-13 to 2026-04-14
@@ -576,9 +582,8 @@ Five middleware layers, each potentially adding tool calls (write_todos, invoke_
 
 | File | Purpose |
 |------|---------|
-| `docs/streaming-comparison-030-vs-041.md` | Raw artifact comparison data |
-| `docs/docs/STREAMING_COMPARISON_041_vs_030.md` | Detailed timeline analysis and recommendations |
-| `docs/STREAMING_ARCHITECTURE_KNOWLEDGE_BASE.md` | This document |
+| `docs/docs/specs/008-platform-engineer-streaming-architecture/streaming-comparison.md` | Side-by-side artifact timeline, token streaming analysis, and raw comparison data |
+| `docs/docs/specs/008-platform-engineer-streaming-architecture/streaming-architecture-knowledge-base.md` | This document |
 | `scripts/capture_a2a_events.py` | A2A event capture tool |
 | `scripts/trace_a2a_streaming.py` | Streaming timeline tracer |
 | `docker-compose.compare-041.yaml` | Side-by-side 0.2.41 comparison stack |

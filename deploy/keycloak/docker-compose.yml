@@ -17,7 +17,7 @@ services:
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
     - keycloak-data:/opt/keycloak/data
-    - ./realm-config.json:/opt/keycloak/data/import/realm-config.json
+    - ../../charts/ai-platform-engineering/charts/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
     ports:
     - "7080:7080"
     - "7443:7443"

@@ -54,12 +54,14 @@ from dynamic_agents.services.builtin_tools import (
     create_wait_tool,
     create_workflow_tools,
 )
+from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
     get_tools_with_resilience,
+    resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
@@ -311,6 +313,17 @@ class AgentRuntime:
             ttl = max_ttl
         return ttl
 
+    def _credential_exchange_client(self) -> CredentialExchangeClient | None:
+        """Create a credential API client when impersonation token resolution is configured."""
+
+        if not self.settings.credential_api_url or not self._auth_bearer:
+            return None
+        return CredentialExchangeClient(
+            base_url=self.settings.credential_api_url,
+            audience=self.settings.credential_service_audience,
+            token_provider=lambda: self._auth_bearer or "",
+        )
+
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
         if self._initialized:
@@ -334,6 +347,11 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=self.config.id,
+            )
+            connections = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
             )
 
             if not connections:
@@ -863,6 +881,11 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=subagent_config.id,
+            )
+            connections = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
             )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent

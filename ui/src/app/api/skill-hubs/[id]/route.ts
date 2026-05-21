@@ -5,8 +5,8 @@ import {
   ApiError,
   validateCredentialsRef,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import {
   normalizeHubLocation,
   validateIncludePaths,
@@ -42,7 +42,7 @@ export const PATCH = withErrorHandler(
     }
 
     const { session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "admin");
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
       const body = await request.json();
@@ -114,8 +114,9 @@ export const PATCH = withErrorHandler(
       if (Object.keys(unset).length > 0) writeOp.$unset = unset;
       await collection.updateOne({ id }, writeOp);
 
-      const updated = await collection.findOne({ id });
-      const { _id, ...rest } = updated as any;
+      const updated = (await collection.findOne({ id })) as Record<string, unknown> | null;
+      const rest = { ...(updated ?? {}) };
+      delete rest._id;
 
       return NextResponse.json(rest);
   },
@@ -128,7 +129,7 @@ export const DELETE = withErrorHandler(
     }
 
     const { session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "admin");
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
 

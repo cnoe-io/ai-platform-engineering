@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 
 const mockCheckPermission = jest.fn();
 const mockFetch = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: jest.fn(async () => null),
@@ -35,6 +36,10 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
 }));
 
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
@@ -61,24 +66,50 @@ async function expectMetricsDenied(response: Response): Promise<void> {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   global.fetch = mockFetch;
 });
 
 describe("admin metrics route RBAC", () => {
-  it("denies bearer users without admin_ui#view before proxying an instant PromQL query", async () => {
+  it("allows OpenFGA baseline Metrics viewers to proxy an instant PromQL query", async () => {
     const { GET } = await import("../route");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: { resultType: "vector", result: [] },
+      }),
+    });
 
     const response = await GET(
       request("/api/admin/metrics?query=up", {
         method: "GET",
       })
     );
+    const body = await response.json();
 
-    await expectMetricsDenied(response);
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:bob-sub",
+      relation: "can_read",
+      object: "admin_surface:metrics",
+    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://prometheus:9090/api/v1/query?query=up",
+      expect.objectContaining({ headers: { Accept: "application/json" } })
+    );
   });
 
-  it("denies bearer users without admin_ui#view before proxying batch PromQL queries", async () => {
+  it("allows OpenFGA baseline Metrics viewers to proxy batch PromQL queries", async () => {
     const { POST } = await import("../route");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: { resultType: "vector", result: [] },
+      }),
+    });
 
     const response = await POST(
       request("/api/admin/metrics", {
@@ -86,7 +117,13 @@ describe("admin metrics route RBAC", () => {
         body: JSON.stringify({ queries: [{ id: "up", query: "up" }] }),
       })
     );
+    const body = await response.json();
 
-    await expectMetricsDenied(response);
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.up).toEqual({
+      status: "success",
+      data: { resultType: "vector", result: [] },
+    });
   });
 });

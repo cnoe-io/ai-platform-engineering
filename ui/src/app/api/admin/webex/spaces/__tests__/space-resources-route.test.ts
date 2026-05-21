@@ -168,6 +168,7 @@ const agentGrant = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.OPENFGA_HTTP = "http://openfga:8080";
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
@@ -183,13 +184,48 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.OPENFGA_HTTP;
   delete process.env.WEBEX_WORKSPACE_ALIAS;
 });
 
 describe("Webex space ReBAC resource APIs", () => {
-  it("requires admin_ui authorization for PUT and does not write tuples", async () => {
+  it("filters the Webex space list to concrete spaces the caller can read or manage", async () => {
+    mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings] = createMockCollection([
+      {
+        webex_workspace_id: workspaceId,
+        webex_space_id: spaceId,
+        space_name: "Incident Room",
+        active: true,
+      },
+      {
+        webex_workspace_id: workspaceId,
+        webex_space_id: "space-private",
+        space_name: "Private Leadership",
+        active: true,
+      },
+    ]);
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed:
+        tuple.object === `webex_space:${workspaceAlias}--${spaceId}` &&
+        (tuple.relation === "can_read" || tuple.relation === "can_manage"),
+    }));
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/webex/spaces"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.spaces).toEqual([
+      expect.objectContaining({
+        space_id: spaceId,
+        space_name: "Incident Room",
+        can_manage: true,
+      }),
+    ]);
+  });
+
+  it("requires team-owned Webex space manage authorization for PUT and does not write tuples", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
     const { PUT } = await import("../[workspaceId]/[spaceId]/resources/route");
 
     const response = await PUT(
@@ -201,7 +237,11 @@ describe("Webex space ReBAC resource APIs", () => {
     );
 
     expect(response.status).toBe(403);
-    expect(mockCheckOpenFgaTuple).toHaveBeenCalled();
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `webex_space:${workspaceAlias}--${spaceId}`,
+    });
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceGrants].updateOne).not.toHaveBeenCalled();
   });
@@ -247,6 +287,11 @@ describe("Webex space ReBAC resource APIs", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `webex_space:${workspaceAlias}--${spaceId}`,
+    });
     expect(body.data.grants).toHaveLength(1);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith(
       expect.objectContaining({

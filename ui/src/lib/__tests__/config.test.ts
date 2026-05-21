@@ -93,6 +93,7 @@ describe('getServerConfig', () => {
       expect(cfg.feedbackEnabled).toBe(true); // default true
       expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
+      expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
         'Where Humans and AI agents collaborate to deliver high quality outcomes.',
@@ -138,7 +139,7 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
@@ -166,6 +167,11 @@ describe('getServerConfig', () => {
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
+    });
+
+    it('should read CAIPE_CREDENTIALS_ENABLED=true', () => {
+      process.env.CAIPE_CREDENTIALS_ENABLED = 'true';
+      expect(getServerConfig().credentialsEnabled).toBe(true);
     });
 
     it('should treat SSO_ENABLED=false as false', () => {
@@ -919,7 +925,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',

@@ -1,6 +1,6 @@
 import { ensureUserByEmail } from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { organizationObjectId } from "@/lib/rbac/organization";
+import { baselineBootstrapTuples } from "@/lib/rbac/baseline-access";
 
 export type BootstrapAdminOutcomeStatus = "existing" | "created" | "failed";
 
@@ -45,11 +45,7 @@ function configuredBootstrapEmails(): string[] {
 }
 
 function bootstrapTuples(userId: string): OpenFgaTupleKey[] {
-  return [
-    { user: `user:${userId}`, relation: "member", object: organizationObjectId() },
-    { user: `user:${userId}`, relation: "admin", object: organizationObjectId() },
-    { user: `user:${userId}`, relation: "manager", object: "system_config:platform_settings" },
-  ];
+  return baselineBootstrapTuples(userId, true);
 }
 
 export async function reconcileBootstrapAdmins(

@@ -46,6 +46,8 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
+  /** Whether Connections & Secrets credential management is enabled */
+  credentialsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -216,6 +218,7 @@ const DEFAULT_CONFIG: Config = {
   ssoEnabled: false,
   ragEnabled: true,
   mongodbEnabled: false,
+  credentialsEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -356,6 +359,7 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
@@ -388,6 +392,7 @@ export function getServerConfig(): Config {
     ssoEnabled,
     ragEnabled,
     mongodbEnabled,
+    credentialsEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,

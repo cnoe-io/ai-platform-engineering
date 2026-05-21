@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+import yaml from "js-yaml";
 import {
   agentGatewayAdminConfigUrl,
   agentGatewayMcpEndpointUrl,
@@ -14,11 +17,23 @@ const agentGatewayConfig = {
         {
           routes: [
             {
+              matches: [{ path: { type: "PathPrefix", value: "/mcp/rag" } }],
               backends: [
                 {
                   mcp: {
                     targets: [
                       { name: "rag", mcp: { host: "http://rag-server:9446/mcp" } },
+                    ],
+                  },
+                },
+              ],
+            },
+            {
+              matches: [{ path: { type: "PathPrefix", value: "/mcp/jira" } }],
+              backends: [
+                {
+                  mcp: {
+                    targets: [
                       { name: "jira", mcp: { host: "http://mcp-jira:8000/mcp" } },
                     ],
                   },
@@ -63,33 +78,79 @@ describe("AgentGateway MCP discovery", () => {
 
   it("extracts MCP targets from AgentGateway config", () => {
     expect(extractAgentGatewayMcpTargets(agentGatewayConfig)).toEqual([
-      { id: "rag", target_endpoint: "http://rag-server:9446/mcp" },
-      { id: "jira", target_endpoint: "http://mcp-jira:8000/mcp" },
+      { id: "rag", route_path: "/mcp/rag", target_endpoint: "http://rag-server:9446/mcp" },
+      { id: "jira", route_path: "/mcp/jira", target_endpoint: "http://mcp-jira:8000/mcp" },
     ]);
   });
 
-  it("classifies against the AgentGateway routed endpoint", () => {
+  it.each(["config.yaml", "config.caipe-rbac.yaml"])(
+    "keeps %s populated with the dev MCP services",
+    (filename) => {
+      const configPath = path.join(process.cwd(), "../deploy/agentgateway", filename);
+      const config = yaml.load(fs.readFileSync(configPath, "utf-8"));
+
+      expect(extractAgentGatewayMcpTargets(config).map((target) => target.id).sort()).toEqual(
+        [
+          "argocd",
+          "backstage",
+          "confluence",
+          "github",
+          "gitlab",
+          "jira",
+          "komodor",
+          "netutils",
+          "pagerduty",
+          "rag",
+          "slack",
+          "splunk",
+          "victorops",
+          "webex",
+        ],
+      );
+    },
+  );
+
+  it("classifies against the AgentGateway target-specific routed endpoint", () => {
     process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
     const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
-      existingServer("jira", "http://agentgateway:4000/mcp"),
+      existingServer("jira", "http://agentgateway:4000/mcp/jira"),
       existingServer("rag", "http://legacy-rag:9446/mcp"),
     ]);
 
     expect(discovery.targets).toEqual([
       expect.objectContaining({
         id: "rag",
-        endpoint: "http://agentgateway:4000/mcp",
+        endpoint: "http://agentgateway:4000/mcp/rag",
         target_endpoint: "http://rag-server:9446/mcp",
         status: "conflict",
         existing_endpoint: "http://legacy-rag:9446/mcp",
       }),
       expect.objectContaining({
         id: "jira",
-        endpoint: "http://agentgateway:4000/mcp",
+        endpoint: "http://agentgateway:4000/mcp/jira",
         target_endpoint: "http://mcp-jira:8000/mcp",
         status: "existing",
       }),
     ]);
+  });
+
+  it("classifies a same-upstream direct registration as a legacy migration", () => {
+    process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
+    const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
+      existingServer("jira", "http://mcp-jira:8000/mcp"),
+    ]);
+
+    expect(discovery.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "jira",
+          endpoint: "http://agentgateway:4000/mcp/jira",
+          target_endpoint: "http://mcp-jira:8000/mcp",
+          status: "legacy",
+          existing_endpoint: "http://mcp-jira:8000/mcp",
+        }),
+      ]),
+    );
   });
 
   it("normalizes AgentGateway admin config URLs", () => {
@@ -108,6 +169,7 @@ describe("AgentGateway MCP discovery", () => {
 
     process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000/mcp/";
     expect(agentGatewayMcpEndpointUrl()).toBe("http://agentgateway:4000/mcp");
+    expect(agentGatewayMcpEndpointUrl("/mcp/jira")).toBe("http://agentgateway:4000/mcp/jira");
   });
 
   it("stores AgentGateway-routed endpoint while preserving target endpoint metadata", () => {
@@ -117,10 +179,10 @@ describe("AgentGateway MCP discovery", () => {
     expect(doc).toEqual(
       expect.objectContaining({
         _id: "rag",
-        endpoint: "http://agentgateway:4000/mcp",
+        endpoint: "http://agentgateway:4000/mcp/rag",
         source: "agentgateway",
         agentgateway_discovered: true,
-        agentgateway_endpoint: "http://agentgateway:4000/mcp",
+        agentgateway_endpoint: "http://agentgateway:4000/mcp/rag",
         agentgateway_target_endpoint: "http://rag-server:9446/mcp",
       }),
     );

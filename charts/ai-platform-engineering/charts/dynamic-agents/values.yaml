@@ -121,6 +121,11 @@ affinity: {}
 config:
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
+  # Connections & Secrets credential exchange client. Disabled by default.
+  CAIPE_CREDENTIALS_ENABLED: "false"
+  CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
+  CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+  USE_IMPERSONATION_TOKENS: "false"
   # Agent runtime TTL in seconds (purged after this much inactivity)
   AGENT_RUNTIME_TTL_SECONDS: "60"
   # Set to "true" to enable multi-turn conversation history via POST /invoke.
@@ -130,9 +135,9 @@ config:
   INVOKE_PERSIST_HISTORY: "false"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
-  # MCP server IDs routed through the shared AgentGateway backend.
-  # Other MCP servers keep direct endpoints so tool names reflect real upstreams.
-  AGENT_GATEWAY_MCP_SERVER_IDS: "jira"
+  # MCP server IDs routed through AgentGateway. Use "all" because AgentGateway
+  # uses one route/backend per MCP server in the packaged RBAC deployment.
+  AGENT_GATEWAY_MCP_SERVER_IDS: "all"
   # Tracing disabled by default
   ENABLE_TRACING: "false"
   # Strip skill payloads (SKILL.md bodies, ancillary files,

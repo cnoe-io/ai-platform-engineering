@@ -1,7 +1,6 @@
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
 import {
-  buildOpenFgaTuple,
   buildOpenFgaTupleDiff,
   openFgaCheckRelation,
   openFgaObject,
@@ -125,10 +124,11 @@ function resourceTuples(
   teamSlug: string,
   relation: string,
   objectType: "agent" | "tool" | "knowledge_base" | "skill" | "task",
-  ids: string[]
+  ids: string[],
+  subjectRelation: "member" | "admin" = "member"
 ): OpenFgaTupleKey[] {
   return ids.map((id) => ({
-    user: `team:${teamSlug}#member`,
+    user: `team:${teamSlug}#${subjectRelation}`,
     relation,
     object: `${objectType}:${id}`,
   }));
@@ -145,7 +145,7 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
   const writes = uniqueTuples([
     ...memberTuples,
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
-    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added),
+    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.added),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
@@ -157,7 +157,7 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
 
   const deletes = uniqueTuples([
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
-    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed),
+    ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.removed),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),

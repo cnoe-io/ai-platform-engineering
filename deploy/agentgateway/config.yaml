@@ -24,57 +24,117 @@ binds:
         jwks:
           url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
     routes:
-    - policies:
+    # Keep each MCP target in its own route/backend. AgentGateway initializes all
+    # targets in a backend together, so a failing optional MCP should not break
+    # unrelated routes.
+    - matches: [{ path: { type: PathPrefix, value: /mcp/argocd } }]
+      policies: &mcpAuthzPolicy
         extAuthz:
-        # OpenFGA is the remote PDP for AgentGateway authorization. The bridge
-        # adapts AgentGateway's Envoy gRPC ext_authz contract to OpenFGA Check.
           host: openfga-authz-bridge:9100
-          failureMode:
-            denyWithStatus: 403
+          failureMode: { denyWithStatus: 403 }
           protocol:
             grpc:
               metadata:
                 caipe.auth: '{"sub": jwt.sub}'
         authorization:
           rules:
-          # AGW 0.12 evaluates `has(jwt.sub)` as `false` here even when the
-          # JWT was validated and `sub` is in the claims (debug logs confirm).
-          # Authentication already happened at the listener (`jwtAuth` strict).
-          # ext_authz owns the gateway authorization decision.
           - allow: 'true'
       backends:
-      -
-        mcp:
+      - mcp:
           targets:
-          # NOTE: AGW initializes ALL targets in a backend at once when a session
-          # is created. If any target's `initialize` returns an error (e.g.
-          # `github-mcp-server` requires a GitHub OAuth header AGW doesn't
-          # forward), the whole session fails for every target — including jira.
-          # The github upstream is temporarily disabled until we either
-          # (a) split each MCP into its own backend block, or
-          # (b) configure AGW to inject Authorization Bearer with the github
-          #     personal access token on the github upstream only.
-          # - name: github
-          #   mcp:
-          #     host: http://github-mcp-server:8082/sse
-          # NOTE: rag is intentionally not active in this shared AgentGateway
-          # target set yet. AgentGateway initializes every target in a multi-MCP
-          # backend during session setup; rag-server currently requires its own
-          # bearer validation and returns 401 when AGW does not forward upstream
-          # auth, which aborts Jira initialization too. Re-enable rag after AGW
-          # can inject/pass through upstream auth per target or after rag accepts
-          # AGW as the sole PEP.
-          # - name: rag
-          #   mcp:
-          #     host: http://rag-server:9446/mcp
-          # Jira MCP — fronted by AgentGateway so ext_authz/OpenFGA remains the
-          # source of truth for RBAC (FR-016). The upstream `mcp-jira` service must run
-          # with `MCP_AUTH_MODE=none` (no per-MCP middleware) on the AG path so
-          # the gateway is the sole PEP. The custom mcp-agent-auth middleware is
-          # only used when an MCP is reached directly (local/embedded path).
+          - name: argocd
+            mcp: { host: http://mcp-argocd:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/backstage } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: backstage
+            mcp: { host: http://mcp-backstage:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/confluence } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: confluence
+            mcp: { host: http://mcp-confluence:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/github } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: github
+            mcp: { host: http://github-mcp-server:8082/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/gitlab } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: gitlab
+            mcp: { host: http://mcp-gitlab:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/jira } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
           - name: jira
-            mcp:
-              host: http://mcp-jira:8000/mcp
+            mcp: { host: http://mcp-jira:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/komodor } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: komodor
+            mcp: { host: http://mcp-komodor:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/netutils } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: netutils
+            mcp: { host: http://mcp-netutils:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/pagerduty } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: pagerduty
+            mcp: { host: http://mcp-pagerduty:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/rag } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: rag
+            mcp: { host: http://rag-server:9446/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/slack } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: slack
+            mcp: { host: http://mcp-slack:3001/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/splunk } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: splunk
+            mcp: { host: http://mcp-splunk:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/victorops } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: victorops
+            mcp: { host: http://mcp-victorops:8000/mcp }
+    - matches: [{ path: { type: PathPrefix, value: /mcp/webex } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: webex
+            mcp: { host: http://mcp-webex:8000/mcp }
 
 config:
   # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.

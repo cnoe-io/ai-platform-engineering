@@ -40,10 +40,15 @@ entry, and built-in skill catalog access after the OpenFGA cutover. A user in
 outside `OIDC_REQUIRED_GROUP` are not bootstrapped.
 
 The baseline Users tab is self-scoped for non-admins: the list API returns only
-the caller's own Keycloak row unless the caller has `admin_ui#view`. Team owners
-and team admins can manage membership and Knowledge Base grants for teams where
-they hold a scoped team role; unrelated teams and platform-wide user operations
-remain admin-only.
+the caller's own Keycloak row when OpenFGA allows
+`admin_surface:users#can_read`, and the detail modal opens records through
+`user_profile:<id>#can_read`. Team owners and team admins can manage membership
+and Knowledge Base grants for teams where they hold a scoped team role; unrelated
+teams and platform-wide user operations remain admin-only. The baseline Metrics &
+Health tabs require `admin_surface:metrics#can_read`. The Settings → Skills tab
+shows configured Skill Hubs read-only through `admin_surface:skills#can_read`;
+adding, refreshing, editing, or deleting hubs requires
+`admin_surface:skills#can_manage`.
 
 For local ReBAC testing, the browser authenticates to the Web UI backend, the
 backend enforces OpenFGA for KB/Data Sources/RAG MCP screens, and then
@@ -56,8 +61,10 @@ RAG. Grant Data Sources tab administration through **Settings → Knowledge Base
 datasource read/ingest/admin grants through **Settings → Knowledge Bases** or the
 Team Knowledge Base assignment UI; both write
 `team:<slug>#member reader|ingestor|manager knowledge_base:<datasource_id>`.
-Team owners/admins may update grants for their own team. Platform admins can administer concrete
-datasource operations such as re-ingest through the BFF admin bypass.
+Team owners/admins may update grants for their own team. Platform admins still
+need the concrete OpenFGA `knowledge_base:<id>#can_ingest` or
+`#can_manage` decision for datasource operations such as re-ingest; session
+`role=admin` is not a bypass.
 `RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
 access by itself.
 
@@ -194,6 +201,27 @@ OPENFGA_HTTP=http://openfga:8080
 OPENFGA_STORE_NAME=caipe-openfga
 ```
 
+Dynamic Agents no longer uses `OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP` or
+admin-only UI checks as an authorization gate. The top navigation shows
+**Agents** whenever Dynamic Agents are enabled with MongoDB storage, and the
+`/dynamic-agents` page renders for any admitted authenticated user. The page
+shows Agents, MCP Servers, and LLM Models for admitted users, and also shows
+Conversations for callers with OpenFGA admin audit-log access. API calls remain
+OpenFGA-filtered: non-admins can create private agents, create/onboard MCP servers when they hold an owned-server relationship,
+and read seeded LLM models through `llm_model#can_read`. Seeded LLM models grant
+admitted organization members `reader` and organization admins `manager` so the
+model picker works without legacy session roles. Seeded and AgentGateway-synced
+MCP servers grant admitted organization members read/use and invoke access, while
+bootstrap admins receive `mcp_server:agentgateway#can_manage` so they can run
+AgentGateway discovery/sync. System MCP servers and system LLM models are
+config-driven and remain immutable even when the caller can read them.
+If sync finds a legacy direct MCP row whose endpoint matches the AgentGateway
+target upstream, it migrates that row in place to the AgentGateway route instead
+of leaving a name collision; only genuinely different endpoints remain as manual
+conflicts. Sync also refreshes OpenFGA organization-member grants for MCP rows
+that are already AgentGateway-managed, so re-running sync repairs visibility for
+admins and non-admins after a model/config change.
+
 Use `OPENFGA_STORE_ID` instead of store-name discovery when your environment
 pins the store id. With these settings, `POST /api/v1/chat/stream/start`,
 `POST /api/v1/chat/invoke`, `POST /api/v1/chat/stream/resume`, and
@@ -230,6 +258,15 @@ Common debug paths include `team:<slug>#member can_use agent:<id>`,
 operator has admin rights, **Grant this access** creates and applies a staged
 change set for the selected base relationship, then re-runs the check. When a
 check is allowed, admins can use **Revoke this access** from the same panel.
+
+Use **Admin → Security & Policy → OpenFGA ReBAC → Diagnostics** to compare one
+Keycloak subject against the default member and admin OpenFGA baselines. This is
+the fastest way to verify first-login or bootstrap tuple repair: a normal member
+should match the member baseline for `organization:<org>#can_use`,
+`user_profile:<sub>#can_read`, and read-only
+`admin_surface:<users|teams|skills|metrics|health>#can_read`, while admin-only
+checks such as `organization:<org>#can_manage` should drift from the member
+baseline but match the admin baseline.
 
 Use the subtle **View as** control beside the Admin top-level category tabs to
 preview the Admin console as a real OpenFGA principal. The modal searches users by
@@ -331,6 +368,17 @@ and `defaultAgent`. If a dynamic default agent is configured, the active model
 must allow `user:*` on `agent.can_use` and the summary should include the
 default-agent grant.
 
+The Web UI now also keeps that default-agent grant warm during normal operation:
+saving **Settings → Default Agent** writes `user:* user agent:<id>` for the new
+default and removes the prior default grant, while login bootstrap and the
+chat-available agent picker repair the current configured default if the tuple is
+missing. The picker also repairs `user:* user agent:<id>` for enabled Dynamic
+Agents whose visibility is `global`, so non-admin users can see global agents
+through OpenFGA even if the historical backfill has not run yet. The backfill
+remains useful for one-time reconciliation and provenance, but users should not
+need a manual OpenFGA grant to see the configured default or global Dynamic
+Agents.
+
 Before applying in an environment that already has team members, make sure users
 have logged in at least once through CAIPE so `users.keycloak_sub` is populated.
 The backfill uses that persisted Keycloak subject for `user:<sub>
@@ -400,9 +448,11 @@ header alert links admins back to this tab when either blocking migrations are
 pending or version metadata needs initialization. The migration list below the
 version grid shows only active pending/failed migrations by default. Use
 **Show completed migrations** to review completed cards backed by
-`schema_migrations`. Dry-run each active data/index migration first, review
-warnings and sample diffs, then type the exact confirmation phrase shown by the
-UI before applying.
+`schema_migrations`. Admins can select individual pending migrations or use
+**Select all pending migrations**, run **Dry run selected**, copy the bulk
+confirmation phrase `APPLY SELECTED MIGRATIONS`, and apply the selected
+migrations in manifest order. Single migration cards still support their
+per-migration dry-run and exact confirmation flow.
 If an environment upgrades across multiple releases, every required migration
 whose target version is newer than the collection's current DB version is
 surfaced.
@@ -503,6 +553,12 @@ admin UI and reload the page. There is no implicit channel default at runtime:
 each channel still needs an explicit setup action from discovery or the route
 editor.
 
+Non-admin users who have `can_manage` on one or more concrete Slack channels see
+the same **Admin → Integrations → Slack** tab as a self-service channel settings
+view. The list is filtered to channels they can read or manage, and the bulk
+onboarding/runtime-sync sections are hidden; route edits still go through the
+per-channel OpenFGA `can_manage` API checks.
+
 For runtime onboarding of new Slack channels, set `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true` on the Slack bot together with `SLACK_DEFAULT_TEAM_SLUG` and `SLACK_DEFAULT_AGENT_ID`. On the first message from an unmapped group channel, the bot creates the same channel-team mapping, OpenFGA channel-agent tuple, and route metadata for the configured defaults. Keep this off unless the default team and agent are intentionally broad enough for newly invited channels.
 
 ## Slack Bot Runtime Sync
@@ -551,6 +607,12 @@ If Slack replies with `I couldn't start your CAIPE session for this channel` and
 Webex spaces are administered through **Admin → Integrations → Webex** and
 **Admin → Teams → Webex Spaces**. They mirror Slack channel ReBAC with
 Webex-specific names and storage.
+
+Non-admin users with `can_manage` on at least one concrete Webex space also see
+**Admin → Integrations → Webex** as a self-service space settings view. It lists
+only spaces they can read or manage and keeps admin-only discovery/runtime-sync
+operations hidden; diagnostics and repair actions continue to call the
+per-space OpenFGA-protected APIs.
 
 ### Configure the Bot
 

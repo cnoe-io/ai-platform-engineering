@@ -141,6 +141,7 @@ const agentGrant = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  process.env.OPENFGA_HTTP = "http://openfga:8080";
   process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
@@ -167,6 +168,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.OPENFGA_HTTP;
   delete process.env.SLACK_WORKSPACE_ALIAS;
   delete process.env.SLACK_DEFAULT_TEAM_SLUG;
   delete process.env.SLACK_DEFAULT_AGENT_ID;
@@ -207,6 +209,41 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
   });
 
+  it("filters the Slack channel list to concrete channels the caller can read or manage", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: "CNOACCESS",
+        channel_name: "private-leadership",
+        active: true,
+      },
+    ]);
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed:
+        tuple.object === `slack_channel:${workspaceAlias}--${channelId}` &&
+        (tuple.relation === "can_read" || tuple.relation === "can_manage"),
+    }));
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        channel_name: "incidents",
+        can_manage: true,
+      }),
+    ]);
+  });
+
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [
@@ -231,6 +268,11 @@ describe("Slack channel ReBAC APIs", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `slack_channel:${workspaceAlias}--${channelId}`,
+    });
     expect(body.data.grants).toHaveLength(1);
     expect(mockCollections.slack_channel_grants.updateOne).toHaveBeenCalledWith(
       {
@@ -246,6 +288,28 @@ describe("Slack channel ReBAC APIs", () => {
       writes: [{ user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" }],
       deletes: [{ user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:stale-agent" }],
     });
+  });
+
+  it("does not update Slack channel grants when the actor cannot manage the team-owned channel", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: false });
+    const { PUT } = await import("../[workspaceId]/[channelId]/resources/route");
+
+    const response = await PUT(
+      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({ grants: [agentGrant] }),
+      }),
+      { params: Promise.resolve({ workspaceId, channelId }) }
+    );
+
+    expect(response.status).toBe(403);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `slack_channel:${workspaceAlias}--${channelId}`,
+    });
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+    expect(mockCollections.slack_channel_grants.updateOne).not.toHaveBeenCalled();
   });
 
   it("checks both channel grants and user resource grants", async () => {

@@ -4,8 +4,8 @@ import {
   withErrorHandler,
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from '@/lib/api-middleware';
+import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 
 const PROM_QUERY_TIMEOUT_MS = 15_000;
 
@@ -13,7 +13,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  * GET /api/admin/metrics
  *
  * Proxies PromQL queries to the Prometheus HTTP API.
- * Admin-only — requires OIDC admin group membership.
+ * OpenFGA baseline Metrics viewers may view metrics.
  *
  * Query params:
  *   query  – PromQL expression (required)
@@ -26,7 +26,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  */
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  await requireBaselineAdminSurfaceRead(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 
@@ -105,7 +105,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
  */
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  await requireBaselineAdminSurfaceRead(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 

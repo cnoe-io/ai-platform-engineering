@@ -17,6 +17,12 @@ import fs from "fs";
 import yaml from "js-yaml";
 import { getCollection } from "@/lib/mongodb";
 import { isMongoDBConfigured } from "@/lib/mongodb";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import {
+  reconcileConfigDrivenLlmModelRelationships,
+  reconcileConfigDrivenMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources";
 import type {
   DynamicAgentConfig,
   MCPServerConfig,
@@ -243,11 +249,33 @@ async function seedMCPServers(
     };
 
     await collection.replaceOne({ _id: serverId }, doc, { upsert: true });
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId,
+      organizationId: caipeOrgKey(),
+    });
     console.log(`[seed-config] Seeded MCP server: ${serverId}`);
     count++;
   }
 
   return count;
+}
+
+async function seedAgentGatewayAdminAccess(): Promise<void> {
+  try {
+    const orgKey = caipeOrgKey();
+    await writeOpenFgaTuples({
+      writes: [
+        {
+          user: `organization:${orgKey}#admin`,
+          relation: "manager",
+          object: "mcp_server:agentgateway",
+        },
+      ],
+      deletes: [],
+    });
+  } catch (error) {
+    console.warn("[seed-config] Failed to seed AgentGateway admin access:", error);
+  }
 }
 
 async function seedModels(models: SeedModel[]): Promise<number> {
@@ -278,6 +306,15 @@ async function seedModels(models: SeedModel[]): Promise<number> {
 
     await collection.replaceOne({ _id: model.model_id }, doc, {
       upsert: true,
+    });
+    await reconcileConfigDrivenLlmModelRelationships({
+      modelId: model.model_id,
+      organizationId: caipeOrgKey(),
+    }).catch((error) => {
+      console.warn(
+        `[seed-config] Failed to reconcile config-driven LLM model OpenFGA tuples for ${model.model_id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
     });
     count++;
   }
@@ -446,69 +483,75 @@ export async function applySeedConfig(): Promise<void> {
   const configPath = process.env.APP_CONFIG_PATH;
   if (!configPath) {
     console.log("[seed-config] APP_CONFIG_PATH not set, skipping seed");
-    return;
-  }
-
-  if (!isMongoDBConfigured) {
+  } else if (!isMongoDBConfigured) {
     console.warn(
       "[seed-config] MongoDB not configured, skipping seed",
     );
-    return;
+  } else {
+    try {
+      const config = loadSeedConfig(configPath);
+
+      console.log(
+        `[seed-config] Found ${config.models.length} models, ` +
+          `${config.mcp_servers.length} MCP servers, ` +
+          `${config.agents.length} agents, ` +
+          `${config.workflow_configs.length} workflow configs in config`,
+      );
+
+      // Extract current IDs for stale cleanup
+      const currentAgentIds = new Set(
+        config.agents
+          .map((a) => a.id as string)
+          .filter(Boolean),
+      );
+      const currentServerIds = new Set(
+        config.mcp_servers
+          .map((s) => s.id as string)
+          .filter(Boolean),
+      );
+      const currentModelIds = new Set(
+        config.models
+          .map((m) => m.model_id)
+          .filter(Boolean),
+      );
+      const currentWorkflowIds = new Set(
+        config.workflow_configs
+          .map((w) => w.id as string)
+          .filter(Boolean),
+      );
+
+      // Seed entities
+      const modelCount = await seedModels(config.models);
+      const serverCount = await seedMCPServers(config.mcp_servers);
+      await seedAgentGatewayAdminAccess();
+      const agentCount = await seedAgents(config.agents);
+      const workflowCount = await seedWorkflowConfigs(config.workflow_configs);
+
+      // Cleanup stale config-driven entities
+      await cleanupStaleConfigDriven(
+        currentAgentIds,
+        currentServerIds,
+        currentModelIds,
+        currentWorkflowIds,
+      );
+
+      console.log(
+        `[seed-config] Applied: ${modelCount} models, ` +
+          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs`,
+      );
+    } catch (err) {
+      // Log but don't crash — seeding failure shouldn't prevent startup
+      console.error("[seed-config] Failed to apply seed config:", err);
+    }
   }
 
   try {
-    const config = loadSeedConfig(configPath);
-
-    console.log(
-      `[seed-config] Found ${config.models.length} models, ` +
-        `${config.mcp_servers.length} MCP servers, ` +
-        `${config.agents.length} agents, ` +
-        `${config.workflow_configs.length} workflow configs in config`,
+    const { bootstrapOAuthConnectorsFromEnv } = await import(
+      "@/lib/credentials/oauth-bootstrap"
     );
-
-    // Extract current IDs for stale cleanup
-    const currentAgentIds = new Set(
-      config.agents
-        .map((a) => a.id as string)
-        .filter(Boolean),
-    );
-    const currentServerIds = new Set(
-      config.mcp_servers
-        .map((s) => s.id as string)
-        .filter(Boolean),
-    );
-    const currentModelIds = new Set(
-      config.models
-        .map((m) => m.model_id)
-        .filter(Boolean),
-    );
-    const currentWorkflowIds = new Set(
-      config.workflow_configs
-        .map((w) => w.id as string)
-        .filter(Boolean),
-    );
-
-    // Seed entities
-    const modelCount = await seedModels(config.models);
-    const serverCount = await seedMCPServers(config.mcp_servers);
-    const agentCount = await seedAgents(config.agents);
-    const workflowCount = await seedWorkflowConfigs(config.workflow_configs);
-
-    // Cleanup stale config-driven entities
-    await cleanupStaleConfigDriven(
-      currentAgentIds,
-      currentServerIds,
-      currentModelIds,
-      currentWorkflowIds,
-    );
-
-    console.log(
-      `[seed-config] Applied: ${modelCount} models, ` +
-        `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs`,
-    );
+    await bootstrapOAuthConnectorsFromEnv();
   } catch (err) {
-    // Log but don't crash — seeding failure shouldn't prevent startup
-    console.error("[seed-config] Failed to apply seed config:", err);
+    console.error("[seed-config] credential OAuth bootstrap threw:", err);
   }
 
   // Spec 104: provision per-team Keycloak client scopes for any teams

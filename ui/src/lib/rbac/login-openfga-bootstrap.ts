@@ -1,5 +1,6 @@
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { organizationObjectId } from "@/lib/rbac/organization";
+import { baselineAdminTuples, baselineMemberTuples } from "@/lib/rbac/baseline-access";
+import { getCollection } from "@/lib/mongodb";
 
 export type LoginOpenFgaBootstrapStatus = "skipped" | "completed" | "failed";
 
@@ -16,18 +17,33 @@ export interface LoginOpenFgaBootstrapInput {
   isAdmin: boolean;
 }
 
+const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+function normalizeDefaultAgentId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed && OPENFGA_ID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
 function baselineTuples(subject: string): OpenFgaTupleKey[] {
-  return [
-    { user: `user:${subject}`, relation: "member", object: organizationObjectId() },
-    { user: `user:${subject}`, relation: "reader", object: "system_config:platform_settings" },
-  ];
+  return baselineMemberTuples(subject);
 }
 
 function adminTuples(subject: string): OpenFgaTupleKey[] {
-  return [
-    { user: `user:${subject}`, relation: "admin", object: organizationObjectId() },
-    { user: `user:${subject}`, relation: "manager", object: "system_config:platform_settings" },
-  ];
+  return baselineAdminTuples(subject);
+}
+
+async function defaultAgentTuple(): Promise<OpenFgaTupleKey[]> {
+  try {
+    const config = await getCollection<{ default_agent_id?: unknown }>("platform_config");
+    const doc = await config.findOne({ _id: "platform_settings" } as never);
+    const defaultAgentId =
+      normalizeDefaultAgentId(doc?.default_agent_id) ?? normalizeDefaultAgentId(process.env.DEFAULT_AGENT_ID);
+    return defaultAgentId ? [{ user: "user:*", relation: "user", object: `agent:${defaultAgentId}` }] : [];
+  } catch {
+    const defaultAgentId = normalizeDefaultAgentId(process.env.DEFAULT_AGENT_ID);
+    return defaultAgentId ? [{ user: "user:*", relation: "user", object: `agent:${defaultAgentId}` }] : [];
+  }
 }
 
 export async function reconcileLoginOpenFgaAccess(
@@ -41,6 +57,7 @@ export async function reconcileLoginOpenFgaAccess(
   const writes = input.isAdmin
     ? [...baselineTuples(subject), ...adminTuples(subject)]
     : baselineTuples(subject);
+  writes.push(...(await defaultAgentTuple()));
 
   try {
     const result = await writeOpenFgaTuples({ writes, deletes: [] });

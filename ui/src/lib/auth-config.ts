@@ -186,16 +186,13 @@ export function isAdminUser(groups: string[]): boolean {
   return hasConfiguredGroup(groups, REQUIRED_ADMIN_GROUP);
 }
 
-// Helper to check if user can access dynamic agents.
-// If OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set, only that group has access
-// (organization/team relationships remain authoritative for protected APIs).
-// If unset, falls back to admin-only access.
+// Dynamic Agents access is authorized by OpenFGA resource checks in the Web UI
+// BFF. This legacy session flag remains only for backwards-compatible user
+// context payloads and must not encode AD/OIDC group policy.
 export function canAccessDynamicAgents(groups: string[]): boolean {
-  if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
-    return hasConfiguredGroup(groups, REQUIRED_DYNAMIC_AGENTS_GROUP);
-  }
-  // No explicit group configured → admins only
-  return isAdminUser(groups);
+  void groups;
+  void REQUIRED_DYNAMIC_AGENTS_GROUP;
+  return true;
 }
 
 // Helper to check if user can view admin dashboard (read-only)
@@ -785,11 +782,9 @@ export const authOptions: NextAuthOptions = {
       // admin view group is configured (all authenticated users can view).
       session.canViewAdmin = (token.canViewAdmin as boolean)
         ?? (REQUIRED_ADMIN_VIEW_GROUP === '' ? true : false);
-      // Admins always get dynamic agents access, regardless of what the JWT says.
-      // This covers both pre-upgrade tokens (missing field) and tokens computed
-      // before canAccessDynamicAgents() was updated to include the admin check.
-      session.canAccessDynamicAgents = (token.canAccessDynamicAgents === true)
-        || (session.role === 'admin');
+      // Legacy context flag only. Dynamic Agents authorization is enforced by
+      // OpenFGA-backed BFF/resource checks, not OIDC/AD group claims.
+      session.canAccessDynamicAgents = true;
 
       // If token refresh failed or the server-side token cache was lost,
       // mark session as invalid and DON'T include tokens.
@@ -905,7 +900,7 @@ declare module "next-auth" {
     refreshTokenExpiresAt?: number;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean; // Whether user can view admin dashboard (read-only)
-    canAccessDynamicAgents?: boolean; // Whether user can access custom agents
+    canAccessDynamicAgents?: boolean; // Legacy context flag; OpenFGA authorizes agents
     org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
@@ -920,7 +915,7 @@ declare module "next-auth/jwt" {
     isAuthorized?: boolean;
     role?: 'admin' | 'user';
     canViewAdmin?: boolean;
-    canAccessDynamicAgents?: boolean;
+    canAccessDynamicAgents?: boolean; // Legacy context flag; OpenFGA authorizes agents
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
     org?: string;           // Tenant identifier from org claim (FR-020)

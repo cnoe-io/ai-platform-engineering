@@ -16,6 +16,7 @@ import {
   Home,
   Bot,
   AlertTriangle,
+  KeyRound,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -142,7 +143,7 @@ function GuardedLink({
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin, canViewAdmin, canAccessDynamicAgents } = useAdminRole();
+  const { isAdmin } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
@@ -242,6 +243,7 @@ export function AppHeader() {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/credentials")) return "credentials";
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
@@ -385,8 +387,8 @@ export function AppHeader() {
                Knowledge Bases
             </GuardedLink>
           )}
-          {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
-          {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+          {/* Dynamic Agents tab - APIs enforce OpenFGA resource checks. */}
+          {storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
             <GuardedLink
               href="/dynamic-agents"
               prefetch={true}
@@ -399,6 +401,21 @@ export function AppHeader() {
             >
               <Bot className="h-3.5 w-3.5 shrink-0" />
               Agents
+            </GuardedLink>
+          )}
+          {storageMode === 'mongodb' && config.credentialsEnabled && (
+            <GuardedLink
+              href="/credentials"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "credentials"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <KeyRound className="h-3.5 w-3.5 shrink-0" />
+              Connections
             </GuardedLink>
           )}
           {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}

@@ -39,6 +39,7 @@ export interface RebacCatalog {
 const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("organization", "caipe", "CAIPE", "rebac_shadowed"),
   resource("user", "current-user", "Current User", "role_gated"),
+  resource("user_profile", "current-user", "Current User Profile", "rebac_enforced"),
   resource("external_group", "example-enterprise-group", "Example Enterprise Group", "rebac_shadowed"),
   resource("team", "platform", "Platform", "rebac_shadowed"),
   resource("slack_workspace", "workspace-default", "Default Slack Workspace", "role_gated"),
@@ -46,6 +47,7 @@ const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("webex_workspace", "workspace-default", "Default Webex Workspace", "role_gated"),
   resource("webex_space", "workspace-default--platform", "Platform Space", "role_gated"),
   resource("agent", "platform-engineer", "Platform Engineer", "rebac_shadowed"),
+  resource("llm_model", "default", "Default LLM Model", "rebac_enforced"),
   resource("mcp_gateway", "list", "AgentGateway MCP list", "rebac_shadowed"),
   resource("mcp_server", "argocd", "Argo CD MCP Server", "role_gated"),
   resource("tool", "argocd_*", "Argo CD Tools", "rebac_shadowed"),
@@ -119,13 +121,14 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
     definitions.map((definition) => [definition.type, definition.actions])
   );
 
-  const [teams, users, agents, mcpServers, kbOwnership, slackMappings, webexMappings] =
+  const [teams, users, agents, llmModels, mcpServers, kbOwnership, slackMappings, webexMappings] =
     await Promise.all([
       readCollection<{ _id: unknown; slug?: string; name?: string; status?: string }>("teams"),
-      readCollection<{ _id?: unknown; email?: string; name?: string; role?: string }>("users"),
+      readCollection<{ _id?: unknown; email?: string; name?: string; role?: string; keycloak_sub?: string; metadata?: { keycloak_sub?: string } }>("users"),
       readCollection<{ _id: unknown; name?: string; description?: string }>("dynamic_agents", {
         enabled: { $ne: false },
       }),
+      readCollection<{ _id: unknown; name?: string; model_id?: string }>("llm_models"),
       readCollection<{ _id: unknown; name?: string; description?: string }>("mcp_servers", {
         enabled: { $ne: false },
       }),
@@ -161,8 +164,20 @@ export async function listRebacCatalog(input: ListRebacCatalogInput = {}): Promi
     ...users.map((user) =>
       resource("user", user.email || String(user._id), user.name || user.email || String(user._id), "role_gated")
     ),
+    ...users.map((user) => {
+      const subject = user.keycloak_sub || user.metadata?.keycloak_sub || String(user._id);
+      return resource(
+        "user_profile",
+        subject,
+        `${user.name || user.email || subject} profile`,
+        "rebac_enforced"
+      );
+    }),
     ...agents.map((agent) =>
       resource("agent", String(agent._id), agent.name || String(agent._id), "rebac_shadowed")
+    ),
+    ...llmModels.map((model) =>
+      resource("llm_model", String(model._id), model.name || model.model_id || String(model._id), "rebac_enforced")
     ),
     ...mcpServers.flatMap((server) => [
       resource("mcp_server", String(server._id), server.name || String(server._id), "role_gated"),

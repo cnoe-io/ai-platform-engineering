@@ -5,9 +5,9 @@
 import { NextRequest } from "next/server";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
+const mockReconcileConfigDrivenMcpServerRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -20,7 +20,6 @@ jest.mock("@/lib/api-middleware", () => {
   return {
     ApiError,
     getAuthFromBearerOrSession: (...args: unknown[]) => mockGetAuthFromBearerOrSession(...args),
-    requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
     successResponse: (data: unknown, status = 200) => Response.json({ success: true, data }, { status }),
     withErrorHandler:
       <T,>(handler: (request: NextRequest) => Promise<T>) =>
@@ -35,6 +34,11 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+  reconcileConfigDrivenMcpServerRelationships: (...args: unknown[]) =>
+    mockReconcileConfigDrivenMcpServerRelationships(...args),
 }));
 
 const agentGatewayConfig = {
@@ -69,8 +73,8 @@ function request(path: string, init?: RequestInit): NextRequest {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "admin-sub", role: "admin" } });
-  mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
+  mockReconcileConfigDrivenMcpServerRelationships.mockResolvedValue({ enabled: true, writes: 4, deletes: 0 });
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => agentGatewayConfig,
@@ -78,7 +82,7 @@ beforeEach(() => {
 });
 
 describe("AgentGateway MCP server discovery API", () => {
-  it("discovers AgentGateway MCP targets and marks direct registrations as conflicts", async () => {
+  it("discovers AgentGateway MCP targets and marks direct registrations as legacy migrations", async () => {
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
@@ -98,15 +102,9 @@ describe("AgentGateway MCP server discovery API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
-      { sub: "admin-sub", role: "admin" },
-      "mcp_server",
-      "view",
-    );
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "discover" },
-      { allowAdminBypass: true },
     );
     expect(body.data.targets).toEqual([
       expect.objectContaining({ id: "rag", status: "new" }),
@@ -114,14 +112,15 @@ describe("AgentGateway MCP server discovery API", () => {
         id: "jira",
         endpoint: "http://agentgateway:4000/mcp",
         target_endpoint: "http://mcp-jira:8000/mcp",
-        status: "conflict",
+        status: "legacy",
         existing_endpoint: "http://mcp-jira:8000/mcp",
       }),
     ]);
   });
 
-  it("auto-imports all new AgentGateway MCP targets and reports legacy conflicts", async () => {
+  it("auto-imports new AgentGateway MCP targets and migrates legacy direct registrations", async () => {
     const insertOne = jest.fn();
+    const updateOne = jest.fn();
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
@@ -135,6 +134,7 @@ describe("AgentGateway MCP server discovery API", () => {
         ]),
       }),
       insertOne,
+      updateOne,
     });
     const { POST } = await import("../sync/route");
 
@@ -151,7 +151,6 @@ describe("AgentGateway MCP server discovery API", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "admin" },
-      { allowAdminBypass: true },
     );
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,67 +164,69 @@ describe("AgentGateway MCP server discovery API", () => {
         agentgateway_target_endpoint: "http://rag-server:9446/mcp",
       }),
     );
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "jira" },
+      {
+        $set: expect.objectContaining({
+          _id: "jira",
+          endpoint: "http://agentgateway:4000/mcp",
+          source: "agentgateway",
+          agentgateway_discovered: true,
+          agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
+        }),
+      },
+    );
+    expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
+      serverId: "rag",
+      organizationId: "caipe",
+    });
+    expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
+      serverId: "jira",
+      organizationId: "caipe",
+    });
     expect(body.data).toMatchObject({
       added: ["rag"],
-      skipped: [{ id: "jira", reason: "conflict" }],
+      migrated: ["jira"],
       summary: {
         added: 1,
         existing: 0,
-        conflicts: 1,
-        skipped: 1,
+        migrated: 1,
+        conflicts: 0,
+        skipped: 0,
       },
-      conflicts: [
-        expect.objectContaining({
-          id: "jira",
-          endpoint: "http://agentgateway:4000/mcp",
-          existing_endpoint: "http://mcp-jira:8000/mcp",
-        }),
-      ],
-      migration_warnings: [
-        expect.objectContaining({
-          id: "jira",
-          message: expect.stringMatching(/legacy MCP server conflicts with AgentGateway/i),
-        }),
-      ],
+      conflicts: [],
+      migration_warnings: [],
     });
   });
 
-  it("allows admin discovery to bypass missing AgentGateway object grant", async () => {
-    mockRequireResourcePermission.mockImplementation((_session, _resource, options) => {
-      if (options?.allowAdminBypass) return Promise.resolve();
-      return Promise.reject(new Error("no discovery"));
-    });
+  it("repairs OpenFGA grants for existing AgentGateway-managed MCP servers during sync", async () => {
+    const insertOne = jest.fn();
+    const updateOne = jest.fn();
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "rag",
+            name: "RAG",
+            transport: "http",
+            endpoint: "http://agentgateway:4000/mcp",
+            enabled: true,
+            source: "agentgateway",
+            agentgateway_discovered: true,
+          },
+          {
+            _id: "jira",
+            name: "Jira",
+            transport: "http",
+            endpoint: "http://agentgateway:4000/mcp",
+            enabled: true,
+            source: "agentgateway",
+            agentgateway_discovered: true,
+          },
+        ]),
       }),
-    });
-    const { GET } = await import("../discover/route");
-
-    const response = await GET(request("/api/mcp-servers/agentgateway/discover"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data.targets).toEqual([
-      expect.objectContaining({ id: "rag", status: "new" }),
-      expect.objectContaining({ id: "jira", status: "new" }),
-    ]);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "admin-sub", role: "admin" },
-      { type: "mcp_server", id: "agentgateway", action: "discover" },
-      { allowAdminBypass: true },
-    );
-  });
-
-  it("allows admin sync to bypass missing AgentGateway object grant", async () => {
-    const insertOne = jest.fn();
-    mockGetCollection.mockResolvedValue({
-      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
       insertOne,
-    });
-    mockRequireResourcePermission.mockImplementation((_session, _resource, options) => {
-      if (options?.allowAdminBypass) return Promise.resolve();
-      return Promise.reject(new Error("no manage"));
+      updateOne,
     });
     const { POST } = await import("../sync/route");
 
@@ -239,8 +240,66 @@ describe("AgentGateway MCP server discovery API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(insertOne).toHaveBeenCalledTimes(2);
-    expect(body.data.summary).toMatchObject({ added: 2, conflicts: 0 });
+    expect(insertOne).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
+      serverId: "rag",
+      organizationId: "caipe",
+    });
+    expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
+      serverId: "jira",
+      organizationId: "caipe",
+    });
+    expect(body.data).toMatchObject({
+      added: [],
+      migrated: [],
+      refreshed: ["rag", "jira"],
+      summary: {
+        added: 0,
+        existing: 2,
+        migrated: 0,
+        refreshed: 2,
+        conflicts: 0,
+        skipped: 0,
+      },
+    });
+  });
+
+  it("denies admin discovery when OpenFGA denies the AgentGateway object grant", async () => {
+    mockRequireResourcePermission.mockRejectedValue(new Error("no discovery"));
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    const { GET } = await import("../discover/route");
+
+    await expect(GET(request("/api/mcp-servers/agentgateway/discover"))).rejects.toThrow("no discovery");
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "admin-sub", role: "admin" },
+      { type: "mcp_server", id: "agentgateway", action: "discover" },
+    );
+  });
+
+  it("denies admin sync when OpenFGA denies the AgentGateway object grant", async () => {
+    const insertOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      insertOne,
+    });
+    mockRequireResourcePermission.mockRejectedValue(new Error("no manage"));
+    const { POST } = await import("../sync/route");
+
+    await expect(
+      POST(
+        request("/api/mcp-servers/agentgateway/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+      ),
+    ).rejects.toThrow("no manage");
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
   it("validates selected target ids after the manage gate when ids are provided", async () => {
@@ -259,7 +318,6 @@ describe("AgentGateway MCP server discovery API", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "admin" },
-      { allowAdminBypass: true },
     );
   });
 });

@@ -177,21 +177,21 @@ function parseRoute(
   };
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacViewAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacViewAuth(request, async () => {
     const [agentIds, metadataRoutes] = await Promise.all([
       listOpenFgaChannelAgentIds(workspaceId, channelId),
       listSlackChannelAgentRoutes(workspaceId, channelId),
     ]);
     const routes = mergeOpenFgaAgentsWithMetadata(workspaceId, channelId, agentIds, metadataRoutes);
     return successResponse({ routes });
-  })
-);
+  }, { workspaceId, channelId });
+});
 
-export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacManageAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacManageAuth(request, async () => {
     const body = (await request.json()) as { routes?: unknown };
     if (!Array.isArray(body.routes)) {
       throw new ApiError("routes must be an array", 400);
@@ -219,12 +219,12 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const saved = await replaceSlackChannelAgentRoutes(workspaceId, channelId, routes, actor);
 
     return successResponse({ routes: saved, openfga });
-  })
-);
+  }, { workspaceId, channelId });
+});
 
-export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacManageAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacManageAuth(request, async () => {
     const body = (await request.json()) as { agent_id?: unknown };
     const agentId = typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     if (!agentId) {
@@ -247,5 +247,5 @@ export const DELETE = withErrorHandler(async (request: NextRequest, context: Rou
       },
       openfga,
     });
-  })
-);
+  }, { workspaceId, channelId });
+});

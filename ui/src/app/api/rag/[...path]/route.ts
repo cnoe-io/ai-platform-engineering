@@ -12,6 +12,7 @@ import {
   requireResourcePermission,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
+import { reconcileKnowledgeBaseRelationships } from '@/lib/rbac/openfga-owned-resources';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
@@ -54,7 +55,7 @@ function scopeForRagProxyMethod(method: string, pathSegments: string[] = []): Rb
     path === 'v1/datasource' ||
     path.startsWith('v1/datasource/')
   ) {
-    return 'admin';
+    return method === 'GET' || method === 'POST' ? 'query' : 'admin';
   }
   switch (method) {
     case 'GET':
@@ -112,6 +113,20 @@ interface AuthorizedRagContext {
     role?: string;
     user?: { email?: string | null };
   };
+  pendingKnowledgeBaseOwnership?: {
+    knowledgeBaseId: string;
+    ownerSubject: string | null;
+    ownerTeamSlug: string | null;
+  };
+}
+
+function normalizeString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function isDatasourceCreateRequest(method: string, pathSegments: string[]): boolean {
+  const path = pathSegments.join('/').toLowerCase();
+  return method === 'POST' && (path === 'v1/datasource' || path === 'v1/datasources');
 }
 
 async function getAuthorizedRagContext(
@@ -135,14 +150,28 @@ async function getAuthorizedRagContext(
   );
 
   const kbId = extractKnowledgeBaseId(request, pathSegments, body);
-  if (kbId) {
+  let pendingKnowledgeBaseOwnership: AuthorizedRagContext['pendingKnowledgeBaseOwnership'];
+  if (kbId && isDatasourceCreateRequest(method, pathSegments)) {
+    const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
+    if (ownerTeamSlug) {
+      await requireResourcePermission(
+        { sub: session.sub, role: session.role, user: session.user },
+        { type: 'team', id: ownerTeamSlug, action: 'use' },
+      );
+    }
+    const ownerSubject = normalizeString(session.sub);
+    if (!ownerSubject) {
+      throw new ApiError('A stable user subject is required for knowledge base ownership.', 401, 'NO_SUBJECT');
+    }
+    pendingKnowledgeBaseOwnership = {
+      knowledgeBaseId: kbId,
+      ownerSubject,
+      ownerTeamSlug,
+    };
+  } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
     const target = { type: 'knowledge_base' as const, id: kbId, action: actionForRagRequest(method, pathSegments) };
-    if (session.role === 'admin') {
-      await requireResourcePermission(authzSession, target, { allowAdminBypass: true });
-    } else {
-      await requireResourcePermission(authzSession, target);
-    }
+    await requireResourcePermission(authzSession, target);
   }
 
   const headers: Record<string, string> = {
@@ -155,7 +184,7 @@ async function getAuthorizedRagContext(
   // Spec 104: team scope is now carried by the `active_team` JWT claim,
   // not the X-Team-Id header. The RAG server reads it directly from the
   // bearer token via its JwtAuthMiddleware.
-  return { headers, session };
+  return { headers, session, pendingKnowledgeBaseOwnership };
 }
 
 function isDatasourceListRequest(method: string, pathSegments: string[]): boolean {
@@ -186,10 +215,6 @@ async function filterDatasourceListResponse(
   }
 
   const envelope = data as { datasources: Array<Record<string, unknown>>; count?: number };
-  if (session.role === 'admin') {
-    return { ...envelope, count: envelope.datasources.length };
-  }
-
   const candidates = envelope.datasources.filter((resource) => datasourceId(resource));
   const datasources = await filterResourcesByPermission(
     session,
@@ -264,7 +289,8 @@ function constrainDatasourceFilter(
     filters.datasource_id = allowedDatasourceIds.length === 1 ? allowedDatasourceIds[0] : allowedDatasourceIds;
   }
 
-  const { datasource_id: _legacyDatasourceId, ...rest } = value;
+  const { datasource_id, ...rest } = value;
+  void datasource_id;
   return { ...rest, filters };
 }
 
@@ -355,7 +381,7 @@ export async function POST(
       }
     }
 
-    const { headers, session } = await getAuthorizedRagContext('POST', path, request, body);
+    const { headers, session, pendingKnowledgeBaseOwnership } = await getAuthorizedRagContext('POST', path, request, body);
     body = await constrainSearchBody(session, headers, path, body);
     const fetchOptions: RequestInit = {
       method: 'POST',
@@ -373,6 +399,9 @@ export async function POST(
     }
 
     const data = await response.json();
+    if (response.ok && pendingKnowledgeBaseOwnership) {
+      await reconcileKnowledgeBaseRelationships(pendingKnowledgeBaseOwnership);
+    }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     if (error instanceof ApiError) {

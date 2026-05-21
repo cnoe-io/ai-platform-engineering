@@ -86,10 +86,10 @@ function currentRuntimeError(
   return lastError;
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacViewAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacViewAuth(request, async () => {
     const metadataRoutes = await listWebexSpaceAgentRoutes(workspaceId, spaceId);
     const warnings: string[] = [];
     let openfgaAgentIds: string[] = [];
@@ -143,5 +143,5 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
       warnings: Array.from(new Set(warnings)),
       last_runtime_error: currentRuntimeError(lastError, openfgaError),
     });
-  })
-);
+  }, { workspaceId, spaceId });
+});

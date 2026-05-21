@@ -93,9 +93,9 @@ async function latestRuntimeError(workspaceId: string, channelId: string) {
   }
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacViewAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacViewAuth(request, async () => {
     const metadataRoutes = await listSlackChannelAgentRoutes(workspaceId, channelId);
     const warnings: string[] = [];
     let openfgaAgentIds: string[] = [];
@@ -148,5 +148,5 @@ export const GET = withErrorHandler(async (request: NextRequest, context: RouteC
       warnings: Array.from(new Set(warnings)),
       last_runtime_error: await latestRuntimeError(workspaceId, channelId),
     });
-  })
-);
+  }, { workspaceId, channelId });
+});

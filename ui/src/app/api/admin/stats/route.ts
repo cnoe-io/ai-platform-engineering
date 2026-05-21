@@ -6,8 +6,8 @@ import {
   getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
 } from '@/lib/api-middleware';
+import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
@@ -51,7 +51,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  await requireAdminSurfaceManage(session, 'stats');
 
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);

@@ -905,7 +905,7 @@ describe('auth-config', () => {
     })
   })
 
-  describe('canAccessDynamicAgents (OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP)', () => {
+  describe('canAccessDynamicAgents (OpenFGA-only Dynamic Agents access)', () => {
     const originalEnv = process.env
 
     beforeEach(() => {
@@ -917,81 +917,31 @@ describe('auth-config', () => {
       process.env = originalEnv
     })
 
-    it('returns false for empty groups when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is not set (falls back to admin check)', () => {
-      // No env var set → fallback to isAdminUser → REQUIRED_ADMIN_GROUP is '' → false
-      expect(canAccessDynamicAgents([])).toBe(false)
-    })
-
-    it('returns false for non-admin groups when env var not set (admin fallback)', () => {
-      expect(canAccessDynamicAgents(['eng', 'backend'])).toBe(false)
-    })
-
-    it('returns true when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set and user is in that group', () => {
+    it('does not use AD/OIDC groups as a Dynamic Agents authorization gate', () => {
       jest.isolateModules(() => {
         process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
         const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn(['custom-agents-users', 'eng'])).toBe(true)
-      })
-    })
-
-    it('returns false when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set but user is not in that group', () => {
-      jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
-        const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn(['eng', 'caipe-users'])).toBe(false)
-      })
-    })
-
-    it('check is case-insensitive', () => {
-      jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'Custom-Agents-Users'
-        const { canAccessDynamicAgents: fn } = require('../auth-config')
+        expect(fn([])).toBe(true)
+        expect(fn(['eng', 'caipe-users'])).toBe(true)
         expect(fn(['custom-agents-users'])).toBe(true)
       })
     })
 
-    it('matches LDAP DN format (cn=... substring)', () => {
+    it('does not fall back to admin-only access when the dynamic agents group is unset', () => {
       jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        delete process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP
         const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn(['CN=custom-agents-users,OU=Groups,DC=example,DC=com'])).toBe(true)
+        expect(fn([])).toBe(true)
+        expect(fn(['eng', 'backend'])).toBe(true)
       })
     })
 
-    it('does not match partial substring outside of DN format', () => {
-      jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'agents'
-        const { canAccessDynamicAgents: fn } = require('../auth-config')
-        // "custom-agents-users" contains "agents" as substring but should NOT match
-        // (only exact or cn=... match is valid)
-        expect(fn(['custom-agents-users'])).toBe(false)
-      })
-    })
-
-    it('returns false for empty groups even when env var is set', () => {
-      jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
-        const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn([])).toBe(false)
-      })
-    })
-
-    it('ignores admin group when OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP is set', () => {
+    it('ignores admin group membership because OpenFGA resource checks are authoritative', () => {
       jest.isolateModules(() => {
         process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
         process.env.OIDC_REQUIRED_ADMIN_GROUP = 'sre-admin'
         const { canAccessDynamicAgents: fn } = require('../auth-config')
-        // User is in admin group but NOT in custom-agents-users → should return false
-        expect(fn(['sre-admin'])).toBe(false)
-      })
-    })
-
-    it('env var set to empty string falls back to admin check', () => {
-      jest.isolateModules(() => {
-        process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = ''
-        // REQUIRED_ADMIN_GROUP defaults to '' → isAdminUser returns false
-        const { canAccessDynamicAgents: fn } = require('../auth-config')
-        expect(fn(['eng'])).toBe(false)
+        expect(fn(['sre-admin'])).toBe(true)
       })
     })
   })

@@ -736,6 +736,24 @@ services:
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
       - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # Connections & Secrets. Docker Compose reads provider bootstrap values
+      # from .env; Kubernetes deployments use ESO to inject the same env names.
+      - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
+      - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
+      - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
+      - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
+      - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
+      - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-}
+      - CONFLUENCE_CLIENT_ID=${CONFLUENCE_CLIENT_ID:-}
+      - CONFLUENCE_CLIENT_SECRET=${CONFLUENCE_CLIENT_SECRET:-}
+      - CONFLUENCE_REDIRECT_URI=${CONFLUENCE_REDIRECT_URI:-}
+      - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
+      - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
+      - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s

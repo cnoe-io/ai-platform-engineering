@@ -187,7 +187,13 @@ export function MCPServersTab() {
         throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
       }
       const addedCount = data.data.added?.length || 0;
-      setAgentGatewayMessage(`Added ${addedCount} MCP server${addedCount === 1 ? "" : "s"} from AgentGateway.`);
+      const migratedCount = data.data.migrated?.length || 0;
+      const refreshedCount = data.data.refreshed?.length || 0;
+      setAgentGatewayMessage(
+        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
+          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
+        } from AgentGateway.`,
+      );
       setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
       await fetchServers();
     } catch (err: any) {

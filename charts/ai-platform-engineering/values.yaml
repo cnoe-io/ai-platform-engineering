@@ -790,6 +790,18 @@ caipe-ui:
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
     # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+    # Connections & Secrets credential store. Disabled by default. Use local-cmk
+    # only for non-production testing; production must use aws-kms.
+    CAIPE_CREDENTIALS_ENABLED: "false"
+    CREDENTIAL_STORE_BACKEND: "mongodb-envelope"
+    CREDENTIAL_KEY_PROVIDER: "local-cmk"
+    CREDENTIAL_KMS_CMK_ID: ""
+    CREDENTIAL_KMS_REGION: ""
+    CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+    # Bootstrap global OAuth connectors from server env at startup. In
+    # Kubernetes, provide provider client IDs/secrets/redirect URIs through
+    # externalSecrets; in Docker Compose, provide them through .env.
+    CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true; the in-cluster Service
     # name is derived from the Helm release name, so the URL is rendered
@@ -993,6 +1005,11 @@ dynamic-agents:
   config:
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
+    # Connections & Secrets credential exchange client. Disabled by default.
+    CAIPE_CREDENTIALS_ENABLED: "false"
+    CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
+    CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+    USE_IMPERSONATION_TOKENS: "false"
     # MCP server IDs routed through the shared AgentGateway backend.
     # Other MCP servers keep direct endpoints so tool names reflect real upstreams.
     AGENT_GATEWAY_MCP_SERVER_IDS: "jira"

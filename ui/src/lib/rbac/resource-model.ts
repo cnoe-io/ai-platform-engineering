@@ -30,6 +30,11 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
     description: "User profile and identity-link state.",
   },
   {
+    type: "user_profile",
+    actions: ["discover", "read", "create", "manage", "audit"],
+    description: "OpenFGA self-read profile object keyed by Keycloak subject.",
+  },
+  {
     type: "external_group",
     actions: ["discover", "read", "map", "audit"],
     description: "Enterprise identity group imported from an upstream provider.",
@@ -61,8 +66,13 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
   },
   {
     type: "agent",
-    actions: ["discover", "read", "use", "write", "manage", "audit"],
+    actions: ["discover", "read", "use", "write", "create", "manage", "audit"],
     description: "Agent execution and configuration resource.",
+  },
+  {
+    type: "llm_model",
+    actions: ["discover", "read", "write", "create", "delete", "manage", "audit"],
+    description: "LLM model registration available to Dynamic Agents.",
   },
   {
     type: "mcp_gateway",
@@ -71,7 +81,7 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
   },
   {
     type: "mcp_server",
-    actions: ["discover", "read", "use", "invoke", "manage", "audit"],
+    actions: ["discover", "read", "use", "invoke", "create", "manage", "audit"],
     description: "MCP server registration and invocation scope.",
   },
   {
@@ -91,12 +101,12 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
   },
   {
     type: "skill",
-    actions: ["discover", "read", "use", "write", "manage", "audit"],
+    actions: ["discover", "read", "use", "write", "create", "manage", "audit"],
     description: "Skill catalog entry and execution permission.",
   },
   {
     type: "task",
-    actions: ["discover", "read", "use", "write", "manage", "audit"],
+    actions: ["discover", "read", "use", "write", "create", "manage", "audit"],
     description: "Task template or execution target.",
   },
   {
@@ -121,7 +131,7 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
   },
   {
     type: "secret_ref",
-    actions: ["discover", "read-metadata", "use", "manage", "audit"],
+    actions: ["discover", "read-metadata", "use", "manage", "share", "audit"],
     description: "Secret reference metadata and usage authorization without secret disclosure.",
   },
   {

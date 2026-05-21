@@ -97,11 +97,27 @@ jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
 }));
 
 jest.mock('@/components/admin/rebac/SlackChannelRebacPanel', () => ({
-  SlackChannelRebacPanel: () => <div data-testid="slack-integration-panel">SlackIntegrationPanel</div>,
+  SlackChannelRebacPanel: (props: { disabled?: boolean; selfService?: boolean }) => (
+    <div
+      data-testid="slack-integration-panel"
+      data-disabled={String(Boolean(props.disabled))}
+      data-self-service={String(Boolean(props.selfService))}
+    >
+      SlackIntegrationPanel
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/rebac/WebexSpaceRebacPanel', () => ({
-  WebexSpaceRebacPanel: () => <div data-testid="webex-integration-panel">WebexIntegrationPanel</div>,
+  WebexSpaceRebacPanel: (props: { disabled?: boolean; selfService?: boolean }) => (
+    <div
+      data-testid="webex-integration-panel"
+      data-disabled={String(Boolean(props.disabled))}
+      data-self-service={String(Boolean(props.selfService))}
+    >
+      WebexIntegrationPanel
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
@@ -464,6 +480,37 @@ describe('Admin Dashboard Page', () => {
       const table = screen.getByRole('table');
       expect(within(table).queryByText('Roles')).not.toBeInTheDocument();
       expect(screen.queryByText('All roles')).not.toBeInTheDocument();
+    });
+
+    it('opens resource-scoped Slack and Webex panels for non-admin messaging managers', async () => {
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          roles: false,
+          identity_group_sync: false,
+          feedback: false,
+          nps: false,
+          stats: false,
+          audit_logs: false,
+          action_audit: false,
+          openfga: false,
+          migrations: false,
+          slack: true,
+          webex: true,
+        },
+      });
+      currentSearchParams = new URLSearchParams('cat=integrations&tab=slack');
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole('tab', { name: /^Slack$/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /^Webex$/i })).toBeInTheDocument();
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'false');
     });
   });
 

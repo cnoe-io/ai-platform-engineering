@@ -27,7 +27,7 @@ describe("bootstrap admin reconciliation", () => {
     mockEnsureUserByEmail
       .mockResolvedValueOnce({ id: "sub-admin", email: "admin@cisco.com", created: false })
       .mockResolvedValueOnce({ id: "sub-second", email: "second@cisco.com", created: true });
-    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 11, deletes: 0 });
   });
 
   afterAll(() => {
@@ -43,14 +43,22 @@ describe("bootstrap admin reconciliation", () => {
     expect(result.configured_emails).toEqual(["admin@cisco.com", "second@cisco.com"]);
     expect(result.resolved_count).toBe(2);
     expect(result.created_count).toBe(1);
-    expect(result.tuple_write_count).toBe(6);
+    expect(result.tuple_write_count).toBe(22);
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("admin@cisco.com");
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("second@cisco.com");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
         { user: "user:sub-admin", relation: "member", object: "organization:grid" },
+        { user: "user:sub-admin", relation: "reader", object: "system_config:platform_settings" },
+        { user: "user:sub-admin", relation: "owner", object: "user_profile:sub-admin" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:users" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:teams" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:skills" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:health" },
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
+        { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
       ],
       deletes: [],
     });
@@ -60,13 +68,13 @@ describe("bootstrap admin reconciliation", () => {
           email: "admin@cisco.com",
           user_id: "sub-admin",
           status: "existing",
-          tuple_write_count: 3,
+          tuple_write_count: 11,
         }),
         expect.objectContaining({
           email: "second@cisco.com",
           user_id: "sub-second",
           status: "created",
-          tuple_write_count: 3,
+          tuple_write_count: 11,
         }),
       ]),
     );

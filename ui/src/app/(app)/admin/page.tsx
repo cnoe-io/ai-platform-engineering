@@ -54,6 +54,7 @@ import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
+import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
@@ -234,8 +235,8 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
 } as const;
@@ -271,6 +272,7 @@ const CATEGORIES: Category[] = [
       { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
       { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
+      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
     ],
@@ -482,6 +484,7 @@ function AdminPage() {
       feedback: Boolean(gates.feedback && feedbackEnabled),
       nps: Boolean(gates.nps && npsEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
+      credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
       settings: !isSimulationActive,
       ai_review: isAdmin && !isSimulationActive,
     }),
@@ -1421,6 +1424,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.credentials && (
+                <TabsContent value="credentials" className="space-y-4">
+                  <AdminCredentialManagementPanel />
+                </TabsContent>
+              )}
+
               {tabGateValues.openfga && (
                 <TabsContent value="rag-access" className="space-y-4">
                   <RagTeamAccessPanel isAdmin={isAdmin} />
@@ -1429,13 +1438,13 @@ function AdminPage() {
 
               {tabGateValues.slack && (
                 <TabsContent value="slack" className="space-y-4">
-                  <SlackChannelRebacPanel disabled={!isAdmin || isSimulationActive} />
+                  <SlackChannelRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
                 </TabsContent>
               )}
 
               {tabGateValues.webex && (
                 <TabsContent value="webex" className="space-y-4">
-                  <WebexSpaceRebacPanel disabled={!isAdmin || isSimulationActive} />
+                  <WebexSpaceRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
                 </TabsContent>
               )}
 
@@ -1447,6 +1456,7 @@ function AdminPage() {
                     userId={selectedUserId}
                     onClose={() => setSelectedUserId(null)}
                     onSaved={() => {}}
+                    readOnly={!isAdmin}
                   />
                 )}
               </TabsContent>
@@ -1517,7 +1527,7 @@ function AdminPage() {
                 ) : filteredTeams.length === 0 ? (
                   <div className="rounded-lg border border-dashed py-12 text-center">
                     <Search className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No teams match "{teamSearch}"</h3>
+                    <h3 className="text-lg font-semibold mb-2">No teams match &quot;{teamSearch}&quot;</h3>
                     <p className="text-muted-foreground mb-4">
                       Try a team name, owner email, member email, or description.
                     </p>

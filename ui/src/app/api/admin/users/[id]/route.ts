@@ -7,6 +7,7 @@ import {
   getAuthFromBearerOrSession,
   requireRbacPermission,
 } from "@/lib/api-middleware";
+import { requireUserProfileRead } from "@/lib/rbac/require-openfga";
 import {
   getRealmUserById,
   listRealmRoleMappingsForUser,
@@ -36,10 +37,9 @@ export const GET = withErrorHandler(
     context: { params: Promise<{ id: string }> }
   ) => {
     const { session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "view");
-
     const params = await context.params;
     const id = params.id;
+    await requireUserProfileRead(session, id);
 
     const [kcUser, realmRoles, sessions, federatedIdentities] = await Promise.all([
       getRealmUserById(id),

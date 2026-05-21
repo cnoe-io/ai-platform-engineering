@@ -91,19 +91,19 @@ function toGrantInputs(
     }));
 }
 
-export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacViewAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const GET = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacViewAuth(request, async () => {
     const grants = await listOpenFgaAgentGrants(workspaceId, spaceId);
     return successResponse({ grants });
-  })
-);
+  }, { workspaceId, spaceId });
+});
 
-export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacManageAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const PUT = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacManageAuth(request, async () => {
     const body = (await request.json()) as { grants?: unknown };
     if (!Array.isArray(body.grants)) {
       throw new ApiError("grants must be an array", 400);
@@ -146,5 +146,5 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
         502
       );
     }
-  })
-);
+  }, { workspaceId, spaceId });
+});

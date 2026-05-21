@@ -25,7 +25,6 @@ export async function GET(request: NextRequest): Promise<Response> {
     await requireResourcePermission(
       { sub: authResult.subject, role: authResult.role, user: { email: authResult.email } },
       { type: "tool", id: "dynamic-agents-builtin", action: "discover" },
-      { allowAdminBypass: true },
     );
   } catch (error) {
     return NextResponse.json(

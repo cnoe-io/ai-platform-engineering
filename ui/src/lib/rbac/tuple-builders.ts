@@ -6,6 +6,7 @@ import type {
 } from "@/types/rbac-universal";
 
 import type { OpenFgaTupleKey, TeamResourceTupleDiff } from "./openfga";
+import { openFgaResourceObject } from "./openfga-resource-ids";
 import { assertRelationshipValid } from "./relationship-validator";
 
 const ACTION_TO_BASE_RELATION: Record<UniversalRebacResourceAction, string> = {
@@ -61,7 +62,7 @@ export function openFgaSubject(subject: UniversalRebacSubjectRef): string {
 }
 
 export function openFgaObject(resource: UniversalRebacResourceRef): string {
-  return `${resource.type}:${resource.id}`;
+  return openFgaResourceObject(resource.type, resource.id);
 }
 
 export function openFgaRelation(action: UniversalRebacResourceAction): string {

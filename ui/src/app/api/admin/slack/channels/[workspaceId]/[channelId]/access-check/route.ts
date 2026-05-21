@@ -23,9 +23,9 @@ function parseResource(value: unknown): UniversalRebacResourceRef {
   return { type: type as UniversalRebacResourceRef["type"], id };
 }
 
-export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withSlackChannelRebacViewAuth(request, async () => {
-    const { workspaceId, channelId } = await context.params;
+export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const { workspaceId, channelId } = await context.params;
+  return withSlackChannelRebacViewAuth(request, async () => {
     const body = (await request.json()) as Record<string, unknown>;
     const action =
       typeof body.action === "string" && body.action.trim()
@@ -44,5 +44,5 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
     });
 
     return successResponse(result);
-  })
-);
+  }, { workspaceId, channelId });
+});

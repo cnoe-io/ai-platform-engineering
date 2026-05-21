@@ -13,11 +13,12 @@ import {
   getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
-import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { webexSpaceSubjectId, webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import type { Team } from "@/types/teams";
 
 interface WebexSpaceTeamMappingDoc {
@@ -37,6 +38,33 @@ interface WebexSpaceInput {
   webex_space_id: string;
   space_name: string;
   webex_workspace_id?: string;
+}
+
+function teamSlug(team: Team, fallback: string): string {
+  return typeof team.slug === "string" && team.slug.trim() ? team.slug.trim() : fallback;
+}
+
+async function reconcileWebexSpaceOwnership(
+  slug: string,
+  addedOrKept: WebexSpaceInput[],
+  removed: WebexSpaceTeamMappingDoc[],
+): Promise<void> {
+  await writeOpenFgaTupleDiff({
+    writes: addedOrKept.flatMap((space) => {
+      const object = `webex_space:${webexSpaceSubjectId(space.webex_workspace_id ?? "", space.webex_space_id)}`;
+      return [
+        { user: `team:${slug}#member`, relation: "user", object },
+        { user: `team:${slug}#admin`, relation: "manager", object },
+      ];
+    }),
+    deletes: removed.flatMap((space) => {
+      const object = `webex_space:${webexSpaceSubjectId(space.webex_workspace_id ?? "", space.webex_space_id)}`;
+      return [
+        { user: `team:${slug}#member`, relation: "user", object },
+        { user: `team:${slug}#admin`, relation: "manager", object },
+      ];
+    }),
+  });
 }
 
 function requireMongoDB() {
@@ -104,7 +132,6 @@ export const GET = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "team", "view");
 
     const { id } = await context.params;
     const teamId = parseTeamId(id);
@@ -113,6 +140,7 @@ export const GET = withErrorHandler(
     const teamsCol = await getCollection<Team>("teams");
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
+    await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { allowAdminBypass: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 
@@ -148,7 +176,6 @@ export const PUT = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "team", "manage");
 
     const { id } = await context.params;
     const teamId = parseTeamId(id);
@@ -174,6 +201,8 @@ export const PUT = withErrorHandler(
     const teamsCol = await getCollection<Team>("teams");
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
+    const ownerTeamSlug = teamSlug(team, teamIdStr);
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { allowAdminBypass: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 
@@ -204,6 +233,7 @@ export const PUT = withErrorHandler(
     const removedSpaceIds = previousMappings
       .filter((m) => !nextSpaceIds.has(m.webex_space_id))
       .map((m) => m.webex_space_id);
+    const removedMappings = previousMappings.filter((m) => !nextSpaceIds.has(m.webex_space_id));
 
     if (removedSpaceIds.length > 0) {
       await teamCol.updateMany(
@@ -246,6 +276,8 @@ export const PUT = withErrorHandler(
         },
       }
     );
+
+    await reconcileWebexSpaceOwnership(ownerTeamSlug, next, removedMappings);
 
     console.log(
       `[Admin TeamWebexSpaces] PUT team=${teamIdStr} spaces=${next.length} removed=${removedSpaceIds.length} by=${user.email}`

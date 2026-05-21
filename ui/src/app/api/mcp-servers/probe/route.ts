@@ -13,9 +13,9 @@ import {
   successResponse,
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
@@ -26,7 +26,7 @@ const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8
 /**
  * POST /api/mcp-servers/probe?id=<server_id>
  * Probe an MCP server to discover available tools.
- * Requires admin role.
+ * Requires OpenFGA invoke access on the MCP server.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -37,7 +37,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
@@ -50,6 +49,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!server.enabled) {
       throw new ApiError("MCP server is disabled", 400);
     }
+    await requireResourcePermission(session, { type: "mcp_server", id, action: "invoke" });
 
     try {
       // Build headers with X-User-Context AND Authorization: Bearer

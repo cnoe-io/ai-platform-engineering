@@ -128,7 +128,7 @@ function edgeId(tuple: OpenFgaTuple): string {
 function includeTuple(tuple: OpenFgaTuple, filters: RebacGraphFilters): boolean {
   if (filters.team) {
     const teamRef = `team:${filters.team}`;
-    if (tuple.key.user !== `${teamRef}#member` && tuple.key.object !== teamRef) return false;
+    if (!tuple.key.user.startsWith(`${teamRef}#`) && tuple.key.object !== teamRef) return false;
   }
   if (filters.subject && tuple.key.user !== filters.subject) return false;
   if (filters.resourceType && filters.resourceId && tuple.key.object !== `${filters.resourceType}:${filters.resourceId}`) {

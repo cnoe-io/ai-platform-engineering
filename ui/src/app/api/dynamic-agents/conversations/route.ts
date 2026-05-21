@@ -13,15 +13,15 @@ import {
   getPaginationParams,
   paginatedResponse,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getServerConfig } from "@/lib/config";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
 
 /**
  * GET /api/dynamic-agents/conversations
- * List all Dynamic Agent conversations (admin only).
+ * List all Dynamic Agent conversations for operators with OpenFGA audit access.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -34,7 +34,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "dynamic_agent", "manage");
+  await requireResourcePermission(session, { type: "audit_log", id: "dynamic_agent_conversations", action: "read" });
 
     const { page, pageSize, skip } = getPaginationParams(request);
     const url = new URL(request.url);

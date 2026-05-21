@@ -63,8 +63,8 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
   const isUserMembership = user.startsWith("user:") && relation === "member" && object.startsWith("team:");
   const isTeamAgent =
     user.startsWith("team:") &&
-    user.endsWith("#member") &&
-    ["user", "manager"].includes(relation) &&
+    ((user.endsWith("#member") && relation === "user") ||
+      (user.endsWith("#admin") && relation === "manager")) &&
     object.startsWith("agent:");
   const isTeamTool =
     user.startsWith("team:") &&
@@ -73,10 +73,13 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
     object.startsWith("tool:");
   const isTeamKb =
     user.startsWith("team:") &&
-    user.endsWith("#member") &&
-    ["reader", "ingestor", "manager"].includes(relation) &&
+    ((user.endsWith("#member") && ["reader", "ingestor"].includes(relation)) ||
+      (user.endsWith("#admin") && relation === "manager")) &&
     object.startsWith("knowledge_base:");
   const isCoarseMcp = user.startsWith("user:") && relation === "caller" && object === "mcp_gateway:list";
+  const isUserProfileOwner = user.startsWith("user:") && relation === "owner" && object.startsWith("user_profile:");
+  const isBaselineAdminSurfaceReader =
+    user.startsWith("user:") && relation === "reader" && object.startsWith("admin_surface:");
   const isUniversalRelationship =
     OPENFGA_ACTION_RELATIONS.includes(relation) &&
     isSupportedUniversalSubject(user) &&
@@ -88,6 +91,8 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
     !isTeamTool &&
     !isTeamKb &&
     !isCoarseMcp &&
+    !isUserProfileOwner &&
+    !isBaselineAdminSurfaceReader &&
     !isUniversalRelationship
   ) {
     throw new ApiError("tuple does not match the CAIPE OpenFGA model", 400);

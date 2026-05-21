@@ -70,6 +70,20 @@ class MCPServerConfigBase(BaseModel):
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
     enabled: bool = Field(True, description="Whether the server is enabled")
+    credential_sources: list["MCPCredentialSource"] | None = Field(
+        None,
+        description="Server-side credential refs to resolve for MCP connections.",
+    )
+
+
+class MCPCredentialSource(BaseModel):
+    """Credential source metadata for MCP server connection setup."""
+
+    kind: Literal["secret_ref", "provider_connection"] = Field(..., description="Credential source type")
+    target: Literal["env", "header"] = Field(..., description="Where to inject the resolved credential")
+    name: str = Field(..., description="Environment variable or header name")
+    secret_ref: str | None = Field(None, description="Credential secret_ref id")
+    provider_connection_id: str | None = Field(None, description="Provider connection id")
 
 
 class MCPServerConfig(MCPServerConfigBase):

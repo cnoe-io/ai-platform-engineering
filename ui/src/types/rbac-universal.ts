@@ -27,6 +27,7 @@ export type UniversalRebacResourceAction =
 export type UniversalRebacResourceType =
   | "organization"
   | "user"
+  | "user_profile"
   | "external_group"
   | "team"
   | "slack_workspace"
@@ -34,6 +35,7 @@ export type UniversalRebacResourceType =
   | "webex_workspace"
   | "webex_space"
   | "agent"
+  | "llm_model"
   | "mcp_gateway"
   | "mcp_server"
   | "tool"

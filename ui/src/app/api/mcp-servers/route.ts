@@ -14,12 +14,15 @@ import {
   getPaginationParams,
   paginatedResponse,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
 import {
   filterResourcesByPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
+import {
+  deleteAllMcpServerRelationshipTuples,
+  reconcileMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources";
 import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
@@ -37,8 +40,21 @@ const SERVER_MUTABLE_FIELDS = [
   "command",
   "args",
   "env",
+  "credential_sources",
   "enabled",
 ] as const;
+
+function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function requireStableSubject(session: { sub?: unknown }): string {
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError("A stable user subject is required for MCP server ownership.", 401, "NO_SUBJECT");
+  }
+  return subject;
+}
 
 /**
  * Pick only allowed mutable fields from body, filtering out
@@ -85,12 +101,10 @@ function validateTransportConfig(
 
 /**
  * GET /api/mcp-servers
- * List all MCP server configurations.
- * Requires admin role.
+ * List MCP server configurations visible to the current user.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "read");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
@@ -104,9 +118,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = session.role === "admin"
-      ? await filterResourcesByPermission(session, items, listTarget, { allowAdminBypass: true })
-      : await filterResourcesByPermission(session, items, listTarget);
+    const visibleItems = await filterResourcesByPermission(session, items, listTarget);
 
     return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
 });
@@ -118,11 +130,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 /**
  * POST /api/mcp-servers
  * Create a new MCP server configuration.
- * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
+  const { session, user } = await getAuthFromBearerOrSession(request);
+  const ownerSubject = requireStableSubject(session);
 
     const body = await request.json();
 
@@ -140,6 +151,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Silently prepend mcp- prefix to user-provided ID
     const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
+    const ownerTeamSlug = normalizeString(body.owner_team_slug);
+    if (ownerTeamSlug) {
+      await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    }
 
     // Uniqueness check
     const existing = await collection.findOne({ _id: serverId });
@@ -159,23 +174,33 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
-    const doc = {
+    const doc: MCPServerConfig = {
       _id: serverId,
       name: body.name as string,
       description: (body.description as string) ?? "",
       transport: body.transport as TransportType,
-      endpoint: body.endpoint ?? undefined,
-      command: body.command ?? undefined,
-      args: body.args ?? undefined,
-      env: body.env ?? undefined,
+      endpoint: body.endpoint as string | undefined,
+      command: body.command as string | undefined,
+      args: body.args as string[] | undefined,
+      env: body.env as Record<string, string> | undefined,
+      credential_sources: Array.isArray(body.credential_sources) ? body.credential_sources : undefined,
       enabled: (body.enabled as boolean) ?? true,
+      owner_id: user.email,
+      owner_subject: ownerSubject,
+      owner_team_slug: ownerTeamSlug ?? undefined,
       // Server-controlled — never from request body
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
 
-    await collection.insertOne(doc as any);
+    await reconcileMcpServerRelationships({
+      serverId,
+      ownerSubject,
+      ownerTeamSlug,
+    });
+
+    await collection.insertOne(doc);
 
     return successResponse(doc, 201);
 });
@@ -187,7 +212,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 /**
  * PUT /api/mcp-servers?id=<server_id>
  * Update an MCP server configuration.
- * Requires admin role. Config-driven servers cannot be modified.
+ * Requires resource write access. Config-driven servers cannot be modified.
  */
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -198,7 +223,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
 
     const body = await request.json();
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
@@ -213,11 +237,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       id,
       action: "write" as const,
     };
-    if (session.role === "admin") {
-      await requireResourcePermission(session, updateTarget, { allowAdminBypass: true });
-    } else {
-      await requireResourcePermission(session, updateTarget);
-    }
+    await requireResourcePermission(session, updateTarget);
 
     // Config-driven guard
     if (server.config_driven) {
@@ -256,7 +276,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 /**
  * DELETE /api/mcp-servers?id=<server_id>
  * Delete an MCP server configuration.
- * Requires admin role. Config-driven servers cannot be deleted.
+ * Requires resource delete access. Config-driven servers cannot be deleted.
  */
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -267,7 +287,6 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
@@ -281,11 +300,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       id,
       action: "delete" as const,
     };
-    if (session.role === "admin") {
-      await requireResourcePermission(session, deleteTarget, { allowAdminBypass: true });
-    } else {
-      await requireResourcePermission(session, deleteTarget);
-    }
+    await requireResourcePermission(session, deleteTarget);
 
     // Config-driven guard
     if (server.config_driven) {
@@ -295,6 +310,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    await deleteAllMcpServerRelationshipTuples(id);
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });

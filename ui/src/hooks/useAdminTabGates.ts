@@ -17,6 +17,7 @@ const EMPTY_GATES: AdminTabGatesMap = {
   stats: false,
   metrics: false,
   health: false,
+  credentials: false,
   audit_logs: false,
   action_audit: false,
   openfga: false,

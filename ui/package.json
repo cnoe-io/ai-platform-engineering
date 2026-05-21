@@ -10,12 +10,14 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "init-credential-indexes": "ts-node --project tsconfig.json ../scripts/init-credential-mongo-indexes.ts",
     "test:e2e:rbac": "playwright test --config=playwright.rbac.config.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",
     "@ag-ui/client": "0.0.51",
     "@ag-ui/core": "0.0.51",
+    "@aws-sdk/client-kms": "^3.1051.0",
     "@codemirror/autocomplete": "6.20.1",
     "@codemirror/commands": "6.10.3",
     "@codemirror/lang-json": "6.0.2",

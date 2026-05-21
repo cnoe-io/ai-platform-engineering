@@ -17,6 +17,7 @@ jest.mock('next/server', () => ({
 }));
 
 import { NextRequest } from 'next/server';
+import { createCredentialError } from '@/lib/credentials/errors';
 
 jest.mock('next-auth', () => ({
   getServerSession: jest.fn(),
@@ -144,6 +145,26 @@ describe('handleApiError', () => {
         action: 'sign_in',
       },
       { status: 401 }
+    );
+  });
+
+  it('handles CredentialError → returns reason code and status', () => {
+    const err = createCredentialError({
+      reasonCode: 'browser_request_denied',
+      message: 'Browser clients cannot retrieve credential material',
+      status: 403,
+      correlationId: 'corr-1',
+    });
+    handleApiError(err);
+
+    expect(mockNextResponseJson).toHaveBeenCalledWith(
+      {
+        success: false,
+        error: 'Browser clients cannot retrieve credential material',
+        reason: 'browser_request_denied',
+        correlationId: 'corr-1',
+      },
+      { status: 403 }
     );
   });
 

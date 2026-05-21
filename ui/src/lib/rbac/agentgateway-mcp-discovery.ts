@@ -1,9 +1,10 @@
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
-export type AgentGatewayMcpTargetStatus = "new" | "existing" | "conflict";
+export type AgentGatewayMcpTargetStatus = "new" | "existing" | "legacy" | "conflict";
 
 export interface AgentGatewayMcpTarget {
   id: string;
+  route_path?: string;
   target_endpoint: string;
 }
 
@@ -43,6 +44,15 @@ function displayNameForId(id: string): string {
     .join(" ");
 }
 
+function routePathForRoute(route: Record<string, unknown>): string | undefined {
+  for (const match of asArray(route.matches)) {
+    if (!isRecord(match) || !isRecord(match.path)) continue;
+    const value = match.path.value;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 export function extractAgentGatewayMcpTargets(config: unknown): AgentGatewayMcpTarget[] {
   if (!isRecord(config)) return [];
 
@@ -53,6 +63,7 @@ export function extractAgentGatewayMcpTargets(config: unknown): AgentGatewayMcpT
       if (!isRecord(listener)) continue;
       for (const route of asArray(listener.routes)) {
         if (!isRecord(route)) continue;
+        const route_path = routePathForRoute(route);
         for (const backend of asArray(route.backends)) {
           if (!isRecord(backend) || !isRecord(backend.mcp)) continue;
           for (const target of asArray(backend.mcp.targets)) {
@@ -60,7 +71,7 @@ export function extractAgentGatewayMcpTargets(config: unknown): AgentGatewayMcpT
             const id = normalizeTargetId(target.name);
             const targetEndpoint = typeof target.mcp.host === "string" ? target.mcp.host.trim() : "";
             if (!id || !targetEndpoint) continue;
-            targets.push({ id, target_endpoint: targetEndpoint });
+            targets.push({ id, ...(route_path ? { route_path } : {}), target_endpoint: targetEndpoint });
           }
         }
       }
@@ -75,14 +86,16 @@ export function buildAgentGatewayMcpDiscovery(
   existingServers: MCPServerConfig[],
 ): AgentGatewayMcpDiscovery {
   const existingById = new Map(existingServers.map((server) => [server._id, server]));
-  const endpoint = agentGatewayMcpEndpointUrl();
   const targets = extractAgentGatewayMcpTargets(config).map((target) => {
     const existing = existingById.get(target.id);
+    const endpoint = agentGatewayMcpEndpointUrl(target.route_path);
     const status: AgentGatewayMcpTargetStatus = !existing
       ? "new"
       : existing.transport === "http" && existing.endpoint === endpoint
         ? "existing"
-        : "conflict";
+        : existing.transport === "http" && existing.endpoint === target.target_endpoint
+          ? "legacy"
+          : "conflict";
 
     return {
       ...target,
@@ -111,12 +124,22 @@ export function agentGatewayAdminConfigUrl(): string {
     : `${withoutTrailingSlash}/config`;
 }
 
-export function agentGatewayMcpEndpointUrl(): string {
+export function agentGatewayMcpEndpointUrl(routePath?: string): string {
   const configured =
     process.env.AGENT_GATEWAY_URL?.trim() ||
     process.env.AGENTGATEWAY_URL?.trim() ||
     "http://agentgateway:4000";
   const withoutTrailingSlash = configured.replace(/\/+$/, "");
+  if (routePath?.trim()) {
+    const normalizedRoutePath = routePath.trim().startsWith("/")
+      ? routePath.trim()
+      : `/${routePath.trim()}`;
+    const base =
+      withoutTrailingSlash.endsWith("/mcp") && normalizedRoutePath.startsWith("/mcp/")
+        ? withoutTrailingSlash.slice(0, -"/mcp".length)
+        : withoutTrailingSlash;
+    return `${base}${normalizedRoutePath}`;
+  }
   return withoutTrailingSlash.endsWith("/mcp")
     ? withoutTrailingSlash
     : `${withoutTrailingSlash}/mcp`;

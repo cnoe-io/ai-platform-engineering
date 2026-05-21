@@ -10,7 +10,10 @@ const mockGetRoleByName = jest.fn();
 const mockAssignRealmRolesToUser = jest.fn();
 const mockRemoveRealmRolesFromUser = jest.fn();
 const mockListRealmRoleMappingsForUser = jest.fn();
+const mockGetUserSessions = jest.fn();
+const mockGetUserFederatedIdentities = jest.fn();
 const mockGetCollection = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: jest.fn(async () => null),
@@ -39,6 +42,10 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
 }));
 
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
@@ -52,7 +59,8 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   countRealmUsers: jest.fn(),
   listUsersWithRole: jest.fn(),
   listRealmRoleMappingsForUser: (...args: unknown[]) => mockListRealmRoleMappingsForUser(...args),
-  getUserFederatedIdentities: jest.fn(),
+  getUserSessions: (...args: unknown[]) => mockGetUserSessions(...args),
+  getUserFederatedIdentities: (...args: unknown[]) => mockGetUserFederatedIdentities(...args),
 }));
 
 jest.mock("@/lib/mongodb", () => ({
@@ -81,6 +89,12 @@ async function expectDenied(response: Response, capability: string): Promise<voi
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+    allowed:
+      tuple.user === "user:bob-sub" &&
+      tuple.relation === "can_read" &&
+      (tuple.object === "admin_surface:users" || tuple.object === "user_profile:bob-sub"),
+  }));
   mockGetRealmUserById.mockResolvedValue({
     id: "bob-sub",
     username: "bob@example.com",
@@ -89,8 +103,13 @@ beforeEach(() => {
     attributes: {},
   });
   mockListRealmRoleMappingsForUser.mockResolvedValue([]);
+  mockGetUserSessions.mockResolvedValue([]);
+  mockGetUserFederatedIdentities.mockResolvedValue([]);
   mockGetCollection.mockResolvedValue({
     find: jest.fn().mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
       sort: jest.fn().mockReturnValue({
         skip: jest.fn().mockReturnValue({
           limit: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
@@ -120,6 +139,50 @@ describe("admin user sibling routes dual-auth PDP gates", () => {
     ]);
     expect(body.total).toBe(1);
     expect(mockGetRealmUserById).toHaveBeenCalledWith("bob-sub");
+  });
+
+  it("allows a bearer user without admin_ui#view to open their own user details", async () => {
+    const { GET } = await import("../[id]/route");
+
+    const response = await GET(
+      request("/api/admin/users/bob-sub", { method: "GET" }),
+      { params: Promise.resolve({ id: "bob-sub" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.user).toEqual(expect.objectContaining({
+      id: "bob-sub",
+      email: "bob@example.com",
+    }));
+    expect(mockGetRealmUserById).toHaveBeenCalledWith("bob-sub");
+  });
+
+  it("denies a bearer user without admin_ui#view from opening another user's details", async () => {
+    const { GET } = await import("../[id]/route");
+
+    const response = await GET(
+      request("/api/admin/users/alice-sub", { method: "GET" }),
+      { params: Promise.resolve({ id: "alice-sub" }) }
+    );
+
+    await expectDenied(response, "user_profile:alice-sub#can_read");
+    expect(mockGetRealmUserById).not.toHaveBeenCalledWith("alice-sub");
+  });
+
+  it("requires admin_surface users read even when organization admin view is allowed", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:bob-sub" &&
+        tuple.relation === "can_audit" &&
+        tuple.object === "organization:caipe",
+    }));
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/users?page=1&pageSize=20", { method: "GET" }));
+
+    await expectDenied(response, "admin_surface:users#can_read");
   });
 
   it("denies bearer users without admin_ui#admin before mutating team membership", async () => {
@@ -186,7 +249,7 @@ describe("admin user sibling routes dual-auth PDP gates", () => {
   });
 
   it("returns 400 for malformed legacy Mongo role update JSON", async () => {
-    mockCheckPermission.mockResolvedValueOnce({ allowed: true, reason: "OK" });
+    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: true });
     const { PATCH } = await import("../[id]/role/route");
 
     const response = await PATCH(
@@ -203,12 +266,13 @@ describe("admin user sibling routes dual-auth PDP gates", () => {
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
-  it("denies bearer users without admin_ui#view before loading activity stats", async () => {
+  it("allows activity stats with admin_surface users read instead of admin_ui view", async () => {
     const { GET } = await import("../stats/route");
 
     const response = await GET(request("/api/admin/users/stats", { method: "GET" }));
+    const body = await response.json();
 
-    await expectDenied(response, "admin_ui#view");
-    expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
   });
 });

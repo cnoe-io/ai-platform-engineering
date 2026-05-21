@@ -2,11 +2,13 @@ import { ApiError } from "@/lib/api-error";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
+import { openFgaResourceObject } from "./openfga-resource-ids";
 
 export type ResourcePermissionAction =
   | "list"
   | "discover"
   | "read"
+  | "read-metadata"
   | "use"
   | "write"
   | "admin"
@@ -32,11 +34,11 @@ export interface ResourceAuthzSession {
 
 export interface ResourcePermissionOptions {
   check?: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>;
+  /**
+   * @deprecated OpenFGA is the PDP for resource checks. This option is retained
+   * for source compatibility with older call sites but no longer bypasses checks.
+   */
   allowAdminBypass?: boolean;
-}
-
-function shouldBypassUnconfiguredTestPdp(options: ResourcePermissionOptions): boolean {
-  return process.env.NODE_ENV === "test" && !process.env.OPENFGA_HTTP && !options.check;
 }
 
 export function openFgaRelationForResourceAction(action: ResourcePermissionAction): string {
@@ -46,6 +48,8 @@ export function openFgaRelationForResourceAction(action: ResourcePermissionActio
       return "can_discover";
     case "read":
       return "can_read";
+    case "read-metadata":
+      return "can_read_metadata";
     case "use":
       return "can_use";
     case "write":
@@ -69,7 +73,7 @@ export function openFgaRelationForResourceAction(action: ResourcePermissionActio
 }
 
 export function resourceObject(type: UniversalRebacResourceType, id: string): string {
-  return `${type}:${id}`;
+  return openFgaResourceObject(type, id);
 }
 
 export function subjectFromSession(session: ResourceAuthzSession): string | null {
@@ -83,9 +87,6 @@ export async function requireResourcePermission(
   target: ResourcePermissionTarget,
   options: ResourcePermissionOptions = {}
 ): Promise<void> {
-  if (options.allowAdminBypass && session.role === "admin") return;
-  if (shouldBypassUnconfiguredTestPdp(options)) return;
-
   const subject = subjectFromSession(session);
   if (!subject) {
     throw new ApiError(
@@ -125,9 +126,6 @@ export async function filterResourcesByPermission<T>(
   },
   options: ResourcePermissionOptions = {}
 ): Promise<T[]> {
-  if (options.allowAdminBypass && session.role === "admin") return resources;
-  if (shouldBypassUnconfiguredTestPdp(options)) return resources;
-
   const subject = subjectFromSession(session);
   if (!subject) return [];
 

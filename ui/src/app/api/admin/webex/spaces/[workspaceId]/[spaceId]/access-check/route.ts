@@ -24,10 +24,10 @@ function parseResource(value: unknown): UniversalRebacResourceRef {
   return { type: type as UniversalRebacResourceRef["type"], id };
 }
 
-export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) =>
-  withWebexSpaceRebacViewAuth(request, async () => {
-    const raw = await context.params;
-    const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+  const raw = await context.params;
+  const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
+  return withWebexSpaceRebacViewAuth(request, async () => {
     const body = (await request.json()) as Record<string, unknown>;
     const action =
       typeof body.action === "string" && body.action.trim()
@@ -46,5 +46,5 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
     });
 
     return successResponse(result);
-  })
-);
+  }, { workspaceId, spaceId });
+});

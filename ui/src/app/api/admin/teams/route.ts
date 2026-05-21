@@ -7,11 +7,10 @@ import {
   getAuthFromBearerOrSession,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
+import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import {
-  deleteTeamClientScope,
   ensureTeamClientScope,
   isValidTeamSlug,
 } from '@/lib/rbac/keycloak-admin';
@@ -57,7 +56,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  await requireBaselineAdminSurfaceRead(session, 'teams');
 
   const teams = await getCollection('teams');
   
@@ -88,7 +87,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'admin');
+  await requireAdminSurfaceManage(session, 'teams');
 
   const body: CreateTeamRequest = await request.json();
 

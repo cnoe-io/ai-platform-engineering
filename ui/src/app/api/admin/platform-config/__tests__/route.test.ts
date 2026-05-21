@@ -8,6 +8,7 @@ const mockWithAuth = jest.fn();
 const mockRequireAdmin = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => ({
   withAuth: (...args: unknown[]) => mockWithAuth(...args),
@@ -25,6 +26,10 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
 function request(path: string, init?: RequestInit): NextRequest {
@@ -56,6 +61,7 @@ describe("admin platform-config route", () => {
     });
     mockRequireAdmin.mockResolvedValue(undefined);
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   });
 
   it("requires system_config read access before returning platform config", async () => {
@@ -136,6 +142,52 @@ describe("admin platform-config route", () => {
       { sub: "admin-sub", role: "admin" },
       { type: "system_config", id: "platform_settings", action: "admin" },
     );
+  });
+
+  it("grants all authenticated users access to the configured default dynamic agent", async () => {
+    const collection = {
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-old" }),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_agent_id: "agent-next" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: "user:*", relation: "user", object: "agent:agent-next" }],
+      deletes: [{ user: "user:*", relation: "user", object: "agent:agent-old" }],
+    });
+  });
+
+  it("revokes the previous all-users default-agent grant when falling back to the supervisor", async () => {
+    const collection = {
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-old" }),
+      updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_agent_id: null }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [],
+      deletes: [{ user: "user:*", relation: "user", object: "agent:agent-old" }],
+    });
   });
 
   it("updates release notes config without clearing default agent", async () => {

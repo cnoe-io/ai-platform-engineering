@@ -151,24 +151,17 @@ function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function normalizeEmail(value: unknown): string {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
+function requireStableSubject(session: { sub?: unknown }): string {
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError("A stable user subject is required for dynamic agent ownership.", 401, "NO_SUBJECT");
+  }
+  return subject;
 }
 
 function teamIdString(team: TeamOwnershipDoc): string | undefined {
   if (team._id instanceof ObjectId) return team._id.toHexString();
   return normalizeString(team._id);
-}
-
-function isTeamAdmin(team: TeamOwnershipDoc, userEmail: string): boolean {
-  const email = normalizeEmail(userEmail);
-  return Boolean(
-    email &&
-      team.members?.some((member) => {
-        const role = normalizeString(member.role)?.toLowerCase();
-        return normalizeEmail(member.user_id ?? member.email) === email && (role === "admin" || role === "owner");
-      }),
-  );
 }
 
 async function loadOwnerTeam(ownerTeam: { slug?: string | null; id?: string | null }): Promise<TeamOwnershipDoc | null> {
@@ -181,6 +174,20 @@ async function loadOwnerTeam(ownerTeam: { slug?: string | null; id?: string | nu
   }
   if (filters.length === 0) return null;
   return teams.findOne(filters.length === 1 ? filters[0] : { $or: filters });
+}
+
+async function canUseOwnerTeam(
+  session: Parameters<typeof requireResourcePermission>[0],
+  ownerTeam: TeamOwnershipDoc,
+): Promise<boolean> {
+  const ownerTeamSlug = normalizeString(ownerTeam.slug);
+  if (!ownerTeamSlug) return false;
+  try {
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -315,22 +322,32 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
     const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
     const requestedOwnerTeamId = normalizeString(body.owner_team_id);
-    if (!requestedOwnerTeamSlug && !requestedOwnerTeamId) {
-      throw new ApiError("Owner team is required", 400, "OWNER_TEAM_REQUIRED");
+    const visibility: VisibilityType =
+      (body.visibility as VisibilityType | undefined) ?? (requestedOwnerTeamSlug || requestedOwnerTeamId ? "team" : "private");
+    let ownerTeam: TeamOwnershipDoc | null = null;
+    let ownerTeamSlug: string | null = null;
+    if (visibility === "global") {
+      const canManageAllAgents = await canManageOrganization(session);
+      if (!canManageAllAgents) {
+        throw new ApiError("Only platform admins can create global agents", 403, "GLOBAL_AGENT_FORBIDDEN");
+      }
     }
-
-    const ownerTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug, id: requestedOwnerTeamId });
-    if (!ownerTeam) {
-      throw new ApiError("Owner team not found", 404, "OWNER_TEAM_NOT_FOUND");
-    }
-    const ownerTeamSlug = normalizeString(ownerTeam.slug);
-    if (!ownerTeamSlug) {
-      throw new ApiError("Owner team is missing a slug", 409, "OWNER_TEAM_INVALID");
-    }
-
-    const canManageAllAgents = await canManageOrganization(session);
-    if (!canManageAllAgents && !isTeamAdmin(ownerTeam, user.email)) {
-      throw new ApiError("You must be a platform admin or owner-team admin to create this agent", 403, "OWNER_TEAM_FORBIDDEN");
+    if (requestedOwnerTeamSlug || requestedOwnerTeamId || visibility === "team") {
+      if (!requestedOwnerTeamSlug && !requestedOwnerTeamId) {
+        throw new ApiError("Owner team is required for team agents", 400, "OWNER_TEAM_REQUIRED");
+      }
+      ownerTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug, id: requestedOwnerTeamId });
+      if (!ownerTeam) {
+        throw new ApiError("Owner team not found", 404, "OWNER_TEAM_NOT_FOUND");
+      }
+      ownerTeamSlug = normalizeString(ownerTeam.slug);
+      if (!ownerTeamSlug) {
+        throw new ApiError("Owner team is missing a slug", 409, "OWNER_TEAM_INVALID");
+      }
+      const canUseTeam = await canUseOwnerTeam(session, ownerTeam);
+      if (!canUseTeam) {
+        throw new ApiError("You must belong to the owner team to create this agent", 403, "OWNER_TEAM_FORBIDDEN");
+      }
     }
 
     // Generate slug from name with agent- prefix
@@ -356,7 +373,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     // Subagent visibility validation
-    const visibility: VisibilityType = body.visibility ?? "private";
     const subagents: SubAgentRef[] = body.subagents ?? [];
     if (subagents.length > 0) {
       const result = await validateSubagentVisibility(
@@ -370,28 +386,29 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     // Build document with explicit field allowlist (Security VII)
+    const ownerSubject = requireStableSubject(session);
     const now = new Date();
-    const doc = {
+    const doc: DynamicAgentConfig = {
       _id: agentId,
       name: body.name as string,
       description: (body.description as string) ?? "",
       system_prompt: body.system_prompt as string,
       allowed_tools: (body.allowed_tools as Record<string, string[] | boolean>) ?? {},
       builtin_tools: body.builtin_tools ?? undefined,
-      model: body.model as { id: string; provider: string },
+      model: body.model as DynamicAgentConfig["model"],
       visibility,
       shared_with_teams: (body.shared_with_teams as string[]) ?? [],
-      owner_team_slug: ownerTeamSlug,
-      owner_team_id: teamIdString(ownerTeam),
+      owner_team_slug: ownerTeamSlug ?? undefined,
+      owner_team_id: ownerTeam ? teamIdString(ownerTeam) : undefined,
       subagents,
       skills: (body.skills as string[]) ?? [],
-      ui: body.ui ?? undefined,
-      features: body.features ?? undefined,
-      interrupt_on: body.interrupt_on ?? undefined,
+      ui: body.ui as DynamicAgentConfig["ui"],
+      features: body.features as DynamicAgentConfig["features"],
+      interrupt_on: body.interrupt_on as DynamicAgentConfig["interrupt_on"],
       enabled: (body.enabled as boolean) ?? true,
       // Server-controlled fields — never from request body
       owner_id: user.email,
-      owner_subject: (session.sub as string | undefined) ?? user.email,
+      owner_subject: ownerSubject,
       is_system: false,
       config_driven: false,
       created_at: now.toISOString(),
@@ -408,7 +425,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
 
     try {
-      await collection.insertOne(doc as any);
+      await collection.insertOne(doc);
     } catch (error) {
       await deleteAllAgentToolTuples(agentId).catch((cleanupError) => {
         console.warn("[dynamic-agents] failed to clean up OpenFGA tuples after create failure:", cleanupError);

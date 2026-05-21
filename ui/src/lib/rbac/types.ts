@@ -159,6 +159,7 @@ export type AdminTabKey =
   | "stats"
   | "metrics"
   | "health"
+  | "credentials"
   | "audit_logs"
   | "action_audit"
   | "openfga"

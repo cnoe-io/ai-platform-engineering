@@ -10,6 +10,7 @@ import type { User } from '@/types/mongodb';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
+import { CredentialError } from '@/lib/credentials/errors';
 
 // Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
 // call sites keep working — see ./api-error.ts for why the class lives
@@ -860,6 +861,18 @@ export function handleApiError(error: unknown): NextResponse {
         action: apiError.action,
       },
       { status: apiError.statusCode }
+    );
+  }
+
+  if (error instanceof CredentialError) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message,
+        reason: error.reasonCode,
+        correlationId: error.correlationId,
+      },
+      { status: error.status }
     );
   }
 

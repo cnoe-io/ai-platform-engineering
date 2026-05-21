@@ -9,9 +9,8 @@ import {
   successResponse,
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from "@/lib/api-middleware";
-import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
+import { filterResourcesByPermission, requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -24,7 +23,7 @@ const COLLECTION_NAME = "dynamic_agents";
  * - The agent itself (can't delegate to itself)
  * - Agents that would create a circular reference
  * 
- * Requires admin role.
+ * Requires OpenFGA write access on the parent agent.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -35,7 +34,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "dynamic_agent", "manage");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -44,6 +42,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     if (!parentAgent) {
       throw new ApiError("Agent not found", 404);
     }
+    await requireResourcePermission(session, { type: "agent", id: agentId, action: "write" });
 
     // Get all enabled agents (enabled: true OR enabled field doesn't exist, which defaults to true)
     const allAgents = await collection.find({ 

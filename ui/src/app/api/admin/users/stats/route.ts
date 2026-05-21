@@ -17,9 +17,9 @@ import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
   getAuthFromBearerOrSession,
 } from '@/lib/api-middleware';
+import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import type { User } from '@/types/mongodb';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -35,13 +35,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  // Authorization is handled by Keycloak Authorization Services via the
-  // standard `admin_ui#view` permission. Falls back to the `admin` realm
-  // role (RESOURCE_ROLE_FALLBACK) when the PDP is unreachable. Legacy
-  // signals (MongoDB `users.metadata.role`, OIDC `groups` claim,
-  // BOOTSTRAP_ADMIN_EMAILS) are intentionally NOT honored here per the
-  // Keycloak-only RBAC policy.
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  await requireBaselineAdminSurfaceRead(session, 'users');
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));

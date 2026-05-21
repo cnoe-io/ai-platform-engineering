@@ -237,6 +237,18 @@ config:
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
   # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+  # Connections & Secrets credential store. Disabled by default. Use local-cmk
+  # only for non-production testing; production must use aws-kms.
+  CAIPE_CREDENTIALS_ENABLED: "false"
+  CREDENTIAL_STORE_BACKEND: "mongodb-envelope"
+  CREDENTIAL_KEY_PROVIDER: "local-cmk"
+  CREDENTIAL_KMS_CMK_ID: ""
+  CREDENTIAL_KMS_REGION: ""
+  CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+  # Bootstrap global OAuth connectors from server env at startup. In
+  # Kubernetes, provide provider client IDs/secrets/redirect URIs through
+  # externalSecrets below; in Docker Compose, provide them through .env.
+  CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
   # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
   # Set when global.skillScanner.enabled=true on the parent chart so the
   # UI can reach the in-cluster scanner Service. Leave empty to disable
@@ -348,6 +360,44 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: WEBEX_LINK_HMAC_SECRET
+    # Credential OAuth connector bootstrap fields. These are consumed only when
+    # config.CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=true.
+    # - secretKey: GITHUB_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_CLIENT_ID
+    # - secretKey: GITHUB_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_CLIENT_SECRET
+    # - secretKey: GITHUB_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_REDIRECT_URI
+    # - secretKey: CONFLUENCE_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_CLIENT_ID
+    # - secretKey: CONFLUENCE_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_CLIENT_SECRET
+    # - secretKey: CONFLUENCE_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_REDIRECT_URI
+    # - secretKey: WEBEX_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_CLIENT_ID
+    # - secretKey: WEBEX_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_CLIENT_SECRET
+    # - secretKey: WEBEX_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_REDIRECT_URI
 
 # Structured application config (models, MCP servers, agents).
 # Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.

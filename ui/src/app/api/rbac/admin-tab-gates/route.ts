@@ -4,9 +4,17 @@ import { getServerSession } from "next-auth";
 import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
 import { ApiError } from "@/lib/api-middleware";
 import { getConfig } from "@/lib/config";
+import { getCollection } from "@/lib/mongodb";
 import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
-import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { checkOpenFgaTuple, writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import {
+  adminSurfaceObject,
+  baselineBootstrapTuples,
+  BASELINE_ADMIN_SURFACES,
+} from "@/lib/rbac/baseline-access";
+import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
 import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
 
 const ALL_TABS: AdminTabKey[] = [
@@ -22,6 +30,7 @@ const ALL_TABS: AdminTabKey[] = [
   "stats",
   "metrics",
   "health",
+  "credentials",
   "audit_logs",
   "action_audit",
   "openfga",
@@ -81,9 +90,10 @@ const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
   nps: "npsEnabled",
   audit_logs: "auditLogsEnabled",
   action_audit: "actionAuditEnabled",
+  credentials: "credentialsEnabled",
 };
 
-const BASELINE_TABS = new Set<AdminTabKey>(["users", "teams", "skills", "metrics", "health"]);
+const BASELINE_TABS = new Set<AdminTabKey>(BASELINE_ADMIN_SURFACES);
 
 const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   roles: "roles",
@@ -108,22 +118,100 @@ async function checkTupleAllowed(tuple: { user: string; relation: string; object
   }
 }
 
-async function hasSimulatedOrganizationAdmin(openfgaUser: string): Promise<boolean> {
-  return checkTupleAllowed({
-    user: openfgaUser,
-    relation: "can_manage",
-    object: organizationObjectId(),
-  });
-}
-
-async function hasSimulatedAdminSurface(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
+async function hasAdminSurfaceManage(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
   const surface = TAB_ADMIN_SURFACES[tab];
   if (!surface) return false;
   return checkTupleAllowed({
     user: openfgaUser,
     relation: "can_manage",
-    object: `admin_surface:${surface}`,
+    object: adminSurfaceObject(surface),
   });
+}
+
+async function hasBaselineAdminSurfaceRead(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
+  if (!BASELINE_TABS.has(tab)) return false;
+  return checkTupleAllowed({
+    user: openfgaUser,
+    relation: "can_read",
+    object: adminSurfaceObject(tab),
+  });
+}
+
+interface SlackChannelMapping {
+  slack_workspace_id?: string;
+  slack_channel_id?: string;
+  active?: boolean;
+}
+
+interface WebexSpaceMapping {
+  webex_workspace_id?: string;
+  webex_space_id?: string;
+  active?: boolean;
+}
+
+async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Promise<void> {
+  try {
+    await writeOpenFgaTuples({
+      writes: baselineBootstrapTuples(subject, isAdmin),
+      deletes: [],
+    });
+  } catch {
+    // Gate evaluation remains fail-closed if the OpenFGA repair path is unavailable.
+  }
+}
+
+async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> {
+  try {
+    const mappings = await getCollection<SlackChannelMapping>("channel_team_mappings");
+    const rows = await mappings
+      .find({ active: { $ne: false } } as never)
+      .limit(500)
+      .toArray();
+
+    for (const row of rows) {
+      if (!row.slack_channel_id) continue;
+      if (await checkTupleAllowed({
+        user: openfgaUser,
+        relation: "can_manage",
+        object: `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`,
+      })) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
+  try {
+    const mappings = await getCollection<WebexSpaceMapping>("webex_space_team_mappings");
+    const rows = await mappings
+      .find({ active: { $ne: false } } as never)
+      .limit(500)
+      .toArray();
+
+    for (const row of rows) {
+      if (!row.webex_space_id) continue;
+      if (await checkTupleAllowed({
+        user: openfgaUser,
+        relation: "can_manage",
+        object: `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`,
+      })) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
+  if (tab === "slack") return hasManageableSlackChannel(openfgaUser);
+  if (tab === "webex") return hasManageableWebexSpace(openfgaUser);
+  return false;
 }
 
 /**
@@ -165,17 +253,24 @@ export async function GET(request?: NextRequest) {
     );
   }
   const simulatedUser = simulation.subject?.openfga_user;
-  const simulatedOrgAdmin = simulatedUser
-    ? await hasSimulatedOrganizationAdmin(simulatedUser)
-    : false;
+  const currentSubject = getSessionSubject(session);
+  const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
+  const bootstrapAdmin = isBootstrapAdmin(session.user.email ?? "");
+  if (currentSubject && !simulatedUser) {
+    await repairCurrentUserBaseline(currentSubject, isAdmin);
+  }
 
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   for (const tab of ALL_TABS) {
-    let allowed = BASELINE_TABS.has(tab)
-      ? true
+    const actor = simulatedUser ?? currentUser;
+    let allowed = BASELINE_TABS.has(tab) && actor
+      ? await hasBaselineAdminSurfaceRead(actor, tab)
       : simulatedUser
-        ? simulatedOrgAdmin || await hasSimulatedAdminSurface(simulatedUser, tab)
-        : isAdmin;
+        ? await hasAdminSurfaceManage(simulatedUser, tab)
+        : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    if (!allowed && actor && !simulatedUser) {
+      allowed = await hasResourceScopedIntegrationAccess(actor, tab);
+    }
 
     const flagKey = TAB_FEATURE_FLAGS[tab];
     if (flagKey && allowed) {

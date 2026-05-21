@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -12,15 +11,13 @@ import { syncSelectedAgentGatewayMcpServers } from "../_lib";
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "manage");
   await requireResourcePermission(
     session,
     {
       type: "mcp_server",
       id: "agentgateway",
       action: "admin",
-    },
-    { allowAdminBypass: true },
+    }
   );
 
   const body = await request.json().catch(() => ({}));

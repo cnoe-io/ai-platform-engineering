@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import { listWebexSpaceGrants, webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
-
-import { withWebexSpaceRebacViewAuth } from "./_lib";
 
 interface WebexSpaceTeamMappingDoc {
   webex_workspace_id?: string;
@@ -16,8 +16,25 @@ interface WebexSpaceTeamMappingDoc {
   active?: boolean;
 }
 
-export const GET = withErrorHandler(async (request: NextRequest) =>
-  withWebexSpaceRebacViewAuth(request, async () => {
+async function webexSpaceAccess(
+  openfgaUser: string,
+  workspaceId: string,
+  spaceId: string
+): Promise<{ canRead: boolean; canManage: boolean }> {
+  const object = `webex_space:${workspaceId}--${spaceId}`;
+  const [read, manage] = await Promise.all([
+    checkOpenFgaTuple({ user: openfgaUser, relation: "can_read", object }).catch(() => ({ allowed: false })),
+    checkOpenFgaTuple({ user: openfgaUser, relation: "can_manage", object }).catch(() => ({ allowed: false })),
+  ]);
+  return {
+    canRead: read.allowed || manage.allowed,
+    canManage: manage.allowed,
+  };
+}
+
+export const GET = withErrorHandler(async (request: NextRequest) => {
+    const { session } = await getAuthFromBearerOrSession(request);
+    const subject = subjectFromSession(session);
     const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
     const rows = await mappings
       .find({ active: { $ne: false } } as never)
@@ -28,6 +45,10 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
     const spaces = await Promise.all(
       rows.map(async (row) => {
         const workspaceId = webexWorkspaceRef(row.webex_workspace_id);
+        const access = subject
+          ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
+          : { canRead: false, canManage: false };
+        if (!access.canRead) return null;
         const grants = await listWebexSpaceGrants(workspaceId, row.webex_space_id);
         return {
           workspace_id: workspaceId,
@@ -36,10 +57,10 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
           team_id: row.team_id,
           team_slug: row.team_slug,
           active_grants: grants.length,
+          can_manage: access.canManage,
         };
       })
     );
 
-    return successResponse({ spaces });
-  })
-);
+    return successResponse({ spaces: spaces.filter((space): space is NonNullable<typeof space> => space !== null) });
+});

@@ -6,6 +6,7 @@ import { validateTupleKey, withOpenFgaAdminAuth } from "../_lib";
 
 type ResourceType = "agent" | "tool" | "knowledge_base" | "admin_surface";
 type Operation = "grant" | "revoke";
+type TeamSubjectRelation = "member" | "admin";
 
 const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
   agent: ["user", "manager"],
@@ -48,6 +49,11 @@ function parseBody(body: unknown): {
   return { teamSlug, resourceType, resourceId, relation, operation };
 }
 
+function teamSubjectRelationFor(resourceType: ResourceType, relation: string): TeamSubjectRelation {
+  if (relation !== "manager") return "member";
+  return resourceType === "admin_surface" ? "member" : "admin";
+}
+
 export const POST = withErrorHandler(async (request: NextRequest) =>
   withOpenFgaAdminAuth(request, async ({ user, session }) => {
     let body: unknown;
@@ -58,8 +64,9 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     }
 
     const parsed = parseBody(body);
+    const teamSubjectRelation = teamSubjectRelationFor(parsed.resourceType, parsed.relation);
     const tuple: OpenFgaTupleKey = validateTupleKey({
-      user: `team:${parsed.teamSlug}#member`,
+      user: `team:${parsed.teamSlug}#${teamSubjectRelation}`,
       relation: parsed.relation,
       object: `${parsed.resourceType}:${parsed.resourceId}`,
     });

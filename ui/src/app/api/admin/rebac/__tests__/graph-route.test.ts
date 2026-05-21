@@ -121,6 +121,46 @@ beforeEach(() => {
       },
       timestamp: "2026-05-12T00:00:02.000Z",
     },
+    {
+      key: {
+        user: "user:alice-sub",
+        relation: "member",
+        object: "team:platform",
+      },
+      timestamp: "2026-05-12T00:00:02.500Z",
+    },
+    {
+      key: {
+        user: "team:platform#admin",
+        relation: "manager",
+        object: "agent:admin-agent",
+      },
+      timestamp: "2026-05-12T00:00:03.000Z",
+    },
+    {
+      key: {
+        user: "team:platform#admin",
+        relation: "manager",
+        object: "admin_surface:skills",
+      },
+      timestamp: "2026-05-12T00:00:04.000Z",
+    },
+    {
+      key: {
+        user: "user:alice-sub",
+        relation: "owner",
+        object: "user_profile:alice-sub",
+      },
+      timestamp: "2026-05-12T00:00:05.000Z",
+    },
+    {
+      key: {
+        user: "user:alice-sub",
+        relation: "owner",
+        object: "mcp_server:argocd",
+      },
+      timestamp: "2026-05-12T00:00:06.000Z",
+    },
   ];
   mockReadOpenFgaTuples.mockImplementation(async (request?: { tuple?: { user?: string } }) => ({
     tuples: request?.tuple?.user
@@ -147,7 +187,7 @@ describe("GET /api/admin/rebac/graph", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.edges).toHaveLength(4);
+    expect(body.data.edges).toHaveLength(9);
     expect(body.data.edges[0]).toMatchObject({
       from: "team:platform#member",
       to: "agent:incident-agent",
@@ -187,6 +227,8 @@ describe("GET /api/admin/rebac/graph", () => {
     expect(byTeam.data.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ from: "team:platform#member", to: "agent:incident-agent" }),
+        expect.objectContaining({ from: "team:platform#admin", to: "agent:admin-agent", relation: "manager" }),
+        expect.objectContaining({ from: "team:platform#admin", to: "admin_surface:skills", relation: "manager" }),
         expect.objectContaining({ from: "slack_channel:CAIPE--C123", to: "team:platform" }),
         expect.objectContaining({ from: "webex_space:Cisco--space-1", to: "team:platform" }),
       ]),
@@ -197,10 +239,23 @@ describe("GET /api/admin/rebac/graph", () => {
     ).json();
     expect(byResource.data.edges).toHaveLength(2);
 
-    const bySubject = await (
-      await GET(request("/api/admin/rebac/graph?subject=team:platform%23member"))
+    const byAdminSurface = await (
+      await GET(request("/api/admin/rebac/graph?resource_type=admin_surface&resource_id=skills"))
     ).json();
-    expect(bySubject.data.edges).toHaveLength(1);
+    expect(byAdminSurface.data.edges).toEqual([
+      expect.objectContaining({ from: "team:platform#admin", to: "admin_surface:skills", relation: "manager" }),
+    ]);
+
+    const bySubject = await (
+      await GET(request("/api/admin/rebac/graph?subject=user%3Aalice-sub"))
+    ).json();
+    expect(bySubject.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: "user:alice-sub", to: "user_profile:alice-sub", relation: "owner" }),
+        expect.objectContaining({ from: "user:alice-sub", to: "mcp_server:argocd", relation: "owner" }),
+        expect.objectContaining({ from: "team:platform#member", to: "agent:incident-agent", relation: "user" }),
+      ]),
+    );
 
     const bySlack = await (await GET(request("/api/admin/rebac/graph?slack_channel=C123"))).json();
     expect(bySlack.data.edges).toEqual(

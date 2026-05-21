@@ -1373,6 +1373,25 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # Connections & Secrets. Local OAuth connector bootstrap reads these
+      # values from .env; Kubernetes deployments use ESO to inject the same
+      # variable names into caipe-ui.
+      - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
+      - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
+      - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
+      - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
+      - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
+      - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-}
+      - CONFLUENCE_CLIENT_ID=${CONFLUENCE_CLIENT_ID:-}
+      - CONFLUENCE_CLIENT_SECRET=${CONFLUENCE_CLIENT_SECRET:-}
+      - CONFLUENCE_REDIRECT_URI=${CONFLUENCE_REDIRECT_URI:-}
+      - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
+      - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
+      - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
       # 098 Enterprise RBAC — Keycloak AuthZ (requires --profile rbac)
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
@@ -1514,12 +1533,19 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
-      # AgentGateway currently fronts only these MCP target IDs. Other MCP
-      # servers use their direct endpoints so tool labels match real upstreams.
-      - AGENT_GATEWAY_MCP_SERVER_IDS=${AGENT_GATEWAY_MCP_SERVER_IDS:-jira}
+      # AgentGateway fronts MCP targets with one route/backend per server so one
+      # failing optional MCP does not break unrelated tools.
+      - AGENT_GATEWAY_MCP_SERVER_IDS=${AGENT_GATEWAY_MCP_SERVER_IDS:-all}
       # Optional shared secret for signed Dynamic Agent -> AgentGateway agent_id context.
       # Leave unset to keep only the coarse user-level AgentGateway/OpenFGA gate.
       - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      # Connections & Secrets credential exchange. Disabled by default; when
+      # USE_IMPERSONATION_TOKENS=true, DA resolves MCP credential refs via the
+      # server-to-server credential API instead of browser/session cookies.
+      - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
+      - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
+      - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
+      - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
       # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
       # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
       # now always sends Authorization: Bearer alongside the legacy
@@ -2539,7 +2565,7 @@ services:
     # runtime mutations (teams, role assignments, identity links) survive.
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1"]
     volumes:
-      - ./deploy/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
+      - ./charts/ai-platform-engineering/charts/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
       - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
       # Keep direct Keycloak access local to the Docker host. Public/browser

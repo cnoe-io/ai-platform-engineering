@@ -123,6 +123,25 @@ describe("UserDetailModal", () => {
     expect(screen.getByText("Webex")).toBeInTheDocument();
   });
 
+  it("renders account and connector details without mutation controls in read-only mode", async () => {
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+        readOnly
+      />
+    );
+
+    expect(await screen.findByText("Sri Aradhyula")).toBeInTheDocument();
+    expect(screen.getByRole("switch")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /unlink webex/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /unlink slack/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/remove team platform/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Add team")).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith("/api/admin/teams");
+  });
+
   it("can unlink Webex identity from the user detail modal", async () => {
     const onSaved = jest.fn();
     render(
