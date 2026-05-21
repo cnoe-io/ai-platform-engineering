@@ -47,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { BaselineFgaProfilePanel } from "./rebac/BaselineFgaProfilePanel";
 import { PolicyChangeSetDiff } from "./rebac/PolicyChangeSetDiff";
 import { RebacAccessChecker } from "./rebac/RebacAccessChecker";
 import { RebacGraphFilters, type RebacGraphUserOption } from "./rebac/RebacGraphFilters";
@@ -161,7 +162,7 @@ const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
 const RESOURCE_TYPES = new Set<ResourceType>(Object.keys(RELATIONS_BY_TYPE) as ResourceType[]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["tuples", "graph", "access", "diagnostics"]);
+const OPENFGA_TABS = new Set(["tuples", "graph", "access", "baseline", "diagnostics"]);
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   user: "use",
   owner: "create",
@@ -988,8 +989,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
           <TabsTrigger value="access" onClick={() => setActiveTab("access")}>Access Manager</TabsTrigger>
+          <TabsTrigger value="baseline" onClick={() => setActiveTab("baseline")}>Baseline FGA</TabsTrigger>
           <TabsTrigger value="diagnostics" onClick={() => setActiveTab("diagnostics")}>Diagnostics</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="baseline">
+          <BaselineFgaProfilePanel isAdmin={isAdmin} />
+        </TabsContent>
 
         <TabsContent value="diagnostics">
           <Card>

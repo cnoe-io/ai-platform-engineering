@@ -896,16 +896,22 @@ export function handleApiError(error: unknown): NextResponse {
 }
 
 /**
- * Wrap API route handler with error handling
+ * Wrap API route handler with error handling.
  */
 export function withErrorHandler<T>(
   handler: (request: NextRequest, context?: any) => Promise<NextResponse<T>>
+): (request: NextRequest, context?: any) => Promise<NextResponse<T>>;
+export function withErrorHandler(
+  handler: (request: NextRequest, context?: any) => Promise<Response>
+): (request: NextRequest, context?: any) => Promise<Response>;
+export function withErrorHandler(
+  handler: (request: NextRequest, context?: any) => Promise<Response>
 ) {
-  return async (request: NextRequest, context?: any): Promise<NextResponse<T>> => {
+  return async (request: NextRequest, context?: any): Promise<Response> => {
     try {
       return await handler(request, context);
     } catch (error) {
-      return handleApiError(error) as NextResponse<T>;
+      return handleApiError(error);
     }
   };
 }

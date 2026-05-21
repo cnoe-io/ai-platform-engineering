@@ -1,5 +1,10 @@
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { baselineAdminTuples, baselineMemberTuples } from "@/lib/rbac/baseline-access";
+import {
+  baselineAdminTuples,
+  baselineMemberTuples,
+  getBaselineFgaProfile,
+  type BaselineFgaProfile,
+} from "@/lib/rbac/baseline-access";
 import { getCollection } from "@/lib/mongodb";
 
 export type LoginOpenFgaBootstrapStatus = "skipped" | "completed" | "failed";
@@ -25,12 +30,12 @@ function normalizeDefaultAgentId(value: unknown): string | null {
   return trimmed && OPENFGA_ID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-function baselineTuples(subject: string): OpenFgaTupleKey[] {
-  return baselineMemberTuples(subject);
+function baselineTuples(subject: string, profile: BaselineFgaProfile): OpenFgaTupleKey[] {
+  return baselineMemberTuples(subject, profile);
 }
 
-function adminTuples(subject: string): OpenFgaTupleKey[] {
-  return baselineAdminTuples(subject);
+function adminTuples(subject: string, profile: BaselineFgaProfile): OpenFgaTupleKey[] {
+  return baselineAdminTuples(subject, profile);
 }
 
 async function defaultAgentTuple(): Promise<OpenFgaTupleKey[]> {
@@ -54,9 +59,10 @@ export async function reconcileLoginOpenFgaAccess(
     return { status: "skipped", tuple_write_count: 0 };
   }
 
+  const profile = await getBaselineFgaProfile();
   const writes = input.isAdmin
-    ? [...baselineTuples(subject), ...adminTuples(subject)]
-    : baselineTuples(subject);
+    ? [...baselineTuples(subject, profile), ...adminTuples(subject, profile)]
+    : baselineTuples(subject, profile);
   writes.push(...(await defaultAgentTuple()));
 
   try {

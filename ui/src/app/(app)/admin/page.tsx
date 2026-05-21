@@ -236,7 +236,7 @@ interface SimulationTeamOption {
 }
 
 const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'diagnostics'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
 } as const;

@@ -4,6 +4,7 @@
 
 const mockEnsureUserByEmail = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockGetCollection = jest.fn();
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   ensureUserByEmail: (...args: unknown[]) => mockEnsureUserByEmail(...args),
@@ -11,6 +12,10 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
 describe("bootstrap admin reconciliation", () => {
@@ -27,6 +32,7 @@ describe("bootstrap admin reconciliation", () => {
     mockEnsureUserByEmail
       .mockResolvedValueOnce({ id: "sub-admin", email: "admin@cisco.com", created: false })
       .mockResolvedValueOnce({ id: "sub-second", email: "second@cisco.com", created: true });
+    mockGetCollection.mockRejectedValue(new Error("Mongo unavailable in bootstrap admin test"));
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 11, deletes: 0 });
   });
 
@@ -47,7 +53,7 @@ describe("bootstrap admin reconciliation", () => {
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("admin@cisco.com");
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("second@cisco.com");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
+      writes: expect.arrayContaining([
         { user: "user:sub-admin", relation: "member", object: "organization:grid" },
         { user: "user:sub-admin", relation: "reader", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "owner", object: "user_profile:sub-admin" },
@@ -59,7 +65,9 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
-      ],
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
+      ]),
       deletes: [],
     });
     expect(result.outcomes).toEqual(

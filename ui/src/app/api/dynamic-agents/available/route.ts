@@ -16,7 +16,7 @@ import {
   successResponse,
   getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
-import { baselineBootstrapTuples } from "@/lib/rbac/baseline-access";
+import { baselineBootstrapTuples, getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
@@ -33,8 +33,9 @@ function normalizeDefaultAgentId(value: unknown): string | null {
 async function ensureBaselineAccess(session: { sub?: unknown; role?: string }): Promise<void> {
   if (typeof session.sub !== "string" || !session.sub.trim()) return;
   try {
+    const profile = await getBaselineFgaProfile();
     await writeOpenFgaTuples({
-      writes: baselineBootstrapTuples(session.sub.trim(), session.role === "admin"),
+      writes: baselineBootstrapTuples(session.sub.trim(), session.role === "admin", profile),
       deletes: [],
     });
   } catch (error) {

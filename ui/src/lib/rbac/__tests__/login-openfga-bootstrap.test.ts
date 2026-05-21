@@ -72,7 +72,7 @@ describe("login OpenFGA bootstrap", () => {
 
     expect(result.status).toBe("completed");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
+      writes: expect.arrayContaining([
         { user: "user:sub-admin", relation: "member", object: "organization:grid" },
         { user: "user:sub-admin", relation: "reader", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "owner", object: "user_profile:sub-admin" },
@@ -85,7 +85,9 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
-      ],
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
+      ]),
       deletes: [],
     });
   });

@@ -1,6 +1,10 @@
 import { ensureUserByEmail } from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { baselineBootstrapTuples } from "@/lib/rbac/baseline-access";
+import {
+  baselineBootstrapTuples,
+  getBaselineFgaProfile,
+  type BaselineFgaProfile,
+} from "@/lib/rbac/baseline-access";
 
 export type BootstrapAdminOutcomeStatus = "existing" | "created" | "failed";
 
@@ -44,8 +48,8 @@ function configuredBootstrapEmails(): string[] {
   return emails;
 }
 
-function bootstrapTuples(userId: string): OpenFgaTupleKey[] {
-  return baselineBootstrapTuples(userId, true);
+function bootstrapTuples(userId: string, profile: BaselineFgaProfile): OpenFgaTupleKey[] {
+  return baselineBootstrapTuples(userId, true, profile);
 }
 
 export async function reconcileBootstrapAdmins(
@@ -69,6 +73,7 @@ export async function reconcileBootstrapAdmins(
 
   const outcomes: BootstrapAdminOutcome[] = [];
   const warnings: string[] = [];
+  const profile = await getBaselineFgaProfile();
   let tupleWriteCount = 0;
 
   for (const email of emails) {
@@ -76,7 +81,7 @@ export async function reconcileBootstrapAdmins(
     try {
       const user = await ensureUserByEmail(email);
       userId = user.id;
-      const result = await writeOpenFgaTuples({ writes: bootstrapTuples(userId), deletes: [] });
+      const result = await writeOpenFgaTuples({ writes: bootstrapTuples(userId, profile), deletes: [] });
       if (!result.enabled) {
         throw new Error("OpenFGA is not configured; bootstrap admin tuples were not written");
       }

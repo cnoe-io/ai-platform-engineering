@@ -11,6 +11,7 @@ import { organizationObjectId } from "@/lib/rbac/organization";
 import {
   adminSurfaceObject,
   baselineBootstrapTuples,
+  getBaselineFgaProfile,
   BASELINE_ADMIN_SURFACES,
 } from "@/lib/rbac/baseline-access";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
@@ -151,8 +152,9 @@ interface WebexSpaceMapping {
 
 async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Promise<void> {
   try {
+    const profile = await getBaselineFgaProfile();
     await writeOpenFgaTuples({
-      writes: baselineBootstrapTuples(subject, isAdmin),
+      writes: baselineBootstrapTuples(subject, isAdmin, profile),
       deletes: [],
     });
   } catch {

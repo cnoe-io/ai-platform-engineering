@@ -23,6 +23,9 @@ import {
   upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
+import type { Team } from '@/types/teams';
+
+type TeamDocument = Omit<Team, '_id'> & { _id: ObjectId };
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -139,7 +142,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Role must be "admin" or "member"', 400);
     }
 
-    const teams = await getCollection('teams');
+    const teams = await getCollection<TeamDocument>('teams');
     const team = await teams.findOne({ _id: teamId });
 
     if (!team) {
@@ -224,7 +227,7 @@ export const DELETE = withErrorHandler(async (
 
     const email = memberEmail.trim().toLowerCase();
 
-    const teams = await getCollection('teams');
+    const teams = await getCollection<TeamDocument>('teams');
     const team = await teams.findOne({ _id: teamId });
 
     if (!team) {

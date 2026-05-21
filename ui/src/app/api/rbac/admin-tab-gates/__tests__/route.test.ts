@@ -64,7 +64,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(mockGetCollection).not.toHaveBeenCalledWith("admin_tab_policies");
     expect(body.gates).toMatchObject({
       users: true,
       teams: true,

@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api-error";
 
 import type { CredentialOwnerRef } from "./types";
 
-interface Collection<T extends Record<string, unknown>> {
+interface Collection<T extends object> {
   insertOne(doc: T): Promise<unknown>;
   findOne(query: Record<string, unknown>): Promise<T | null>;
   find?(): { sort(sort: Record<string, 1 | -1>): { toArray(): Promise<T[]> } };

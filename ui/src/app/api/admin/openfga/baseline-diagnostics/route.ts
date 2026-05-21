@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
-import { baselineDiagnosticChecks } from "@/lib/rbac/baseline-access";
+import { baselineDiagnosticChecks, getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { withOpenFgaViewAuth } from "../_lib";
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
@@ -11,8 +11,9 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       throw new ApiError("userId is required", 400);
     }
 
+    const profile = await getBaselineFgaProfile();
     const checks = await Promise.all(
-      baselineDiagnosticChecks(subject).map(async (check) => {
+      baselineDiagnosticChecks(subject, profile).map(async (check) => {
         const result = await checkOpenFgaTuple(check.tuple);
         return {
           ...check,
