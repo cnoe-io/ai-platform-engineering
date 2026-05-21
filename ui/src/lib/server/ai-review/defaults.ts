@@ -43,15 +43,7 @@ const AGENT_SYSTEM_PROMPT_CRITERIA: ReviewCriterion[] = [
       "Does the prompt enumerate between 3 and 7 explicit behavior rules or guidelines (bullet list, numbered list, or clearly delimited sentences)? Fewer than 3 is too vague; more than 7 is hard to follow.",
     expects_fix: true,
   },
-  {
-    id: "no-second-person-preamble",
-    name: "No second-person preamble",
-    severity: "warning",
-    weight: 1,
-    micro_prompt:
-      "Does the prompt avoid starting with 'You are an AI assistant…' or similar boilerplate? A direct role statement (e.g. 'Reviews infra changes') is preferred. Pass if the opening line is not a formulaic 'You are…' preamble.",
-    expects_fix: true,
-  },
+
   {
     id: "tool-action-constraints",
     name: "Mentions tool / action constraints",

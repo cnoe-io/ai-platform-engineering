@@ -587,7 +587,7 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
                       onChange={(e) =>
                         updateCriterion(idx, { id: e.target.value })
                       }
-                      placeholder="no-second-person"
+                      placeholder="my-custom-rule"
                       className="font-mono text-xs h-8"
                     />
                   </div>
