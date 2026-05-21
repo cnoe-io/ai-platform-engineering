@@ -9,7 +9,7 @@ export default function CredentialsPage() {
   }
 
   return (
-    <main className="container mx-auto max-w-5xl p-6">
+    <main className="container mx-auto max-w-7xl p-6">
       <CredentialsWorkspace />
     </main>
   );

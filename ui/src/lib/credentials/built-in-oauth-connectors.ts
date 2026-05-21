@@ -19,7 +19,7 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     name: "Atlassian Cloud",
     authorizationUrl: "https://auth.atlassian.com/authorize",
     tokenUrl: "https://auth.atlassian.com/oauth/token",
-    scopes: ["offline_access", "read:jira-work", "read:confluence-content.all"],
+    scopes: ["offline_access", "read:me", "read:jira-work", "read:confluence-content.all"],
   },
   {
     provider: "webex",

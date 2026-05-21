@@ -72,14 +72,19 @@ function completionPage(input: {
       body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #09090b; color: #fafafa; }
       main { max-width: 28rem; padding: 2rem; text-align: center; }
       p { color: #a1a1aa; line-height: 1.5; }
-      button { border: 0; border-radius: 0.5rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 700; padding: 0.75rem 1rem; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; }
+      a, button { border: 0; border-radius: 0.5rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 700; padding: 0.75rem 1rem; text-decoration: none; }
+      a { background: #38bdf8; color: #082f49; }
     </style>
   </head>
   <body>
     <main>
       <h1>${escapeHtml(input.title)}</h1>
       <p>${escapeHtml(input.message)}</p>
-      <button id="close-window" type="button">Close window</button>
+      <div class="actions">
+        <a href="/credentials">Return to Connections</a>
+        <button id="close-window" type="button">Close window</button>
+      </div>
     </main>
     <script>
       const message = ${scriptJson(message)};

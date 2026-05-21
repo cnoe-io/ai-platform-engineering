@@ -66,7 +66,7 @@ Relationships are created and assigned by:
 Keycloak realm roles are **not created for CAIPE permissions**. New deployments keep Keycloak focused on identity and login:
 
 - **Organization access** is `user:<sub> member|admin|auditor organization:<org_key>` or team-mediated variants. The release migration `organization_membership_backfill_v1` writes direct `member organization:<org_key>` tuples for existing Mongo users with a stable Keycloak `sub`, restoring baseline `supervisor:invoke`/RAG `query` access after the OpenFGA cutover.
-- **Login bootstrap access** is repaired on each successful CAIPE login. If the user passes `OIDC_REQUIRED_GROUP`, the Web UI BFF reads the Mongo-backed Baseline FGA profile from `openfga_baseline_profiles` (falling back to the built-in default) and writes the selected member baseline tuples such as `user:<sub> member organization:<org_key>`, `user:<sub> reader system_config:platform_settings`, `user:<sub> owner user_profile:<sub>`, and selected read-only `admin_surface` grants. If the user also matches `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS`, login bootstrap adds the selected admin baseline tuple set, including `admin organization:<org_key>`, `manager system_config:platform_settings`, `manager mcp_server:agentgateway`, and selected privileged `admin_surface` manager grants. Admins can update this profile in Admin → Security & Policy → OpenFGA → Baseline FGA and optionally reconcile the change to all known users immediately. This is an OpenFGA reconciliation step, not a runtime realm-role fallback; users who fail the OIDC admission group are never bootstrapped.
+- **Login bootstrap access** is repaired on each successful CAIPE login. If the user passes `OIDC_REQUIRED_GROUP`, the Web UI BFF reads the Mongo-backed default OpenFGA grant profile bundle from `openfga_baseline_profiles` (falling back to the built-in defaults) and writes the selected member profile tuples such as `user:<sub> member organization:<org_key>`, `user:<sub> reader system_config:platform_settings`, `user:<sub> owner user_profile:<sub>`, and selected read-only `admin_surface` grants. If the user also matches `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS`, login bootstrap adds the selected admin profile tuple set, including `admin organization:<org_key>`, `manager system_config:platform_settings`, `manager mcp_server:agentgateway`, and selected privileged `admin_surface` manager grants. Admins can update the global Org Member / Org Admin default grant profiles, create custom profiles, and assign member/admin profile overrides to teams in Admin → Security & Policy → OpenFGA → Default FGA Grants. These profiles are templates that materialize concrete OpenFGA tuples during login or all-user reconciliation. The same workspace includes OpenFGA Store: Catalog & Live Relationships, a read-only catalog of resource types, action checks, discovered resources, and paginated live OpenFGA tuples so operators can audit the full authorization store beyond the default login templates. A team override **replaces** the global profile for matching team users for that role; if several teams provide overrides, their selected profile grants are unioned. The result is materialized as direct user OpenFGA tuples during login or all-user reconciliation so self-profile grants and existing `can_*` checks remain deterministic. This is an OpenFGA reconciliation step, not a runtime realm-role fallback; users who fail the OIDC admission group are never bootstrapped.
 - **Team membership** is `user:<sub> member|admin team:<slug>`.
 - **Resource access** is team-mediated where possible, for example `team:<slug>#member user agent:<id>` or `team:<slug>#member reader knowledge_base:<id>`.
 - **Runtime checks** use derived `can_*` permissions from those base relationships.
@@ -75,7 +75,7 @@ Rule of thumb: **Keycloak owns identity and JWT claims; OpenFGA owns who is rela
 
 The Web UI backend now uses shared object-level OpenFGA checks for UI-owned resource surfaces whenever the authorization model has a concrete resource type. `list` and `discover` map to `can_discover`, runtime/content access maps to `can_read` or `can_use`, mutations map to `can_write`, sharing maps to `can_share`, and platform configuration maps to `can_manage` on `system_config:<key>`. Dynamic Agent create requires a stable Keycloak `sub`; private agents write `user:<creator_sub> owner agent:<id>`, and team-owned agents require OpenFGA `team:<slug>#can_use` before creation (Mongo team membership is not a fallback). Creation writes durable relationships before MongoDB persistence: `user:<creator_sub> owner agent:<id>`, `organization:<org>#admin manager agent:<id>`, `team:<slug>#member user agent:<id>`, `team:<slug>#admin manager agent:<id>`, and the agent-to-tool caller tuples. Dynamic Agent update/delete paths check the concrete `agent:<id>` object before MongoDB writes or tuple reconciliation. Chat agent pickers (`/api/dynamic-agents/available`) and subagent pickers (`/api/dynamic-agents/available-subagents`) load enabled candidates and filter through `agent#can_use`; conversation creation also checks `agent#can_use` before storing a selected agent. LLM model list and edit routes use `llm_model#can_read`/`#can_write`/`#can_delete`; config-driven system models get `organization:<org>#member reader llm_model:<id>` and `organization:<org>#admin manager llm_model:<id>` tuples during seed and remain immutable. Skill config reads no longer prefilter by MongoDB `visibility`, `owner_id`, `shared_with_teams`, or legacy realm roles; they load candidates and let `skill#can_discover`/`skill#can_read` decide. Task Builder reads follow the same pattern with `task#can_discover`/`task#can_read`. Workflow configs are mapped to the existing OpenFGA `task` namespace until the authorization model grows a first-class `workflow` type. Dynamic Agent built-in tool metadata is guarded as pseudo-resource `tool:dynamic-agents-builtin#can_discover`; callers need an explicit OpenFGA relationship even when their session has `role=admin`.
 
-The Admin → Security & Policy → OpenFGA policy graph is a visibility surface for these same base relationships. Team-scoped graph queries include both `team:<slug>#member` and `team:<slug>#admin` usersets, so management grants such as `team:<slug>#admin manager agent:<id>` and `team:<slug>#admin manager admin_surface:<surface>` appear alongside member grants. The graph palette and node styling cover the concrete OpenFGA resource types used by the baseline model, including `admin_surface`, `user_profile`, `mcp_server`, and `llm_model`, so read-only baseline grants, self-profile ownership, and self-service Dynamic Agents resources are visible instead of falling back to generic unknown-resource nodes.
+The Admin → Security & Policy → OpenFGA policy graph is a visibility surface for these same base relationships. Team-scoped graph queries include both `team:<slug>#member` and `team:<slug>#admin` usersets, so management grants such as `team:<slug>#admin manager agent:<id>` and `team:<slug>#admin manager admin_surface:<surface>` appear alongside member grants. The default graph remains a clean team/resource workspace: team and userset nodes are always visible, and resource nodes are shown when selected from the live catalog. Operators can switch graph layers to inspect stored OpenFGA tuples, read-only Slack/Webex routing metadata, subject-scoped effective `can_*` access paths, or authorization-model topology derived from the universal resource/action model. These layers are user-facing alternatives, not one combined overlay. Effective access is intentionally user-centered and requires a selected user before rendering broad inherited access. Model topology shows resource-type anchors first; selecting catalog resources expands only the matching type's relation and permission stacks, not concrete live resource cards. The UI resource palette and connection defaults read from the live catalog, so newly introduced resource types such as `secret_ref`, `policy`, `audit_log`, or `llm_model` appear without adding another graph-specific resource list.
 
 Conversations use a hybrid ownership model to avoid creating high-cardinality owner tuples for every private chat. Private ownership is implicit from MongoDB (`owner_subject` for normalized records, legacy `owner_id` email fallback for old records). Explicit OpenFGA relationships remain the enforcement store for cross-boundary sharing and admin surfaces. The Web UI backend now fetches non-deleted conversation candidates without MongoDB team-sharing prefilters, then applies the same implicit-or-explicit conversation check on chat list/detail routes, Dynamic Agent v1 stream/invoke/resume/cancel proxy routes, and conversation metadata updates. This lets Slack OBO requests write their own thread conversations and bookkeeping metadata without requiring explicit owner tuples while still allowing OpenFGA-only conversation grants to appear in the UI. The Admin → System → Migrations tab seeds a DB-managed `migration_manifest` from the runtime bundle, shows the active runtime migration release beside per-collection `data_schema_versions`, hides completed migrations by default, and runs the release migration handlers, including `conversation_owner_identity_v1` for `owner_subject`/`owner_identity_version=2`, `organization_membership_backfill_v1` for direct baseline organization membership, universal team-resource OpenFGA backfill, Dynamic Agent tool tuple reconciliation, Dynamic Agent organization-admin inheritance backfill, Slack channel and Webex space ReBAC grant backfills, messaging team mapping reconciliation, RBAC index creation, and Webex messaging ReBAC index creation. Migration runs are recorded in `schema_migrations`; blocking required migrations and the migration status API are admin-only surfaces.
 
@@ -309,6 +309,53 @@ The AgentGateway `openfga-authz-bridge` also writes each external `ext_authz`
 decision into the same `audit_events` collection with `source=openfga_authz_bridge`,
 so gateway-level OpenFGA allow/deny/error decisions appear without a trace
 backend. MongoDB is the durable audit record and the Admin UI reads it directly.
+
+### Credential Exchange Authorization
+
+Connections & Secrets OAuth tokens are never returned to the browser. Browser
+users can start or relink OAuth provider connections and can run a server-side
+profile check, but `POST /api/credentials/connections/[connection_id]/profile`
+refreshes the token inside the BFF and returns only redacted provider profile
+metadata or, for Atlassian, redacted accessible-resource metadata when
+`/me` returns 403. The same response includes a redacted diagnostics checklist
+for the Connections page modal so users can see which validation step passed,
+failed, or needs follow-up without receiving token material. The Connections page
+also calls
+`POST /api/credentials/connections/[connection_id]/refresh` automatically for
+the signed-in user's expired or expiring connected providers; that endpoint
+persists the refreshed token server-side and returns only non-secret refresh
+metadata.
+
+Raw token exchange is reserved for service callers. `POST /api/credentials/exchange`
+rejects browser-origin/session requests, verifies the service bearer JWT through
+the OIDC JWKS path, requires the credential-service audience header, and can
+resolve credentials in two ways:
+
+- `provider_connection_id`: refreshes that specific connection, returning an
+  access token only when the JWT subject owns it or has delegated use permission.
+- `provider`: lists provider connections owned by the JWT `sub`, selects that
+  user's connected provider record, refreshes it, and returns only that user's
+  provider access token.
+
+When a caller asks for a specific connection that is not owned by the JWT subject,
+the route only returns an access token when the subject has:
+
+```text
+user:<service-sub> can_use secret_ref:provider_connection:<connection_id>
+```
+
+This keeps Dynamic Agents and MCP runtimes on a narrow service-to-service path
+while preserving OpenFGA as the PDP for delegated provider-token use. Dynamic
+Agents uses this path behind `USE_IMPERSONATION_TOKENS=true`; Jira MCP receives
+the exchanged Atlassian token on `X-CAIPE-Provider-Token`, leaving the normal
+`Authorization` header reserved for Keycloak MCP authentication.
+
+`GET /api/credentials/inject/atlassian` is available as a BFF-side injector
+contract for future AgentGateway integrations, but AgentGateway v0.12 does not
+support backend-level HTTP `extAuthz` response-header injection. The active Jira
+path therefore keeps injection in the runtime connector: Dynamic Agents calls
+credential exchange with the user's Keycloak JWT and passes the resulting
+Atlassian token to Jira MCP on `X-CAIPE-Provider-Token`.
 
 ### OpenFGA Relationship Backfill
 

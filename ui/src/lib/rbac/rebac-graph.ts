@@ -1,7 +1,12 @@
 import { getRbacCollection, type RebacRelationshipDocument } from "./mongo-collections";
 import { readOpenFgaTuples, type OpenFgaTuple } from "./openfga";
+import { listResourceTypeDefinitions } from "./resource-model";
 import { slackWorkspaceRef } from "./slack-channel-grant-store";
+import { openFgaCheckRelation, openFgaRelation } from "./tuple-builders";
 import { webexWorkspaceRef } from "./webex-space-grant-store";
+import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
+
+export type RebacGraphLayer = "all" | "tuples" | "effective" | "model";
 
 export interface RebacGraphFilters {
   team?: string;
@@ -9,6 +14,7 @@ export interface RebacGraphFilters {
   resourceType?: string;
   resourceId?: string;
   slackChannel?: string;
+  layer?: string;
   limit?: number;
   continuationToken?: string;
 }
@@ -24,7 +30,8 @@ export interface RebacGraphEdge {
   from: string;
   to: string;
   relation: string;
-  kind?: "openfga" | "metadata";
+  kind?: "openfga" | "metadata" | "effective" | "model";
+  layer?: "tuples" | "metadata" | "effective" | "model";
   metadata?: {
     source_type: "slack_channel_team_mapping" | "webex_space_team_mapping";
     label: string;
@@ -76,6 +83,10 @@ const RELATION_TO_ACTION: Record<string, string> = {
   writer: "write",
 };
 
+function normalizeGraphLayer(layer?: string): RebacGraphLayer {
+  return layer === "all" || layer === "effective" || layer === "model" ? layer : "tuples";
+}
+
 interface TeamLookupDocument {
   _id?: unknown;
   slug?: string;
@@ -123,6 +134,10 @@ function addLabeledNode(nodes: Map<string, RebacGraphNode>, id: string, label: s
 
 function edgeId(tuple: OpenFgaTuple): string {
   return `${tuple.key.user}:${tuple.key.relation}:${tuple.key.object}`;
+}
+
+function edgeObjectType(edgeObject: string): string {
+  return edgeObject.split(":", 1)[0] || "unknown";
 }
 
 function includeTuple(tuple: OpenFgaTuple, filters: RebacGraphFilters): boolean {
@@ -270,7 +285,14 @@ function scope(filters: RebacGraphFilters): Record<string, unknown> {
     return { resource: `${filters.resourceType}:${filters.resourceId}` };
   }
   if (filters.slackChannel) return { slack_channel: filters.slackChannel };
-  return { all: true };
+  const base = { all: true };
+  const layer = normalizeGraphLayer(filters.layer);
+  return layer === "all" ? base : { ...base, layer };
+}
+
+function scopeWithLayer(filters: RebacGraphFilters): Record<string, unknown> {
+  const scoped = scope(filters);
+  return filters.layer ? { ...scoped, layer: normalizeGraphLayer(filters.layer) } : scoped;
 }
 
 function appendTupleEdge(input: {
@@ -293,12 +315,97 @@ function appendTupleEdge(input: {
     from: input.tuple.key.user,
     to: input.tuple.key.object,
     relation: input.tuple.key.relation,
+    kind: "openfga",
+    layer: "tuples",
     timestamp: input.tuple.timestamp,
     source: source
       ? { source_type: source.source_type, source_id: source.source_id, status: source.status }
       : null,
   });
   return input.edges.length < input.maxTuples;
+}
+
+function appendEffectiveEdge(input: {
+  subject: string;
+  tuple: OpenFgaTuple;
+  nodes: Map<string, RebacGraphNode>;
+  edges: RebacGraphEdge[];
+  seenEdges: Set<string>;
+  maxTuples: number;
+}): boolean {
+  if (input.edges.length >= input.maxTuples) return false;
+  const action = RELATION_TO_ACTION[input.tuple.key.relation] as UniversalRebacResourceAction | undefined;
+  if (!action) return true;
+  if (edgeObjectType(input.tuple.key.object) === "team" && ["member", "admin"].includes(input.tuple.key.relation)) {
+    return true;
+  }
+  const relation = openFgaCheckRelation(action);
+  const id = `effective:${input.subject}:${relation}:${input.tuple.key.object}:${input.tuple.key.user}:${input.tuple.key.relation}`;
+  if (input.seenEdges.has(id)) return true;
+  input.seenEdges.add(id);
+  addNode(input.nodes, input.subject);
+  addNode(input.nodes, input.tuple.key.object);
+  input.edges.push({
+    id,
+    from: input.subject,
+    to: input.tuple.key.object,
+    relation,
+    kind: "effective",
+    layer: "effective",
+    timestamp: input.tuple.timestamp,
+  });
+  return input.edges.length < input.maxTuples;
+}
+
+function buildModelTopology(maxEdges: number): Pick<RebacGraphResult, "nodes" | "edges"> {
+  const nodes = new Map<string, RebacGraphNode>();
+  const edges: RebacGraphEdge[] = [];
+  const seenEdges = new Set<string>();
+  const addEdge = (edge: RebacGraphEdge): void => {
+    if (edges.length >= maxEdges || seenEdges.has(edge.id)) return;
+    seenEdges.add(edge.id);
+    edges.push(edge);
+  };
+
+  for (const definition of listResourceTypeDefinitions()) {
+    const resourceNodeId = `model:resource_type:${definition.type}`;
+    addLabeledNode(nodes, resourceNodeId, definition.type);
+    const existing = nodes.get(resourceNodeId);
+    if (existing) existing.type = "model_resource_type";
+
+    for (const action of definition.actions) {
+      const relation = openFgaRelation(action);
+      const checkRelation = openFgaCheckRelation(action);
+      const relationNodeId = `model:relation:${definition.type}:${relation}`;
+      const permissionNodeId = `model:permission:${definition.type}:${checkRelation}`;
+
+      addLabeledNode(nodes, relationNodeId, relation);
+      addLabeledNode(nodes, permissionNodeId, checkRelation);
+      const relationNode = nodes.get(relationNodeId);
+      const permissionNode = nodes.get(permissionNodeId);
+      if (relationNode) relationNode.type = "model_relation";
+      if (permissionNode) permissionNode.type = "model_permission";
+
+      addEdge({
+        id: `model:${definition.type}:${action}:base`,
+        from: resourceNodeId,
+        to: relationNodeId,
+        relation: action,
+        kind: "model",
+        layer: "model",
+      });
+      addEdge({
+        id: `model:${definition.type}:${action}:check`,
+        from: relationNodeId,
+        to: permissionNodeId,
+        relation: "derives",
+        kind: "model",
+        layer: "model",
+      });
+    }
+  }
+
+  return { nodes: Array.from(nodes.values()), edges };
 }
 
 async function readTuplesForUser(user: string, maxTuples: number): Promise<OpenFgaTuple[]> {
@@ -342,9 +449,29 @@ function usersetForMembership(tuple: OpenFgaTuple): string | null {
 
 export async function queryRebacGraph(filters: RebacGraphFilters = {}): Promise<RebacGraphResult> {
   const maxTuples = Math.min(Math.max(filters.limit ?? 1000, 1), 1000);
+  const layer = normalizeGraphLayer(filters.layer);
+  if (layer === "model") {
+    const topology = buildModelTopology(maxTuples);
+    return {
+      ...topology,
+      scope: scopeWithLayer(filters),
+      truncated: topology.edges.length >= maxTuples,
+    };
+  }
+
+  if (layer === "effective" && !filters.subject) {
+    return {
+      nodes: [],
+      edges: [],
+      scope: scopeWithLayer(filters),
+      truncated: false,
+    };
+  }
+
   const nodes = new Map<string, RebacGraphNode>();
   const edges: RebacGraphEdge[] = [];
   const seenEdges = new Set<string>();
+  const effectiveEdges = new Set<string>();
   let continuationToken = filters.continuationToken;
   let tuplesRead = 0;
 
@@ -359,7 +486,12 @@ export async function queryRebacGraph(filters: RebacGraphFilters = {}): Promise<
     const subjectlessFilters = { ...filters, subject: undefined };
     const expandedUsersets = new Set<string>();
     for (const tuple of directTuples.filter((candidate) => includeTuple(candidate, subjectlessFilters))) {
-      appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples });
+      if (layer === "all" || layer === "tuples" || layer === "effective") {
+        appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples });
+      }
+      if (layer === "all" || layer === "effective") {
+        appendEffectiveEdge({ subject: filters.subject, tuple, nodes, edges, seenEdges: effectiveEdges, maxTuples });
+      }
       const userset = usersetForMembership(tuple);
       if (userset) expandedUsersets.add(userset);
       if (edges.length >= maxTuples) break;
@@ -369,41 +501,64 @@ export async function queryRebacGraph(filters: RebacGraphFilters = {}): Promise<
       if (edges.length >= maxTuples) break;
       const inheritedTuples = await readTuplesForUser(userset, maxTuples - edges.length);
       for (const tuple of inheritedTuples.filter((candidate) => includeTuple(candidate, subjectlessFilters))) {
-        if (!appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples })) break;
+        if (layer === "all" || layer === "tuples" || layer === "effective") {
+          appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples });
+        }
+        if (layer === "all" || layer === "effective") {
+          if (!appendEffectiveEdge({ subject: filters.subject, tuple, nodes, edges, seenEdges: effectiveEdges, maxTuples })) break;
+        }
+        if (edges.length >= maxTuples) break;
       }
+    }
+
+    if (layer === "all" && edges.length < maxTuples) {
+      const topology = buildModelTopology(maxTuples - edges.length);
+      for (const node of topology.nodes) nodes.set(node.id, node);
+      edges.push(...topology.edges);
     }
 
     return {
       nodes: Array.from(nodes.values()),
       edges,
-      scope: scope(filters),
+      scope: scopeWithLayer(filters),
       truncated: directTuples.length >= maxTuples || edges.length >= maxTuples,
     };
   }
 
-  do {
-    const result = await readOpenFgaTuples({
-      pageSize: Math.min(100, maxTuples - tuplesRead),
-      continuationToken,
-    });
-    for (const tuple of result.tuples.filter((candidate) => includeTuple(candidate, filters))) {
-      if (!appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples })) break;
-    }
-    tuplesRead += result.tuples.length;
-    continuationToken = result.continuationToken;
-  } while (continuationToken && tuplesRead < maxTuples && edges.length < maxTuples);
+  if (layer === "all" || layer === "tuples" || layer === "effective") {
+    do {
+      const result = await readOpenFgaTuples({
+        pageSize: Math.min(100, maxTuples - tuplesRead),
+        continuationToken,
+      });
+      for (const tuple of result.tuples.filter((candidate) => includeTuple(candidate, filters))) {
+        if (!appendTupleEdge({ tuple, nodes, edges, provenanceByKey, seenEdges, maxTuples })) break;
+      }
+      tuplesRead += result.tuples.length;
+      continuationToken = result.continuationToken;
+    } while (continuationToken && tuplesRead < maxTuples && edges.length < maxTuples);
+  }
 
-  const metadataEdges = await loadRoutingMetadataEdges(filters);
-  for (const edge of metadataEdges.slice(0, Math.max(0, maxTuples - edges.length))) {
-    addLabeledNode(nodes, edge.from, edge.metadata?.label.split(" assigned to ", 1)[0] || edge.from);
-    addNode(nodes, edge.to);
-    edges.push(edge);
+  if (layer === "all" || layer === "tuples") {
+    const metadataEdges = await loadRoutingMetadataEdges(filters);
+    for (const edge of metadataEdges.slice(0, Math.max(0, maxTuples - edges.length))) {
+      addLabeledNode(nodes, edge.from, edge.metadata?.label.split(" assigned to ", 1)[0] || edge.from);
+      addNode(nodes, edge.to);
+      edge.layer = "metadata";
+      edges.push(edge);
+    }
+  }
+
+  if (layer === "all" && edges.length < maxTuples) {
+    const topology = buildModelTopology(maxTuples - edges.length);
+    for (const node of topology.nodes) nodes.set(node.id, node);
+    edges.push(...topology.edges);
   }
 
   return {
     nodes: Array.from(nodes.values()),
     edges,
-    scope: scope(filters),
+    scope: scopeWithLayer(filters),
     continuation_token: continuationToken,
     truncated: Boolean(continuationToken),
   };

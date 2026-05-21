@@ -1,6 +1,7 @@
 import { createCredentialError } from "@/lib/credentials/errors";
 
 export type CredentialCallerType =
+  | "agentgateway"
   | "credential_exchange"
   | "dynamic_agent"
   | "internal_service"
@@ -21,6 +22,7 @@ const CREDENTIAL_CALLER_HEADER = "x-caipe-credential-caller";
 const CREDENTIAL_AUDIENCE_HEADER = "x-caipe-credential-audience";
 
 const ALLOWED_CALLER_TYPES = new Set<string>([
+  "agentgateway",
   "credential_exchange",
   "dynamic_agent",
   "internal_service",

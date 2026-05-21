@@ -41,6 +41,7 @@ As a Dynamic Agent author or internal service owner, I need a standard server-to
 5. **Given** browser UI code attempts to call the credential retrieval or credential exchange API to obtain raw credential material, **When** the request reaches CAIPE, **Then** CAIPE rejects it even if the browser user is authenticated; browser paths may submit raw values only during create or explicit rotate flows.
 6. **Given** `USE_IMPERSONATION_TOKENS` is enabled for a GitHub, Jira, or Confluence MCP server, **When** an authorized user invokes tools from that server, **Then** CAIPE uses the user's provider credential from credential exchange instead of the deployment-level static token.
 7. **Given** `USE_IMPERSONATION_TOKENS` is disabled for a GitHub, Jira, or Confluence MCP server, **When** the server starts or handles a request, **Then** CAIPE preserves the existing static credential behavior for compatibility.
+8. **Given** AgentGateway fronts a provider-backed MCP route such as Jira, **When** a request carries a valid Keycloak JWT for a user with a connected provider account, **Then** CAIPE can inject that user's provider token into the upstream MCP request through a non-browser internal route, without each MCP server calling credential exchange directly.
 
 ---
 
@@ -198,6 +199,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - **FR-033**: When `USE_IMPERSONATION_TOKENS` is enabled for Jira or Confluence MCP, CAIPE MUST use the authenticated user's Atlassian OAuth credential from credential exchange as a bearer token against Atlassian Cloud API endpoints instead of API-token basic authentication.
 - **FR-034**: When `USE_IMPERSONATION_TOKENS` is disabled or unsupported for a server, CAIPE MUST preserve existing static credential behavior and clearly mark the run as static-credential mode in non-secret diagnostics.
 - **FR-035**: When impersonation mode is enabled but the user lacks a connected provider credential, required provider scope, site/cloud access, or policy permission, CAIPE MUST fail closed with a reconnect-required, scope-required, site-not-authorized, or authorization-denied outcome before issuing the MCP tool call.
+- **FR-035a**: CAIPE MUST expose an AgentGateway-compatible credential injector path that can resolve a user's provider connection from the Keycloak JWT subject and return provider-token headers for a future upstream MCP injection path; until the deployed AgentGateway supports backend response-header injection, the active Jira implementation MUST keep user-specific provider-token injection in the Dynamic Agents/Jira connector path.
 - **FR-036**: CAIPE MUST provide an admin OAuth connector configuration UI for built-in connectors and custom standards-compliant OAuth/OIDC connectors.
 - **FR-037**: OAuth connector configuration MUST support provider display metadata, authorization URL, token URL, optional userinfo/profile URL, optional accessible-resources URL, client ID, encrypted client secret, redirect URI, requested scopes, refresh policy, identity-claim mapping, token response mapping, and enablement state.
 - **FR-038**: OAuth connector client secrets MUST be stored through the envelope-encrypted credential-store interface and MUST be masked in all read responses.
@@ -226,6 +228,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - **OAuth Connector**: An admin-configured provider definition that describes how CAIPE starts consent, exchanges codes, refreshes tokens, maps provider identity, and stores connector client credentials.
 - **Provider Token Set**: Access, ID, refresh, expiry, scope, and provider-account material associated with a provider connection and stored securely.
 - **Credential Exchange Decision**: The allow, deny, refresh, reconnect-required, or unavailable result produced when a caller asks for a provider credential.
+- **Credential Injector Request**: A non-browser AgentGateway authorization subrequest that carries the caller's Keycloak JWT and asks CAIPE to return provider-token headers for a specific upstream MCP route.
 - **Credential Policy Binding**: The ReBAC relationship that allows a user, team, service, agent, tool, or MCP server to use a secret or provider connection.
 - **Impersonation Token Mode**: A per-MCP-server capability mode enabled by `USE_IMPERSONATION_TOKENS` that replaces deployment-level static credentials with user-scoped provider credentials retrieved through credential exchange.
 - **Credential Feature Toggle**: The deployment and runtime switch that enables or disables the envelope-encrypted secrets manager, credential exchange, migration actions, and MCP impersonation-token mode.

@@ -63,6 +63,11 @@ mcp_servers:
     id: jira
     name: Jira
     transport: http
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: atlassian
+        target: header
 
   - description: PagerDuty incident management
     enabled: true

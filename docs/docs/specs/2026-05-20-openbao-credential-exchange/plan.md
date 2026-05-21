@@ -66,6 +66,7 @@ ui/src/app/api/
 ├── credentials/secrets/                  # secrets manager metadata and lifecycle APIs
 ├── credentials/retrieve/                 # standard internal service credential retrieval API
 ├── credentials/exchange/                 # standard internal provider credential exchange API
+├── credentials/inject/[provider]/        # future AgentGateway credential-injector API returning provider-token headers
 ├── credentials/oauth-connectors/         # admin connector configuration APIs
 ├── credentials/oauth/[provider]/         # connect and callback routes
 └── credentials/migrations/preview/       # non-destructive migration preview APIs
@@ -100,7 +101,7 @@ docs/docs/security/rbac/                  # canonical RBAC reference updates req
 tests/rbac/                               # matrix additions for credential resources and APIs
 ```
 
-**Structure Decision**: Implement the feature across existing CAIPE ownership boundaries instead of creating a new standalone service in the first release. The Next.js BFF remains the control-plane API for UI and internal credential retrieval; Dynamic Agents consume a narrow credential exchange client; MCP servers only receive already-authorized per-invocation material. This keeps OpenBao optional later by swapping the `CredentialStore` backend rather than changing consumers.
+**Structure Decision**: Implement the feature across existing CAIPE ownership boundaries instead of creating a new standalone service in the first release. The Next.js BFF remains the control-plane API for UI, internal credential retrieval, and a future AgentGateway credential-injection contract; Dynamic Agents consume a narrow credential exchange client for the active Jira path because the deployed AgentGateway version does not support backend response-header injection. MCP servers only receive already-authorized per-invocation material. This keeps OpenBao optional later by swapping the `CredentialStore` backend rather than changing consumers.
 
 ## Database Migrations
 

@@ -36,11 +36,13 @@ def validate_prerequisites(
     url: Optional[str] = None,
 ) -> Tuple[bool, Dict[str, Any]]:
     """Validate required Jira credentials and reject placeholder URLs."""
-    resolved_token = token or get_env()
+    provider_header_token = get_provider_header_token()
+    resolved_token = token or provider_header_token or get_env()
     resolved_email = str(
         email or os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or ""
     )
     resolved_url = str(url or os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
+    auth_scheme = "bearer" if provider_header_token and not token else "basic"
 
     if not resolved_token:
         logger.error("No API token available. Request cannot proceed.")
@@ -61,7 +63,7 @@ def validate_prerequisites(
             },
         )
 
-    if not resolved_email:
+    if auth_scheme == "basic" and not resolved_email:
         logger.error("No email available. Request cannot proceed.")
         return (
             False,
@@ -85,7 +87,20 @@ def validate_prerequisites(
             },
         )
 
-    return True, {"token": resolved_token, "email": resolved_email, "url": resolved_url}
+    return True, {"token": resolved_token, "email": resolved_email, "url": resolved_url, "auth_scheme": auth_scheme}
+
+
+def get_provider_header_token() -> Optional[str]:
+    """Retrieve a CAIPE exchanged provider token without consuming the MCP auth JWT."""
+
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        token = req.headers.get("x-caipe-provider-token", "").strip()
+        return token or None
+    except Exception:
+        return None
 
 
 def get_env() -> Optional[str]:
@@ -148,14 +163,19 @@ async def make_api_request(
     token = str(prerequisites["token"])
     email = str(prerequisites["email"])
     url = str(prerequisites["url"])
+    auth_scheme = str(prerequisites.get("auth_scheme") or "basic")
 
-    import base64
+    if auth_scheme == "bearer":
+        authorization = f"Bearer {token}"
+    else:
+        import base64
 
-    auth_str = f"{email}:{token}"
-    encoded_auth = base64.b64encode(auth_str.encode()).decode()
+        auth_str = f"{email}:{token}"
+        encoded_auth = base64.b64encode(auth_str.encode()).decode()
+        authorization = f"Basic {encoded_auth}"
 
     headers = {
-        "Authorization": f"Basic {encoded_auth}",
+        "Authorization": authorization,
         "Accept": "application/json",
         "Content-Type": "application/json"
     }

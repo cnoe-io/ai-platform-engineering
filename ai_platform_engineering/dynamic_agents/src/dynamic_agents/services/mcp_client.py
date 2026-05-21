@@ -246,9 +246,28 @@ async def resolve_mcp_credential_refs(
 
     resolved = dict(config)
     for source in server.credential_sources:
-        if source.kind != "secret_ref" or not source.secret_ref:
+        credential: str | None = None
+        if source.kind == "secret_ref" and source.secret_ref:
+            credential = await credential_client.retrieve_secret(source.secret_ref, intended_use="mcp_server")
+        elif source.kind == "provider_connection":
+            if source.provider:
+                exchanged = await credential_client.exchange_provider_connection_by_provider(
+                    source.provider,
+                    intended_use="mcp_server",
+                )
+            elif source.provider_connection_id:
+                exchanged = await credential_client.exchange_provider_connection(
+                    source.provider_connection_id,
+                    intended_use="mcp_server",
+                )
+            else:
+                continue
+            access_token = exchanged.get("access_token")
+            if isinstance(access_token, str) and access_token:
+                credential = access_token
+
+        if not credential:
             continue
-        credential = await credential_client.retrieve_secret(source.secret_ref, intended_use="mcp_server")
 
         if source.target == "env":
             resolved["env"] = {**resolved.get("env", {}), source.name: credential}

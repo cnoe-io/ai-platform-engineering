@@ -266,6 +266,81 @@ describe("GET /api/admin/rebac/graph", () => {
     );
   });
 
+  it("returns effective access edges for a selected subject", async () => {
+    const { GET } = await import("../graph/route");
+
+    const response = await GET(request("/api/admin/rebac/graph?subject=user%3Aalice-sub&layer=effective&limit=100"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.scope).toMatchObject({ subject: "user:alice-sub", layer: "effective" });
+    expect(body.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "user:alice-sub",
+          to: "agent:incident-agent",
+          relation: "can_use",
+          kind: "effective",
+          layer: "effective",
+        }),
+        expect.objectContaining({
+          from: "user:alice-sub",
+          to: "user_profile:alice-sub",
+          relation: "can_manage",
+          kind: "effective",
+          layer: "effective",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps effective access empty until a subject is selected", async () => {
+    const { GET } = await import("../graph/route");
+
+    const response = await GET(request("/api/admin/rebac/graph?layer=effective&limit=100"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.scope).toMatchObject({ layer: "effective" });
+    expect(body.data.nodes).toEqual([]);
+    expect(body.data.edges).toEqual([]);
+  });
+
+  it("returns authorization model topology derived from the universal resource model", async () => {
+    const { GET } = await import("../graph/route");
+
+    const response = await GET(request("/api/admin/rebac/graph?layer=model&limit=1000"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.scope).toMatchObject({ layer: "model" });
+    expect(body.data.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "model:resource_type:secret_ref", type: "model_resource_type" }),
+        expect.objectContaining({ id: "model:relation:secret_ref:metadata_reader", type: "model_relation" }),
+        expect.objectContaining({ id: "model:permission:secret_ref:can_read_metadata", type: "model_permission" }),
+      ]),
+    );
+    expect(body.data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "model:resource_type:secret_ref",
+          to: "model:relation:secret_ref:metadata_reader",
+          relation: "read-metadata",
+          kind: "model",
+          layer: "model",
+        }),
+        expect.objectContaining({
+          from: "model:relation:secret_ref:metadata_reader",
+          to: "model:permission:secret_ref:can_read_metadata",
+          relation: "derives",
+          kind: "model",
+          layer: "model",
+        }),
+      ]),
+    );
+  });
+
   it("handles typed wildcard user subjects without passing user:* as an OpenFGA read filter", async () => {
     mockReadOpenFgaTuples.mockImplementation(async (readRequest?: { tuple?: { user?: string } }) => {
       if (readRequest?.tuple?.user === "user:*") {

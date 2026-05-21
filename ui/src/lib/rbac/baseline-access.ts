@@ -36,6 +36,19 @@ export interface BaselineFgaGrantDefinition {
   tuple: (subject: string) => OpenFgaTupleKey;
 }
 
+export type BaselineFgaProfileRole = "member" | "admin";
+
+export interface BaselineFgaProfileDefinition {
+  id: string;
+  name: string;
+  description?: string;
+  role: BaselineFgaProfileRole;
+  grants: string[];
+  built_in?: boolean;
+  updated_at?: string;
+  updated_by?: string;
+}
+
 export interface BaselineFgaProfile {
   member_grants: string[];
   admin_grants: string[];
@@ -44,16 +57,40 @@ export interface BaselineFgaProfile {
   source: "default" | "mongo";
 }
 
+export interface BaselineFgaProfileBundle {
+  profiles: BaselineFgaProfileDefinition[];
+  global_member_profile_id: string;
+  global_admin_profile_id: string;
+  updated_at?: string;
+  updated_by?: string;
+  source: "default" | "mongo";
+}
+
+export interface TeamBaselineProfileOverride {
+  team_id?: string;
+  team_slug: string;
+  team_name?: string;
+  role: "member" | "admin" | "owner";
+  member_profile_id?: string;
+  admin_profile_id?: string;
+}
+
 type BaselineFgaProfileDoc = {
-  _id: "default";
+  _id: string;
   member_grants?: unknown;
   admin_grants?: unknown;
+  profiles?: unknown;
+  global_member_profile_id?: unknown;
+  global_admin_profile_id?: unknown;
   updated_at?: string;
   updated_by?: string;
 } & Record<string, unknown>;
 
 export const BASELINE_FGA_PROFILE_COLLECTION = "openfga_baseline_profiles";
 export const BASELINE_FGA_PROFILE_ID = "default";
+export const BASELINE_FGA_PROFILE_BUNDLE_ID = "profiles_v2";
+export const ORG_MEMBER_PROFILE_ID = "org-member";
+export const ORG_ADMIN_PROFILE_ID = "org-admin";
 
 export function adminSurfaceObject(surface: string): string {
   return `admin_surface:${surface}`;
@@ -156,6 +193,93 @@ export function defaultBaselineFgaProfile(): BaselineFgaProfile {
   };
 }
 
+function definitionsForRole(role: BaselineFgaProfileRole): BaselineFgaGrantDefinition[] {
+  return role === "member" ? memberBaselineGrantDefinitions() : adminBaselineGrantDefinitions();
+}
+
+function uniqueProfileGrantIds(values: unknown, role: BaselineFgaProfileRole): string[] {
+  return uniqueGrantIds(values, definitionsForRole(role));
+}
+
+function defaultProfileDefinition(role: BaselineFgaProfileRole): BaselineFgaProfileDefinition {
+  const member = role === "member";
+  return {
+    id: member ? ORG_MEMBER_PROFILE_ID : ORG_ADMIN_PROFILE_ID,
+    name: member ? "Organization member" : "Organization admin",
+    description: member
+      ? "Default baseline grants for authorized organization members."
+      : "Default baseline grants added for organization administrators.",
+    role,
+    grants: definitionsForRole(role).map((definition) => definition.id),
+    built_in: true,
+  };
+}
+
+export function defaultBaselineFgaProfileBundle(): BaselineFgaProfileBundle {
+  return {
+    profiles: [defaultProfileDefinition("member"), defaultProfileDefinition("admin")],
+    global_member_profile_id: ORG_MEMBER_PROFILE_ID,
+    global_admin_profile_id: ORG_ADMIN_PROFILE_ID,
+    source: "default",
+  };
+}
+
+function isProfileRole(value: unknown): value is BaselineFgaProfileRole {
+  return value === "member" || value === "admin";
+}
+
+function normalizeProfileId(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function normalizeProfileDefinition(value: unknown): BaselineFgaProfileDefinition | null {
+  if (!value || typeof value !== "object") return null;
+  const profile = value as Partial<BaselineFgaProfileDefinition>;
+  if (!profile.id || typeof profile.id !== "string" || !isProfileRole(profile.role)) return null;
+  return {
+    id: profile.id.trim(),
+    name: typeof profile.name === "string" && profile.name.trim() ? profile.name.trim() : profile.id.trim(),
+    description: typeof profile.description === "string" ? profile.description : undefined,
+    role: profile.role,
+    grants: uniqueProfileGrantIds(profile.grants, profile.role),
+    built_in: Boolean(profile.built_in),
+    updated_at: profile.updated_at,
+    updated_by: profile.updated_by,
+  };
+}
+
+export function normalizeBaselineFgaProfileBundle(input: {
+  profiles?: unknown;
+  global_member_profile_id?: unknown;
+  global_admin_profile_id?: unknown;
+  updated_at?: string;
+  updated_by?: string;
+  source?: "default" | "mongo";
+}): BaselineFgaProfileBundle {
+  const defaults = defaultBaselineFgaProfileBundle();
+  const byId = new Map(defaults.profiles.map((profile) => [profile.id, profile]));
+  if (Array.isArray(input.profiles)) {
+    for (const value of input.profiles) {
+      const profile = normalizeProfileDefinition(value);
+      if (!profile) continue;
+      byId.set(profile.id, profile);
+    }
+  }
+  const profiles = Array.from(byId.values());
+  const memberIds = new Set(profiles.filter((profile) => profile.role === "member").map((profile) => profile.id));
+  const adminIds = new Set(profiles.filter((profile) => profile.role === "admin").map((profile) => profile.id));
+  const globalMemberId = normalizeProfileId(input.global_member_profile_id, ORG_MEMBER_PROFILE_ID);
+  const globalAdminId = normalizeProfileId(input.global_admin_profile_id, ORG_ADMIN_PROFILE_ID);
+  return {
+    profiles,
+    global_member_profile_id: memberIds.has(globalMemberId) ? globalMemberId : ORG_MEMBER_PROFILE_ID,
+    global_admin_profile_id: adminIds.has(globalAdminId) ? globalAdminId : ORG_ADMIN_PROFILE_ID,
+    updated_at: input.updated_at,
+    updated_by: input.updated_by,
+    source: input.source ?? "default",
+  };
+}
+
 export function normalizeBaselineFgaProfile(input: {
   member_grants?: unknown;
   admin_grants?: unknown;
@@ -172,15 +296,83 @@ export function normalizeBaselineFgaProfile(input: {
   };
 }
 
-export async function getBaselineFgaProfile(): Promise<BaselineFgaProfile> {
+function legacyProfileToBundle(profile: BaselineFgaProfile): BaselineFgaProfileBundle {
+  return normalizeBaselineFgaProfileBundle({
+    profiles: [
+      { ...defaultProfileDefinition("member"), grants: profile.member_grants },
+      { ...defaultProfileDefinition("admin"), grants: profile.admin_grants },
+    ],
+    global_member_profile_id: ORG_MEMBER_PROFILE_ID,
+    global_admin_profile_id: ORG_ADMIN_PROFILE_ID,
+    updated_at: profile.updated_at,
+    updated_by: profile.updated_by,
+    source: profile.source,
+  });
+}
+
+export function bundleToLegacyProfile(bundle: BaselineFgaProfileBundle): BaselineFgaProfile {
+  const memberProfile = profileForId(bundle, "member", bundle.global_member_profile_id);
+  const adminProfile = profileForId(bundle, "admin", bundle.global_admin_profile_id);
+  return {
+    member_grants: memberProfile.grants,
+    admin_grants: adminProfile.grants,
+    updated_at: bundle.updated_at,
+    updated_by: bundle.updated_by,
+    source: bundle.source,
+  };
+}
+
+export async function getBaselineFgaProfileBundle(): Promise<BaselineFgaProfileBundle> {
   try {
     const collection = await getCollection<BaselineFgaProfileDoc>(BASELINE_FGA_PROFILE_COLLECTION);
-    const doc = await collection.findOne({ _id: BASELINE_FGA_PROFILE_ID });
-    if (!doc) return defaultBaselineFgaProfile();
-    return normalizeBaselineFgaProfile({ ...doc, source: "mongo" });
+    const doc = await collection.findOne({ _id: BASELINE_FGA_PROFILE_BUNDLE_ID });
+    if (doc) return normalizeBaselineFgaProfileBundle({ ...doc, source: "mongo" });
+    const legacy = await collection.findOne({ _id: BASELINE_FGA_PROFILE_ID });
+    if (legacy) return legacyProfileToBundle(normalizeBaselineFgaProfile({ ...legacy, source: "mongo" }));
+    return defaultBaselineFgaProfileBundle();
+  } catch {
+    return defaultBaselineFgaProfileBundle();
+  }
+}
+
+export async function getBaselineFgaProfile(): Promise<BaselineFgaProfile> {
+  try {
+    return bundleToLegacyProfile(await getBaselineFgaProfileBundle());
   } catch {
     return defaultBaselineFgaProfile();
   }
+}
+
+export async function saveBaselineFgaProfileBundle(input: {
+  profiles: BaselineFgaProfileDefinition[];
+  global_member_profile_id: string;
+  global_admin_profile_id: string;
+  updated_by: string;
+}): Promise<BaselineFgaProfileBundle> {
+  const bundle = normalizeBaselineFgaProfileBundle({
+    profiles: input.profiles,
+    global_member_profile_id: input.global_member_profile_id,
+    global_admin_profile_id: input.global_admin_profile_id,
+    updated_at: new Date().toISOString(),
+    updated_by: input.updated_by,
+    source: "mongo",
+  });
+  const collection = await getCollection<BaselineFgaProfileDoc>(BASELINE_FGA_PROFILE_COLLECTION);
+  await collection.updateOne(
+    { _id: BASELINE_FGA_PROFILE_BUNDLE_ID },
+    {
+      $set: {
+        profiles: bundle.profiles,
+        global_member_profile_id: bundle.global_member_profile_id,
+        global_admin_profile_id: bundle.global_admin_profile_id,
+        updated_at: bundle.updated_at,
+        updated_by: bundle.updated_by,
+      },
+      $setOnInsert: { _id: BASELINE_FGA_PROFILE_BUNDLE_ID },
+    },
+    { upsert: true },
+  );
+  return bundle;
 }
 
 export async function saveBaselineFgaProfile(input: {
@@ -244,6 +436,69 @@ export function baselineBootstrapTuples(
 ): OpenFgaTupleKey[] {
   const memberTuples = baselineMemberTuples(subject, profile);
   return isAdmin ? [...memberTuples, ...baselineAdminTuples(subject, profile)] : memberTuples;
+}
+
+function profileForId(
+  bundle: BaselineFgaProfileBundle,
+  role: BaselineFgaProfileRole,
+  profileId: string,
+): BaselineFgaProfileDefinition {
+  const fallback = defaultProfileDefinition(role);
+  return bundle.profiles.find((profile) => profile.role === role && profile.id === profileId) ?? fallback;
+}
+
+function uniqueProfileIds(values: Array<string | undefined>): string[] {
+  const selected: string[] = [];
+  for (const value of values) {
+    const id = value?.trim();
+    if (!id || selected.includes(id)) continue;
+    selected.push(id);
+  }
+  return selected;
+}
+
+function grantIdsFromProfiles(
+  bundle: BaselineFgaProfileBundle,
+  role: BaselineFgaProfileRole,
+  profileIds: string[],
+): string[] {
+  const grants: string[] = [];
+  for (const profileId of profileIds) {
+    const profile = profileForId(bundle, role, profileId);
+    for (const grant of profile.grants) {
+      if (!grants.includes(grant)) grants.push(grant);
+    }
+  }
+  return grants;
+}
+
+export function effectiveBaselineBootstrapTuples(input: {
+  subject: string;
+  isAdmin: boolean;
+  bundle?: BaselineFgaProfileBundle;
+  teamOverrides?: TeamBaselineProfileOverride[];
+}): OpenFgaTupleKey[] {
+  const bundle = input.bundle ?? defaultBaselineFgaProfileBundle();
+  const memberOverrideProfileIds = uniqueProfileIds(
+    (input.teamOverrides ?? []).map((override) => override.member_profile_id),
+  );
+  const memberProfileIds =
+    memberOverrideProfileIds.length > 0 ? memberOverrideProfileIds : [bundle.global_member_profile_id];
+  const memberGrants = grantIdsFromProfiles(bundle, "member", memberProfileIds);
+  const tuples = tuplesFromGrantIds(input.subject, memberGrants, memberBaselineGrantDefinitions());
+
+  if (input.isAdmin) {
+    const adminOverrideProfileIds = uniqueProfileIds(
+      (input.teamOverrides ?? [])
+        .filter((override) => override.role === "admin" || override.role === "owner")
+        .map((override) => override.admin_profile_id),
+    );
+    const adminProfileIds =
+      adminOverrideProfileIds.length > 0 ? adminOverrideProfileIds : [bundle.global_admin_profile_id];
+    tuples.push(...tuplesFromGrantIds(input.subject, grantIdsFromProfiles(bundle, "admin", adminProfileIds), adminBaselineGrantDefinitions()));
+  }
+
+  return tuples;
 }
 
 export function baselineDiagnosticChecks(

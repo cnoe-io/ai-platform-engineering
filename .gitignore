@@ -186,6 +186,7 @@ pyrightconfig.json
 
 # Others
 a2a-python
+.superpowers/
 
 # Local configuration files
 .DS_Store

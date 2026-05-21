@@ -26,6 +26,15 @@ export interface Team {
   membership_sources?: TeamMembershipSource[];
   keycloak_roles?: string[];
   /**
+   * Optional Baseline FGA profile overrides. When present, login and admin
+   * reconciliation materialize this team's selected profile instead of the
+   * global org-member/org-admin profile for matching team users.
+   */
+  baseline_profile_overrides?: {
+    member_profile_id?: string;
+    admin_profile_id?: string;
+  };
+  /**
    * Spec 104 team-scoped RBAC: agents the team can chat with and tools the
    * team can invoke. Persisted on the team document and materialized into
    * OpenFGA team-resource tuples. Keycloak no longer mirrors per-resource roles

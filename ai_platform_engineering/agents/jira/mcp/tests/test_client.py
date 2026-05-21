@@ -15,6 +15,11 @@ class FakeResponse:
         return {"ok": True}
 
 
+class CapturingResponse(FakeResponse):
+    def __init__(self, calls):
+        self._calls = calls
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("method", "expects_json"),
@@ -124,3 +129,40 @@ async def test_make_api_request_rejects_unsupported_method(monkeypatch):
 
     assert success is False
     assert response == {"error": "Unsupported method: OPTIONS"}
+
+
+@pytest.mark.asyncio
+async def test_make_api_request_uses_provider_header_as_bearer_without_email(monkeypatch):
+    """Provider OAuth tokens arrive on a dedicated header; Keycloak Authorization remains MCP auth."""
+    client = importlib.import_module("mcp_jira.api.client")
+    importlib.reload(client)
+    monkeypatch.setattr(client, "MCP_JIRA_MOCK_RESPONSE", False)
+    monkeypatch.delenv("ATLASSIAN_EMAIL", raising=False)
+    monkeypatch.delenv("JIRA_EMAIL", raising=False)
+    monkeypatch.setenv("ATLASSIAN_API_URL", "https://api.atlassian.com/ex/jira/cloud-1")
+    monkeypatch.setattr(client, "get_provider_header_token", lambda: "provider-oauth-token")
+
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, *, headers, params):
+            calls.append({"url": url, "headers": headers, "params": params})
+            return CapturingResponse(calls)
+
+    monkeypatch.setattr(client.httpx, "AsyncClient", FakeAsyncClient)
+
+    success, response = await client.make_api_request("rest/api/3/myself")
+
+    assert success is True
+    assert response == {"ok": True}
+    assert calls[0]["url"] == "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/myself"
+    assert calls[0]["headers"]["Authorization"] == "Bearer provider-oauth-token"

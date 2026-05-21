@@ -1,9 +1,8 @@
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import {
-  baselineAdminTuples,
-  baselineMemberTuples,
-  getBaselineFgaProfile,
-  type BaselineFgaProfile,
+  effectiveBaselineBootstrapTuples,
+  getBaselineFgaProfileBundle,
+  type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
 import { getCollection } from "@/lib/mongodb";
 
@@ -30,14 +29,6 @@ function normalizeDefaultAgentId(value: unknown): string | null {
   return trimmed && OPENFGA_ID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
-function baselineTuples(subject: string, profile: BaselineFgaProfile): OpenFgaTupleKey[] {
-  return baselineMemberTuples(subject, profile);
-}
-
-function adminTuples(subject: string, profile: BaselineFgaProfile): OpenFgaTupleKey[] {
-  return baselineAdminTuples(subject, profile);
-}
-
 async function defaultAgentTuple(): Promise<OpenFgaTupleKey[]> {
   try {
     const config = await getCollection<{ default_agent_id?: unknown }>("platform_config");
@@ -51,6 +42,43 @@ async function defaultAgentTuple(): Promise<OpenFgaTupleKey[]> {
   }
 }
 
+interface TeamDoc {
+  slug?: string;
+  name?: string;
+  members?: Array<{ user_id?: string; role?: string }>;
+  baseline_profile_overrides?: {
+    member_profile_id?: string;
+    admin_profile_id?: string;
+  };
+}
+
+async function teamOverridesForLogin(email: string | undefined): Promise<TeamBaselineProfileOverride[]> {
+  if (!email) return [];
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const teams = await getCollection<TeamDoc>("teams");
+    const rows = await teams.find({}).toArray();
+    const overrides: TeamBaselineProfileOverride[] = [];
+    for (const team of rows) {
+      const member = team.members?.find((row) => row.user_id?.trim().toLowerCase() === normalizedEmail);
+      if (!member || !team.slug) continue;
+      const memberProfileId = team.baseline_profile_overrides?.member_profile_id;
+      const adminProfileId = team.baseline_profile_overrides?.admin_profile_id;
+      if (!memberProfileId && !adminProfileId) continue;
+      overrides.push({
+        team_slug: team.slug,
+        team_name: team.name,
+        role: member.role === "owner" || member.role === "admin" ? member.role : "member",
+        member_profile_id: memberProfileId,
+        admin_profile_id: adminProfileId,
+      });
+    }
+    return overrides;
+  } catch {
+    return [];
+  }
+}
+
 export async function reconcileLoginOpenFgaAccess(
   input: LoginOpenFgaBootstrapInput
 ): Promise<LoginOpenFgaBootstrapResult> {
@@ -59,10 +87,13 @@ export async function reconcileLoginOpenFgaAccess(
     return { status: "skipped", tuple_write_count: 0 };
   }
 
-  const profile = await getBaselineFgaProfile();
-  const writes = input.isAdmin
-    ? [...baselineTuples(subject, profile), ...adminTuples(subject, profile)]
-    : baselineTuples(subject, profile);
+  const bundle = await getBaselineFgaProfileBundle();
+  const writes = effectiveBaselineBootstrapTuples({
+    subject,
+    isAdmin: input.isAdmin,
+    bundle,
+    teamOverrides: await teamOverridesForLogin(input.email),
+  });
   writes.push(...(await defaultAgentTuple()));
 
   try {

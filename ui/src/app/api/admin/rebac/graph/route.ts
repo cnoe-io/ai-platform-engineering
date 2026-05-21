@@ -18,6 +18,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     resourceType: params.get("resource_type")?.trim() || undefined,
     resourceId: params.get("resource_id")?.trim() || undefined,
     slackChannel: params.get("slack_channel")?.trim() || undefined,
+    layer: params.get("layer")?.trim() || undefined,
     limit: numberParam(params.get("limit"), 1000),
     continuationToken: params.get("continuation_token") || undefined,
   });

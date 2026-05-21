@@ -51,6 +51,7 @@ beforeEach(() => {
             { type: "tool", actions: ["read", "call", "manage"], description: "Tool" },
             { type: "knowledge_base", actions: ["read", "ingest", "manage"], description: "Knowledge base" },
             { type: "admin_surface", actions: ["read", "manage"], description: "Admin surface" },
+            { type: "secret_ref", actions: ["read-metadata", "use", "manage"], description: "Secret reference" },
           ],
           actions: {
             team: ["read", "manage"],
@@ -63,6 +64,7 @@ beforeEach(() => {
             tool: ["read", "call", "manage"],
             knowledge_base: ["read", "ingest", "manage"],
             admin_surface: ["read", "manage"],
+            secret_ref: ["read-metadata", "use", "manage"],
           },
           resources: {
             agents: [{ id: "agent-1", name: "Agent One", description: "", object: "agent:agent-1" }],
@@ -90,6 +92,7 @@ beforeEach(() => {
               tool: [{ type: "tool", id: "argocd/*", display_name: "Argo CD tools", status: "active", enforcement_status: "rebac_shadowed" }],
               knowledge_base: [{ type: "knowledge_base", id: "kb-alpha", display_name: "KB Alpha", status: "active", enforcement_status: "rebac_shadowed" }],
               admin_surface: [{ type: "admin_surface", id: "skills", display_name: "Skills Admin Surface", status: "active", enforcement_status: "rebac_enforced" }],
+              secret_ref: [{ type: "secret_ref", id: "idp-credentials", display_name: "IDP Credentials", status: "active", enforcement_status: "rebac_enforced" }],
             },
           },
         },
@@ -117,9 +120,14 @@ beforeEach(() => {
       return jsonResponse({ data: { tuples: [] } });
     }
     if (url.startsWith("/api/admin/rebac/graph")) {
+      const parsed = new URL(url, "http://localhost:3000");
       return jsonResponse({
         data: {
-          nodes: [
+          nodes: parsed.searchParams.get("layer") === "model" ? [
+            { id: "model:resource_type:secret_ref", label: "secret_ref", type: "model_resource_type" },
+            { id: "model:relation:secret_ref:metadata_reader", label: "metadata_reader", type: "model_relation" },
+            { id: "model:permission:secret_ref:can_read_metadata", label: "can_read_metadata", type: "model_permission" },
+          ] : [
             { id: "user:alice-sub", label: "Alice Admin", type: "user" },
             { id: "team:platform", label: "Platform", type: "team" },
             { id: "team:platform#member", label: "Platform members", type: "userset" },
@@ -131,7 +139,24 @@ beforeEach(() => {
             { id: "user_profile:alice-sub", label: "Alice Profile", type: "user_profile" },
             { id: "mcp_server:argocd", label: "Argo CD MCP Server", type: "mcp_server" },
           ],
-          edges: [
+          edges: parsed.searchParams.get("layer") === "model" ? [
+            {
+              id: "model-secret-ref-metadata-reader",
+              from: "model:resource_type:secret_ref",
+              to: "model:relation:secret_ref:metadata_reader",
+              relation: "read-metadata",
+              kind: "model",
+              layer: "model",
+            },
+            {
+              id: "model-secret-ref-can-read-metadata",
+              from: "model:relation:secret_ref:metadata_reader",
+              to: "model:permission:secret_ref:can_read_metadata",
+              relation: "derives",
+              kind: "model",
+              layer: "model",
+            },
+          ] : [
             {
               id: "alice-platform",
               from: "user:alice-sub",
@@ -313,6 +338,7 @@ it("orders OpenFGA tabs by operational flow and defaults to tuples", async () =>
     "OpenFGA Tuples",
     "Policy Graph",
     "Access Manager",
+    "Default FGA Grants",
     "Diagnostics",
   ]);
   expect(await screen.findByText("OpenFGA Tuple Store")).toBeInTheDocument();
@@ -393,7 +419,7 @@ it("maps legacy relationship builder links to the access manager", async () => {
   expect(screen.getByText("system_config:<key>")).toBeInTheDocument();
 });
 
-it("starts the policy graph with only team nodes and selected resources visible", async () => {
+it("starts the policy graph with a clean team workspace and selected resources only", async () => {
   const user = userEvent.setup();
   currentSearchParams = new URLSearchParams("openfgaTab=graph");
 
@@ -408,12 +434,69 @@ it("starts the policy graph with only team nodes and selected resources visible"
   expect(within(canvas).getByText("Platform members")).toBeInTheDocument();
   expect(within(canvas).queryByText("Alice Admin")).not.toBeInTheDocument();
   expect(within(canvas).queryByText("Agent One")).not.toBeInTheDocument();
+  expect(within(canvas).queryByText("KB Alpha")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("checkbox", { name: /Agent One/ }));
 
   expect(within(canvas).getByText("Agent One")).toBeInTheDocument();
   expect(within(canvas).queryByText("Alice Admin")).not.toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?limit=1000");
+  expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?layer=tuples&limit=1000");
+});
+
+it("does not render broad effective access without a selected user", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+
+  await user.selectOptions(screen.getByLabelText("Graph layer"), "effective");
+  await user.click(screen.getByRole("button", { name: "Render graph" }));
+
+  const canvas = await screen.findByTestId("openfga-graph-canvas");
+  expect(screen.getByText(/Effective access is a user-centered view/)).toBeInTheDocument();
+  expect(within(canvas).queryByText("Agent One")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?layer=effective&limit=1000");
+});
+
+it("switches the policy graph to the live authorization model layer", async () => {
+  const user = userEvent.setup();
+  currentSearchParams = new URLSearchParams("openfgaTab=graph");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Graph" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+
+  await user.selectOptions(screen.getByLabelText("Graph layer"), "model");
+  await user.click(screen.getByRole("button", { name: "Render graph" }));
+
+  const canvas = await screen.findByTestId("openfga-graph-canvas");
+  expect(within(canvas).getByText("secret_ref")).toBeInTheDocument();
+  expect(within(canvas).queryByText("metadata_reader")).not.toBeInTheDocument();
+  expect(within(canvas).queryByText("can_read_metadata")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Select all shown" }));
+
+  expect(within(canvas).queryByText("Agent One")).not.toBeInTheDocument();
+  expect(within(canvas).queryByText("Model Relation")).not.toBeInTheDocument();
+  expect(within(canvas).getByText("Relations")).toBeInTheDocument();
+  expect(within(canvas).getByText("Permissions")).toBeInTheDocument();
+  expect(within(canvas).getByText("metadata_reader")).toBeInTheDocument();
+  expect(within(canvas).getByText("can_read_metadata")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Unselect all shown" }));
+  await user.click(screen.getByRole("checkbox", { name: /IDP Credentials/ }));
+
+  expect(within(canvas).getByText("metadata_reader")).toBeInTheDocument();
+  expect(within(canvas).getByText("can_read_metadata")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?layer=model&limit=1000");
 });
 
 it("filters the resource palette search and keeps node and edge details collapsed at the bottom", async () => {
@@ -535,12 +618,12 @@ it("shows selected catalog resources even before they have graph relationships",
   const canvas = await screen.findByTestId("openfga-graph-canvas");
   const palette = screen.getByTestId("openfga-graph-resource-palette");
 
-  expect(within(canvas).queryByText("Argo CD MCP Server")).not.toBeInTheDocument();
+  expect(within(canvas).queryByText("IDP Credentials")).not.toBeInTheDocument();
 
-  fireEvent.click(within(palette).getByRole("checkbox", { name: /Argo CD MCP Server/ }));
+  fireEvent.click(within(palette).getByRole("checkbox", { name: /IDP Credentials/ }));
 
   await waitFor(() => {
-    expect(within(canvas).getByText("Argo CD MCP Server")).toBeInTheDocument();
+    expect(within(canvas).getByText("IDP Credentials")).toBeInTheDocument();
   });
 });
 
@@ -592,7 +675,7 @@ it("accepts a manual wildcard user subject for the graph filter", async () => {
 
   expect(await screen.findByText(/Showing graph for/)).toHaveTextContent("user:*");
   await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&limit=1000");
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&layer=tuples&limit=1000");
   });
 });
 
@@ -624,7 +707,7 @@ it("shows the manual user subject controls inside the fullscreen graph", async (
 
   expect(within(dialog).getByText(/Showing graph for/)).toHaveTextContent("user:*");
   await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&limit=1000");
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&layer=tuples&limit=1000");
   });
 });
 

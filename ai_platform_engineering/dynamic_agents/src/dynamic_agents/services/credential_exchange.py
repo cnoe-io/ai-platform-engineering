@@ -57,6 +57,17 @@ class CredentialExchangeClient:
             },
         )
 
+    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict[str, Any]:
+        """Exchange the current JWT subject's provider connection by provider key."""
+
+        return await self._post(
+            "/exchange",
+            {
+                "provider": provider,
+                "intended_use": intended_use,
+            },
+        )
+
     async def _post(self, path: str, json_body: dict[str, Any]) -> dict[str, Any]:
         client = self._http_client
         if client is not None:

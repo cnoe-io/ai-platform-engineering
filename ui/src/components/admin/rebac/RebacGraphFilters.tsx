@@ -18,6 +18,8 @@ export interface RebacGraphUserOption {
   lastName?: string;
 }
 
+export type RebacGraphLayerOption = "tuples" | "effective" | "model";
+
 function userLabel(user: RebacGraphUserOption): string {
   if (user.id === "*") return "user:*";
   if (user.username?.startsWith("user:")) return user.username;
@@ -43,19 +45,23 @@ function manualUserOption(value: string): RebacGraphUserOption | null {
 export function RebacGraphFilters({
   teams,
   scope,
+  layer,
   allScopeValue,
   selectedUser,
   idPrefix = "graph",
   onScopeChange,
+  onLayerChange,
   onUserChange,
   onRender,
 }: {
   teams: RebacGraphTeamOption[];
   scope: string;
+  layer: RebacGraphLayerOption;
   allScopeValue: string;
   selectedUser: RebacGraphUserOption | null;
   idPrefix?: string;
   onScopeChange: (scope: string) => void;
+  onLayerChange: (layer: RebacGraphLayerOption) => void;
   onUserChange: (user: RebacGraphUserOption | null) => void;
   onRender: () => void;
 }) {
@@ -98,7 +104,7 @@ export function RebacGraphFilters({
   }
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <div>
         <Label htmlFor={`${idPrefix}-scope`}>Graph scope</Label>
         <select
@@ -113,6 +119,19 @@ export function RebacGraphFilters({
               {team.name} ({team.slug})
             </option>
           ))}
+        </select>
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}-layer`}>Graph layer</Label>
+        <select
+          id={`${idPrefix}-layer`}
+          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+          value={layer}
+          onChange={(event) => onLayerChange(event.target.value as RebacGraphLayerOption)}
+        >
+          <option value="tuples">Team/resource relationships</option>
+          <option value="effective">Effective access for selected user</option>
+          <option value="model">Authorization model topology</option>
         </select>
       </div>
       <div>

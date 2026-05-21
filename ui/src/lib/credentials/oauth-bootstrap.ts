@@ -40,6 +40,36 @@ function value(env: Env, key: string): string | null {
   return candidate ? candidate : null;
 }
 
+function canonicalCallbackBase(env: Env): string {
+  return value(env, "NEXTAUTH_URL") ?? "http://localhost:3000";
+}
+
+function canonicalProviderCallback(provider: BootstrapProviderEnv["provider"], env: Env): string {
+  return `${canonicalCallbackBase(env).replace(/\/$/, "")}/api/credentials/oauth/${provider}/callback`;
+}
+
+function normalizeRedirectUri(
+  provider: BootstrapProviderEnv["provider"],
+  redirectUri: string,
+  env: Env,
+): string {
+  try {
+    const url = new URL(redirectUri);
+    const legacyLocalCallback =
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1") &&
+      url.port === "3001" &&
+      url.pathname === `/oauth/${provider}/callback`;
+
+    if (legacyLocalCallback) {
+      return canonicalProviderCallback(provider, env);
+    }
+  } catch {
+    return redirectUri;
+  }
+
+  return redirectUri;
+}
+
 export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): CreateConnectorInput[] {
   const inputs: CreateConnectorInput[] = [];
   for (const providerEnv of PROVIDER_ENV) {
@@ -60,7 +90,7 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
       authorizationUrl: descriptor.authorizationUrl,
       tokenUrl: descriptor.tokenUrl,
       scopes: descriptor.scopes,
-      redirectUri,
+      redirectUri: normalizeRedirectUri(providerEnv.provider, redirectUri, env),
     });
   }
   return inputs;

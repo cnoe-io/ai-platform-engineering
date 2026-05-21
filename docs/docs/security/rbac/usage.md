@@ -131,6 +131,20 @@ Expected result for `agent=rebac_enforced`: `legacy.allowed=false`,
 `legacy.ignored_roles=["agent_user:incident-agent"]`, and
 `effective.source="rebac"`.
 
+To inspect the live OpenFGA policy graph, open **Admin → Security & Policy →
+OpenFGA → Policy Graph**. The default **Team/resource relationships** layer keeps
+the graph team-centered: select a team scope, then select resources from the live
+palette to draw the relevant tuple edges. Use **Effective access for selected
+user** only after choosing a user, and use **Authorization model topology** as a
+diagnostic model view. The UI does not overlay every layer at once; each mode is
+scoped to one operator question. In the model view, resource-type nodes appear
+first, and selecting resources in the palette expands compact relation and
+permission stacks for the matching resource types. Concrete live resource cards
+stay in the team/resource and effective-access layers, so the topology remains an
+overview instead of a wall of repeated relation nodes. The graph uses the universal
+resource catalog/action model, so new resource types appear in the palette and
+topology without adding graph-specific constants.
+
 ---
 
 ## Demo Walkthrough — Prove Every Gate
@@ -258,6 +272,18 @@ Common debug paths include `team:<slug>#member can_use agent:<id>`,
 operator has admin rights, **Grant this access** creates and applies a staged
 change set for the selected base relationship, then re-runs the check. When a
 check is allowed, admins can use **Revoke this access** from the same panel.
+
+Use **Admin → Security & Policy → OpenFGA ReBAC → Default FGA Grants** to manage
+the default OpenFGA grant profiles for organization members and admins. These
+profiles are templates: saving or reconciling them materializes concrete
+OpenFGA tuples, such as `user:<sub> reader admin_surface:users`, during login or
+all-user reconciliation. The card below it, **OpenFGA Store: Catalog & Live
+Relationships**, is read-only and shows the live authorization store available
+to operators: resource types and supported actions from the ReBAC catalog,
+discovered runtime resources, grouped relationship families, and all OpenFGA
+tuples fetched through pagination. Use this when you need to audit what
+relationships exist in the store, regardless of whether they came from login
+defaults, team/resource grants, or direct admin changes.
 
 Use **Admin → Security & Policy → OpenFGA ReBAC → Diagnostics** to compare one
 Keycloak subject against the default member and admin OpenFGA baselines. This is

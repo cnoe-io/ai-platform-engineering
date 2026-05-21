@@ -84,6 +84,7 @@ class MCPCredentialSource(BaseModel):
     name: str = Field(..., description="Environment variable or header name")
     secret_ref: str | None = Field(None, description="Credential secret_ref id")
     provider_connection_id: str | None = Field(None, description="Provider connection id")
+    provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
 
 
 class MCPServerConfig(MCPServerConfigBase):

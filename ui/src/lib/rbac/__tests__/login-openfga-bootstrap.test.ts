@@ -117,6 +117,77 @@ describe("login OpenFGA bootstrap", () => {
     });
   });
 
+  it("applies team profile overrides instead of the global member baseline on login", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "openfga_baseline_profiles") {
+        return {
+          findOne: jest.fn().mockImplementation(async (query: { _id: string }) =>
+            query._id === "profiles_v2"
+              ? {
+                  _id: "profiles_v2",
+                  global_member_profile_id: "org-member",
+                  global_admin_profile_id: "org-admin",
+                  profiles: [
+                    {
+                      id: "org-member",
+                      name: "Organization member",
+                      role: "member",
+                      grants: ["organization-member", "own-profile-owner"],
+                    },
+                    {
+                      id: "org-admin",
+                      name: "Organization admin",
+                      role: "admin",
+                      grants: ["organization-admin"],
+                    },
+                    {
+                      id: "support-member",
+                      name: "Support member",
+                      role: "member",
+                      grants: ["admin-surface:metrics:read"],
+                    },
+                  ],
+                }
+              : null,
+          ),
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                _id: "team-1",
+                slug: "support",
+                name: "Support",
+                members: [{ user_id: "user@example.com", role: "member" }],
+                baseline_profile_overrides: { member_profile_id: "support-member" },
+              },
+            ]),
+          }),
+        };
+      }
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue(null) };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { reconcileLoginOpenFgaAccess } = await import("../login-openfga-bootstrap");
+
+    const result = await reconcileLoginOpenFgaAccess({
+      subject: "sub-user",
+      email: "user@example.com",
+      isAuthorized: true,
+      isAdmin: false,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" }],
+      deletes: [],
+    });
+  });
+
   it("does not bootstrap users who failed the OIDC admission gate", async () => {
     const { reconcileLoginOpenFgaAccess } = await import("../login-openfga-bootstrap");
 

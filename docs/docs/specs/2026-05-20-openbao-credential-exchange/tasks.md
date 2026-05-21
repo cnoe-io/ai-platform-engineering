@@ -93,6 +93,7 @@
 
 - [ ] T035 [P] [US2] Add contract tests for `/api/credentials/retrieve` service/OBO audience enforcement and browser denial in `ui/src/app/api/credentials/retrieve/__tests__/route.test.ts`
 - [ ] T036 [P] [US2] Add contract tests for `/api/credentials/exchange` browser denial, session-only denial, and wrong-audience denial in `ui/src/app/api/credentials/exchange/__tests__/browser-deny.test.ts`
+- [x] T036a [P] [US2] Add contract tests for `/api/credentials/inject/[provider]` AgentGateway caller enforcement and provider-token header injection in `ui/src/app/api/credentials/inject/[provider]/__tests__/route.test.ts`
 - [ ] T037 [P] [US2] Add Dynamic Agents credential exchange client tests in `ai_platform_engineering/dynamic_agents/tests/test_credential_exchange_client.py`
 - [ ] T038 [P] [US2] Add MCP client secret-ref resolution tests in `ai_platform_engineering/dynamic_agents/tests/test_mcp_client_credential_refs.py`
 
@@ -100,6 +101,7 @@
 
 - [ ] T039 [US2] Implement standard retrieval API route with non-browser service/OBO caller enforcement in `ui/src/app/api/credentials/retrieve/route.ts`
 - [ ] T040 [US2] Implement provider credential exchange API route shell with non-browser service/OBO caller enforcement in `ui/src/app/api/credentials/exchange/route.ts`
+- [x] T040a [US2] Implement AgentGateway credential injector route in `ui/src/app/api/credentials/inject/[provider]/route.ts`
 - [ ] T041 [US2] Implement retrieval request validation, caller-type validation, audience validation, and intended-use enforcement in `ui/src/lib/credentials/retrieval-service.ts`
 - [ ] T042 [US2] Add Dynamic Agents credential exchange client in `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/credential_exchange.py`
 - [ ] T043 [US2] Extend Dynamic Agents MCP config models for credential source metadata in `ai_platform_engineering/dynamic_agents/src/dynamic_agents/models.py`
@@ -210,6 +212,7 @@
 - [ ] T081 [US6] Add local compose credential feature settings to `docker-compose.dev.yaml`
 - [ ] T082 [US6] Wire CAIPE UI credential env vars in `charts/ai-platform-engineering/charts/caipe-ui/templates/deployment.yaml`
 - [ ] T083 [US6] Wire Dynamic Agents credential exchange env vars in `charts/ai-platform-engineering/charts/dynamic-agents/templates/deployment.yaml`
+- [x] T083a [US6] Verify AgentGateway v0.12 route config compatibility and document that backend HTTP ext_authz injection is unsupported; keep active Jira provider-token injection in the Dynamic Agents/Jira connector path
 - [ ] T084 [US6] Add External Secrets examples for credential KMS settings in `charts/ai-platform-engineering/values-external-secrets.yaml`
 - [ ] T085 [US6] Document backup, restore, health, and key rotation in `docs/docs/security/rbac/usage.md`
 - [ ] T086 [US6] Document credential architecture and env vars in `docs/docs/security/rbac/architecture.md`

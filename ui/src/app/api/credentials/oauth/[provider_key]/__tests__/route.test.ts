@@ -98,6 +98,7 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(response.headers.get("set-cookie")).toContain("caipe_oauth_state_github=;");
     const text = await response.text();
     expect(text).toContain("Connection complete");
+    expect(text).toContain("Return to Connections");
     expect(text).toContain("caipe.oauth.connection");
   });
 });

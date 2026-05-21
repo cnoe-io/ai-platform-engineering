@@ -16,7 +16,7 @@ binds:
         jwks:
           url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
     routes:
-    - matches: [{ path: { type: PathPrefix, value: /mcp/argocd } }]
+    - matches: [{ path: { pathPrefix: /mcp/argocd } }]
       policies: &mcpAuthzPolicy
         extAuthz:
           host: openfga-authz-bridge:9100
@@ -33,91 +33,91 @@ binds:
           targets:
           - name: argocd
             mcp: { host: http://mcp-argocd:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/backstage } }]
+    - matches: [{ path: { pathPrefix: /mcp/backstage } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: backstage
             mcp: { host: http://mcp-backstage:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/confluence } }]
+    - matches: [{ path: { pathPrefix: /mcp/confluence } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: confluence
             mcp: { host: http://mcp-confluence:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/github } }]
+    - matches: [{ path: { pathPrefix: /mcp/github } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: github
             mcp: { host: http://github-mcp-server:8082/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/gitlab } }]
+    - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: gitlab
             mcp: { host: http://mcp-gitlab:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/jira } }]
+    - matches: [{ path: { pathPrefix: /mcp/jira } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: jira
             mcp: { host: http://mcp-jira:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/komodor } }]
+    - matches: [{ path: { pathPrefix: /mcp/komodor } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: komodor
             mcp: { host: http://mcp-komodor:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/netutils } }]
+    - matches: [{ path: { pathPrefix: /mcp/netutils } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: netutils
             mcp: { host: http://mcp-netutils:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/pagerduty } }]
+    - matches: [{ path: { pathPrefix: /mcp/pagerduty } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: pagerduty
             mcp: { host: http://mcp-pagerduty:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/rag } }]
+    - matches: [{ path: { pathPrefix: /mcp/rag } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: rag
             mcp: { host: http://rag-server:9446/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/slack } }]
+    - matches: [{ path: { pathPrefix: /mcp/slack } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: slack
             mcp: { host: http://mcp-slack:3001/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/splunk } }]
+    - matches: [{ path: { pathPrefix: /mcp/splunk } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: splunk
             mcp: { host: http://mcp-splunk:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/victorops } }]
+    - matches: [{ path: { pathPrefix: /mcp/victorops } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:
           targets:
           - name: victorops
             mcp: { host: http://mcp-victorops:8000/mcp }
-    - matches: [{ path: { type: PathPrefix, value: /mcp/webex } }]
+    - matches: [{ path: { pathPrefix: /mcp/webex } }]
       policies: *mcpAuthzPolicy
       backends:
       - mcp:

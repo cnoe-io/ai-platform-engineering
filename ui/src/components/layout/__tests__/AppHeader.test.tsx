@@ -924,7 +924,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     render(<AppHeader />)
 
     expect(screen.getByText('Connected')).toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: /Version metadata needed: 2/i })[0]).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /Version metadata needed: 2/i })).toHaveAttribute(
       'href',
       '/admin?cat=security&tab=migrations',
     )

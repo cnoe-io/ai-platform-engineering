@@ -119,7 +119,7 @@ sequenceDiagram
 
 1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. On every successful CAIPE login, the BFF reconciles OpenFGA baseline tuples for users who passed `OIDC_REQUIRED_GROUP`; those tuples come from the admin-managed Baseline FGA profile when present, otherwise the built-in default. Users in `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS` receive the profile's admin baseline grants. Admin changes in Security & Policy → OpenFGA → Baseline FGA can save the future-login profile and reconcile all known users immediately. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. On every successful CAIPE login, the BFF reconciles OpenFGA tuples for users who passed `OIDC_REQUIRED_GROUP`; those tuples come from the admin-managed default OpenFGA grant profile bundle when present, otherwise the built-in Org Member / Org Admin defaults. Users in `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS` receive the selected admin profile grants. Team-assigned custom profiles override the global member/admin profile for matching team users and are materialized as direct user tuples; multiple team overrides union with each other. Admin changes in Security & Policy → OpenFGA → Default FGA Grants can save future-login templates and reconcile all known users immediately. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
 > **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once, then Keycloak refreshes the CAIPE access token while the SSO session is active". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
@@ -248,10 +248,9 @@ primary authorization decision.
 The Connections & Secrets OAuth connector flow is a CAIPE credential-exchange
 flow, not a Keycloak login broker flow. Provider client IDs/secrets are seeded
 from `.env` in Docker Compose or ESO in Kubernetes into encrypted MongoDB
-connector records. Users then create per-provider connections from the
-Connections page. The browser opens the provider journey in a popup window when
-possible, with a `target="_blank"` tab fallback for popup blockers, so the user
-does not lose their place in CAIPE:
+connector records. Users then create or relink per-provider connections from the
+Connections page. The browser navigates in the same tab so the OAuth callback
+keeps the signed-in CAIPE session context:
 
 ```mermaid
 sequenceDiagram
@@ -260,7 +259,7 @@ sequenceDiagram
   participant P as OAuth Provider
   participant DB as MongoDB Envelope Store
 
-  B->>UI: Open popup/tab to GET /api/credentials/oauth/{provider}/connect
+  B->>UI: Navigate to GET /api/credentials/oauth/{provider}/connect
   UI->>UI: Verify session, create state + PKCE verifier
   UI->>B: 302 Location: provider authorize URL<br/>Set-Cookie: signed httpOnly state
   B->>P: Provider authorize URL<br/>code_challenge_method=S256<br/>code_challenge=<43-char SHA256 base64url>
@@ -268,16 +267,66 @@ sequenceDiagram
   B->>UI: Callback with signed state cookie
   UI->>P: Exchange code + code_verifier for provider tokens
   UI->>DB: Store access/refresh token refs encrypted
-  UI->>B: Closeable completion page<br/>BroadcastChannel/postMessage connection event
-  B->>B: Refresh Connections list in original CAIPE tab
+  UI->>B: Completion page with Return to Connections link<br/>BroadcastChannel/postMessage connection event
+  B->>B: Return to Connections and refresh connection list
 ```
 
 The browser never receives provider tokens or decrypted secret material. Local
 development may use `http://localhost` redirect URIs, but production connector
-redirect URIs must use HTTPS. The popup is opened through a same-origin blank
-window before redirecting to the external provider, then clears `window.opener`;
-the final callback page notifies the original tab through `BroadcastChannel`
-and only uses `postMessage` when an opener is available.
+redirect URIs must use HTTPS. The final callback page includes a return link and
+still broadcasts a connection event for tabs that are listening. Built-in
+GitHub and Webex connector bootstrap normalizes legacy local
+`http://localhost:3001/oauth/{provider}/callback` values to the CAIPE UI callback
+route at `/api/credentials/oauth/{provider}/callback`, so the provider returns
+to the BFF route that stores the encrypted token set.
+
+After a connection exists, the Connections page can run **Check GitHub Profile**,
+**Check Atlassian Profile**, or **Check Webex Profile**. The browser calls the
+BFF profile-check route for its own connection id; the BFF verifies the session,
+loads only connections owned by the signed-in Keycloak `sub`, refreshes the
+provider token server-side, calls the provider profile endpoint, and returns a
+small redacted profile summary. Atlassian checks also fall back to
+`/oauth/token/accessible-resources` when the User Identity `/me` endpoint returns
+403, so operators can distinguish a valid OAuth grant from a denied profile API.
+The route also returns a redacted diagnostics checklist for the Connections page
+modal: connection ownership, refresh-token acceptance, provider profile status,
+and Atlassian accessible-resource/scope status where applicable. Each diagnostic
+includes operator guidance such as relinking the provider or asking an Atlassian
+admin to review User Identity API access. The route never returns the OAuth
+access or refresh token.
+
+The Connections page also performs an automatic, browser-safe refresh pass on
+load for connected providers whose access token is expired or within the refresh
+threshold. The BFF `POST /api/credentials/connections/{id}/refresh` route verifies
+the same session ownership, refreshes the provider token server-side, persists the
+new encrypted access-token reference/expiry metadata, and returns only refresh
+metadata (`ok`, provider, and expiry interval), never token material.
+
+Runtime callers that need a provider access token use
+`POST /api/credentials/exchange` instead. That route is non-browser only: it
+rejects Origin/Referer/cookie requests, validates the service bearer JWT, checks
+the expected credential-service audience header, and supports either an explicit
+`provider_connection_id` or a provider key such as `atlassian`. Provider-key
+exchange selects the connected provider record owned by the JWT `sub`, so a
+Dynamic Agent invocation receives the signed-in user's Atlassian token without
+hard-coding a per-user connection id. Explicit connection-id exchange still
+requires either ownership by JWT `sub` or OpenFGA
+`secret_ref:provider_connection:<id>#can_use` before returning a refreshed
+provider access token.
+
+For Jira MCP, Dynamic Agents keeps the user's Keycloak JWT on `Authorization` for
+MCP authentication and injects the exchanged Atlassian OAuth token on
+`X-CAIPE-Provider-Token`. Jira treats that header as a provider Bearer token and
+does not require `ATLASSIAN_EMAIL` for that OAuth path; static API-token Basic
+auth remains available when impersonation tokens are disabled.
+
+`GET /api/credentials/inject/atlassian` is implemented as the future BFF
+contract for AgentGateway-style provider-token injection, but AgentGateway v0.12
+does not support backend-level HTTP `extAuthz` response-header injection. Until
+that gateway capability exists, the active Jira path keeps the exchange in the
+connector/runtime layer: Dynamic Agents resolves the user-specific Atlassian
+token through credential exchange and Jira MCP consumes it from
+`X-CAIPE-Provider-Token`.
 
 ## Webex Space ReBAC and Bot Dispatch
 

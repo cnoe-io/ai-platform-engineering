@@ -337,6 +337,14 @@ export class ProviderConnectionService {
       .map(toProviderConnectionMetadata);
   }
 
+  async getConnection(connectionId: string): Promise<ProviderConnectionMetadata> {
+    const connection = await this.providerConnectionsCollection.findOne({ id: nonEmpty(connectionId, "connectionId") });
+    if (!connection) {
+      throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
+    }
+    return toProviderConnectionMetadata(connection);
+  }
+
   async refreshConnection(connectionId: string): Promise<{ accessToken: string; expiresIn?: number }> {
     const connection = await this.providerConnectionsCollection.findOne({ id: connectionId });
     if (!connection) {

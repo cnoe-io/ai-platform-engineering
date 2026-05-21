@@ -20,7 +20,31 @@ describe("OAuth connector env bootstrap", () => {
       clientId: "atlassian-client",
       clientSecret: "atlassian-secret",
     });
+    expect(inputs[1].scopes).toContain("read:me");
     expect(JSON.stringify(inputs)).not.toContain("oauth_connector:");
+  });
+
+  it("normalizes legacy local GitHub and Webex callback URLs to the CAIPE UI callback route", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      NEXTAUTH_URL: "http://localhost:3000",
+      GITHUB_CLIENT_ID: "github-client",
+      GITHUB_CLIENT_SECRET: "github-secret",
+      GITHUB_REDIRECT_URI: "http://localhost:3001/oauth/github/callback",
+      WEBEX_CLIENT_ID: "webex-client",
+      WEBEX_CLIENT_SECRET: "webex-secret",
+      WEBEX_REDIRECT_URI: "http://localhost:3001/oauth/webex/callback",
+    });
+
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        provider: "github",
+        redirectUri: "http://localhost:3000/api/credentials/oauth/github/callback",
+      }),
+      expect.objectContaining({
+        provider: "webex",
+        redirectUri: "http://localhost:3000/api/credentials/oauth/webex/callback",
+      }),
+    ]);
   });
 
   it("skips incomplete provider env sets and upserts only when enabled", async () => {

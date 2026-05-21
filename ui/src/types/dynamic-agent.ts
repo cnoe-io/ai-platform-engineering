@@ -43,6 +43,7 @@ export interface MCPCredentialSource {
   name: string;
   secret_ref?: string;
   provider_connection_id?: string;
+  provider?: string;
 }
 
 export interface MCPServerConfigCreate {

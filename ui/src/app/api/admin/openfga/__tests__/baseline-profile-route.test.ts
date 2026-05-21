@@ -29,6 +29,10 @@ const profileCollection = {
 const usersCollection = {
   find: jest.fn(),
 };
+const teamsCollection = {
+  find: jest.fn(),
+  bulkWrite: jest.fn(),
+};
 
 jest.mock("../_lib", () => ({
   withOpenFgaAdminAuth: (...args: unknown[]) => mockWithOpenFgaAdminAuth(...args),
@@ -67,9 +71,33 @@ beforeEach(() => {
       ]),
     }),
   });
+  teamsCollection.find.mockReturnValue({
+    sort: jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([
+        {
+          _id: "team-1",
+          slug: "support",
+          name: "Support",
+          members: [{ user_id: "member@example.com", role: "member" }],
+          baseline_profile_overrides: { member_profile_id: "support-member" },
+        },
+      ]),
+    }),
+    toArray: jest.fn().mockResolvedValue([
+      {
+        _id: "team-1",
+        slug: "support",
+        name: "Support",
+        members: [{ user_id: "member@example.com", role: "member" }],
+        baseline_profile_overrides: { member_profile_id: "support-member" },
+      },
+    ]),
+  });
+  teamsCollection.bulkWrite.mockResolvedValue({ modifiedCount: 1 });
   mockGetCollection.mockImplementation(async (name: string) => {
     if (name === "openfga_baseline_profiles") return profileCollection;
     if (name === "users") return usersCollection;
+    if (name === "teams") return teamsCollection;
     throw new Error(`unexpected collection ${name}`);
   });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 4, deletes: 2 });
@@ -150,5 +178,89 @@ describe("/api/admin/openfga/baseline-profile", () => {
         scope: "admin",
       }),
     );
+  });
+
+  it("returns profile bundle data with team override assignments", async () => {
+    const { GET } = await import("../baseline-profile/route");
+
+    const response = await GET(request("/api/admin/openfga/baseline-profile"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.bundle.profiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "org-member", role: "member" }),
+        expect.objectContaining({ id: "org-admin", role: "admin" }),
+      ]),
+    );
+    expect(body.data.team_assignments).toEqual([
+      expect.objectContaining({
+        team_id: "team-1",
+        team_slug: "support",
+        member_profile_id: "support-member",
+      }),
+    ]);
+  });
+
+  it("persists profile bundles and team overrides with override reconciliation", async () => {
+    const { PUT } = await import("../baseline-profile/route");
+
+    const response = await PUT(
+      request("/api/admin/openfga/baseline-profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          bundle: {
+            global_member_profile_id: "org-member",
+            global_admin_profile_id: "org-admin",
+            profiles: [
+              { id: "org-member", name: "Organization member", role: "member", grants: ["organization-member"] },
+              { id: "org-admin", name: "Organization admin", role: "admin", grants: ["organization-admin"] },
+              { id: "support-member", name: "Support member", role: "member", grants: ["admin-surface:metrics:read"] },
+            ],
+          },
+          team_assignments: [
+            {
+              team_id: "team-1",
+              team_slug: "support",
+              member_profile_id: "support-member",
+            },
+          ],
+          apply: { mode: "all" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(profileCollection.updateOne).toHaveBeenCalledWith(
+      { _id: "profiles_v2" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          global_member_profile_id: "org-member",
+          global_admin_profile_id: "org-admin",
+          updated_by: "admin@example.com",
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(teamsCollection.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: { _id: "team-1" },
+          update: expect.objectContaining({
+            $set: expect.objectContaining({
+              "baseline_profile_overrides.member_profile_id": "support-member",
+            }),
+          }),
+        }),
+      }),
+    ]);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: "user:member-sub", relation: "reader", object: "admin_surface:metrics" },
+      ]),
+      deletes: expect.arrayContaining([
+        { user: "user:member-sub", relation: "member", object: "organization:grid" },
+      ]),
+    });
   });
 });

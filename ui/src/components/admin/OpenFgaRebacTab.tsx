@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Bot,
   Database,
+  GitBranch,
   Hash,
   MessageSquare,
   Shield,
@@ -61,19 +62,8 @@ import type {
   UniversalRebacSubjectType,
 } from "@/types/rbac-universal";
 
-type ResourceType =
-  | "admin_surface"
-  | "agent"
-  | "conversation"
-  | "knowledge_base"
-  | "mcp_gateway"
-  | "mcp_server"
-  | "skill"
-  | "system_config"
-  | "task"
-  | "tool"
-  | "user_profile";
 type AccessResourceType = UniversalRebacResourceType;
+type GraphLayer = "tuples" | "effective" | "model";
 type AccessSubjectType = Extract<
   UniversalRebacSubjectType,
   "team" | "user" | "slack_channel" | "webex_space" | "external_group" | "service_account"
@@ -137,7 +127,8 @@ interface GraphEdge {
   from: string;
   to: string;
   relation: string;
-  kind?: "openfga" | "metadata";
+  kind?: "openfga" | "metadata" | "effective" | "model";
+  layer?: "tuples" | "metadata" | "effective" | "model";
   metadata?: {
     source_type: "slack_channel_team_mapping" | "webex_space_team_mapping";
     label: string;
@@ -145,24 +136,28 @@ interface GraphEdge {
   };
 }
 
-const RELATIONS_BY_TYPE: Record<ResourceType, string[]> = {
-  admin_surface: ["reader", "manager"],
-  agent: ["user", "manager"],
-  conversation: ["reader", "writer", "sharer", "manager"],
-  knowledge_base: ["reader", "ingestor", "manager"],
-  mcp_gateway: ["caller"],
-  mcp_server: ["user", "invoker", "manager", "owner"],
-  skill: ["user", "writer", "manager", "owner"],
-  system_config: ["reader", "writer", "manager"],
-  task: ["user", "writer", "manager", "owner"],
-  tool: ["caller", "manager"],
-  user_profile: ["owner", "reader", "manager"],
-};
-
-const RESOURCE_TYPES = new Set<ResourceType>(Object.keys(RELATIONS_BY_TYPE) as ResourceType[]);
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
+const DEFAULT_GRAPH_LAYER: GraphLayer = "tuples";
 const DEFAULT_OPENFGA_TAB = "tuples";
 const OPENFGA_TABS = new Set(["tuples", "graph", "access", "baseline", "diagnostics"]);
+const ACTION_TO_BASE_RELATION: Record<UniversalRebacResourceAction, string> = {
+  discover: "reader",
+  read: "reader",
+  use: "user",
+  write: "writer",
+  create: "owner",
+  delete: "manager",
+  manage: "manager",
+  administer: "manager",
+  audit: "auditor",
+  approve: "approver",
+  share: "sharer",
+  call: "caller",
+  invoke: "invoker",
+  map: "manager",
+  ingest: "ingestor",
+  "read-metadata": "metadata_reader",
+};
 const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   user: "use",
   owner: "create",
@@ -172,8 +167,24 @@ const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   sharer: "share",
   invoker: "invoke",
   auditor: "audit",
+  approver: "approve",
   reader: "read",
   ingestor: "ingest",
+  metadata_reader: "read-metadata",
+  can_admin: "administer",
+  can_audit: "audit",
+  can_call: "call",
+  can_delete: "delete",
+  can_discover: "discover",
+  can_ingest: "ingest",
+  can_invoke: "invoke",
+  can_manage: "manage",
+  can_map: "map",
+  can_read: "read",
+  can_read_metadata: "read-metadata",
+  can_share: "share",
+  can_use: "use",
+  can_write: "write",
 };
 const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
   discover: "can_discover",
@@ -324,6 +335,14 @@ interface RebacEdgeData {
   metadata?: GraphEdge["metadata"];
   staged?: "write";
   [key: string]: unknown;
+}
+
+interface FlowNodeDefinition {
+  id: string;
+  label: string;
+  kind: string;
+  object?: string;
+  items?: string[];
 }
 
 function apiData<T>(payload: { data?: T } & T): T {
@@ -521,6 +540,11 @@ const GRAPH_KIND_META: Record<string, { label: string; icon: LucideIcon; classNa
   knowledge_base: { label: "Knowledge Base", icon: Database, className: "border-rose-400 bg-rose-500/10" },
   slack_channel: { label: "Slack Channel", icon: Hash, className: "border-cyan-400 bg-cyan-500/10" },
   webex_space: { label: "Webex Space", icon: MessageSquare, className: "border-violet-400 bg-violet-500/10" },
+  model_resource_type: { label: "Model Type", icon: Database, className: "border-blue-400 bg-blue-500/10" },
+  model_relation: { label: "Model Relation", icon: GitBranch, className: "border-amber-400 bg-amber-500/10" },
+  model_permission: { label: "Model Permission", icon: Shield, className: "border-emerald-400 bg-emerald-500/10" },
+  model_relation_stack: { label: "Relation Stack", icon: GitBranch, className: "border-amber-400 bg-amber-500/10" },
+  model_permission_stack: { label: "Permission Stack", icon: Shield, className: "border-emerald-400 bg-emerald-500/10" },
 };
 
 function graphKindMeta(kind: string) {
@@ -531,27 +555,53 @@ function graphKindMeta(kind: string) {
   };
 }
 
-function resourceTypeFromObject(object: string): ResourceType | null {
+function resourceTypeFromObject(object: string): AccessResourceType | null {
   const [type] = object.split(":");
-  return RESOURCE_TYPES.has(type as ResourceType) ? (type as ResourceType) : null;
+  return type ? (type as AccessResourceType) : null;
+}
+
+function modelTypeFromNodeId(nodeId: string): string | null {
+  const match = /^model:(?:resource_type|relation|permission|relation_stack|permission_stack):([^:]+)/.exec(nodeId);
+  return match?.[1] ?? null;
+}
+
+function modelStackItems(
+  graph: { nodes: GraphNode[] },
+  modelType: AccessResourceType,
+  nodeType: "model_relation" | "model_permission"
+): string[] {
+  return [
+    ...new Set(
+      graph.nodes
+        .filter((node) => node.type === nodeType && modelTypeFromNodeId(node.id) === modelType)
+        .map((node) => node.label)
+        .filter(Boolean)
+    ),
+  ].sort((left, right) => left.localeCompare(right));
 }
 
 function defaultRelationForUsersetObject(
+  catalog: CatalogResponse | null,
   userset: string,
   object: string,
-  preferredRelation?: string
+  preferredAction?: UniversalRebacResourceAction
 ): string | null {
   const resourceType = resourceTypeFromObject(object);
   if (!resourceType) return null;
-  const relations = RELATIONS_BY_TYPE[resourceType];
-  if (userset.endsWith("#admin") && relations.includes("manager")) return "manager";
-  return preferredRelation && relations.includes(preferredRelation) ? preferredRelation : relations[0];
+  const actions = actionOptions(catalog, resourceType);
+  const action = userset.endsWith("#admin") && actions.includes("manage")
+    ? "manage"
+    : preferredAction && actions.includes(preferredAction)
+      ? preferredAction
+      : actions[0];
+  return action ? ACTION_TO_BASE_RELATION[action] : null;
 }
 
 function tupleFromConnection(
+  catalog: CatalogResponse | null,
   source: string | null | undefined,
   target: string | null | undefined,
-  preferredRelation: string
+  preferredAction: UniversalRebacResourceAction
 ): TupleKey | null {
   if (!source || !target || source === target) return null;
 
@@ -563,11 +613,11 @@ function tupleFromConnection(
   }
 
   if (source.startsWith("team:") && (source.endsWith("#member") || source.endsWith("#admin"))) {
-    const relation = defaultRelationForUsersetObject(source, target, preferredRelation);
+    const relation = defaultRelationForUsersetObject(catalog, source, target, preferredAction);
     return relation ? { user: source, relation, object: target } : null;
   }
   if (target.startsWith("team:") && (target.endsWith("#member") || target.endsWith("#admin"))) {
-    const relation = defaultRelationForUsersetObject(target, source, preferredRelation);
+    const relation = defaultRelationForUsersetObject(catalog, target, source, preferredAction);
     return relation ? { user: target, relation, object: source } : null;
   }
 
@@ -617,6 +667,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [graphScope, setGraphScope] = useState(ALL_RELATIONSHIPS_SCOPE);
+  const [graphLayer, setGraphLayer] = useState<GraphLayer>(DEFAULT_GRAPH_LAYER);
   const [graphUser, setGraphUser] = useState<RebacGraphUserOption | null>(null);
   const [graphFullscreenOpen, setGraphFullscreenOpen] = useState(false);
   const [accessSubjectType, setAccessSubjectType] = useState<AccessSubjectType>("team");
@@ -689,12 +740,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     const params = new URLSearchParams();
     if (graphScope !== ALL_RELATIONSHIPS_SCOPE) params.set("team", graphScope);
     if (graphUser) params.set("subject", `user:${graphUser.id}`);
+    params.set("layer", graphLayer);
     params.set("limit", "1000");
     const res = await fetch(`/api/admin/rebac/graph?${params.toString()}`);
     if (!res.ok) throw new Error(`Failed to load graph: ${res.status}`);
     const payload = await res.json();
     setGraph(apiData<{ nodes: GraphNode[]; edges: GraphEdge[] }>(payload));
-  }, [graphScope, graphUser]);
+  }, [graphLayer, graphScope, graphUser]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -989,7 +1041,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
           <TabsTrigger value="access" onClick={() => setActiveTab("access")}>Access Manager</TabsTrigger>
-          <TabsTrigger value="baseline" onClick={() => setActiveTab("baseline")}>Baseline FGA</TabsTrigger>
+          <TabsTrigger value="baseline" onClick={() => setActiveTab("baseline")}>Default FGA Grants</TabsTrigger>
           <TabsTrigger value="diagnostics" onClick={() => setActiveTab("diagnostics")}>Diagnostics</TabsTrigger>
         </TabsList>
 
@@ -1079,18 +1131,26 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
               <RebacGraphFilters
                 teams={catalog?.teams ?? []}
                 scope={graphScope}
+                layer={graphLayer}
                 allScopeValue={ALL_RELATIONSHIPS_SCOPE}
                 selectedUser={graphUser}
                 onScopeChange={setGraphScope}
+                onLayerChange={setGraphLayer}
                 onUserChange={setGraphUser}
                 onRender={loadGraph}
               />
+              {graphLayer === "effective" && !graphUser && (
+                <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                  Effective access is a user-centered view. Select a user, then render the graph to see that user&apos;s direct and inherited access paths.
+                </p>
+              )}
               <GraphSummary graph={graph} />
               <OpenFgaGraphEditor
                 catalog={catalog}
                 graph={graph}
+                graphLayer={graphLayer}
                 teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
-                preferredRelation="user"
+                preferredAction="use"
                 selectedResourceObjects={graphSelectedResourceObjects}
                 pendingWrites={pendingGraphWrites}
                 pendingDeletes={pendingGraphDeletes}
@@ -1133,20 +1193,28 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                     <RebacGraphFilters
                       teams={catalog?.teams ?? []}
                       scope={graphScope}
+                      layer={graphLayer}
                       allScopeValue={ALL_RELATIONSHIPS_SCOPE}
                       selectedUser={graphUser}
                       idPrefix="graph-fullscreen"
                       onScopeChange={setGraphScope}
+                      onLayerChange={setGraphLayer}
                       onUserChange={setGraphUser}
                       onRender={loadGraph}
                     />
+                    {graphLayer === "effective" && !graphUser && (
+                      <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                        Effective access is a user-centered view. Select a user before rendering this layer.
+                      </p>
+                    )}
                   </div>
                   <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                     <OpenFgaGraphEditor
                       catalog={catalog}
                       graph={graph}
+                      graphLayer={graphLayer}
                       teamSlug={graphScope === ALL_RELATIONSHIPS_SCOPE ? "" : graphScope}
-                      preferredRelation="user"
+                      preferredAction="use"
                       selectedResourceObjects={graphSelectedResourceObjects}
                       pendingWrites={pendingGraphWrites}
                       pendingDeletes={pendingGraphDeletes}
@@ -1566,8 +1634,9 @@ function GraphDetails({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge
 interface OpenFgaGraphEditorProps {
   catalog: CatalogResponse | null;
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
+  graphLayer: GraphLayer;
   teamSlug: string;
-  preferredRelation: string;
+  preferredAction: UniversalRebacResourceAction;
   selectedResourceObjects: Set<string>;
   pendingWrites: TupleKey[];
   pendingDeletes: TupleKey[];
@@ -1595,8 +1664,9 @@ function OpenFgaGraphEditor(props: OpenFgaGraphEditorProps) {
 function OpenFgaGraphEditorInner({
   catalog,
   graph,
+  graphLayer,
   teamSlug,
-  preferredRelation,
+  preferredAction,
   selectedResourceObjects,
   pendingWrites,
   pendingDeletes,
@@ -1627,13 +1697,15 @@ function OpenFgaGraphEditorInner({
       team?.name,
       pendingWrites,
       selectedResourceObjects,
-      showUsers
+      showUsers,
+      graphLayer
     );
     const visibleNodeIds = new Set(nextNodes.map((node) => node.id));
     setNodes(nextNodes);
-    setEdges(buildFlowEdges(graph, pendingWrites, pendingDeletes, visibleNodeIds));
+    setEdges(buildFlowEdges(graph, pendingWrites, pendingDeletes, visibleNodeIds, graphLayer));
   }, [
     graph,
+    graphLayer,
     catalog,
     pendingDeletes,
     pendingWrites,
@@ -1648,7 +1720,7 @@ function OpenFgaGraphEditorInner({
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!isAdmin) return;
-      const tuple = tupleFromConnection(connection.source, connection.target, preferredRelation);
+      const tuple = tupleFromConnection(catalog, connection.source, connection.target, preferredAction);
       if (!tuple) {
         setGraphWarning("That edge is not a valid CAIPE OpenFGA relationship.");
         return;
@@ -1656,7 +1728,7 @@ function OpenFgaGraphEditorInner({
       setGraphWarning(null);
       onStageWrite(tuple);
     },
-    [isAdmin, onStageWrite, preferredRelation]
+    [catalog, isAdmin, onStageWrite, preferredAction]
   );
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
@@ -1815,67 +1887,94 @@ function buildFlowNodes(
   teamName: string | undefined,
   pendingWrites: TupleKey[],
   selectedResourceObjects: Set<string>,
-  showUsers: boolean
+  showUsers: boolean,
+  graphLayer: GraphLayer
 ): Node<RebacNodeData>[] {
-  const nodesById = new Map<string, { id: string; label: string; kind: string }>();
-  const addNode = (id: string, label = id, kind = nodeKind(id)) => {
-    if (!nodesById.has(id)) nodesById.set(id, { id, label, kind: kind === "team_members" ? "userset" : kind });
+  const nodesById = new Map<string, FlowNodeDefinition>();
+  const addNode = (id: string, label = id, kind = nodeKind(id), extra: Partial<FlowNodeDefinition> = {}) => {
+    if (!nodesById.has(id)) {
+      nodesById.set(id, { id, label, kind: kind === "team_members" ? "userset" : kind, object: id, ...extra });
+    }
   };
+  const selectedModelTypes = new Set(
+    [...selectedResourceObjects]
+      .map((object) => resourceTypeFromObject(object))
+      .filter((type): type is AccessResourceType => Boolean(type))
+  );
 
-  if (teamSlug) {
+  if (graphLayer !== "model" && teamSlug) {
     addNode(`team:${teamSlug}`, teamName ? `${teamName} team` : `team:${teamSlug}`, "team");
     addNode(`team:${teamSlug}#member`, teamName ? `${teamName} members` : `team:${teamSlug}#member`, "userset");
     addNode(`team:${teamSlug}#admin`, teamName ? `${teamName} admins` : `team:${teamSlug}#admin`, "userset");
   }
 
-  graph.nodes.forEach((node) => addNode(node.id, node.label, node.type));
-  catalogGraphResourceNodes(catalog, selectedResourceObjects).forEach((node) => {
-    addNode(node.id, node.label, node.kind);
-  });
-  graph.edges.forEach((edge) => {
-    addNode(edge.from);
-    addNode(edge.to);
-  });
-  pendingWrites.forEach((tuple) => {
-    addNode(tuple.user);
-    addNode(tuple.object);
-  });
+  if (graphLayer === "model") {
+    graph.nodes
+      .filter((node) => node.type === "model_resource_type")
+      .forEach((node) => addNode(node.id, node.label, node.type));
+    selectedModelTypes.forEach((modelType) => {
+      const relationItems = modelStackItems(graph, modelType, "model_relation");
+      const permissionItems = modelStackItems(graph, modelType, "model_permission");
+      if (relationItems.length > 0) {
+        addNode(`model:relation_stack:${modelType}`, "Relations", "model_relation_stack", { items: relationItems });
+      }
+      if (permissionItems.length > 0) {
+        addNode(`model:permission_stack:${modelType}`, "Permissions", "model_permission_stack", {
+          items: permissionItems,
+        });
+      }
+    });
+  } else {
+    graph.nodes.forEach((node) => addNode(node.id, node.label, node.type));
+    catalogGraphResourceNodes(catalog, selectedResourceObjects).forEach((node) => {
+      addNode(node.id, node.label, node.kind);
+    });
+    graph.edges.forEach((edge) => {
+      addNode(edge.from);
+      addNode(edge.to);
+    });
+    pendingWrites.forEach((tuple) => {
+      addNode(tuple.user);
+      addNode(tuple.object);
+    });
+  }
 
   const pendingNodeIds = new Set(pendingWrites.flatMap((tuple) => [tuple.user, tuple.object]));
+  const effectiveNodeIds = new Set(
+    graph.edges.filter((edge) => edge.kind === "effective").flatMap((edge) => [edge.from, edge.to])
+  );
   const visibleNodes = [...nodesById.values()].filter((node) => {
+    if (node.kind === "model_resource_type") return true;
+    if (node.kind === "model_relation_stack" || node.kind === "model_permission_stack") return graphLayer === "model";
+    if (node.kind === "model_relation" || node.kind === "model_permission") {
+      const modelType = modelTypeFromNodeId(node.id);
+      return Boolean(modelType && selectedModelTypes.has(modelType as AccessResourceType));
+    }
     if (node.kind === "team" || node.kind === "userset") return true;
     if (node.kind === "user") return showUsers || pendingNodeIds.has(node.id);
-    return selectedResourceObjects.has(node.id) || pendingNodeIds.has(node.id);
+    return selectedResourceObjects.has(node.id) || pendingNodeIds.has(node.id) || effectiveNodeIds.has(node.id);
   });
 
-  const columnByKind: Record<string, number> = {
-    user: 0,
-    slack_channel: 0,
-    webex_space: 0,
-    team: 1,
-    userset: 1,
-    agent: 2,
-    tool: 2,
-    knowledge_base: 2,
-    mcp_gateway: 2,
-    mcp_server: 2,
-    conversation: 2,
-    admin_surface: 2,
-    skill: 2,
-    task: 2,
-    user_profile: 2,
-    system_config: 2,
+  const columnForKind = (kind: string): number => {
+    if (kind === "user" || kind === "slack_channel" || kind === "webex_space" || kind === "external_group") return 0;
+    if (kind === "team" || kind === "userset") return 1;
+    if (kind === "model_resource_type") return 0;
+    if (kind === "model_relation_stack") return 1;
+    if (kind === "model_permission_stack") return 2;
+    if (kind === "model_relation") return 1;
+    if (kind === "model_permission") return 2;
+    return 2;
   };
   const rowByColumn: Record<number, number> = {};
 
   return visibleNodes
     .sort((left, right) => {
-      const leftColumn = columnByKind[left.kind] ?? 3;
-      const rightColumn = columnByKind[right.kind] ?? 3;
+      const leftColumn = columnForKind(left.kind);
+      const rightColumn = columnForKind(right.kind);
       return leftColumn - rightColumn || left.label.localeCompare(right.label);
     })
     .map((node) => {
-      const column = columnByKind[node.kind] ?? 3;
+      const column = columnForKind(node.kind);
       const row = rowByColumn[column] ?? 0;
       rowByColumn[column] = row + 1;
       return {
@@ -1885,7 +1984,8 @@ function buildFlowNodes(
         data: {
           label: node.label,
           kind: node.kind,
-          object: node.id,
+          object: node.object ?? node.id,
+          items: node.items,
         },
       };
     });
@@ -1912,24 +2012,30 @@ function buildFlowEdges(
   graph: { nodes: GraphNode[]; edges: GraphEdge[] },
   pendingWrites: TupleKey[],
   pendingDeletes: TupleKey[],
-  visibleNodeIds: Set<string>
+  visibleNodeIds: Set<string>,
+  graphLayer: GraphLayer
 ): Edge<RebacEdgeData>[] {
   const deleted = new Set(pendingDeletes.map(tupleKey));
   const existingKeys = new Set<string>();
   const persistedEdges = graph.edges
-    .map((edge) => ({ edge, tuple: edge.kind === "metadata" ? null : edgeTuple(edge) }))
+    .map((edge) => ({
+      edge,
+      tuple: !edge.kind || edge.kind === "openfga" ? edgeTuple(edge) : null,
+    }))
     .filter(({ edge, tuple }) => {
       if (!visibleNodeIds.has(edge.from) || !visibleNodeIds.has(edge.to)) return false;
       return !tuple || !deleted.has(tupleKey(tuple));
     })
     .map(({ edge, tuple }) => {
       const isMetadata = edge.kind === "metadata";
+      const isEffective = edge.kind === "effective";
+      const isModel = edge.kind === "model";
       if (tuple) existingKeys.add(tupleKey(tuple));
       return {
         id: edge.id,
         source: edge.from,
         target: edge.to,
-        label: edge.metadata?.readonly ? `${edge.relation} (metadata)` : edge.relation,
+        label: isMetadata ? `${edge.relation} (metadata)` : isEffective ? `${edge.relation} (effective)` : edge.relation,
         data: tuple ? { tuple } : { metadata: edge.metadata },
         labelStyle: { fontSize: 11, fill: "hsl(var(--foreground))" },
         labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
@@ -1937,10 +2043,15 @@ function buildFlowEdges(
         labelBgBorderRadius: 6,
         style: isMetadata
           ? { stroke: "hsl(var(--muted-foreground))", strokeWidth: 2, strokeDasharray: "4 4" }
-          : { stroke: "hsl(var(--primary))", strokeWidth: 2 },
+          : isEffective
+            ? { stroke: "#10b981", strokeWidth: 2.5 }
+            : isModel
+              ? { stroke: "#60a5fa", strokeWidth: 2, strokeDasharray: "3 3" }
+              : { stroke: "hsl(var(--primary))", strokeWidth: 2 },
       } satisfies Edge<RebacEdgeData>;
     });
 
+  const modelStackEdges = graphLayer === "model" ? buildModelStackEdges(visibleNodeIds) : [];
   const stagedEdges = pendingWrites
     .filter((tuple) => !existingKeys.has(tupleKey(tuple)))
     .filter((tuple) => visibleNodeIds.has(tuple.user) && visibleNodeIds.has(tuple.object))
@@ -1958,7 +2069,48 @@ function buildFlowEdges(
       style: { stroke: "#10b981", strokeWidth: 2.5, strokeDasharray: "6 4" },
     }));
 
-  return [...persistedEdges, ...stagedEdges];
+  return [...persistedEdges, ...modelStackEdges, ...stagedEdges];
+}
+
+function buildModelStackEdges(visibleNodeIds: Set<string>): Edge<RebacEdgeData>[] {
+  return [...visibleNodeIds].flatMap((nodeId) => {
+    if (!nodeId.startsWith("model:resource_type:")) return [];
+    const modelType = modelTypeFromNodeId(nodeId);
+    if (!modelType) return [];
+
+    const relationStackId = `model:relation_stack:${modelType}`;
+    const permissionStackId = `model:permission_stack:${modelType}`;
+    const edges: Edge<RebacEdgeData>[] = [];
+    if (visibleNodeIds.has(relationStackId)) {
+      edges.push({
+        id: `model-stack-${modelType}-relations`,
+        source: nodeId,
+        target: relationStackId,
+        label: "relations",
+        data: { metadata: undefined },
+        labelStyle: { fontSize: 11, fill: "hsl(var(--foreground))" },
+        labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 6,
+        style: { stroke: "#60a5fa", strokeWidth: 2, strokeDasharray: "3 3" },
+      });
+    }
+    if (visibleNodeIds.has(permissionStackId)) {
+      edges.push({
+        id: `model-stack-${modelType}-permissions`,
+        source: visibleNodeIds.has(relationStackId) ? relationStackId : nodeId,
+        target: permissionStackId,
+        label: "permissions",
+        data: { metadata: undefined },
+        labelStyle: { fontSize: 11, fill: "hsl(var(--foreground))" },
+        labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 6,
+        style: { stroke: "#60a5fa", strokeWidth: 2, strokeDasharray: "3 3" },
+      });
+    }
+    return edges;
+  });
 }
 
 function GraphResourcePalette({
@@ -2191,6 +2343,20 @@ function RebacGraphNodeComponent({ data, selected }: NodeProps) {
           </Badge>
           <div className="truncate text-sm font-medium">{nodeData.label}</div>
           <code className="block truncate text-[10px] text-muted-foreground">{nodeData.object}</code>
+          {Array.isArray(nodeData.items) && nodeData.items.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {nodeData.items.slice(0, 6).map((item) => (
+                <span key={item} className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {item}
+                </span>
+              ))}
+              {nodeData.items.length > 6 && (
+                <span className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  +{nodeData.items.length - 6} more
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <Handle type="source" position={Position.Right} className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary" />

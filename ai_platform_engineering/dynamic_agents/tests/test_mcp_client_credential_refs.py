@@ -12,6 +12,11 @@ class FakeCredentialClient:
         assert intended_use == "mcp_server"
         return "github-token-value"
 
+    async def exchange_provider_connection_by_provider(self, provider: str, *, intended_use: str) -> dict:
+        assert provider == "atlassian"
+        assert intended_use == "mcp_server"
+        return {"access_token": "atlassian-oauth-token", "provider_connection_id": "conn-for-user"}
+
 
 @pytest.mark.asyncio
 async def test_resolves_secret_ref_to_stdio_env_when_impersonation_enabled(monkeypatch):
@@ -57,6 +62,35 @@ async def test_resolves_secret_ref_to_http_header_when_impersonation_enabled(mon
     )
 
     assert resolved["headers"]["Authorization"] == "Bearer github-token-value"
+
+
+@pytest.mark.asyncio
+async def test_resolves_provider_connection_by_provider_to_dedicated_header_when_impersonation_enabled(monkeypatch):
+    monkeypatch.setenv("USE_IMPERSONATION_TOKENS", "true")
+    server = MCPServerConfig(
+        _id="jira",
+        name="Jira",
+        transport=TransportType.HTTP,
+        endpoint="http://jira-mcp:8080/mcp",
+        credential_sources=[
+            MCPCredentialSource(
+                kind="provider_connection",
+                target="header",
+                name="X-CAIPE-Provider-Token",
+                provider="atlassian",
+            )
+        ],
+    )
+    config = build_mcp_connection_config(server, auth_bearer="keycloak-user-jwt")
+
+    resolved = await resolve_mcp_credential_refs(
+        server,
+        config,
+        credential_client=FakeCredentialClient(),
+    )
+
+    assert resolved["headers"]["Authorization"] == "Bearer keycloak-user-jwt"
+    assert resolved["headers"]["X-CAIPE-Provider-Token"] == "atlassian-oauth-token"
 
 
 @pytest.mark.asyncio
