@@ -440,3 +440,42 @@ class TestOutputTruncation:
             result = await wrapper._arun(query="small query")
         assert result == small_result
         assert "truncated" not in result
+
+    @pytest.mark.asyncio
+    async def test_search_truncates_list_dict_result(self):
+        """SearchCapWrapper truncates list[dict] MCP content blocks (the real return type)."""
+        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
+        # Simulate MCP tool returning list[dict] content blocks with large text
+        big_text = "x" * (m._DEFAULT_MAX_OUTPUT_CHARS + 5000)
+        list_result = [{"type": "text", "text": big_text}]
+        wrapper, original = _make_search_wrapper(max_calls=5)
+        original.arun = AsyncMock(return_value=list_result)
+        with _patch_thread("thread-list-trunc"):
+            result = await wrapper._arun(query="big query")
+        assert isinstance(result, str)
+        assert len(result) <= m._DEFAULT_MAX_OUTPUT_CHARS + len("\n\n[Output truncated — XXXXX chars omitted. Use the information above to answer.]")
+        assert "truncated" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_fetch_truncates_list_dict_result(self):
+        """FetchDocumentCapWrapper truncates list[dict] MCP content blocks."""
+        from ai_platform_engineering.multi_agents.platform_engineer import rag_tools as m
+        big_text = "y" * (m._DEFAULT_MAX_OUTPUT_CHARS + 3000)
+        list_result = [{"type": "text", "text": big_text}]
+        wrapper, original = _make_fetch_wrapper(max_calls=5)
+        original.arun = AsyncMock(return_value=list_result)
+        with _patch_thread("thread-fetch-list-trunc"):
+            result = await wrapper._arun(document_id="doc-big")
+        assert isinstance(result, str)
+        assert "truncated" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_search_list_dict_under_limit_not_truncated(self):
+        """Small list[dict] results are serialized and returned without truncation marker."""
+        list_result = [{"type": "text", "text": "small content"}]
+        wrapper, original = _make_search_wrapper(max_calls=5)
+        original.arun = AsyncMock(return_value=list_result)
+        with _patch_thread("thread-list-no-trunc"):
+            result = await wrapper._arun(query="small query")
+        assert isinstance(result, str)
+        assert "truncated" not in result
