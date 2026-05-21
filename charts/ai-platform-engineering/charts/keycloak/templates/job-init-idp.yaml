@@ -1,4 +1,13 @@
 {{- if .Values.idp.enabled }}
+{{- if not .Values.idp.issuer -}}
+{{- fail "keycloak.idp.issuer is required when keycloak.idp.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.idp.clientId -}}
+{{- fail "keycloak.idp.clientId is required when keycloak.idp.enabled=true" -}}
+{{- end -}}
+{{- if not (or .Values.idp.secretRef .Values.idp.externalSecret.enabled) -}}
+{{- fail "keycloak.idp.secretRef or keycloak.idp.externalSecret.enabled is required when keycloak.idp.enabled=true; init-idp requires IDP_CLIENT_SECRET" -}}
+{{- end -}}
 apiVersion: batch/v1
 kind: Job
 metadata:

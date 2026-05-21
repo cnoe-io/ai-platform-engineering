@@ -496,9 +496,21 @@ print(json.dumps(realm))
   fi
 fi
 
-if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
-  echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
-  exit 0
+MISSING_IDP_ENV=0
+if [ -z "${IDP_ISSUER:-}" ]; then
+  echo "[init-idp] ERROR: IDP_ISSUER is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ -z "${IDP_CLIENT_ID:-}" ]; then
+  echo "[init-idp] ERROR: IDP_CLIENT_ID is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ -z "${IDP_CLIENT_SECRET:-}" ]; then
+  echo "[init-idp] ERROR: IDP_CLIENT_SECRET is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ "${MISSING_IDP_ENV}" = "1" ]; then
+  exit 1
 fi
 
 ALIAS="${IDP_ALIAS:-upstream-oidc}"

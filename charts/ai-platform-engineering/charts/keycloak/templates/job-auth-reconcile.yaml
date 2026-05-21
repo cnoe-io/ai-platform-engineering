@@ -1,4 +1,13 @@
 {{- if and .Values.idp.enabled .Values.authReconcile.enabled }}
+{{- if not .Values.idp.issuer -}}
+{{- fail "keycloak.idp.issuer is required when keycloak.idp.enabled=true" -}}
+{{- end -}}
+{{- if not .Values.idp.clientId -}}
+{{- fail "keycloak.idp.clientId is required when keycloak.idp.enabled=true" -}}
+{{- end -}}
+{{- if not (or .Values.idp.secretRef .Values.idp.externalSecret.enabled) -}}
+{{- fail "keycloak.idp.secretRef or keycloak.idp.externalSecret.enabled is required when keycloak.idp.enabled=true; auth-reconcile requires IDP_CLIENT_SECRET" -}}
+{{- end -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,8 +44,8 @@ spec:
               fi
 
               if [ -z "${KEYCLOAK_ADMIN:-}" ] || [ -z "${KEYCLOAK_ADMIN_PASSWORD:-}" ]; then
-                echo "[auth-reconcile] Keycloak admin Secret is not available yet; skipping early reconcile."
-                exit 0
+                echo "[auth-reconcile] ERROR: KEYCLOAK_ADMIN and KEYCLOAK_ADMIN_PASSWORD are required; check keycloak.admin.secretRef or keycloak.admin.externalSecret."
+                exit 1
               fi
 
               if ! curl -sf "${KC_URL}/realms/${KC_REALM}" >/dev/null 2>&1; then
@@ -53,13 +62,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "keycloak.adminSecretName" . }}
                   key: username
-                  optional: true
             - name: KEYCLOAK_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "keycloak.adminSecretName" . }}
                   key: password
-                  optional: true
             - name: KC_REALM
               value: {{ .Values.realm.name | quote }}
             - name: KEYCLOAK_ACCESS_TOKEN_LIFESPAN
@@ -92,7 +99,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "keycloak.idpSecretName" . }}
                   key: IDP_CLIENT_SECRET
-                  optional: true
             {{- end }}
             - name: IDP_ACCESS_GROUP
               value: {{ .Values.idp.accessGroup | quote }}

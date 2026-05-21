@@ -59,23 +59,29 @@ helm install caipe ./charts/ai-platform-engineering -n caipe --create-namespace
 
 The chart will:
 
-1. Generate `caipe-keycloak-admin` Secret with `admin` / random 32-char pw.
+1. Require a stable Keycloak admin Secret source (`admin.password`,
+   `admin.secretRef`, or `admin.externalSecret`). The chart no longer generates
+   random admin passwords because Keycloak stores the bootstrap password hash in
+   its database.
 2. Generate `caipe-keycloak-bot` Secret with `KC_BOT_CLIENT_SECRET` = random 32-char.
 3. Run `init-token-exchange` Job which **PUTs that secret to Keycloak**, so
    the slack-bot pod and the Keycloak `caipe-slack-bot` client share one
    value end-to-end.
 
-To grab the admin password later:
+For disposable dev installs, set `keycloak.admin.password` explicitly and store
+it somewhere recoverable. For shared environments, prefer `admin.secretRef` or
+`admin.externalSecret`.
+
+To read a manually-managed admin password later:
 
 ```bash
 kubectl get secret caipe-keycloak-admin -n caipe -o jsonpath='{.data.password}' | base64 -d
 ```
 
-> **Why `helm.sh/resource-policy: keep`?** Both auto-generated Secrets
-> have this annotation so they survive `helm uninstall` — and the
-> *random* password isn't re-rolled on every `helm upgrade` (which
-> would lock the cluster out of Keycloak). To actually rotate, delete
-> the Secret manually, then re-run `helm upgrade`.
+> **Why no generated admin password?** Keycloak consumes the admin password only
+> when bootstrapping the initial user. Later upgrades must keep the Kubernetes
+> Secret aligned with the password hash in Keycloak's database, or init jobs will
+> receive `401` from the master realm.
 
 ---
 

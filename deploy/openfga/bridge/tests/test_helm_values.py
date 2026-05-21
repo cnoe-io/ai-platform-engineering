@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,6 +31,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
             "openfgaAuthzBridge.enabled=true",
             "--set",
             "tags.keycloak=true",
+            "--set",
+            "keycloak.admin.secretRef=caipe-keycloak-admin",
             "--set",
             "openfga-authz-bridge.tokenValidation.issuer=https://idp.example.com/realms/caipe",
             "--set",
@@ -171,6 +174,8 @@ def test_keycloak_renders_webex_bot_client_secret_when_enabled() -> None:
             "caipe",
             "--set",
             "tags.keycloak=true",
+            "--set",
+            "keycloak.admin.secretRef=caipe-keycloak-admin",
         ],
         check=True,
         cwd=_repo_root(),
@@ -180,6 +185,112 @@ def test_keycloak_renders_webex_bot_client_secret_when_enabled() -> None:
     rendered = result.stdout
     assert "name: caipe-keycloak-webex-bot" in rendered
     assert "KC_WEBEX_BOT_CLIENT_SECRET" in rendered
+
+
+def test_keycloak_chart_does_not_generate_random_admin_password() -> None:
+    root = _repo_root()
+    admin_secret = root / "charts/ai-platform-engineering/charts/keycloak/templates/secret.yaml"
+
+    assert "randAlphaNum" not in admin_secret.read_text()
+
+
+def test_init_idp_fails_when_idp_secret_env_is_missing() -> None:
+    root = _repo_root()
+    init_idp = root / "charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh"
+    script = init_idp.read_text()
+
+    assert "IDP_CLIENT_SECRET is required" in script
+    assert "skipping IdP broker setup" not in script
+
+
+def test_keycloak_chart_requires_stable_admin_secret_source() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering" / "charts" / "keycloak"
+    result = subprocess.run(
+        ["helm", "template", "caipe", str(chart), "--namespace", "caipe"],
+        check=False,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "generated admin passwords are disabled" in result.stderr
+
+
+def test_keycloak_chart_requires_idp_client_secret_source_when_idp_enabled() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering" / "charts" / "keycloak"
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--namespace",
+            "caipe",
+            "--set",
+            "admin.secretRef=caipe-keycloak-admin",
+            "--set",
+            "idp.enabled=true",
+            "--set",
+            "idp.alias=okta",
+            "--set",
+            "idp.issuer=https://example.okta.com/oauth2/default",
+            "--set",
+            "idp.clientId=okta-client",
+        ],
+        check=False,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "init-idp requires IDP_CLIENT_SECRET" in result.stderr
+
+
+def test_keycloak_chart_wires_required_idp_secret_refs() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering" / "charts" / "keycloak"
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--namespace",
+            "caipe",
+            "--set",
+            "admin.secretRef=caipe-keycloak-admin",
+            "--set",
+            "idp.enabled=true",
+            "--set",
+            "idp.alias=okta",
+            "--set",
+            "idp.issuer=https://example.okta.com/oauth2/default",
+            "--set",
+            "idp.clientId=okta-client",
+            "--set",
+            "idp.secretRef=caipe-keycloak-idp",
+        ],
+        check=True,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    rendered = result.stdout
+    assert "name: caipe-keycloak-admin" in rendered
+    assert "name: caipe-keycloak-idp" in rendered
+    assert "key: IDP_CLIENT_SECRET" in rendered
+    assert not re.search(r"secretKeyRef:\n\s+name: caipe-keycloak-(admin|idp)\n\s+key: [^\n]+\n\s+optional: true", rendered)
 
 
 def test_webex_bot_service_account_disables_token_automount() -> None:
@@ -291,6 +402,8 @@ def test_keycloak_readiness_requires_imported_realm_jwks() -> None:
             "caipe",
             "--set",
             "tags.keycloak=true",
+            "--set",
+            "keycloak.admin.secretRef=caipe-keycloak-admin",
         ],
         check=True,
         cwd=_repo_root(),
