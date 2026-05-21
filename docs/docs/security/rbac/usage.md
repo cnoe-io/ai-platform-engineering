@@ -697,7 +697,7 @@ filter, then joins the matching MongoDB route metadata.
 
 The **Step 2a: Verify Webex Space ReBAC** panel checks the selected space using the same
 OpenFGA tuple read shape that runtime dispatch uses. If a space has no routeable
-agent, diagnostics shows **Fix missing association with agent:<id>** when a
+agent, diagnostics shows **Fix missing association with `agent:<id>`** when a
 default Dynamic Agent is available. That repair creates the missing OpenFGA-backed
 association with `listen: all`, priority `100`, and refreshes the diagnostics. If
 the repair reports `fetch failed`, check that the UI server can reach OpenFGA with

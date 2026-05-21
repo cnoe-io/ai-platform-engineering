@@ -150,6 +150,8 @@ OIDC_IDP_HINT=okta                             # auto-redirect browser to this I
 
 `**KEYCLOAK_FORCE_IDP_REDIRECT=true**` makes the app realm configured-IdP only: `init-idp.sh` sets the browser flow's Identity Provider Redirector `defaultProvider` to `IDP_ALIAS`, marks that redirector as required, and disables the local username/password form. This prevents CAIPE users from seeing the Keycloak login screen even if a client omits `kc_idp_hint`. Keep the `master` realm admin console on its private URL for operational access.
 
+If the upstream OIDC app requires PKCE on the Keycloak broker flow, enable `keycloak.idp.pkce.enabled=true` in Helm. The chart passes `IDP_PKCE_ENABLED=true` and `IDP_PKCE_METHOD=S256` to `init-idp.sh`, which adds `pkceEnabled=true` and `pkceMethod=S256` to the Keycloak OIDC identity-provider config. Leave it disabled when the upstream IdP does not require broker-side PKCE.
+
 `**KEYCLOAK_ADMIN_FRONTEND_URL**` is optional and only affects the `master` realm admin console. Use it when public ingress intentionally exposes only `/realms/caipe` and `/resources`; the `caipe` realm issuer and Duo broker redirect remain on the public Keycloak hostname.
 
 In production, the browser-facing issuer is Keycloak, not the upstream IdP. For the Grid RBAC environment the UI uses:

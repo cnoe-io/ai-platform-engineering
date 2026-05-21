@@ -496,14 +496,38 @@ print(json.dumps(realm))
   fi
 fi
 
-if [ -z "${IDP_ISSUER:-}" ] || [ -z "${IDP_CLIENT_ID:-}" ] || [ -z "${IDP_CLIENT_SECRET:-}" ]; then
-  echo "[init-idp] IDP_ISSUER / IDP_CLIENT_ID / IDP_CLIENT_SECRET not set — skipping IdP broker setup."
-  exit 0
+MISSING_IDP_ENV=0
+if [ -z "${IDP_ISSUER:-}" ]; then
+  echo "[init-idp] ERROR: IDP_ISSUER is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ -z "${IDP_CLIENT_ID:-}" ]; then
+  echo "[init-idp] ERROR: IDP_CLIENT_ID is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ -z "${IDP_CLIENT_SECRET:-}" ]; then
+  echo "[init-idp] ERROR: IDP_CLIENT_SECRET is required when IdP broker setup is enabled." >&2
+  MISSING_IDP_ENV=1
+fi
+if [ "${MISSING_IDP_ENV}" = "1" ]; then
+  exit 1
 fi
 
 ALIAS="${IDP_ALIAS:-upstream-oidc}"
 DISPLAY="${IDP_DISPLAY_NAME:-Upstream OIDC}"
 SILENT_FLOW_ALIAS="caipe-silent-broker-login"
+
+PKCE_CONFIG_JSON=""
+case "$(printf '%s' "${IDP_PKCE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+  true|1|yes)
+    PKCE_CONFIG_JSON=$(cat <<ENDJSON
+,
+    "pkceEnabled": "true",
+    "pkceMethod": "${IDP_PKCE_METHOD:-S256}"
+ENDJSON
+)
+    ;;
+esac
 
 # --- helper: extract a string field from JSON (no jq needed) ---
 json_field() {
@@ -807,7 +831,7 @@ IDP_JSON=$(cat <<ENDJSON
     "defaultScope": "openid email profile groups",
     "syncMode": "IMPORT",
     "validateSignature": "true",
-    "useJwksUrl": "true"
+    "useJwksUrl": "true"${PKCE_CONFIG_JSON}
   }
 }
 ENDJSON

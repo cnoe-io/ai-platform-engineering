@@ -126,6 +126,10 @@ idp:
   adminGroup: ""
   # Default true: require the IdP redirector and disable local app-realm login.
   forceRedirect: true
+  # Optional: enable only when the upstream IdP app requires PKCE on the broker flow.
+  pkce:
+    enabled: false
+    method: S256
   secretRef: caipe-keycloak-idp
 
 tokenExchange:
@@ -141,7 +145,7 @@ uiClient:
     - https://caipe.example.com
 ```
 
-Create the referenced non-admin secrets out of band. The Keycloak admin Secret should come from your secret manager through `admin.externalSecret`, not a chart-generated password.
+Create the referenced non-admin secrets out of band. The Keycloak admin Secret must come from an explicit `admin.password`, `admin.secretRef`, or `admin.externalSecret`; the chart no longer generates random admin passwords because Keycloak stores the bootstrap password hash in its database and init jobs will fail with `401` if the Kubernetes Secret drifts after an upgrade.
 
 `demoUsers.enabled=false` prevents the chart from importing sample password users and keeps `init-idp.sh` from seeding spec test personas. This is the production default; enable it only in isolated local/CI environments that intentionally exercise the RBAC matrix personas.
 

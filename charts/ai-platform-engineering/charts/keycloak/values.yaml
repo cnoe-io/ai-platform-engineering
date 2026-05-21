@@ -28,8 +28,8 @@ serviceAccount:
 
 # ---------- Admin credentials ----------
 # Three ways to provide:
-#   (1) DEV          — leave password empty ("") → chart generates a Secret
-#                      with username + random 32-char password.
+#   (1) DEV          — set admin.password explicitly if you want the chart to
+#                      create a literal Secret for a disposable environment.
 #   (2) PROD K8S     — pre-create a K8s Secret with keys "username" + "password"
 #                      and set `admin.secretRef: <secret-name>`. Chart will
 #                      not create its own Secret.
@@ -37,6 +37,9 @@ serviceAccount:
 #                      `secretStoreRef` + `remoteRefs`. Chart emits an
 #                      ExternalSecret that reconciles a K8s Secret which
 #                      both init Jobs read from.
+# The chart no longer generates random admin passwords. Keycloak stores the
+# bootstrap admin password hash in its database, so rotating only the K8s Secret
+# causes init jobs to receive 401s after upgrades.
 admin:
   username: admin
   password: ""
@@ -117,6 +120,11 @@ idp:
   # When true, the realm browser flow requires the IdP redirector and disables
   # the local username/password form so app users never see the Keycloak login page.
   forceRedirect: true
+  # Optional broker-side PKCE for upstream IdPs that require it (for example,
+  # Okta apps with "Require PKCE as additional verification" enabled).
+  pkce:
+    enabled: false
+    method: "S256"
   externalSecret:
     enabled: false
     refreshInterval: "1h"
