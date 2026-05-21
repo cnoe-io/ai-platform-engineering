@@ -277,6 +277,78 @@ print(json.dumps(realm, separators=(",", ":")))
 _ensure_caipe_platform_user_roles
 _ensure_realm_session_lifetimes
 
+_reconcile_caipe_ui_client_secret() {
+  local UI_CLIENT_SECRET="${KEYCLOAK_UI_CLIENT_SECRET:-}"
+  local BFF_CLIENT_ID="${KEYCLOAK_UI_CLIENT_ID:-${OIDC_CLIENT_ID:-caipe-ui}}"
+
+  if [ -z "${UI_CLIENT_SECRET}" ]; then
+    echo "[init-idp] KEYCLOAK_UI_CLIENT_SECRET not set — leaving ${BFF_CLIENT_ID} client_secret unchanged."
+    return 0
+  fi
+
+  echo "[init-idp] Reconciling client_secret on '${BFF_CLIENT_ID}' from KEYCLOAK_UI_CLIENT_SECRET ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   ERROR: could not acquire admin token — cannot reconcile ${BFF_CLIENT_ID} client_secret." >&2
+      return 1
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  local UI_CLIENT_UUID
+  UI_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${BFF_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${UI_CLIENT_UUID}" ]; then
+    echo "[init-idp]   ERROR: client ${BFF_CLIENT_ID} not found — cannot reconcile client_secret." >&2
+    return 1
+  fi
+
+  local UI_CLIENT_JSON
+  UI_CLIENT_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" 2>/dev/null || echo "")
+  if [ -z "${UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   ERROR: could not fetch client ${BFF_CLIENT_ID} — cannot reconcile client_secret." >&2
+    return 1
+  fi
+
+  local UPDATED_UI_CLIENT_JSON
+  UPDATED_UI_CLIENT_JSON=$(printf '%s' "${UI_CLIENT_JSON}" | \
+    KEYCLOAK_UI_CLIENT_SECRET="${UI_CLIENT_SECRET}" \
+    python3 -c '
+import json
+import os
+import sys
+
+client = json.load(sys.stdin)
+client["secret"] = os.environ["KEYCLOAK_UI_CLIENT_SECRET"]
+client["publicClient"] = False
+client.setdefault("protocol", "openid-connect")
+json.dump(client, sys.stdout)
+' 2>/dev/null)
+
+  if [ -z "${UPDATED_UI_CLIENT_JSON}" ]; then
+    echo "[init-idp]   ERROR: failed to render patched ${BFF_CLIENT_ID} client JSON." >&2
+    return 1
+  fi
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_UUID}" \
+    -d "${UPDATED_UI_CLIENT_JSON}" >/dev/null \
+    && echo "[init-idp]   ${BFF_CLIENT_ID} client_secret reconciled." \
+    || {
+      echo "[init-idp]   ERROR: failed to update ${BFF_CLIENT_ID} client_secret." >&2
+      return 1
+    }
+}
+
+_reconcile_caipe_ui_client_secret
+
 # The Web UI BFF calls the Slack bot admin API with a Keycloak
 # client_credentials token. The same caipe-ui confidential client is used for
 # NextAuth's browser sign-in flow, so patch it idempotently rather than relying

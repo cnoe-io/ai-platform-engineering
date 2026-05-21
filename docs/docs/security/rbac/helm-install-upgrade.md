@@ -138,6 +138,10 @@ tokenExchange:
   secretRef: caipe-keycloak-bot
 
 uiClient:
+  # Must reference the same client secret used by caipe-ui/NextAuth as
+  # OIDC_CLIENT_SECRET. The init hook reconciles this into Keycloak's stored
+  # caipe-ui client; it is not rendered into the realm ConfigMap.
+  secretRef: caipe-ui-oidc
   redirectUris:
     - https://caipe.example.com/api/auth/callback/oidc
     - https://caipe.example.com/*
@@ -159,9 +163,20 @@ kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n caipe create secret generic caipe-keycloak-idp \
   --from-literal=IDP_CLIENT_SECRET="${IDP_CLIENT_SECRET}"
 
+kubectl -n caipe create secret generic caipe-ui-oidc \
+  --from-literal=OIDC_CLIENT_SECRET="${OIDC_CLIENT_SECRET}"
+
 kubectl -n caipe create secret generic caipe-keycloak-bot \
   --from-literal=KC_BOT_CLIENT_SECRET="$(openssl rand -hex 32)"
 ```
+
+`keycloak.uiClient.secretRef` or `keycloak.uiClient.externalSecret` should point
+at the same `OIDC_CLIENT_SECRET` consumed by the `caipe-ui` deployment. The
+Keycloak realm import still contains a development default for fresh local
+realms, but production installs should not rely on it. On install/upgrade,
+`init-idp.sh` reads `KEYCLOAK_UI_CLIENT_SECRET` from the referenced Secret and
+updates the existing Keycloak `caipe-ui` client via the Admin API, which also
+supports rotation without a destructive realm re-import.
 
 Enable Keycloak inside the umbrella release after confirming database credential handling is secure for your environment:
 

@@ -71,6 +71,20 @@ Admin secret name — uses secretRef if set, otherwise generates one.
 {{- end }}
 
 {{/*
+CAIPE UI client-secret K8s Secret name.
+- explicit user-provided existing Secret wins
+- else if ESO is enabled for uiClient, the chart owns a Secret named
+  <fullname>-ui-client
+*/}}
+{{- define "keycloak.uiClientSecretName" -}}
+{{- if .Values.uiClient.secretRef }}
+{{- .Values.uiClient.secretRef }}
+{{- else }}
+{{- include "keycloak.fullname" . }}-ui-client
+{{- end }}
+{{- end }}
+
+{{/*
 IdP client-secret K8s Secret name.
 - explicit user-provided existing Secret wins
 - else if ESO is enabled for IdP, the chart owns a Secret named <fullname>-idp

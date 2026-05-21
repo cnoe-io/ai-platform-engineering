@@ -100,6 +100,13 @@ spec:
                   name: {{ include "keycloak.idpSecretName" . }}
                   key: IDP_CLIENT_SECRET
             {{- end }}
+            {{- if or .Values.uiClient.secretRef .Values.uiClient.externalSecret.enabled }}
+            - name: KEYCLOAK_UI_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.uiClientSecretName" . }}
+                  key: {{ .Values.uiClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
+            {{- end }}
             - name: IDP_ACCESS_GROUP
               value: {{ .Values.idp.accessGroup | quote }}
             - name: IDP_ADMIN_GROUP

@@ -9,13 +9,14 @@ which services are charted today and which services remain external
 prerequisites, start with the
 [Helm installation and upgrade guide](./helm-install-upgrade.md).
 
-The Keycloak subchart needs **three** secrets to bootstrap a clean
+The Keycloak subchart needs **four** secrets to bootstrap a clean
 realm:
 
 | Secret (in cluster)               | Keys                          | Used by                                                           |
 | --------------------------------- | ----------------------------- | ----------------------------------------------------------------- |
 | `<release>-keycloak-admin`        | `username`, `password`        | both init Jobs (Keycloak Admin REST API)                          |
 | `<release>-keycloak-idp`          | `IDP_CLIENT_SECRET`           | `init-idp` Job (configures upstream IdP broker, e.g. Okta/Duo)    |
+| `<release>-keycloak-ui-client`    | `OIDC_CLIENT_SECRET`          | `init-idp` / auth reconcile Jobs (reconciles Keycloak `caipe-ui`) |
 | `<release>-keycloak-bot`          | `KC_BOT_CLIENT_SECRET`        | `init-token-exchange` Job **and** the `slack-bot` deployment      |
 
 There are **three install paths** — pick the one that matches your
@@ -101,6 +102,9 @@ kubectl -n caipe create secret generic caipe-keycloak-admin \
 kubectl -n caipe create secret generic caipe-keycloak-idp \
   --from-literal=IDP_CLIENT_SECRET="<value-from-okta-app>"
 
+kubectl -n caipe create secret generic caipe-keycloak-ui-client \
+  --from-literal=OIDC_CLIENT_SECRET="<same-secret-used-by-caipe-ui>"
+
 kubectl -n caipe create secret generic caipe-keycloak-bot \
   --from-literal=KC_BOT_CLIENT_SECRET="$(openssl rand -hex 32)"
 ```
@@ -120,6 +124,8 @@ keycloak:
     accessGroup: ""
     adminGroup: ""
     secretRef: caipe-keycloak-idp
+  uiClient:
+    secretRef: caipe-keycloak-ui-client
   tokenExchange:
     enabled: true
     secretRef: caipe-keycloak-bot
@@ -194,6 +200,16 @@ keycloak:
       remoteRef:
         key: secret/data/prod/keycloak
         property: idp_client_secret
+
+  uiClient:
+    externalSecret:
+      enabled: true
+      secretStoreRef:
+        name: vault-backend
+        kind: ClusterSecretStore
+      remoteRef:
+        key: secret/data/prod/caipe-ui
+        property: oidc_client_secret
 
   tokenExchange:
     enabled: true
