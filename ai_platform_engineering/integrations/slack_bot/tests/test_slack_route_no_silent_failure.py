@@ -8,13 +8,14 @@ import sys
 
 import pytest
 
-from utils.slack_runtime_policy import (
-    should_post_route_miss_notice,
-    should_process_slack_payload,
-)
-
 _APP_PY = pathlib.Path(__file__).resolve().parents[1] / "app.py"
 _APP_DIR = _APP_PY.parent
+if str(_APP_DIR) not in sys.path:
+    sys.path.insert(0, str(_APP_DIR))
+
+_POLICY = importlib.import_module("utils.slack_runtime_policy")
+should_post_route_miss_notice = _POLICY.should_post_route_miss_notice
+should_process_slack_payload = _POLICY.should_process_slack_payload
 
 
 class _Logger:
