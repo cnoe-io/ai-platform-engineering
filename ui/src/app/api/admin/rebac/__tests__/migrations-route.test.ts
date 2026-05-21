@@ -60,7 +60,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
-function createCollection(rows: any[] = []) {
+type TestRow = Record<string, unknown>;
+type TestUpdate = { $set?: TestRow; $setOnInsert?: TestRow };
+
+function createCollection(rows: TestRow[] = []) {
   return {
     rows,
     find: jest.fn(() => ({
@@ -73,7 +76,7 @@ function createCollection(rows: any[] = []) {
       if (!filter || Object.keys(filter).length === 0) return rows[0] ?? null;
       return rows.find((row) => Object.entries(filter).every(([key, value]) => row[key] === value)) ?? null;
     }),
-    updateOne: jest.fn(async (filter: Record<string, unknown>, update: Record<string, any>) => {
+    updateOne: jest.fn(async (filter: Record<string, unknown>, update: TestUpdate) => {
       const row = rows.find((candidate) => Object.entries(filter).every(([key, value]) => candidate[key] === value));
       if (row && update.$set) Object.assign(row, update.$set);
       if (!row && update.$setOnInsert) rows.push({ ...filter, ...update.$setOnInsert, ...update.$set });
@@ -326,6 +329,23 @@ describe("admin ReBAC migrations API", () => {
         error: "Keycloak unavailable",
         updated_by: "webui-startup",
         updated_at: "2026-05-19T12:00:00.000Z",
+        bootstrap_admins: {
+          enabled: true,
+          configured_emails: ["admin@cisco.com"],
+          resolved_count: 1,
+          created_count: 0,
+          failed_count: 0,
+          tuple_write_count: 3,
+          warnings: [],
+          outcomes: [
+            {
+              email: "admin@cisco.com",
+              user_id: "sub-admin",
+              status: "existing",
+              tuple_write_count: 3,
+            },
+          ],
+        },
       },
     ]);
     collections.data_schema_versions = createCollection([
@@ -363,6 +383,19 @@ describe("admin ReBAC migrations API", () => {
         applied_counts: expect.objectContaining({ team_scopes_reconciled: 2 }),
         warnings: ["Keycloak unavailable"],
         error: "Keycloak unavailable",
+      }),
+    );
+    expect(body.data.bootstrap_admins).toEqual(
+      expect.objectContaining({
+        enabled: true,
+        resolved_count: 1,
+        tuple_write_count: 3,
+        outcomes: [
+          expect.objectContaining({
+            email: "admin@cisco.com",
+            user_id: "sub-admin",
+          }),
+        ],
       }),
     );
     expect(body.data.blocking.is_blocking).toBe(true);

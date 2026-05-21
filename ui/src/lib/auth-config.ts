@@ -138,25 +138,33 @@ export function extractGroups(profile: Record<string, unknown>): string[] {
   return Array.from(allGroups);
 }
 
-function reconcileLoginGroupsFromClaims(input: {
+async function reconcileLoginGroupsFromClaims(input: {
   subject?: string;
   email?: string;
   displayName?: string;
   groups: string[];
-}): void {
+}): Promise<void> {
   if (process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED === "false") return;
   if (!input.subject || input.groups.length === 0) return;
 
-  void import("@/lib/rbac/oidc-claim-reconciler")
-    .then(({ reconcileOidcClaimGroupsForUser }) =>
-      reconcileOidcClaimGroupsForUser({
-        ...input,
-        providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
-      })
-    )
-    .catch((error) => {
-      console.warn("[Auth] OIDC claim identity sync reconciliation failed:", error);
+  try {
+    const { reconcileOidcClaimGroupsForUser } = await import("@/lib/rbac/oidc-claim-reconciler");
+    await reconcileOidcClaimGroupsForUser({
+      ...input,
+      providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
     });
+  } catch (error) {
+    console.warn("[Auth] OIDC claim identity sync reconciliation failed:", error);
+  }
+}
+
+function hasConfiguredGroup(groups: string[], requiredGroup: string): boolean {
+  if (!requiredGroup) return false;
+  const requiredLower = requiredGroup.toLowerCase();
+  return groups.some((group) => {
+    const groupLower = group.toLowerCase();
+    return groupLower === requiredLower || groupLower.includes(`cn=${requiredLower}`);
+  });
 }
 
 // Helper to check if user has required group
@@ -172,10 +180,10 @@ export function hasRequiredGroup(groups: string[]): boolean {
   });
 }
 
-// Deprecated: upstream groups map to teams; teams grant OpenFGA organization/admin relations.
+// OIDC admin groups bootstrap durable OpenFGA admin tuples; OpenFGA remains
+// authoritative for protected API decisions after login.
 export function isAdminUser(groups: string[]): boolean {
-  void groups;
-  return false;
+  return hasConfiguredGroup(groups, REQUIRED_ADMIN_GROUP);
 }
 
 // Helper to check if user can access dynamic agents.
@@ -184,8 +192,7 @@ export function isAdminUser(groups: string[]): boolean {
 // If unset, falls back to admin-only access.
 export function canAccessDynamicAgents(groups: string[]): boolean {
   if (REQUIRED_DYNAMIC_AGENTS_GROUP) {
-    const requiredLower = REQUIRED_DYNAMIC_AGENTS_GROUP.toLowerCase();
-    return groups.some(g => g.toLowerCase() === requiredLower || g.toLowerCase().includes(`cn=${requiredLower}`));
+    return hasConfiguredGroup(groups, REQUIRED_DYNAMIC_AGENTS_GROUP);
   }
   // No explicit group configured → admins only
   return isAdminUser(groups);
@@ -607,24 +614,23 @@ export const authOptions: NextAuthOptions = {
         const subject = (profileData.sub as string | undefined) ?? (token.sub as string | undefined);
         cacheOidcClaimGroups(subject, groups);
 
-        // Only store the authorization result and role (NOT the groups array!)
-        // Storing 40+ groups causes 8KB session cookies and browser crashes
+        // Only store the authorization result (NOT the groups array!)
+        // Storing 40+ groups causes 8KB session cookies and browser crashes.
         token.isAuthorized = hasRequiredGroup(groups);
-        token.role = 'user';
         token.canViewAdmin = canViewAdminDashboard(groups);
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
-        // Only store the authorization result (NOT the groups array!)
-        // Storing 40+ groups causes 8KB session cookies and browser crashes.
-        token.isAuthorized = hasRequiredGroup(groups);
-
         const email = profileData.email as string | undefined;
         const adminViaBootstrap = isBootstrapAdmin(email);
-        token.role = adminViaBootstrap ? 'admin' : 'user';
+        const adminViaGroup = isAdminUser(groups);
+        token.role = adminViaBootstrap || adminViaGroup ? 'admin' : 'user';
 
         if (adminViaBootstrap) {
           console.log(`[Auth JWT] ✅ Bootstrap admin granted for ${email} (via BOOTSTRAP_ADMIN_EMAILS)`);
+        }
+        if (adminViaGroup) {
+          console.log(`[Auth JWT] ✅ Admin group detected for ${email}; OpenFGA admin bootstrap will reconcile`);
         }
 
         // Extract org claim for multi-tenant isolation (FR-020)
@@ -640,12 +646,27 @@ export const authOptions: NextAuthOptions = {
           console.log('[Auth JWT] Org (tenant):', token.org);
         }
 
-        reconcileLoginGroupsFromClaims({
+        const displayName =
+          (profileData.name as string | undefined) ??
+          (profileData.preferred_username as string | undefined);
+
+        await import("@/lib/rbac/login-openfga-bootstrap")
+          .then(({ reconcileLoginOpenFgaAccess }) =>
+            reconcileLoginOpenFgaAccess({
+              subject,
+              email,
+              isAuthorized: token.isAuthorized === true,
+              isAdmin: token.role === "admin",
+            })
+          )
+          .catch((error) => {
+            console.warn("[Auth] Login OpenFGA bootstrap failed:", error);
+          });
+
+        await reconcileLoginGroupsFromClaims({
           subject,
           email,
-          displayName:
-            (profileData.name as string | undefined) ??
-            (profileData.preferred_username as string | undefined),
+          displayName,
           groups,
         });
       }

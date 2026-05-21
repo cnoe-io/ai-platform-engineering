@@ -71,6 +71,10 @@ sequenceDiagram
       note over KC: IdP mappers normalize claims<br/>(firstname→given_name, email→email)<br/>and refresh upstream groups into idp_groups
       KC-->>UI: CAIPE JWT/userinfo<br/>iss=http://localhost:7080/realms/caipe<br/>sub=alice, email=alice@cisco.com,<br/>groups=[Engineering Platform Users]
       note over UI: NextAuth stores slim session metadata<br/>in encrypted httpOnly cookie;<br/>OAuth tokens stay in UI server cache
+      UI->>FGA: Login bootstrap: if OIDC_REQUIRED_GROUP passed,<br/>ensure member organization + system_config reader tuples
+      opt user matches OIDC_REQUIRED_ADMIN_GROUP or BOOTSTRAP_ADMIN_EMAILS
+        UI->>FGA: ensure admin organization + system_config manager tuples
+      end
       opt IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED is not false
         UI->>MDB: Best-effort reconcile Alice's<br/>memberOf/groups claims into managed<br/>team_membership_sources + OpenFGA tuples
       end
@@ -115,7 +119,7 @@ sequenceDiagram
 
 1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. On every successful CAIPE login, the BFF reconciles OpenFGA baseline tuples for users who passed `OIDC_REQUIRED_GROUP`; users in `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS` receive durable OpenFGA admin tuples. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
 > **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once, then Keycloak refreshes the CAIPE access token while the SSO session is active". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
@@ -333,8 +337,10 @@ After that bootstrap, the Web UI backend owns the long-term Keycloak reconciliat
 path through `keycloak_rbac_mapping_reconciliation_v1`. This migration is
 code-backed in TypeScript rather than shell-backed by `init-idp.sh`; on BFF startup
 it reads Mongo teams, reconciles Keycloak `team-*` client scopes and bot OBO
-permissions, records the run in Mongo migration tables, and leaves a blocking
-migration status if the Keycloak repair fails. The header checks
+permissions, resolves `BOOTSTRAP_ADMIN_EMAILS` to Keycloak user ids, creates
+passwordless verified placeholders for bootstrap emails that have not logged in,
+writes durable OpenFGA admin tuples, records the run in Mongo migration tables,
+and leaves a blocking migration status if the Keycloak repair fails. The header checks
 `GET /api/rbac/migration-status` for every authenticated UI session so non-admin
 users see the same "migrations required" indicator. Admins can inspect persisted
 Keycloak run details, counts, warnings, and errors from `GET
@@ -342,7 +348,9 @@ Keycloak run details, counts, warnings, and errors from `GET
 The metric tiles open read-only Keycloak value tables rather than raw migration
 JSON, so operators can see the live `team-*` scope, `active_team` mapper,
 client-scope binding, OBO permission, and service-account role values that the
-reconciler is checking.
+reconciler is checking. The same panel now shows bootstrap-admin diagnostics:
+configured emails, resolved Keycloak subjects, placeholder creations, tuple writes,
+and per-email warnings.
 If the stored run is failed or the `keycloak_rbac_mappings` schema area is behind,
 the **Reconcile now** button posts to the existing migration apply route for
 `keycloak_rbac_mapping_reconciliation_v1` and then reloads the health panel from
@@ -370,10 +378,11 @@ sequenceDiagram
     UI->>BFF: GET /api/admin/keycloak/migration-health
     BFF->>MDB: Read keycloak_rbac_mapping_reconciliation_v1 run details
     BFF->>KC: Read team scopes, mapper values, OBO permissions, service-account roles
-    BFF-->>UI: Keycloak health, counts, warnings, errors, live Keycloak values
+    BFF-->>UI: Keycloak health, counts, warnings, errors, live Keycloak values, bootstrap admin status
     Admin->>UI: Click Reconcile now when failed/behind
     UI->>BFF: POST /api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply
-    BFF->>KC: Reconcile team scopes + OBO permissions
+    BFF->>KC: Reconcile team scopes, OBO permissions, bootstrap admin users
+    BFF->>OpenFGA: Write bootstrap organization + system_config tuples
     BFF->>MDB: Update schema_migrations + data_schema_versions
     UI->>BFF: GET /api/admin/keycloak/migration-health
     BFF->>KC: Startup migration checks/applies<br/>Keycloak team scopes + OBO permissions

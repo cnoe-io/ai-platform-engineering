@@ -8,6 +8,7 @@ import {
   getKeycloakRbacDiagnosticValues,
   type KeycloakRbacDiagnosticValues,
 } from "@/lib/rbac/keycloak-admin";
+import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
 import { getMigrationBlockingStatus, listReleaseMigrations } from "@/lib/rbac/migrations/registry";
 import type { MigrationStatus } from "@/lib/rbac/migrations/types";
 
@@ -26,6 +27,7 @@ interface SchemaMigrationRunDoc {
   planned_counts?: Record<string, number>;
   warnings?: string[];
   error?: string;
+  bootstrap_admins?: BootstrapAdminReconciliationResult;
   completed_at?: string;
   updated_at?: string;
   updated_by?: string;
@@ -54,6 +56,7 @@ export interface KeycloakMigrationHealth {
       error?: string;
     };
   };
+  bootstrap_admins?: BootstrapAdminReconciliationResult;
   blocking: {
     is_blocking: boolean;
     blocking_required_count: number;
@@ -142,6 +145,7 @@ export async function getKeycloakMigrationHealth(input: {
       is_blocking: blockingStatus.is_blocking,
       blocking_required_count: blockingStatus.blocking_required_count,
     },
+    ...(run?.bootstrap_admins ? { bootstrap_admins: run.bootstrap_admins } : {}),
     ...(keycloakValuesResult && "values" in keycloakValuesResult
       ? { keycloak_values: keycloakValuesResult.values }
       : {}),

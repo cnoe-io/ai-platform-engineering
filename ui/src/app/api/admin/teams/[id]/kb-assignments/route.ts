@@ -34,34 +34,28 @@ function validateTeamId(id: string): void {
   }
 }
 
-function extractTeamRolesFromSession(session: Record<string, unknown>): string[] {
-  const accessToken = session.accessToken as string | undefined;
-  if (!accessToken) return [];
-  try {
-    const parts = accessToken.split('.');
-    if (parts.length < 2) return [];
-    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = Buffer.from(b64, 'base64').toString('utf8');
-    const payload = JSON.parse(json) as Record<string, unknown>;
-    const realmRoles: string[] =
-      (payload.realm_access as { roles?: string[] } | undefined)?.roles ?? [];
-    return realmRoles.filter((r: string) => r.startsWith('team_member('));
-  } catch {
-    return [];
-  }
+interface TeamDoc {
+  _id: ObjectId;
+  slug?: string;
+  members?: Array<{ user_id?: string; email?: string; role?: string }>;
 }
 
-function isTeamAdminOrOwner(
-  session: Record<string, unknown>,
-  teamId: string,
-  userRole: string
-): boolean {
-  if (userRole === 'admin') return true;
-  const teamRoles = extractTeamRolesFromSession(session);
-  return teamRoles.some((r: string) => {
-    const match = r.match(/^team_member\((.+)\)$/);
-    return match && match[1] === teamId;
-  });
+function normalizeEmail(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function userTeamRole(team: TeamDoc, email: string): string | null {
+  const userEmail = normalizeEmail(email);
+  const member = team.members?.find((entry) => normalizeEmail(entry.user_id ?? entry.email) === userEmail);
+  return member?.role ?? null;
+}
+
+function isTeamMember(team: TeamDoc, email: string): boolean {
+  return Boolean(userTeamRole(team, email));
+}
+
+function isTeamAdminOrOwner(team: TeamDoc, email: string): boolean {
+  return ['admin', 'owner'].includes(userTeamRole(team, email) ?? '');
 }
 
 const VALID_PERMISSIONS: KbPermission[] = ['read', 'ingest', 'admin'];
@@ -140,7 +134,6 @@ export const GET = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, 'team', 'view');
 
       const params = await context.params;
       validateTeamId(params.id);
@@ -154,14 +147,13 @@ export const GET = withErrorHandler(
           () => true,
           () => false
         );
-        if (!canViewAdmin && !isTeamAdminOrOwner(session, params.id, user.role)) {
-          throw new ApiError('You do not have permission to view this team\'s KB assignments', 403);
-        }
-
         const teams = await getCollection('teams');
-        const team = await teams.findOne({ _id: new ObjectId(params.id) });
+        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
+        }
+        if (!canViewAdmin && !isTeamMember(team, user.email)) {
+          throw new ApiError('You do not have permission to view this team\'s KB assignments', 403);
         }
       }
 
@@ -194,7 +186,6 @@ export const PUT = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, 'team', 'manage');
 
       const params = await context.params;
       validateTeamId(params.id);
@@ -209,14 +200,13 @@ export const PUT = withErrorHandler(
           () => true,
           () => false
         );
-        if (!canAdmin && !isTeamAdminOrOwner(session, params.id, user.role)) {
-          throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
-        }
-
         const teams = await getCollection('teams');
-        const team = await teams.findOne({ _id: new ObjectId(params.id) });
+        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
+        }
+        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+          throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;
       }
@@ -292,7 +282,6 @@ export const DELETE = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, 'team', 'manage');
 
       const params = await context.params;
       validateTeamId(params.id);
@@ -307,13 +296,13 @@ export const DELETE = withErrorHandler(
           () => true,
           () => false
         );
-        if (!canAdmin && !isTeamAdminOrOwner(session, params.id, user.role)) {
-          throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
-        }
         const teams = await getCollection('teams');
-        const team = await teams.findOne({ _id: new ObjectId(params.id) });
+        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
+        }
+        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+          throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;
       }

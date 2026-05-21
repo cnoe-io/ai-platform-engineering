@@ -31,6 +31,20 @@ the Helm deployment. `OIDC_GROUP_CLAIM` and upstream access/admin group settings
 feed identity sync and team membership reconciliation; RAG runtime authorization
 does not map AD/OIDC groups directly to datasource roles.
 
+On login, `OIDC_REQUIRED_GROUP` is still the Web UI admission gate, but product
+authorization is OpenFGA. A user who passes that group is automatically
+reconciled to `member organization:<org_key>` plus read access to
+`system_config:platform_settings`, restoring baseline Chat, RAG health/query
+entry, and built-in skill catalog access after the OpenFGA cutover. A user in
+`OIDC_REQUIRED_ADMIN_GROUP` is reconciled to durable OpenFGA admin tuples. Users
+outside `OIDC_REQUIRED_GROUP` are not bootstrapped.
+
+The baseline Users tab is self-scoped for non-admins: the list API returns only
+the caller's own Keycloak row unless the caller has `admin_ui#view`. Team owners
+and team admins can manage membership and Knowledge Base grants for teams where
+they hold a scoped team role; unrelated teams and platform-wide user operations
+remain admin-only.
+
 For local ReBAC testing, the browser authenticates to the Web UI backend, the
 backend enforces OpenFGA for KB/Data Sources/RAG MCP screens, and then
 `caipe-ui` forwards the Keycloak bearer token to RAG. RAG validates the token
@@ -39,8 +53,10 @@ datasource lists and search/MCP invocations are constrained to the caller's
 readable `knowledge_base:<id>` relationships before the proxy call and again in
 RAG. Grant Data Sources tab administration through **Settings → Knowledge Bases**, which writes
 `team:<slug>#member manager admin_surface:rag_datasources`. Configure individual
-datasource read/ingest/admin grants through the Team Knowledge Base assignment
-or Data Sources UI for non-admin callers. Platform admins can administer concrete
+datasource read/ingest/admin grants through **Settings → Knowledge Bases** or the
+Team Knowledge Base assignment UI; both write
+`team:<slug>#member reader|ingestor|manager knowledge_base:<datasource_id>`.
+Team owners/admins may update grants for their own team. Platform admins can administer concrete
 datasource operations such as re-ingest through the BFF admin bypass.
 `RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
 access by itself.
@@ -714,7 +730,7 @@ The UI and all services cache the JWKS public key. Signature validation is local
 
 **Q: What is `BOOTSTRAP_ADMIN_EMAILS` and when should I remove it?**
 
-It's an emergency bypass that grants full admin regardless of JWT roles. Intended only for initial setup when Keycloak role mapping isn't yet configured. Once `admin-user` (or your real admin account) has the `admin` realm role and can log in successfully, remove `BOOTSTRAP_ADMIN_EMAILS` from your env. Leaving it in production is a standing privilege escalation risk.
+It's the short initial-admin email list used by the CAIPE UI BFF to resolve or create Keycloak users and seed durable OpenFGA admin relationships. Existing SSO users keep their current Keycloak `sub`; users who have not logged in yet get passwordless verified placeholders that the IdP broker can auto-link on first login. The same env var remains a temporary break-glass fallback, so remove it after Admin → Security & Policy → Keycloak shows the bootstrap admins resolved and steady-state Identity Group Sync/team admin grants are configured.
 
 **Q: Why are there both `access_token` and `obo_jwt` on `UserContext`?**
 

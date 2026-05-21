@@ -12,6 +12,7 @@ import {
   listUsersWithRole,
   listRealmRoleMappingsForUser,
   getUserFederatedIdentities,
+  getRealmUserById,
 } from "@/lib/rbac/keycloak-admin";
 import {
   curateRealmRolesForUser,
@@ -189,7 +190,26 @@ async function userMatchesFilters(
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "view");
+  const hasAdminView = await requireRbacPermission(session, "admin_ui", "view").then(
+    () => true,
+    () => false
+  );
+
+  if (!hasAdminView) {
+    const subject = typeof session.sub === "string" ? session.sub : "";
+    if (!subject) {
+      throw new ApiError("A stable user subject is required to load your user profile.", 401);
+    }
+    const pendingSlackIds = await loadPendingSlackIds();
+    const self = await enrichListRow(await getRealmUserById(subject), pendingSlackIds);
+    return NextResponse.json({
+      users: [self],
+      total: 1,
+      page: 1,
+      pageSize: 1,
+      scoped: "self",
+    });
+  }
 
   const url = new URL(request.url);
     const search = (url.searchParams.get("search") ?? "").trim() || undefined;
@@ -218,8 +238,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
 
     const enabled = parseBoolParam(url.searchParams.get("enabled"));
 
-    let page = parseInt(url.searchParams.get("page") ?? "1", 10);
-    let pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
+    const page = parseInt(url.searchParams.get("page") ?? "1", 10);
+    const pageSize = parseInt(url.searchParams.get("pageSize") ?? "20", 10);
     if (Number.isNaN(page) || page < 1) {
       throw new ApiError("page must be >= 1", 400);
     }

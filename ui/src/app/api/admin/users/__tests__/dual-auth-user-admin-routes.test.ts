@@ -9,6 +9,7 @@ const mockGetRealmUserById = jest.fn();
 const mockGetRoleByName = jest.fn();
 const mockAssignRealmRolesToUser = jest.fn();
 const mockRemoveRealmRolesFromUser = jest.fn();
+const mockListRealmRoleMappingsForUser = jest.fn();
 const mockGetCollection = jest.fn();
 
 jest.mock("next-auth", () => ({
@@ -47,6 +48,11 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   getRoleByName: (...args: unknown[]) => mockGetRoleByName(...args),
   assignRealmRolesToUser: (...args: unknown[]) => mockAssignRealmRolesToUser(...args),
   removeRealmRolesFromUser: (...args: unknown[]) => mockRemoveRealmRolesFromUser(...args),
+  searchRealmUsers: jest.fn(),
+  countRealmUsers: jest.fn(),
+  listUsersWithRole: jest.fn(),
+  listRealmRoleMappingsForUser: (...args: unknown[]) => mockListRealmRoleMappingsForUser(...args),
+  getUserFederatedIdentities: jest.fn(),
 }));
 
 jest.mock("@/lib/mongodb", () => ({
@@ -75,6 +81,14 @@ async function expectDenied(response: Response, capability: string): Promise<voi
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
+  mockGetRealmUserById.mockResolvedValue({
+    id: "bob-sub",
+    username: "bob@example.com",
+    email: "bob@example.com",
+    enabled: true,
+    attributes: {},
+  });
+  mockListRealmRoleMappingsForUser.mockResolvedValue([]);
   mockGetCollection.mockResolvedValue({
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
@@ -91,6 +105,23 @@ beforeEach(() => {
 });
 
 describe("admin user sibling routes dual-auth PDP gates", () => {
+  it("returns only the caller's own user row without admin_ui#view", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/users?page=1&pageSize=20", { method: "GET" }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.users).toEqual([
+      expect.objectContaining({
+        id: "bob-sub",
+        email: "bob@example.com",
+      }),
+    ]);
+    expect(body.total).toBe(1);
+    expect(mockGetRealmUserById).toHaveBeenCalledWith("bob-sub");
+  });
+
   it("denies bearer users without admin_ui#admin before mutating team membership", async () => {
     const { POST } = await import("../[id]/teams/route");
 
