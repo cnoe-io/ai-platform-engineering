@@ -1,3 +1,24 @@
+## 0.4.15-dev.3 (2026-05-21)
+
+### Fix
+
+- **rag**: handle list[dict] return type in _truncate_output
+
+## 0.4.15-dev.2 (2026-05-21)
+
+### Fix
+
+- **ui**: update escalation-handoff micro_prompt wording
+- **ui**: update clear-role-definition micro_prompt to include personality
+- **ui**: remove no-second-person-preamble AI review rule
+- **ui**: persist ui, features, and interrupt_on fields in seedAgents
+
+## 0.4.15-dev.1 (2026-05-20)
+
+### Fix
+
+- **security**: close reopened code scanning alerts
+
 ## 0.4.15 (2026-05-20)
 
 ### Feat
