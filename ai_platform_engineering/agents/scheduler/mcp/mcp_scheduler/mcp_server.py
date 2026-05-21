@@ -166,6 +166,9 @@ class ScheduleIdArgs(BaseModel):
 
 class PatchScheduleArgs(BaseModel):
     schedule_id: Annotated[str, Field(description="The schedule to patch.")]
+    agent_id: Annotated[
+        str | None, Field(default=None, description="New Dynamic Agent id.")
+    ] = None
     enabled: Annotated[
         bool | None, Field(default=None, description="Toggle on/off.")
     ] = None

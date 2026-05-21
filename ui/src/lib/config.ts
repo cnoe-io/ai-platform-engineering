@@ -138,6 +138,8 @@ export interface Config {
   dynamicAgentsEnabled: boolean;
   /** Dynamic agent id used by the main "+ New Chat" button. Null keeps Platform Engineer as default. */
   defaultNewChatAgentId: string | null;
+  /** Dynamic agent id used by Schedules -> Chat with agent. Falls back to defaultNewChatAgentId. */
+  scheduleEditorAgentId: string | null;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -230,6 +232,7 @@ const DEFAULT_CONFIG: Config = {
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
   defaultNewChatAgentId: null,
+  scheduleEditorAgentId: null,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -328,6 +331,8 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const defaultNewChatAgentId = env('DEFAULT_NEW_CHAT_AGENT_ID')?.trim() || null;
+  const scheduleEditorAgentId =
+    env('SCHEDULE_EDITOR_AGENT_ID')?.trim() || defaultNewChatAgentId;
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -388,6 +393,7 @@ export function getServerConfig(): Config {
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
     defaultNewChatAgentId,
+    scheduleEditorAgentId,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

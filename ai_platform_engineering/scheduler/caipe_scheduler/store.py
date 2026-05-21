@@ -54,15 +54,62 @@ class ScheduleStore:
         now = datetime.now(timezone.utc)
         doc.setdefault("created_at", now)
         doc.setdefault("updated_at", now)
+        doc.setdefault("version", 1)
+        doc.setdefault("versions", [])
         self._col.insert_one(doc)
 
     def patch(self, schedule_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         if not patch:
             return self.get(schedule_id)
-        patch["updated_at"] = datetime.now(timezone.utc)
+
+        existing = self.get(schedule_id)
+        if not existing:
+            return None
+
+        now = datetime.now(timezone.utc)
+        versioned_fields = {
+            "agent_id",
+            "message_template",
+            "pod_id",
+            "cron",
+            "tz",
+            "enabled",
+            "cronjob_name",
+        }
+        changed_fields = sorted(
+            key
+            for key, value in patch.items()
+            if key in versioned_fields and existing.get(key) != value
+        )
+        patch["updated_at"] = now
+
+        update: dict[str, Any] = {"$set": patch}
+        if changed_fields:
+            previous_version = {
+                "version": int(existing.get("version") or 1),
+                "superseded_at": now,
+                "changed_fields": changed_fields,
+                "agent_id": existing.get("agent_id"),
+                "message_template": existing.get("message_template"),
+                "pod_id": existing.get("pod_id"),
+                "cron": existing.get("cron"),
+                "tz": existing.get("tz"),
+                "enabled": existing.get("enabled", True),
+                "cronjob_name": existing.get("cronjob_name"),
+                "created_at": existing.get("created_at"),
+                "updated_at": existing.get("updated_at"),
+            }
+            update["$set"]["version"] = int(existing.get("version") or 1) + 1
+            update["$push"] = {
+                "versions": {
+                    "$each": [previous_version],
+                    "$slice": -50,
+                }
+            }
+
         return self._col.find_one_and_update(
             {"schedule_id": schedule_id},
-            {"$set": patch},
+            update,
             return_document=True,
         )
 

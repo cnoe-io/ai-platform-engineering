@@ -116,6 +116,8 @@ def create_schedule(
         "tz": body.tz,
         "enabled": True,
         "cronjob_name": cronjob_name,
+        "version": 1,
+        "versions": [],
     }
     store.insert(doc)
 
@@ -182,6 +184,9 @@ def patch_schedule(
         validate_tz(patch["tz"])
     if "message_template" in patch and patch["message_template"] is not None:
         validate_message(patch["message_template"], settings.max_message_chars)
+    if "agent_id" in patch and patch["agent_id"] is not None:
+        if not store.agent_exists(patch["agent_id"]):
+            raise HTTPException(404, f"agent_id {patch['agent_id']!r} not found.")
 
     updated = store.patch(schedule_id, patch)
     if updated is None:

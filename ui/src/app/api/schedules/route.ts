@@ -20,6 +20,8 @@ interface RawSchedule {
   tz: string;
   enabled?: boolean;
   cronjob_name?: string | null;
+  version?: number;
+  versions?: RawScheduleVersion[];
   created_at?: Date | string;
   updated_at?: Date | string;
   last_run?: {
@@ -30,7 +32,22 @@ interface RawSchedule {
   } | null;
 }
 
-function iso(value: Date | string | undefined): string | null {
+interface RawScheduleVersion {
+  version?: number;
+  superseded_at?: Date | string | null;
+  changed_fields?: string[];
+  agent_id?: string;
+  message_template?: string;
+  pod_id?: string | null;
+  cron?: string;
+  tz?: string;
+  enabled?: boolean;
+  cronjob_name?: string | null;
+  created_at?: Date | string | null;
+  updated_at?: Date | string | null;
+}
+
+function iso(value: Date | string | undefined | null): string | null {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString();
   return value;
@@ -73,6 +90,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         tz: doc.tz,
         enabled: doc.enabled !== false,
         cronjob_name: doc.cronjob_name || null,
+        version: doc.version || 1,
+        versions: (doc.versions || [])
+          .slice()
+          .reverse()
+          .map((version) => ({
+            version: version.version || 1,
+            superseded_at: iso(version.superseded_at),
+            changed_fields: version.changed_fields || [],
+            agent_id: version.agent_id || doc.agent_id,
+            message_template: version.message_template || "",
+            pod_id: version.pod_id || null,
+            cron: version.cron || "",
+            tz: version.tz || "",
+            enabled: version.enabled !== false,
+            cronjob_name: version.cronjob_name || null,
+            created_at: iso(version.created_at),
+            updated_at: iso(version.updated_at),
+          })),
         created_at: iso(doc.created_at),
         updated_at: iso(doc.updated_at),
         last_run: doc.last_run

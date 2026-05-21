@@ -1,4 +1,4 @@
-// PATCH /api/schedules/[id] - Pause or restart a scheduler job owned by the current user.
+// PATCH /api/schedules/[id] - Edit or pause/restart a scheduler job owned by the current user.
 
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
@@ -21,6 +21,8 @@ interface RawSchedule {
   tz: string;
   enabled?: boolean;
   cronjob_name?: string | null;
+  version?: number;
+  versions?: RawScheduleVersion[];
   created_at?: Date | string;
   updated_at?: Date | string;
   last_run?: {
@@ -31,9 +33,28 @@ interface RawSchedule {
   } | null;
 }
 
+interface RawScheduleVersion {
+  version?: number;
+  superseded_at?: Date | string | null;
+  changed_fields?: string[];
+  agent_id?: string;
+  message_template?: string;
+  pod_id?: string | null;
+  cron?: string;
+  tz?: string;
+  enabled?: boolean;
+  cronjob_name?: string | null;
+  created_at?: Date | string | null;
+  updated_at?: Date | string | null;
+}
+
 interface SchedulerPatchBody {
+  agent_id?: unknown;
   enabled?: unknown;
   action?: unknown;
+  cron?: unknown;
+  tz?: unknown;
+  message_template?: unknown;
 }
 
 function iso(value: Date | string | undefined | null): string | null {
@@ -58,16 +79,68 @@ function schedulerToken(): string {
   );
 }
 
-function enabledFromBody(body: SchedulerPatchBody): boolean {
-  if (typeof body.enabled === "boolean") return body.enabled;
+function buildSchedulerPatch(body: SchedulerPatchBody) {
+  const patch: {
+    agent_id?: string;
+    enabled?: boolean;
+    cron?: string;
+    tz?: string;
+    message_template?: string;
+  } = {};
 
-  if (body.action === "pause") return false;
-  if (body.action === "resume" || body.action === "restart") return true;
+  if (body.agent_id !== undefined) {
+    if (typeof body.agent_id !== "string" || !body.agent_id.trim()) {
+      throw new ApiError("agent_id must be a non-empty string", 400);
+    }
+    patch.agent_id = body.agent_id.trim();
+  }
 
-  throw new ApiError(
-    "Request body must include enabled, or action pause/resume/restart",
-    400
-  );
+  if (body.action !== undefined) {
+    if (body.action === "pause") {
+      patch.enabled = false;
+    } else if (body.action === "resume" || body.action === "restart") {
+      patch.enabled = true;
+    } else {
+      throw new ApiError("Unsupported schedule action", 400);
+    }
+  }
+
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== "boolean") {
+      throw new ApiError("enabled must be a boolean", 400);
+    }
+    patch.enabled = body.enabled;
+  }
+
+  if (body.cron !== undefined) {
+    if (typeof body.cron !== "string" || !body.cron.trim()) {
+      throw new ApiError("cron must be a non-empty string", 400);
+    }
+    patch.cron = body.cron.trim();
+  }
+
+  if (body.tz !== undefined) {
+    if (typeof body.tz !== "string" || !body.tz.trim()) {
+      throw new ApiError("tz must be a non-empty string", 400);
+    }
+    patch.tz = body.tz.trim();
+  }
+
+  if (body.message_template !== undefined) {
+    if (typeof body.message_template !== "string" || !body.message_template.trim()) {
+      throw new ApiError("message_template must be a non-empty string", 400);
+    }
+    patch.message_template = body.message_template;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new ApiError(
+      "Request body must include agent_id, enabled/action, cron, tz, or message_template",
+      400
+    );
+  }
+
+  return patch;
 }
 
 function schedulerErrorMessage(body: unknown, status: number): string {
@@ -91,6 +164,24 @@ function mapSchedule(doc: RawSchedule, agentName: string) {
     tz: doc.tz,
     enabled: doc.enabled !== false,
     cronjob_name: doc.cronjob_name || null,
+    version: doc.version || 1,
+    versions: (doc.versions || [])
+      .slice()
+      .reverse()
+      .map((version) => ({
+        version: version.version || 1,
+        superseded_at: iso(version.superseded_at),
+        changed_fields: version.changed_fields || [],
+        agent_id: version.agent_id || doc.agent_id,
+        message_template: version.message_template || "",
+        pod_id: version.pod_id || null,
+        cron: version.cron || "",
+        tz: version.tz || "",
+        enabled: version.enabled !== false,
+        cronjob_name: version.cronjob_name || null,
+        created_at: iso(version.created_at),
+        updated_at: iso(version.updated_at),
+      })),
     created_at: iso(doc.created_at),
     updated_at: iso(doc.updated_at),
     last_run: doc.last_run
@@ -104,7 +195,10 @@ function mapSchedule(doc: RawSchedule, agentName: string) {
   };
 }
 
-async function patchScheduler(scheduleId: string, enabled: boolean): Promise<RawSchedule> {
+async function patchScheduler(
+  scheduleId: string,
+  patch: ReturnType<typeof buildSchedulerPatch>
+): Promise<RawSchedule> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -120,7 +214,7 @@ async function patchScheduler(scheduleId: string, enabled: boolean): Promise<Raw
       {
         method: "PATCH",
         headers,
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify(patch),
         cache: "no-store",
       }
     );
@@ -173,8 +267,8 @@ export const PATCH = withErrorHandler(
       }
 
       const body = (await request.json().catch(() => ({}))) as SchedulerPatchBody;
-      const enabled = enabledFromBody(body);
-      const updated = await patchScheduler(scheduleId, enabled);
+      const patch = buildSchedulerPatch(body);
+      const updated = await patchScheduler(scheduleId, patch);
 
       const agents = await getCollection<{ _id: string; name?: string }>("dynamic_agents");
       const agent = await agents.findOne(

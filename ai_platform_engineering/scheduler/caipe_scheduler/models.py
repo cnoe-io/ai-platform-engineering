@@ -18,6 +18,25 @@ class LastRun(BaseModel):
     http_status: int | None = None
 
 
+class ScheduleVersion(BaseModel):
+    """Previous schedule settings captured before a successful PATCH."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    version: int = 1
+    superseded_at: datetime
+    changed_fields: list[str] = Field(default_factory=list)
+    agent_id: str
+    message_template: str
+    pod_id: str | None = None
+    cron: str
+    tz: str
+    enabled: bool = True
+    cronjob_name: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class ScheduleCreate(BaseModel):
     """Body of POST /v1/schedules."""
 
@@ -52,6 +71,7 @@ class SchedulePatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    agent_id: str | None = None
     enabled: bool | None = None
     cron: str | None = None
     tz: str | None = None
@@ -75,6 +95,8 @@ class Schedule(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_run: LastRun | None = None
+    version: int = 1
+    versions: list[ScheduleVersion] = Field(default_factory=list)
 
 
 class ScheduleCreateResponse(BaseModel):

@@ -108,6 +108,7 @@ describe('getServerConfig', () => {
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.defaultNewChatAgentId).toBeNull();
+      expect(cfg.scheduleEditorAgentId).toBeNull();
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -147,6 +148,7 @@ describe('getServerConfig', () => {
         'npsEnabled', 'auditLogsEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
+        'scheduleEditorAgentId',
         'reportProblemEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -199,6 +201,17 @@ describe('getServerConfig', () => {
     it('should read DEFAULT_NEW_CHAT_AGENT_ID', () => {
       process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
       expect(getServerConfig().defaultNewChatAgentId).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('should default SCHEDULE_EDITOR_AGENT_ID to DEFAULT_NEW_CHAT_AGENT_ID', () => {
+      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
+      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('should read SCHEDULE_EDITOR_AGENT_ID', () => {
+      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
+      process.env.SCHEDULE_EDITOR_AGENT_ID = 'agent-scheduled-job-editor';
+      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-scheduled-job-editor');
     });
 
     it('should read LOGO_URL', () => {
