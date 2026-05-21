@@ -1,3 +1,5 @@
+<!-- assisted-by Codex Codex-sonnet-4-6 -->
+
 # Knowledge Base Systems
 
 ## Overview
@@ -75,7 +77,7 @@ docker compose --profile apps up
 | Interface | URL | Description |
 |-----------|-----|-------------|
 | Web UI | [http://localhost:9447](http://localhost:9447) | Interactive search and graph visualization |
-| API Docs | [http://localhost:9446/docs](http://localhost:9446/docs) | Swagger UI for REST API |
+| API Docs | [http://localhost:9446/docs](http://localhost:9446/docs) | Swagger UI for REST API. See [RAG API Reference](api-reference.md) for the route map and examples. |
 | MCP Endpoint | http://localhost:9446/mcp | Model Context Protocol for AI agents |
 | Neo4j Browser | [http://localhost:7474](http://localhost:7474) | Graph database explorer |
 
@@ -106,5 +108,6 @@ CAIPE RAG includes ingestors for various data sources. See [Ingestors](ingestors
 ## Further Reading
 
 - [Architecture Overview](architecture.md) - Detailed system design and data flows
+- [RAG API Reference](api-reference.md) - REST, graph, ingestion, and MCP route reference
 - [Server README](https://github.com/cnoe-io/ai-platform-engineering/tree/main/ai_platform_engineering/knowledge_bases/rag/server/README.md) - Configuration and deployment
 - [GitHub Discussion](https://github.com/cnoe-io/ai-platform-engineering/discussions/196) - Unified RAG design discussion
