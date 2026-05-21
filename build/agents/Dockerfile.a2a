@@ -41,19 +41,6 @@ RUN [ ! -f "README.md" ] && echo "# README" > README.md || true
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
 
-# Pre-cache AWS MCP servers so they don't download on first agent startup.
-# Runs only when INSTALL_AWS_CLI=true (i.e. the aws agent).
-RUN mkdir -p /tmp/uv-cache && \
-    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
-        uvx awslabs.eks-mcp-server@0.1.31 --help > /dev/null 2>&1 || true && \
-        uvx awslabs.ecs-mcp-server@latest --help > /dev/null 2>&1 || true && \
-        uvx awslabs.iam-mcp-server@latest --help > /dev/null 2>&1 || true && \
-        uvx awslabs.cost-explorer-mcp-server@latest --help > /dev/null 2>&1 || true && \
-        uvx awslabs.cloudtrail-mcp-server@latest --help > /dev/null 2>&1 || true && \
-        uvx awslabs.cloudwatch-mcp-server@latest --help > /dev/null 2>&1 || true && \
-        cp -r /root/.cache/uv /tmp/uv-cache 2>/dev/null || true; \
-    fi
-
 # ---------- Stage 2: Final runtime image ----------
 # Wolfi (Chainguard) base: 0 CVEs, continuously patched packages, replaces
 # python:3.13-slim to eliminate the ~300 Debian system-package CVEs per image.
@@ -153,9 +140,6 @@ ENV AGENT_PACKAGE_NAME=${AGENT_PACKAGE:-${AGENT_NAME}} \
 
 # Copy venv & code from builder (maintain directory structure)
 COPY --from=builder --chown=appuser:appuser /app /app
-
-# Copy pre-cached AWS MCP servers (empty dir for non-aws agents, populated for aws)
-COPY --from=builder --chown=appuser:appuser /tmp/uv-cache /home/appuser/.cache/uv
 
 USER appuser
 
