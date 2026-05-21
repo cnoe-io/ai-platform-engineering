@@ -31,7 +31,7 @@ const AGENT_SYSTEM_PROMPT_CRITERIA: ReviewCriterion[] = [
     severity: "error",
     weight: 2,
     micro_prompt:
-      "Does the prompt define the agent's role in 1–2 clear sentences (what it is, what it helps with)? Pass if a reader could state the agent's purpose after reading the first paragraph.",
+      "Does the prompt define the agent's role and personality in 1–3 clear sentences (who it is, what it helps with)? Pass if a reader could state the agent's purpose after reading the first paragraph.",
     expects_fix: true,
   },
   {
