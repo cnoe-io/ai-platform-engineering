@@ -517,6 +517,18 @@ ALIAS="${IDP_ALIAS:-upstream-oidc}"
 DISPLAY="${IDP_DISPLAY_NAME:-Upstream OIDC}"
 SILENT_FLOW_ALIAS="caipe-silent-broker-login"
 
+PKCE_CONFIG_JSON=""
+case "$(printf '%s' "${IDP_PKCE_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+  true|1|yes)
+    PKCE_CONFIG_JSON=$(cat <<ENDJSON
+,
+    "pkceEnabled": "true",
+    "pkceMethod": "${IDP_PKCE_METHOD:-S256}"
+ENDJSON
+)
+    ;;
+esac
+
 # --- helper: extract a string field from JSON (no jq needed) ---
 json_field() {
   echo "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:.*"\(.*\)"/\1/'
@@ -819,7 +831,7 @@ IDP_JSON=$(cat <<ENDJSON
     "defaultScope": "openid email profile groups",
     "syncMode": "IMPORT",
     "validateSignature": "true",
-    "useJwksUrl": "true"
+    "useJwksUrl": "true"${PKCE_CONFIG_JSON}
   }
 }
 ENDJSON

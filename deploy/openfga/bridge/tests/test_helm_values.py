@@ -293,6 +293,39 @@ def test_keycloak_chart_wires_required_idp_secret_refs() -> None:
     assert not re.search(r"secretKeyRef:\n\s+name: caipe-keycloak-(admin|idp)\n\s+key: [^\n]+\n\s+optional: true", rendered)
 
 
+def test_keycloak_chart_omits_idp_pkce_env_by_default() -> None:
+    rendered = _helm_template_keycloak_with_idp()
+
+    for job_name in ("caipe-keycloak-init-idp", "caipe-keycloak-auth-reconcile"):
+        env_names = _job_env_names(rendered, job_name)
+        assert "IDP_PKCE_ENABLED" not in env_names
+        assert "IDP_PKCE_METHOD" not in env_names
+
+
+def test_keycloak_chart_wires_idp_pkce_env_when_enabled() -> None:
+    rendered = _helm_template_keycloak_with_idp(
+        "--set",
+        "idp.pkce.enabled=true",
+        "--set",
+        "idp.pkce.method=S256",
+    )
+
+    for job_name in ("caipe-keycloak-init-idp", "caipe-keycloak-auth-reconcile"):
+        env = _job_env(rendered, job_name)
+        assert env["IDP_PKCE_ENABLED"] == "true"
+        assert env["IDP_PKCE_METHOD"] == "S256"
+
+
+def test_init_idp_conditionally_writes_pkce_broker_config() -> None:
+    root = _repo_root()
+    init_idp = root / "charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh"
+    script = init_idp.read_text()
+
+    assert "IDP_PKCE_ENABLED" in script
+    assert '"pkceEnabled": "true"' in script
+    assert '"pkceMethod": "${IDP_PKCE_METHOD:-S256}"' in script
+
+
 def test_webex_bot_service_account_disables_token_automount() -> None:
     rendered = _helm_template_webex_bot()
     assert "automountServiceAccountToken: false" in rendered
@@ -457,6 +490,58 @@ def _helm_template_webex_bot(*extra_args: str) -> str:
         capture_output=True,
     )
     return result.stdout
+
+
+def _helm_template_keycloak_with_idp(*extra_args: str) -> str:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering" / "charts" / "keycloak"
+    cmd = [
+        "helm",
+        "template",
+        "caipe",
+        str(chart),
+        "--namespace",
+        "caipe",
+        "--set",
+        "admin.secretRef=caipe-keycloak-admin",
+        "--set",
+        "idp.enabled=true",
+        "--set",
+        "idp.alias=okta",
+        "--set",
+        "idp.issuer=https://example.okta.com/oauth2/default",
+        "--set",
+        "idp.clientId=okta-client",
+        "--set",
+        "idp.secretRef=caipe-keycloak-idp",
+        *extra_args,
+    ]
+    result = subprocess.run(
+        cmd,
+        check=True,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
+def _job_env(rendered: str, job_name: str) -> dict[str, str]:
+    docs = [doc for doc in yaml.safe_load_all(rendered) if isinstance(doc, dict)]
+    job = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "Job" and doc.get("metadata", {}).get("name") == job_name
+    )
+    containers = job["spec"]["template"]["spec"]["containers"]
+    env = containers[0]["env"]
+    return {entry["name"]: entry.get("value", "") for entry in env}
+
+
+def _job_env_names(rendered: str, job_name: str) -> set[str]:
+    return set(_job_env(rendered, job_name))
 
 
 def test_webex_bot_renders_external_secret_when_enabled() -> None:

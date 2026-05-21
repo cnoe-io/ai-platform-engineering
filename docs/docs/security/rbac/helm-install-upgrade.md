@@ -126,6 +126,10 @@ idp:
   adminGroup: ""
   # Default true: require the IdP redirector and disable local app-realm login.
   forceRedirect: true
+  # Optional: enable only when the upstream IdP app requires PKCE on the broker flow.
+  pkce:
+    enabled: false
+    method: S256
   secretRef: caipe-keycloak-idp
 
 tokenExchange:

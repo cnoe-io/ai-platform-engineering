@@ -120,6 +120,11 @@ idp:
   # When true, the realm browser flow requires the IdP redirector and disables
   # the local username/password form so app users never see the Keycloak login page.
   forceRedirect: true
+  # Optional broker-side PKCE for upstream IdPs that require it (for example,
+  # Okta apps with "Require PKCE as additional verification" enabled).
+  pkce:
+    enabled: false
+    method: "S256"
   externalSecret:
     enabled: false
     refreshInterval: "1h"

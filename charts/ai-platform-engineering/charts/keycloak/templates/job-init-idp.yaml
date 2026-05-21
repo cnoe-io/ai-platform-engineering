@@ -87,6 +87,12 @@ spec:
               value: {{ .Values.idp.adminGroup | quote }}
             - name: KEYCLOAK_FORCE_IDP_REDIRECT
               value: {{ .Values.idp.forceRedirect | quote }}
+            {{- if .Values.idp.pkce.enabled }}
+            - name: IDP_PKCE_ENABLED
+              value: "true"
+            - name: IDP_PKCE_METHOD
+              value: {{ .Values.idp.pkce.method | default "S256" | quote }}
+            {{- end }}
           volumeMounts:
             - name: init-scripts
               mountPath: /scripts
