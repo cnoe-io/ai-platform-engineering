@@ -46,7 +46,7 @@ This release touches several infrastructure components. Here is what they mean i
 
 ### Operators
 
-- Helm charts now include more of the identity and authorization setup directly, including Keycloak reconciliation, bot secret handling, OpenFGA bootstrap grants, token exchange setup, and the CAIPE login theme.
+- Helm charts now include more of the identity and authorization setup directly, including Keycloak reconciliation, bot secret handling, OpenFGA model loading, token exchange setup, and the CAIPE login theme.
 - Runtime bot traffic now uses integration-specific access-check routes instead of admin-only routes.
 - CI and validation coverage was expanded for RBAC, Keycloak init, OpenFGA bridge, Webex bot, and RBAC documentation.
 
@@ -57,7 +57,7 @@ This release touches several infrastructure components. Here is what they mean i
 - CAIPE product permissions now use OpenFGA as the main source of truth for resource access.
 - Permission checks were expanded across major product areas: Dynamic Agents, RAG, Slack, Webex, MCP tools, chat conversations, workflows, tasks, skills, and admin APIs.
 - Legacy checks based only on MongoDB ownership, visibility flags, or team membership were reduced on high-risk paths.
-- OpenFGA bootstrap grants are seeded during init so fresh installs can complete setup and migrations without bypassing the permission system.
+- Bootstrap admin emails are resolved by the CAIPE UI BFF into durable OpenFGA grants so fresh installs can complete setup and migrations without hardcoding Keycloak UUIDs.
 
 ### Admin Tools for Access Management
 
@@ -109,7 +109,7 @@ This release touches several infrastructure components. Here is what they mean i
 - **Keycloak profile prompt**: Enterprise SSO users are no longer stopped by the `VERIFY_PROFILE` prompt during login.
 - **Keycloak reconciliation**: Install and upgrade flows now restore required identity-provider and profile settings from the chart.
 - **Runtime bot authorization**: Slack and Webex bots now use integration-scoped access-check routes instead of admin UI routes for normal user traffic.
-- **OpenFGA bootstrap**: Fresh installs can seed required system configuration grants before object-level checks block migrations.
+- **OpenFGA bootstrap**: Fresh installs now seed human bootstrap admin grants through the CAIPE UI BFF email reconciler; `openfga.init.seedTuples` remains available for non-user emergency recovery tuples.
 - **LiteLLM MCP startup**: FastMCP 3.x startup now passes host and port at transport startup time, preventing the LiteLLM MCP image from crashing before binding.
 - **Webex RBAC matrix coverage**: Webex route entries now use Next.js App Router path syntax so release CI can resolve committed route handlers.
 - **Release build type safety**: Webex import rows, team Webex space persistence, and Slack default relationship types were narrowed so the UI image can build under stricter production TypeScript checks.
@@ -195,7 +195,7 @@ Current GitHub checks on the PR show DCO, CodeQL, and CodeQL analysis jobs for a
 - **OpenFGA-backed resource checks**: Dynamic Agents, MCP server management, RAG tools, workflow configs, workflow runs, task configs, skills, and chat conversation routes now use concrete resource checks instead of relying only on coarse role gates or MongoDB ownership fields.
 - **Conversation access model**: Private conversations continue to use implicit Mongo ownership, while sharing and cross-team access use explicit OpenFGA relationships. List, detail, search, trash, archive, restore, pin, share, and Dynamic Agent proxy routes now converge on the same implicit-or-explicit check.
 - **Team resource grants**: Admin team resource updates reconcile OpenFGA relationships before persisting Mongo state so MongoDB does not get ahead of the enforcement store during PDP failures.
-- **Bootstrap relationships**: OpenFGA init can seed system configuration relationships, including bootstrap `system_config:platform_settings` manager grants required for first-time migration and admin setup.
+- **Bootstrap relationships**: The CAIPE UI BFF resolves bootstrap admin emails to Keycloak subjects and seeds durable OpenFGA `organization` and `system_config:platform_settings` grants, avoiding hardcoded Keycloak UUIDs in Helm values.
 
 ### Keycloak and OBO Runtime
 

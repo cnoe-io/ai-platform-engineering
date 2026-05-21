@@ -252,7 +252,9 @@ config:
   # Deprecated: admin access is granted through Identity Group Sync + OpenFGA organization admin relationships.
   OIDC_REQUIRED_ADMIN_GROUP: ""
   # Bootstrap admin emails — comma-separated list for initial admin setup.
-  # Remove after configuring Identity Group Sync to grant OpenFGA admin.
+  # The BFF resolves these to Keycloak subjects and seeds durable OpenFGA
+  # organization/system_config grants. Remove after configuring Identity Group
+  # Sync to grant OpenFGA admin.
   BOOTSTRAP_ADMIN_EMAILS: ""
   CAIPE_ORG_KEY: "caipe"
   CAIPE_ORG_DISPLAY_NAME: "CAIPE"

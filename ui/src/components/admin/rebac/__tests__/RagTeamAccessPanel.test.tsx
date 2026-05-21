@@ -36,6 +36,18 @@ beforeEach(() => {
     if (url.startsWith("/api/admin/openfga/tuples")) {
       return jsonResponse({ data: { tuples: [] } });
     }
+    if (url === "/api/admin/teams/team-1/kb-assignments" && init?.method === "PUT") {
+      return jsonResponse({ data: { ok: true } });
+    }
+    if (url === "/api/admin/teams/team-1/kb-assignments") {
+      return jsonResponse({
+        data: {
+          team_id: "team-1",
+          kb_ids: [],
+          kb_permissions: {},
+        },
+      });
+    }
     if (url.startsWith("/api/admin/rebac/graph")) {
       return jsonResponse({ data: { nodes: [], edges: [] } });
     }
@@ -71,6 +83,31 @@ it("saves RAG datasource admin access as an admin surface tuple", async () => {
         resourceId: "rag_datasources",
         relation: "manager",
         operation: "grant",
+      }),
+    })
+  );
+});
+
+it("grants a selected knowledge base to the selected team", async () => {
+  render(<RagTeamAccessPanel isAdmin />);
+
+  expect(await screen.findByText("RAG Team Access")).toBeInTheDocument();
+  fireEvent.change(await screen.findByLabelText("Knowledge Base"), {
+    target: { value: "kb-alpha" },
+  });
+  fireEvent.change(screen.getByLabelText("Permission"), {
+    target: { value: "admin" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Grant KB Access" }));
+
+  expect(await screen.findByText("Knowledge Base access saved to OpenFGA")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/admin/teams/team-1/kb-assignments",
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({
+        kb_ids: ["kb-alpha"],
+        kb_permissions: { "kb-alpha": "admin" },
       }),
     })
   );

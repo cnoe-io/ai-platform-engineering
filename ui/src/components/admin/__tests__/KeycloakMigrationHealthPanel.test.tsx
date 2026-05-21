@@ -89,6 +89,23 @@ const failedHealth = {
         },
       ],
     },
+    bootstrap_admins: {
+      enabled: true,
+      configured_emails: ["admin@cisco.com"],
+      resolved_count: 1,
+      created_count: 0,
+      failed_count: 0,
+      tuple_write_count: 3,
+      warnings: [],
+      outcomes: [
+        {
+          email: "admin@cisco.com",
+          user_id: "sub-admin",
+          status: "existing",
+          tuple_write_count: 3,
+        },
+      ],
+    },
   },
 };
 
@@ -211,5 +228,50 @@ describe("KeycloakMigrationHealthPanel", () => {
     expect(scrollRegion).toHaveClass("overflow-auto");
     expect(scrollRegion.querySelector("table")).not.toBeInTheDocument();
     expect(screen.getByText("Result 1")).toBeInTheDocument();
+  });
+
+  it("renders bootstrap admin reconciliation diagnostics", async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(completedHealth));
+
+    render(<KeycloakMigrationHealthPanel />);
+
+    expect(await screen.findByText("Bootstrap admins")).toBeInTheDocument();
+    expect(screen.getByText("1/1 resolved")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Inspect Bootstrap admins metric/i }));
+
+    expect(await screen.findByRole("dialog", { name: /Bootstrap admins details/i })).toBeInTheDocument();
+    expect(screen.getByText("admin@cisco.com")).toBeInTheDocument();
+    expect(screen.getByText("sub-admin")).toBeInTheDocument();
+  });
+
+  it("marks health degraded when bootstrap admin reconciliation has failures", async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse({
+      success: true,
+      data: {
+        ...completedHealth.data,
+        bootstrap_admins: {
+          ...completedHealth.data.bootstrap_admins,
+          resolved_count: 0,
+          failed_count: 1,
+          tuple_write_count: 0,
+          warnings: ["admin@cisco.com: OpenFGA is not configured"],
+          outcomes: [
+            {
+              email: "admin@cisco.com",
+              user_id: "sub-admin",
+              status: "failed",
+              tuple_write_count: 0,
+              error: "OpenFGA is not configured",
+            },
+          ],
+        },
+      },
+    }));
+
+    render(<KeycloakMigrationHealthPanel />);
+
+    expect(await screen.findByText("Bootstrap admin failures")).toHaveClass("text-amber-700");
+    expect(screen.getByText("0/1 resolved")).toBeInTheDocument();
   });
 });

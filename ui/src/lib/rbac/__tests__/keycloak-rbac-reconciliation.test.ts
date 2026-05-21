@@ -9,6 +9,7 @@ const mockEnsureWebexBotOboPermissions = jest.fn();
 const mockEnsureBotServiceAccountImersonationRoles = jest.fn();
 const mockEnsureCaipePlatformTokenExchangeDecisionStrategy = jest.fn();
 const mockSelectAgentGatewayActiveTeamScope = jest.fn();
+const mockReconcileBootstrapAdmins = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
@@ -25,6 +26,10 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
     mockEnsureCaipePlatformTokenExchangeDecisionStrategy(...args),
   selectAgentGatewayActiveTeamScope: (...args: unknown[]) => mockSelectAgentGatewayActiveTeamScope(...args),
   isValidTeamSlug: (slug: string) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug),
+}));
+
+jest.mock("@/lib/rbac/keycloak-bootstrap-admins", () => ({
+  reconcileBootstrapAdmins: (...args: unknown[]) => mockReconcileBootstrapAdmins(...args),
 }));
 
 function createCollection(rows: Array<Record<string, unknown>> = []) {
@@ -64,6 +69,23 @@ describe("keycloak RBAC startup reconciliation migration", () => {
     mockEnsureBotServiceAccountImersonationRoles.mockResolvedValue(undefined);
     mockEnsureCaipePlatformTokenExchangeDecisionStrategy.mockResolvedValue(undefined);
     mockSelectAgentGatewayActiveTeamScope.mockResolvedValue(undefined);
+    mockReconcileBootstrapAdmins.mockResolvedValue({
+      enabled: true,
+      configured_emails: ["admin@cisco.com"],
+      resolved_count: 1,
+      created_count: 0,
+      failed_count: 0,
+      tuple_write_count: 3,
+      warnings: [],
+      outcomes: [
+        {
+          email: "admin@cisco.com",
+          user_id: "sub-admin",
+          status: "existing",
+          tuple_write_count: 3,
+        },
+      ],
+    });
   });
 
   afterAll(() => {
@@ -87,6 +109,7 @@ describe("keycloak RBAC startup reconciliation migration", () => {
     ]);
     expect(mockEnsureCaipePlatformTokenExchangeDecisionStrategy).toHaveBeenCalledWith("AFFIRMATIVE");
     expect(mockSelectAgentGatewayActiveTeamScope).toHaveBeenCalledWith("platform");
+    expect(mockReconcileBootstrapAdmins).toHaveBeenCalledWith({ actor: "startup-test" });
     expect(collections.migration_manifest.updateOne).toHaveBeenCalledWith(
       { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
       expect.objectContaining({
@@ -106,6 +129,8 @@ describe("keycloak RBAC startup reconciliation migration", () => {
           applied_counts: expect.objectContaining({
             team_scopes_reconciled: 2,
             obo_permission_sets_reconciled: 2,
+            bootstrap_admins_resolved: 1,
+            bootstrap_admin_tuples_written: 3,
           }),
           updated_by: "startup-test",
         }),
@@ -140,6 +165,51 @@ describe("keycloak RBAC startup reconciliation migration", () => {
           status: "failed",
           error: "Keycloak unavailable",
           updated_by: "startup-test",
+        }),
+      }),
+      { upsert: true }
+    );
+    expect(collections.data_schema_versions.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("records a failed migration when bootstrap admin tuple seeding fails", async () => {
+    mockReconcileBootstrapAdmins.mockResolvedValue({
+      enabled: true,
+      actor: "startup-test",
+      configured_emails: ["admin@cisco.com"],
+      resolved_count: 0,
+      created_count: 0,
+      failed_count: 1,
+      tuple_write_count: 0,
+      warnings: ["admin@cisco.com: OpenFGA is not configured"],
+      outcomes: [
+        {
+          email: "admin@cisco.com",
+          user_id: "sub-admin",
+          status: "failed",
+          tuple_write_count: 0,
+          error: "OpenFGA is not configured",
+        },
+      ],
+    });
+    const { runKeycloakRbacStartupMigration, KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID } =
+      await import("../keycloak-rbac-reconciliation");
+
+    const result = await runKeycloakRbacStartupMigration({ actor: "startup-test" });
+
+    expect(result.status).toBe("failed");
+    expect(result.warnings).toEqual(expect.arrayContaining(["admin@cisco.com: OpenFGA is not configured"]));
+    expect(collections.schema_migrations.updateOne).toHaveBeenLastCalledWith(
+      { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: "failed",
+          bootstrap_admins: expect.objectContaining({
+            failed_count: 1,
+            outcomes: expect.arrayContaining([
+              expect.objectContaining({ email: "admin@cisco.com", status: "failed" }),
+            ]),
+          }),
         }),
       }),
       { upsert: true }

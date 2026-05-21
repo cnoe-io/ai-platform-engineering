@@ -18,8 +18,24 @@ interface CatalogTeam {
   name: string;
 }
 
+interface CatalogKnowledgeBase {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 interface CatalogResponse {
   teams: CatalogTeam[];
+  resources?: {
+    knowledge_bases?: CatalogKnowledgeBase[];
+  };
+}
+
+type KbPermission = "read" | "ingest" | "admin";
+
+interface KbAssignmentsResponse {
+  kb_ids: string[];
+  kb_permissions?: Record<string, KbPermission>;
 }
 
 function apiData<T>(payload: { data?: T } & T): T {
@@ -28,7 +44,10 @@ function apiData<T>(payload: { data?: T } & T): T {
 
 export function RagTeamAccessPanel({ isAdmin }: { isAdmin: boolean }) {
   const [teams, setTeams] = useState<CatalogTeam[]>([]);
+  const [knowledgeBases, setKnowledgeBases] = useState<CatalogKnowledgeBase[]>([]);
   const [teamAccessTeamId, setTeamAccessTeamId] = useState("");
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState("");
+  const [selectedPermission, setSelectedPermission] = useState<KbPermission>("read");
   const [ragAdminEnabled, setRagAdminEnabled] = useState(false);
   const [teamAccessLoading, setTeamAccessLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,8 +63,12 @@ export function RagTeamAccessPanel({ isAdmin }: { isAdmin: boolean }) {
     if (!res.ok) throw new Error(`Failed to load catalog: ${res.status}`);
     const payload = await res.json();
     const data = apiData<CatalogResponse>(payload);
-    setTeams(data.teams ?? []);
-    setTeamAccessTeamId((prev) => prev || data.teams?.[0]?.id || "");
+    const nextTeams = data.teams ?? [];
+    const nextKnowledgeBases = data.resources?.knowledge_bases ?? [];
+    setTeams(nextTeams);
+    setKnowledgeBases(nextKnowledgeBases);
+    setTeamAccessTeamId((prev) => prev || nextTeams[0]?.id || "");
+    setSelectedKnowledgeBaseId((prev) => prev || nextKnowledgeBases[0]?.id || "");
   }, []);
 
   const loadTeamAccess = useCallback(async () => {
@@ -108,6 +131,41 @@ export function RagTeamAccessPanel({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  async function saveKnowledgeBaseAccess() {
+    if (!teamAccessTeamId || !selectedKnowledgeBaseId || !isAdmin) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const url = `/api/admin/teams/${encodeURIComponent(teamAccessTeamId)}/kb-assignments`;
+      const currentRes = await fetch(url);
+      if (!currentRes.ok) {
+        throw new Error(`Failed to load current KB assignments: ${currentRes.status}`);
+      }
+      const currentPayload = await currentRes.json();
+      const current = apiData<KbAssignmentsResponse>(currentPayload);
+      const kbIds = Array.from(new Set([...(current.kb_ids ?? []), selectedKnowledgeBaseId]));
+      const kbPermissions = {
+        ...(current.kb_permissions ?? {}),
+        [selectedKnowledgeBaseId]: selectedPermission,
+      };
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kb_ids: kbIds,
+          kb_permissions: kbPermissions,
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed to save KB access: ${res.status}`);
+      setMessage("Knowledge Base access saved to OpenFGA");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Knowledge Base access save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -159,6 +217,60 @@ export function RagTeamAccessPanel({ isAdmin }: { isAdmin: boolean }) {
               </span>
             </span>
           </label>
+        </div>
+
+        <div className="rounded-md border p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium">Knowledge Base access</p>
+            <p className="text-xs text-muted-foreground">
+              Baseline RAG service access comes from organization membership. These grants control
+              which team members can read, ingest, or administer specific Knowledge Bases.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_auto]">
+            <div className="grid gap-2">
+              <Label htmlFor="rag-team-access-kb">Knowledge Base</Label>
+              <select
+                id="rag-team-access-kb"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={selectedKnowledgeBaseId}
+                disabled={!isAdmin || busy || knowledgeBases.length === 0}
+                onChange={(event) => setSelectedKnowledgeBaseId(event.target.value)}
+              >
+                {knowledgeBases.length === 0 ? (
+                  <option value="">No Knowledge Bases discovered</option>
+                ) : (
+                  knowledgeBases.map((kb) => (
+                    <option key={kb.id} value={kb.id}>
+                      {kb.name || kb.id}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="rag-team-access-permission">Permission</Label>
+              <select
+                id="rag-team-access-permission"
+                className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={selectedPermission}
+                disabled={!isAdmin || busy}
+                onChange={(event) => setSelectedPermission(event.target.value as KbPermission)}
+              >
+                <option value="read">Read</option>
+                <option value="ingest">Ingest</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                onClick={saveKnowledgeBaseAccess}
+                disabled={!isAdmin || busy || !teamAccessTeamId || !selectedKnowledgeBaseId}
+              >
+                Grant KB Access
+              </Button>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">

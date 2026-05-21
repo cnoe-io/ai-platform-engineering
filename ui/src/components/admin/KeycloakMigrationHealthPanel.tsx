@@ -52,6 +52,16 @@ interface KeycloakMigrationHealth {
     is_blocking: boolean;
     blocking_required_count: number;
   };
+  bootstrap_admins?: {
+    enabled: boolean;
+    configured_emails: string[];
+    resolved_count: number;
+    created_count: number;
+    failed_count: number;
+    tuple_write_count: number;
+    warnings: string[];
+    outcomes: Array<Record<string, unknown>>;
+  };
   keycloak_values?: {
     team_scopes?: Array<Record<string, unknown>>;
     obo_permissions?: Array<Record<string, unknown>>;
@@ -81,25 +91,18 @@ function statusTone(status: MigrationStatus | "current" | "behind" | "unknown") 
   return "text-muted-foreground";
 }
 
-function statusColorClass(status: MigrationStatus | "current" | "behind" | "unknown") {
-  if (status === "completed" || status === "current") {
-    return "border-emerald-300 bg-emerald-50 text-emerald-700";
-  }
-  if (status === "failed") {
-    return "border-red-300 bg-red-50 text-red-700";
-  }
-  if (status === "behind" || status === "running" || status === "planned") {
-    return "border-amber-300 bg-amber-50 text-amber-700";
-  }
-  return "border-slate-300 bg-slate-50 text-slate-700";
-}
-
 function formatVersion(version: number | null): string {
   return typeof version === "number" ? `v${version}` : "unknown";
 }
 
 function formatVersionRange(current: number | null, target: number): string {
   return `${formatVersion(current)} -> ${formatVersion(target)}`;
+}
+
+function formatBootstrapAdminStatus(health: KeycloakMigrationHealth): string {
+  const bootstrap = health.bootstrap_admins;
+  if (!bootstrap?.enabled) return "not configured";
+  return `${bootstrap.resolved_count}/${bootstrap.configured_emails.length} resolved`;
 }
 
 function HealthCheck({
@@ -252,7 +255,14 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
 
   const lastRun = health?.migration.last_run;
   const counts = useMemo(() => Object.entries(lastRun?.applied_counts ?? {}), [lastRun]);
-  const degraded = Boolean(error || health?.blocking.is_blocking || health?.migration.manifest_status === "failed" || !health?.keycloak.reachable);
+  const bootstrapHasFailures = Boolean(health?.bootstrap_admins && health.bootstrap_admins.failed_count > 0);
+  const degraded = Boolean(
+    error ||
+      health?.blocking.is_blocking ||
+      health?.migration.manifest_status === "failed" ||
+      !health?.keycloak.reachable ||
+      bootstrapHasFailures,
+  );
   const canReconcile = Boolean(
     health &&
       !compact &&
@@ -276,6 +286,7 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
       : health?.schema_area.status === "behind"
         ? "warning"
         : "error";
+  const bootstrapHealthState = bootstrapHasFailures ? "warning" : "ok";
 
   return (
     <Card className={cn(degraded && "border-amber-400/60")}>
@@ -336,6 +347,12 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
                 label={`Schema ${health.schema_area.status}`}
                 state={schemaHealthState}
               />
+              {health.bootstrap_admins && (
+                <HealthCheck
+                  label={bootstrapHasFailures ? "Bootstrap admin failures" : "Bootstrap admins seeded"}
+                  state={bootstrapHealthState}
+                />
+              )}
             </div>
 
             <div className={cn("grid gap-2", compact ? "sm:grid-cols-2" : "sm:grid-cols-4")}>
@@ -391,6 +408,19 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
                 }}
                 onInspect={setSelectedMetric}
               />
+              {health.bootstrap_admins && (
+                <Metric
+                  label="Bootstrap admins"
+                  value={formatBootstrapAdminStatus(health)}
+                  tone={health.bootstrap_admins.failed_count > 0 ? "text-amber-600" : "text-emerald-600"}
+                  details={{
+                    title: "Bootstrap admins details",
+                    description: "Email-based bootstrap admin resolution and durable OpenFGA tuple seeding.",
+                    rows: health.bootstrap_admins.outcomes,
+                  }}
+                  onInspect={setSelectedMetric}
+                />
+              )}
             </div>
 
             {!compact && counts.length > 0 && (

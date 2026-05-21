@@ -10,8 +10,8 @@ import {
   successResponse,
   ApiError,
   validateEmail,
-  requireRbacPermission,
 } from '@/lib/api-middleware';
+import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import {
   searchRealmUsers,
   isValidTeamSlug,
@@ -121,7 +121,6 @@ export const POST = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const body = await request.json();
@@ -146,6 +145,7 @@ export const POST = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+    await requireTeamMembershipManagementPermission(session, user.email, team);
 
     // Check if member already exists
     const existingMember = team.members?.find(
@@ -213,7 +213,6 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
     const params = await context.params;
     const teamId = parseTeamId(params.id);
     const url = new URL(request.url);
@@ -231,6 +230,7 @@ export const DELETE = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+    await requireTeamMembershipManagementPermission(session, user.email, team);
 
     // Cannot remove the team owner
     if (team.owner_id?.toLowerCase() === email) {

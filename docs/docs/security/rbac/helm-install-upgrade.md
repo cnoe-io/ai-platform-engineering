@@ -81,8 +81,8 @@ demoUsers:
   # Keep false for shared/prod realms. Set true only for local RBAC matrix runs.
   enabled: false
 
-# Optional explicit initial admins. These users receive Keycloak `admin` and
-# `admin_user` roles when they already exist in the realm.
+# Optional explicit initial admins. The CAIPE UI BFF resolves these emails to
+# Keycloak user ids and seeds durable OpenFGA super-admin relationships.
 bootstrapAdminEmails: "admin@example.com"
 
 env:
@@ -147,7 +147,7 @@ Create the referenced non-admin secrets out of band. The Keycloak admin Secret s
 
 `idp.forceRedirect=true` is also the production default when an external IdP is enabled. The init hook makes the `caipe` realm browser flow enterprise-IdP-only by requiring the Identity Provider Redirector and disabling the local Keycloak username/password form. The `master` realm admin login is unaffected and should remain private through `admin.frontendUrl`.
 
-Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config if you need the UI fallback before enterprise group claims have propagated. For steady-state admin access, map your enterprise admin group to a CAIPE admin team through Identity Group Sync, then grant that team `admin` on `organization:<org>` in OpenFGA.
+Set `bootstrapAdminEmails` only for explicit initial administrators, and mirror the same comma-separated value into the CAIPE UI `BOOTSTRAP_ADMIN_EMAILS` config. On UI startup, `keycloak_rbac_mapping_reconciliation_v1` resolves each email through Keycloak, creates a passwordless verified placeholder when the SSO user has not logged in yet, and writes `member`/`admin` on `organization:<org>` plus `manager` on `system_config:platform_settings` in OpenFGA. Admins can see the resolved subjects, placeholder count, tuple writes, and warnings in Admin → Security & Policy → Keycloak. For steady-state admin access, map your enterprise admin group to a CAIPE admin team through Identity Group Sync, then grant that team `admin` on `organization:<org>` in OpenFGA.
 
 ```bash
 kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f -

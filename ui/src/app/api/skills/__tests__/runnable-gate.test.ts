@@ -160,6 +160,30 @@ describe("filterSkillsByOpenFga", () => {
     expect(filtered.map((skill) => skill.id)).toEqual(["hub-h1-runnable"]);
   });
 
+  it("keeps built-in catalog skills visible in use mode for users with baseline org access", async () => {
+    const checks: string[] = [];
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "builtin-safe", source: "default", name: "Built in" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "use",
+        check: async (tuple) => {
+          checks.push(`${tuple.user} ${tuple.relation} ${tuple.object}`);
+          return { allowed: tuple.object === "organization:caipe" };
+        },
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["builtin-safe"]);
+    expect(checks).toEqual([
+      "user:alice-sub can_use organization:caipe",
+      "user:alice-sub can_use skill:team-private",
+    ]);
+  });
+
   it("drops skills whose OpenFGA check throws instead of failing open", async () => {
     const filtered = await filterSkillsByOpenFga(
       [

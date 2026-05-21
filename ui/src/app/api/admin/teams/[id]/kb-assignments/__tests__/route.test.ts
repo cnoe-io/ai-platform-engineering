@@ -191,4 +191,46 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
       deletes: [],
     });
   });
+
+  it("allows a scoped team admin to manage their team's KB assignments", async () => {
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      user: { email: "lead@example.com", role: "user" },
+      session: { user: { email: "lead@example.com" }, role: "user" },
+    });
+    mockRequireRbacPermission.mockImplementation(async (_session, resource, scope) => {
+      if (resource === "admin_ui" || (resource === "team" && scope === "manage")) {
+        const error = new Error("not platform admin") as Error & { statusCode: number };
+        error.statusCode = 403;
+        throw error;
+      }
+    });
+    mockCollections.teams = createMockCollection([
+      {
+        _id: teamId,
+        slug: "platform",
+        name: "Platform",
+        members: [{ user_id: "lead@example.com", role: "admin" }],
+      },
+    ]);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request(`/api/admin/teams/${teamId}/kb-assignments`, {
+        method: "PUT",
+        body: JSON.stringify({
+          kb_ids: ["team-ds"],
+          kb_permissions: { "team-ds": "admin" },
+        }),
+      }),
+      { params: Promise.resolve({ id: String(teamId) }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        { user: "team:platform#member", relation: "manager", object: "knowledge_base:team-ds" },
+      ],
+      deletes: [],
+    });
+  });
 });

@@ -8,6 +8,8 @@ import {
   isValidTeamSlug,
   selectAgentGatewayActiveTeamScope,
 } from "@/lib/rbac/keycloak-admin";
+import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
+import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { MigrationApplyResult, MigrationDefinition, MigrationPlanResult } from "@/lib/rbac/migrations/types";
 
 export const KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID = "keycloak_rbac_mapping_reconciliation_v1";
@@ -155,6 +157,7 @@ async function recordCompleted(input: {
   now: string;
   counts: Record<string, number>;
   warnings: string[];
+  bootstrapAdmins?: BootstrapAdminReconciliationResult;
 }): Promise<void> {
   const migrations = await getCollection<StringIdRow>("schema_migrations");
   const versions = await getCollection<StringIdRow>("data_schema_versions");
@@ -171,6 +174,7 @@ async function recordCompleted(input: {
         planned_counts: input.counts,
         applied_counts: input.counts,
         warnings: input.warnings,
+        ...(input.bootstrapAdmins ? { bootstrap_admins: input.bootstrapAdmins } : {}),
         completed_at: input.now,
         updated_at: input.now,
         updated_by: input.actor,
@@ -200,6 +204,7 @@ async function recordFailed(input: {
   error: string;
   counts: Record<string, number>;
   warnings: string[];
+  bootstrapAdmins?: BootstrapAdminReconciliationResult;
 }): Promise<void> {
   const migrations = await getCollection<StringIdRow>("schema_migrations");
   await migrations.updateOne(
@@ -216,6 +221,7 @@ async function recordFailed(input: {
         applied_counts: input.counts,
         warnings: input.warnings,
         error: input.error,
+        ...(input.bootstrapAdmins ? { bootstrap_admins: input.bootstrapAdmins } : {}),
         updated_at: input.now,
         updated_by: input.actor,
       },
@@ -279,7 +285,12 @@ export async function runKeycloakRbacStartupMigration(input: {
     bot_service_accounts_reconciled: 0,
     token_exchange_permissions_reconciled: 0,
     active_team_defaults_selected: 0,
+    bootstrap_admins_resolved: 0,
+    bootstrap_admin_placeholders_created: 0,
+    bootstrap_admin_tuples_written: 0,
+    bootstrap_admin_failures: 0,
   };
+  let bootstrapAdmins: BootstrapAdminReconciliationResult | undefined;
 
   if (!isMongoDBConfigured || !process.env.KEYCLOAK_URL) {
     return {
@@ -321,7 +332,17 @@ export async function runKeycloakRbacStartupMigration(input: {
       );
     }
 
-    await recordCompleted({ actor, now, counts, warnings });
+    bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
+    counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;
+    counts.bootstrap_admin_placeholders_created = bootstrapAdmins.created_count;
+    counts.bootstrap_admin_tuples_written = bootstrapAdmins.tuple_write_count;
+    counts.bootstrap_admin_failures = bootstrapAdmins.failed_count;
+    warnings.push(...bootstrapAdmins.warnings);
+    if (bootstrapAdmins.failed_count > 0) {
+      throw new Error(`Bootstrap admin reconciliation failed for ${bootstrapAdmins.failed_count} email(s)`);
+    }
+
+    await recordCompleted({ actor, now, counts, warnings, bootstrapAdmins });
     return {
       migration_id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
       status: "completed",
@@ -331,7 +352,7 @@ export async function runKeycloakRbacStartupMigration(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     warnings.push(message);
-    await recordFailed({ actor, now, error: message, counts, warnings });
+    await recordFailed({ actor, now, error: message, counts, warnings, bootstrapAdmins });
     return {
       migration_id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
       status: "failed",

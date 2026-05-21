@@ -160,7 +160,7 @@ describe("manual membership source preservation", () => {
 
   it("allows authorized team admins to add members", async () => {
     mockGetServerSession.mockResolvedValue(session("team-admin@example.com"));
-    mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValueOnce(TEAM).mockResolvedValueOnce({
       ...TEAM,

@@ -440,6 +440,12 @@ export interface SearchUsersParams {
   max?: number;
 }
 
+export interface KeycloakUserEnsureResult {
+  id: string;
+  email: string;
+  created: boolean;
+}
+
 export async function searchRealmUsers(
   params: SearchUsersParams
 ): Promise<Array<Record<string, unknown>>> {
@@ -450,6 +456,18 @@ export async function searchRealmUsers(
   qs.set("max", String(params.max ?? 20));
   const response = await adminFetch(`/users?${qs.toString()}`, { method: "GET" });
   await assertOk(response, "searchRealmUsers");
+  return parseJsonArray<Record<string, unknown>>(response);
+}
+
+async function findRealmUsersByExactEmail(email: string): Promise<Array<Record<string, unknown>>> {
+  const qs = new URLSearchParams({
+    email,
+    exact: "true",
+    first: "0",
+    max: "5",
+  });
+  const response = await adminFetch(`/users?${qs.toString()}`, { method: "GET" });
+  await assertOk(response, "findRealmUsersByExactEmail");
   return parseJsonArray<Record<string, unknown>>(response);
 }
 
@@ -602,6 +620,51 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
     return typeof id === "string" && id ? id : null;
   }
   return null;
+}
+
+function exactEmailUserId(email: string, users: Array<Record<string, unknown>>): string | null {
+  const matches = users.filter((u) => {
+    const userEmail = typeof u.email === "string" ? u.email.toLowerCase() : "";
+    const userName = typeof u.username === "string" ? u.username.toLowerCase() : "";
+    return userEmail === email || userName === email;
+  });
+  if (matches.length > 1) {
+    throw new Error(`Keycloak returned multiple users for bootstrap email ${email}`);
+  }
+  const id = matches[0]?.id;
+  return typeof id === "string" && id ? id : null;
+}
+
+export async function ensureUserByEmail(email: string): Promise<KeycloakUserEnsureResult> {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed) {
+    throw new Error("Bootstrap admin email is empty");
+  }
+
+  const existingId = exactEmailUserId(trimmed, await findRealmUsersByExactEmail(trimmed));
+  if (existingId) {
+    return { id: existingId, email: trimmed, created: false };
+  }
+
+  const response = await adminFetch("/users", {
+    method: "POST",
+    body: JSON.stringify({
+      username: trimmed,
+      email: trimmed,
+      enabled: true,
+      emailVerified: true,
+      requiredActions: [],
+    }),
+  });
+  if (!response.ok && response.status !== 409) {
+    await assertOk(response, `ensureUserByEmail(${trimmed})`);
+  }
+
+  const createdId = exactEmailUserId(trimmed, await findRealmUsersByExactEmail(trimmed));
+  if (!createdId) {
+    throw new Error(`Keycloak user for bootstrap email ${trimmed} was not found after create`);
+  }
+  return { id: createdId, email: trimmed, created: response.status !== 409 };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
