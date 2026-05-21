@@ -113,6 +113,7 @@ jobs:
         helm template test-rbac-runtime . \
           --debug \
           --set tags.keycloak=true \
+          --set keycloak.admin.password=admin \
           --set openfga.enabled=true \
           --set openfgaAuthzBridge.enabled=true \
           --set agentgateway.enabled=true \
