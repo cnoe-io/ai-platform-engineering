@@ -18,9 +18,14 @@ import {
   upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
 import {
+  buildTeamMembershipTuples,
+  mongoRoleToOpenFgaRelations,
   resolveKeycloakUserSubject,
   writeTeamMembershipTuples,
+  type TeamMemberRelation,
 } from '@/lib/rbac/team-membership-sync';
+import { readTeamOpenFgaTuples } from '@/lib/rbac/team-openfga-sync-status';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import type { Team } from '@/types/teams';
 
@@ -51,6 +56,81 @@ function parseTeamId(id: string): ObjectId {
 // `@/lib/rbac/team-membership-sync` so the team-creation route can share the
 // exact same email→sub resolution and tuple-write logic. Do not duplicate them
 // here.
+
+/**
+ * After a manual delete, sweep any OpenFGA tuples on `team:<slug>` whose
+ * `user` is the resolved Keycloak subject but no longer corresponds to an
+ * active source row. This is the "auto-reconcile with OpenFGA" guarantee
+ * for the manual-delete path: clicking Delete in the admin UI never leaves
+ * orphan tuples (and therefore never leaves the user as "OpenFGA: drifted"
+ * in the team sync report).
+ *
+ * Idempotent and best-effort:
+ *   - If OpenFGA is unreachable or the read fails, `readTeamOpenFgaTuples`
+ *     returns `null` and we no-op rather than asserting drift.
+ *   - If the user has another active source granting a relation (e.g. an
+ *     Okta-synced `member` row), that relation's tuple is preserved.
+ */
+async function reconcileOrphanOpenFgaTuplesForUser(input: {
+  teamId: string;
+  teamSlug: string;
+  userSubject: string;
+  /**
+   * Relations already removed by the explicit role-delete in the calling
+   * DELETE handler. Excluded from the sweep so we don't issue a redundant
+   * OpenFGA delete for tuples the caller already cleared.
+   */
+  alreadyRemovedRelations?: readonly TeamMemberRelation[];
+}): Promise<void> {
+  try {
+    const tuples = await readTeamOpenFgaTuples(input.teamSlug);
+    if (!tuples) return; // unknown — don't infer drift
+
+    const userKey = `user:${input.userSubject}`;
+    const tuplesForUser = tuples.filter((t) => t.user === userKey);
+    if (tuplesForUser.length === 0) return;
+
+    const remainingSources = await listActiveTeamMembershipSourcesForTeamUser({
+      teamId: input.teamId,
+      teamSlug: input.teamSlug,
+      userSubject: input.userSubject,
+    });
+    const grantedRelations = new Set<TeamMemberRelation>();
+    for (const source of remainingSources) {
+      for (const rel of mongoRoleToOpenFgaRelations(source.relationship)) {
+        grantedRelations.add(rel);
+      }
+    }
+    const alreadyRemoved = new Set<TeamMemberRelation>(
+      input.alreadyRemovedRelations ?? [],
+    );
+
+    const orphanRelations: TeamMemberRelation[] = tuplesForUser
+      .map((t) => t.relation as TeamMemberRelation)
+      .filter((rel) => !grantedRelations.has(rel) && !alreadyRemoved.has(rel));
+    if (orphanRelations.length === 0) return;
+
+    const deletes = buildTeamMembershipTuples(
+      input.userSubject,
+      input.teamSlug,
+      orphanRelations,
+    );
+    const result = await writeOpenFgaTuples({ writes: [], deletes });
+    console.log(
+      `[Admin] OpenFGA auto-reconcile after delete on team ${input.teamSlug}: ` +
+        `cleared ${deletes.length} orphan tuple(s) for user:${input.userSubject} ` +
+        `(relations=${orphanRelations.join(',')} enabled=${result.enabled})`,
+    );
+  } catch (err) {
+    // Best-effort: the primary delete already succeeded; an orphan-sweep
+    // failure should not turn the DELETE response into a 500.
+    console.warn(
+      `[Admin] OpenFGA auto-reconcile after delete failed for user:${input.userSubject} ` +
+        `team:${input.teamSlug}:`,
+      err,
+    );
+  }
+}
 
 function manualMembershipSource(input: {
   teamId: string;
@@ -219,6 +299,16 @@ export const DELETE = withErrorHandler(async (
     const teamSlug = String(team.slug || "").trim();
     const member = team.members?.find((m: any) => m.user_id.toLowerCase() === email);
     const relationship = member?.role === 'admin' ? 'admin' : 'member';
+
+    // Resolve the Keycloak subject up front. We need it both to mark the
+    // manual source row removed by its original `(team_slug, user_subject,
+    // relationship, source_type)` key, AND to clean up OpenFGA tuples by
+    // `user:<sub>`. We tolerate `undefined` (the source-store filter falls
+    // back to user_email; the OpenFGA cleanup is best-effort).
+    const keycloakSubject = teamSlug
+      ? await resolveKeycloakUserSubject(email, teamSlug)
+      : undefined;
+
     if (teamSlug) {
       await markTeamMembershipSourceRemoved(
         manualMembershipSource({
@@ -228,6 +318,7 @@ export const DELETE = withErrorHandler(async (
           relationship,
           actor: user.email,
           now,
+          userSubject: keycloakSubject,
         }),
         user.email,
         now.toISOString()
@@ -238,8 +329,8 @@ export const DELETE = withErrorHandler(async (
       ? await listActiveTeamMembershipSourcesForTeamUser({
           teamId: params.id,
           teamSlug,
+          userSubject: keycloakSubject,
           userEmail: email,
-          relationship,
         })
       : [];
     const stillGranted = otherActiveSources.some((source) => source.source_type !== 'manual');
@@ -254,17 +345,33 @@ export const DELETE = withErrorHandler(async (
       );
     }
 
-    // Revoke OpenFGA membership only after the final granting source is gone.
-    if (teamSlug) {
+    // OpenFGA auto-reconcile after manual delete:
+    //
+    // 1. If no other source still grants membership, delete the specific
+    //    `(user, relationship)` tuple we just retired.
+    // 2. Sweep any *other* tuples on `team:<slug>` whose `user` is this
+    //    Keycloak subject but no longer has a matching active source row.
+    //    This catches stale tuples from previous partial failures (e.g. a
+    //    bug-era delete that pulled members[] but never marked the source
+    //    removed), so an admin clicking Delete in the UI never leaves
+    //    "OpenFGA: drifted" residue behind.
+    if (teamSlug && keycloakSubject) {
+      const alreadyRemovedRelations: TeamMemberRelation[] = [];
       if (!stillGranted) {
-        const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
         await writeTeamMembershipTuples(
           keycloakSubject,
           teamSlug,
           [relationship],
           'remove',
         );
+        alreadyRemovedRelations.push(relationship);
       }
+      await reconcileOrphanOpenFgaTuplesForUser({
+        teamId: params.id,
+        teamSlug,
+        userSubject: keycloakSubject,
+        alreadyRemovedRelations,
+      });
     }
 
     const updated = stillGranted ? team : await teams.findOne({ _id: teamId });

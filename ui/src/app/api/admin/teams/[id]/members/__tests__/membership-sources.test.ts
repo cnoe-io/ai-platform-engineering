@@ -12,6 +12,7 @@ const mockMarkTeamMembershipSourceRemoved = jest.fn();
 const mockListActiveTeamMembershipSourcesForTeamUser = jest.fn();
 const mockSearchRealmUsers = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockReadTeamOpenFgaTuples = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
@@ -42,6 +43,11 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  isOpenFgaConfigured: jest.fn(() => true),
+}));
+
+jest.mock("@/lib/rbac/team-openfga-sync-status", () => ({
+  readTeamOpenFgaTuples: (...args: unknown[]) => mockReadTeamOpenFgaTuples(...args),
 }));
 
 jest.mock("@/lib/rbac/team-membership-source-store", () => ({
@@ -111,10 +117,21 @@ beforeEach(() => {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockUpsertTeamMembershipSource.mockResolvedValue(undefined);
-  mockMarkTeamMembershipSourceRemoved.mockResolvedValue(undefined);
+  mockMarkTeamMembershipSourceRemoved.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   mockListActiveTeamMembershipSourcesForTeamUser.mockResolvedValue([]);
-  mockSearchRealmUsers.mockResolvedValue([{ id: "kc-user", email: "new@example.com" }]);
+  // Echo back a deterministic Keycloak sub for the email being searched, so
+  // both the add (new@example.com) and the delete (synced@example.com) paths
+  // resolve to a usable user_subject without per-test setup.
+  mockSearchRealmUsers.mockImplementation(
+    async ({ search }: { search?: string }) => {
+      const email = (search ?? "").toLowerCase();
+      if (!email) return [];
+      return [{ id: `kc-${email.split("@")[0]}`, email }];
+    },
+  );
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  // Default: OpenFGA has no extra orphan tuples to clean up.
+  mockReadTeamOpenFgaTuples.mockResolvedValue([]);
 });
 
 describe("manual membership source preservation", () => {
@@ -141,7 +158,7 @@ describe("manual membership source preservation", () => {
 
     expect(response.status).toBe(201);
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: "user:kc-user", relation: "member", object: "team:platform" }],
+      writes: [{ user: "user:kc-new", relation: "member", object: "team:platform" }],
       deletes: [],
     });
     expect(mockUpsertTeamMembershipSource).toHaveBeenCalledWith(
@@ -153,7 +170,7 @@ describe("manual membership source preservation", () => {
         source_type: "manual",
         managed: false,
         status: "active",
-        user_subject: "kc-user",
+        user_subject: "kc-new",
       })
     );
   });
@@ -233,6 +250,7 @@ describe("manual membership source preservation", () => {
         source_type: "manual",
         managed: false,
         user_email: "synced@example.com",
+        user_subject: "kc-synced",
       }),
       "admin@example.com",
       expect.any(String)
@@ -241,9 +259,117 @@ describe("manual membership source preservation", () => {
       expect.anything(),
       expect.objectContaining({ $pull: expect.anything() })
     );
-    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        deletes: expect.arrayContaining([
+          { user: "user:kc-synced", relation: "member", object: "team:platform" },
+        ]),
+      }),
+    );
+  });
+
+  it("auto-reconciles orphan OpenFGA tuples when manual delete clears the last source", async () => {
+    mockGetServerSession.mockResolvedValue(session("admin@example.com", "admin"));
+    // No other active sources remain for this user after the manual delete.
+    mockListActiveTeamMembershipSourcesForTeamUser.mockResolvedValue([]);
+    // OpenFGA still has both the `member` tuple we are about to delete AND
+    // a stale `admin` tuple left over from a previous partial failure.
+    mockReadTeamOpenFgaTuples.mockResolvedValue([
+      { user: "user:kc-synced", relation: "member", object: "team:platform" },
+      { user: "user:kc-synced", relation: "admin", object: "team:platform" },
+      { user: "user:kc-other", relation: "member", object: "team:platform" },
+    ]);
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValueOnce(TEAM).mockResolvedValueOnce(TEAM);
+    mockCollections.teams = teamsCol;
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/members?user_id=synced@example.com`, {
+        method: "DELETE",
+      }),
+      makeContext()
+    );
+
+    expect(response.status).toBe(200);
+    // Mongo source mark-removed used the resolved subject for an exact match.
+    expect(mockMarkTeamMembershipSourceRemoved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_type: "manual",
+        user_email: "synced@example.com",
+        user_subject: "kc-synced",
+      }),
+      "admin@example.com",
+      expect.any(String)
+    );
+    // The role-specific `remove` write for the deleted membership.
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: [],
+        deletes: expect.arrayContaining([
+          { user: "user:kc-synced", relation: "member", object: "team:platform" },
+        ]),
+      }),
+    );
+    // The auto-reconcile sweep cleared the stale `admin` tuple, but did NOT
+    // touch the unrelated user's tuple.
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [],
-      deletes: [{ user: "user:kc-user", relation: "member", object: "team:platform" }],
+      deletes: [
+        { user: "user:kc-synced", relation: "admin", object: "team:platform" },
+      ],
     });
+    const sweepCalls = mockWriteOpenFgaTuples.mock.calls.filter(
+      (call) => {
+        const arg = call[0] as { writes: unknown[]; deletes: Array<{ user: string }> };
+        return arg.deletes.some((t) => t.user === "user:kc-other");
+      },
+    );
+    expect(sweepCalls).toHaveLength(0);
+  });
+
+  it("preserves OpenFGA tuples for the still-granted relation during orphan sweep", async () => {
+    mockGetServerSession.mockResolvedValue(session("admin@example.com", "admin"));
+    // After the manual delete an Okta-synced `member` source still grants access.
+    mockListActiveTeamMembershipSourcesForTeamUser.mockResolvedValue([
+      {
+        team_id: TEAM_ID,
+        team_slug: "platform",
+        user_email: "synced@example.com",
+        user_subject: "kc-synced",
+        relationship: "member",
+        source_type: "okta",
+        provider_id: "okta-main",
+        external_group_id: "00g-platform",
+        managed: true,
+        status: "active",
+        created_at: "2026-05-12T00:00:00.000Z",
+      },
+    ]);
+    mockReadTeamOpenFgaTuples.mockResolvedValue([
+      { user: "user:kc-synced", relation: "member", object: "team:platform" },
+    ]);
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValueOnce(TEAM).mockResolvedValueOnce(TEAM);
+    mockCollections.teams = teamsCol;
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/members?user_id=synced@example.com`, {
+        method: "DELETE",
+      }),
+      makeContext()
+    );
+
+    expect(response.status).toBe(200);
+    // The `member` tuple is backed by the Okta source, so the orphan sweep
+    // must NOT delete it.
+    const memberDeleteCalls = mockWriteOpenFgaTuples.mock.calls.filter((call) => {
+      const arg = call[0] as { deletes: Array<{ user: string; relation: string }> };
+      return arg.deletes.some(
+        (t) => t.user === "user:kc-synced" && t.relation === "member",
+      );
+    });
+    expect(memberDeleteCalls).toHaveLength(0);
   });
 });
