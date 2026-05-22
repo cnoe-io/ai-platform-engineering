@@ -190,7 +190,8 @@ async function seedAgents(
         undefined,
       ui: (agentData.ui as DynamicAgentConfig["ui"]) ?? undefined,
       features: (agentData.features as DynamicAgentConfig["features"]) ?? undefined,
-      interrupt_on: (agentData.interrupt_on as DynamicAgentConfig["interrupt_on"]) ?? undefined,
+      interrupt_on:
+        (agentData.interrupt_on as DynamicAgentConfig["interrupt_on"]) ?? {},
       enabled: (agentData.enabled as boolean) ?? true,
       owner_id: "system",
       is_system: false,
