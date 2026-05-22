@@ -16,6 +16,7 @@ import {
   Home,
   Bot,
   AlertTriangle,
+  MoreHorizontal,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -232,11 +233,29 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
+  const [moreNavOpen, setMoreNavOpen] = React.useState(false);
+  const moreNavActive = [
+    "skills",
+    "task-builder",
+    "knowledge",
+    "dynamic-agents",
+    "apps",
+    "admin",
+  ].includes(activeTab);
+  const overflowItemClass = (active: boolean, danger = false) =>
+    cn(
+      "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      active && danger
+        ? "bg-red-500 text-white"
+        : active
+          ? "bg-primary text-primary-foreground"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+    );
 
   return (
     <>
-    <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex items-center gap-4 min-w-0">
+    <header className="h-14 overflow-hidden border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
+      <div className="flex flex-1 items-center gap-2 sm:gap-4 min-w-0">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
@@ -247,16 +266,16 @@ export function AppHeader() {
             alt={`${config.appName} Logo`}
             className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
-          <span className="font-bold text-base gradient-text">{config.appName}</span>
+          <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
           {config.envBadge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+            <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
               {config.envBadge}
             </span>
           )}
         </GuardedLink>
 
         {/* Navigation Pills */}
-        <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
+        <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1 overflow-hidden">
           <GuardedLink
             href="/"
             prefetch={true}
@@ -268,7 +287,7 @@ export function AppHeader() {
             )}
           >
             <Home className="h-3.5 w-3.5 shrink-0" />
-            Home
+            <span className="hidden sm:inline">Home</span>
           </GuardedLink>
           <GuardedLink
             href="/chat"
@@ -280,7 +299,8 @@ export function AppHeader() {
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            💬 Chat
+            <span aria-hidden>💬</span>
+            <span className="hidden sm:inline">Chat</span>
             {streamingConversations.size > 0 && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -309,7 +329,7 @@ export function AppHeader() {
             href="/skills"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "skills"
                 ? "gradient-primary text-white shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -322,7 +342,7 @@ export function AppHeader() {
             href="/task-builder"
             prefetch={true}
             className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
               activeTab === "task-builder"
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -337,7 +357,7 @@ export function AppHeader() {
               href="/knowledge-bases"
               prefetch={true}
               className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                 activeTab === "knowledge"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -353,7 +373,7 @@ export function AppHeader() {
               href="/dynamic-agents"
               prefetch={true}
               className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                 activeTab === "dynamic-agents"
                   ? "bg-purple-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -369,7 +389,7 @@ export function AppHeader() {
               href="/apps"
               prefetch={true}
               className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                 activeTab === "apps"
                   ? "bg-cyan-500 text-slate-950 shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -389,7 +409,7 @@ export function AppHeader() {
                       href="/admin"
                       prefetch={true}
                       className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                        "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
                         activeTab === "admin" && isAdmin
                           ? "bg-red-500 text-white shadow-sm"
                           : activeTab === "admin"
@@ -403,7 +423,7 @@ export function AppHeader() {
                   ) : (
                     <div
                       className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
+                        "hidden xl:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
                         "text-muted-foreground/50 opacity-50"
                       )}
                     >
@@ -422,18 +442,79 @@ export function AppHeader() {
               </Tooltip>
             </TooltipProvider>
           )}
+          <Popover open={moreNavOpen} onOpenChange={setMoreNavOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open navigation menu"
+                className={cn(
+                  "xl:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                  moreNavActive
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden md:inline">More</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="start" className="w-60 p-1">
+              {moreNavOpen && (
+                <div className="space-y-1">
+                  <GuardedLink href="/skills" prefetch={true} className={overflowItemClass(activeTab === "skills")}>
+                    <Zap className="h-4 w-4 shrink-0" />
+                    Skills
+                  </GuardedLink>
+                  <GuardedLink href="/task-builder" prefetch={true} className={overflowItemClass(activeTab === "task-builder")}>
+                    <Workflow className="h-4 w-4 shrink-0" />
+                    Task Builder
+                  </GuardedLink>
+                  {ragEnabled && (
+                    <GuardedLink href="/knowledge-bases" prefetch={true} className={overflowItemClass(activeTab === "knowledge")}>
+                      <Database className="h-4 w-4 shrink-0" />
+                      Knowledge Bases
+                    </GuardedLink>
+                  )}
+                  {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+                    <GuardedLink href="/dynamic-agents" prefetch={true} className={overflowItemClass(activeTab === "dynamic-agents")}>
+                      <Bot className="h-4 w-4 shrink-0" />
+                      Agents
+                    </GuardedLink>
+                  )}
+                  {config.agenticAppsEnabled && (
+                    <GuardedLink href="/apps" prefetch={true} className={overflowItemClass(activeTab === "apps")}>
+                      <Workflow className="h-4 w-4 shrink-0" />
+                      Apps
+                    </GuardedLink>
+                  )}
+                  {canViewAdmin && storageMode === 'mongodb' && (
+                    <GuardedLink href="/admin" prefetch={true} className={overflowItemClass(activeTab === "admin", isAdmin)}>
+                      <Shield className="h-4 w-4 shrink-0" />
+                      Admin
+                    </GuardedLink>
+                  )}
+                  {canViewAdmin && storageMode !== 'mongodb' && (
+                    <div className="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground/50 opacity-50">
+                      <Shield className="h-4 w-4 shrink-0" />
+                      Admin
+                    </div>
+                  )}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
       {/* Status & Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 lg:gap-3">
         {/* Combined Connection Status */}
         <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <button
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
+                  "flex items-center gap-1.5 px-2 lg:px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
                   combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
@@ -451,13 +532,15 @@ export function AppHeader() {
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                {combinedStatus === "connected" ? "Connected" :
-                 combinedStatus === "checking" ? "Checking" :
-                 combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-                 "Disconnected"}
+                <span className="hidden 2xl:inline">
+                  {combinedStatus === "connected" ? "Connected" :
+                   combinedStatus === "checking" ? "Checking" :
+                   combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
+                   "Disconnected"}
+                </span>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
+            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
               <div className="bg-gradient-to-br from-card via-card to-card/95">
                 {/* Header with gradient */}
                 <div className="gradient-primary-br p-4">
@@ -754,13 +837,13 @@ export function AppHeader() {
         </div>
 
         {/* Personalization, Links & User */}
-        <div className="flex items-center gap-1 border-l border-border pl-3">
+        <div className="flex items-center gap-1 border-l border-border pl-2 lg:pl-3">
           {config.reportProblemEnabled && (
             <>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                className="hidden 2xl:inline-flex h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setReportDialogOpen(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
