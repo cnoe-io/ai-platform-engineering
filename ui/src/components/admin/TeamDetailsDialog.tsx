@@ -31,10 +31,46 @@ import {
   Plus,
   Search,
   MessageSquare,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldQuestion,
+  Clock3,
 } from "lucide-react";
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
+
+// Server response shape — mirrors TeamMembershipSyncReport in
+// @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing
+// the page bundle to import server-side modules).
+type TeamMembershipSyncState = "synced" | "pending" | "drifted" | "unknown";
+
+interface TeamMembershipSyncEntry {
+  source_signature: string;
+  user_email: string;
+  user_subject?: string;
+  relationship: "member" | "admin";
+  source_type: TeamMembershipSource["source_type"];
+  status: TeamMembershipSyncState;
+  reason: string;
+  expected_tuple: { user: string; relation: string; object: string } | null;
+}
+
+interface TeamMembershipSyncSummary {
+  total: number;
+  synced: number;
+  pending: number;
+  drifted: number;
+  unknown: number;
+  needs_attention: boolean;
+  openfga_available: boolean;
+}
+
+interface TeamMembershipSyncReport {
+  team_slug: string;
+  entries: TeamMembershipSyncEntry[];
+  summary: TeamMembershipSyncSummary;
+}
 
 export type DialogMode = "details" | "members" | "resources" | "kbs" | "channels" | "webex";
 
@@ -160,6 +196,57 @@ function getSourceBadgeVariant(source: TeamMembershipSource) {
   return "destructive" as const;
 }
 
+// Render-helpers for the OpenFGA sync diagnostic. Kept colocated so the
+// badge and the banner agree on colour/icon/label.
+
+function severityRank(status: TeamMembershipSyncState): number {
+  switch (status) {
+    case "drifted":
+      return 3;
+    case "unknown":
+      return 2;
+    case "pending":
+      return 1;
+    case "synced":
+    default:
+      return 0;
+  }
+}
+
+function syncBadgeAppearance(status: TeamMembershipSyncState): {
+  variant: "default" | "secondary" | "outline" | "destructive";
+  icon: React.ReactNode;
+  label: string;
+} {
+  switch (status) {
+    case "synced":
+      return {
+        variant: "outline",
+        icon: <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />,
+        label: "OpenFGA: synced",
+      };
+    case "drifted":
+      return {
+        variant: "destructive",
+        icon: <ShieldAlert className="h-3 w-3" />,
+        label: "OpenFGA: drifted",
+      };
+    case "pending":
+      return {
+        variant: "secondary",
+        icon: <Clock3 className="h-3 w-3" />,
+        label: "OpenFGA: pending",
+      };
+    case "unknown":
+    default:
+      return {
+        variant: "outline",
+        icon: <ShieldQuestion className="h-3 w-3 text-muted-foreground" />,
+        label: "OpenFGA: unknown",
+      };
+  }
+}
+
 export function TeamDetailsDialog({
   team,
   mode,
@@ -180,6 +267,20 @@ export function TeamDetailsDialog({
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState<"member" | "admin">("member");
   const [addingMember, setAddingMember] = useState(false);
+
+  // Spec 098 — Keycloak user typeahead for Add Member. We hit
+  // /api/admin/users?search=<q> (server-side Keycloak search) once the
+  // admin has typed at least 2 characters, debounced to 200ms so we
+  // don't spam the realm. The dropdown is opt-in — pressing Enter or
+  // clicking Add still POSTs the raw input verbatim (the backend
+  // accepts an email and resolves the Keycloak subject itself), so
+  // typing a full email of a not-yet-provisioned user still works.
+  const [memberSearchResults, setMemberSearchResults] = useState<
+    Array<{ id: string; email: string; firstName?: string; lastName?: string; username?: string }>
+  >([]);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  const [memberSearchOpen, setMemberSearchOpen] = useState(false);
+  const memberSearchAbortRef = useRef<AbortController | null>(null);
 
   // Removing member
   const [removingMember, setRemovingMember] = useState<string | null>(null);
@@ -228,6 +329,15 @@ export function TeamDetailsDialog({
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
   const [membershipSources, setMembershipSources] = useState<TeamMembershipSource[]>([]);
+  // OpenFGA sync diagnostic — populated from the GET /api/admin/teams/[id]
+  // response (top-level `openfga_sync` field). `canReconcile` controls
+  // visibility of the Reconcile button; we only know that the request
+  // succeeded, so we infer permission by attempting the POST and
+  // surfacing 403 errors inline rather than hiding the button.
+  const [openFgaSync, setOpenFgaSync] = useState<TeamMembershipSyncReport | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+  const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
   const slackDiscoveryAutoLoadedTeamRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -240,6 +350,9 @@ export function TeamDetailsDialog({
       setError(null);
       setNewMemberEmail("");
       setNewMemberRole("member");
+      setMemberSearchResults([]);
+      setMemberSearchLoading(false);
+      setMemberSearchOpen(false);
       setResourcesData(null);
       setResourcesNotice(null);
       setChannelsData(null);
@@ -261,8 +374,88 @@ export function TeamDetailsDialog({
       setManualSpaceId("");
       setManualSpaceName("");
       setMembershipSources(team.membership_sources ?? []);
+      setOpenFgaSync(null);
+      setReconcileError(null);
+      setReconcileNotice(null);
     }
   }, [open, team, mode]);
+
+  // Fetch the OpenFGA sync status once per dialog open. The user picked
+  // "on open" refresh (not "on every mutation") so we deliberately do
+  // NOT re-fetch after add/remove member — the next dialog open will
+  // pick up the new state.
+  useEffect(() => {
+    if (!open || !currentTeam?._id) return;
+    let cancelled = false;
+    fetch(`/api/admin/teams/${currentTeam._id}`)
+      .then(async (res) => {
+        const data = await res.json();
+        if (!cancelled && data.success && data.data?.openfga_sync) {
+          setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[TeamDetails] Failed to load openfga_sync:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, currentTeam?._id]);
+
+  // Debounced typeahead against the Keycloak realm. We require ≥2
+  // characters to avoid sending broad regex scans on every keystroke.
+  // Cancellation is best-effort via AbortController — Keycloak rarely
+  // takes long enough for this to matter, but it keeps stale results
+  // from clobbering newer ones when the admin types quickly.
+  useEffect(() => {
+    if (!open || activeMode !== "members") return;
+    const query = newMemberEmail.trim();
+    if (query.length < 2) {
+      setMemberSearchResults([]);
+      setMemberSearchLoading(false);
+      return;
+    }
+    const handle = setTimeout(() => {
+      memberSearchAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      memberSearchAbortRef.current = ctrl;
+      setMemberSearchLoading(true);
+      const params = new URLSearchParams({ search: query, pageSize: "8" });
+      fetch(`/api/admin/users?${params.toString()}`, { signal: ctrl.signal })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`User search failed: ${res.status}`);
+          return res.json();
+        })
+        .then((payload) => {
+          if (ctrl.signal.aborted) return;
+          const users = Array.isArray(payload?.users) ? payload.users : [];
+          setMemberSearchResults(
+            users
+              .filter((u: { email?: string }) => Boolean(u?.email))
+              .map((u: { id: string; email: string; firstName?: string; lastName?: string; username?: string }) => ({
+                id: String(u.id),
+                email: String(u.email),
+                firstName: u.firstName,
+                lastName: u.lastName,
+                username: u.username,
+              }))
+          );
+        })
+        .catch((err: unknown) => {
+          if ((err as { name?: string })?.name === "AbortError") return;
+          // Keep the previous results so the dropdown doesn't flicker;
+          // search failures are logged but not surfaced inline so they
+          // don't crowd the small Add-Member panel.
+          console.warn("[TeamDetails] Member search failed:", err);
+        })
+        .finally(() => {
+          if (!ctrl.signal.aborted) setMemberSearchLoading(false);
+        });
+    }, 200);
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [open, activeMode, newMemberEmail]);
 
   useEffect(() => {
     if (!open || activeMode !== "members" || !currentTeam?._id) return;
@@ -752,20 +945,45 @@ export function TeamDetailsDialog({
     }
   };
 
-  const refreshTeam = async () => {
+  // Re-fetch the canonical team document plus its membership sources and
+  // OpenFGA sync diagnostic. We do this after Add/Remove member (otherwise
+  // the badges that read from `membership_sources` and `openfga_sync`
+  // would stay stale until the dialog is reopened) and from the explicit
+  // "Refresh" button in the dialog header.
+  const [refreshingTeam, setRefreshingTeam] = useState(false);
+  const refreshTeam = useCallback(async () => {
     if (!currentTeam) return;
+    setRefreshingTeam(true);
     try {
       const res = await fetch(`/api/admin/teams/${currentTeam._id}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setCurrentTeam(data.data.team);
-        }
+      if (!res.ok) {
+        throw new Error(`Failed to refresh team (HTTP ${res.status})`);
       }
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to refresh team");
+      }
+      const payload = data.data ?? {};
+      if (payload.team) {
+        setCurrentTeam(payload.team);
+      }
+      setMembershipSources(
+        Array.isArray(payload.membership_sources)
+          ? (payload.membership_sources as TeamMembershipSource[])
+          : []
+      );
+      setOpenFgaSync(
+        payload.openfga_sync
+          ? (payload.openfga_sync as TeamMembershipSyncReport)
+          : null
+      );
     } catch (err) {
       console.error("[TeamDetails] Failed to refresh team:", err);
+      setError(err instanceof Error ? err.message : "Failed to refresh team");
+    } finally {
+      setRefreshingTeam(false);
     }
-  };
+  }, [currentTeam]);
 
   const handleSaveEdit = async () => {
     if (!currentTeam) return;
@@ -822,12 +1040,29 @@ export function TeamDetailsDialog({
       setCurrentTeam(data.data.team);
       setNewMemberEmail("");
       setNewMemberRole("member");
+      setMemberSearchResults([]);
+      setMemberSearchOpen(false);
+      // Re-fetch in the background so badges (membership sources,
+      // OpenFGA sync status) reflect the post-write reality. The
+      // primary list update above already shows the new member; this
+      // is a follow-up that hydrates secondary metadata.
+      void refreshTeam();
       onTeamUpdated();
     } catch (err: any) {
       setError(err.message || "Failed to add member");
     } finally {
       setAddingMember(false);
     }
+  };
+
+  const handlePickMemberFromSearch = (user: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+  }) => {
+    setNewMemberEmail(user.email);
+    setMemberSearchResults([]);
+    setMemberSearchOpen(false);
   };
 
   const handleRemoveMember = async (email: string) => {
@@ -850,11 +1085,62 @@ export function TeamDetailsDialog({
       }
 
       setCurrentTeam(data.data.team);
+      void refreshTeam();
       onTeamUpdated();
     } catch (err: any) {
       setError(err.message || "Failed to remove member");
     } finally {
       setRemovingMember(null);
+    }
+  };
+
+  const handleReconcileOpenFga = async () => {
+    if (!currentTeam) return;
+    setReconciling(true);
+    setReconcileError(null);
+    setReconcileNotice(null);
+    try {
+      const res = await fetch(
+        `/api/admin/teams/${currentTeam._id}/openfga/reconcile`,
+        { method: "POST" }
+      );
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to reconcile OpenFGA");
+      }
+      // Server returns the freshly-computed report so we don't have to
+      // make a second round-trip.
+      if (data.data?.openfga_sync) {
+        setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
+      }
+      const summary = data.data?.summary as
+        | { tuple_writes?: number; resolved_subjects?: number; unresolved_emails?: string[] }
+        | undefined;
+      if (summary) {
+        const parts: string[] = [];
+        if (summary.resolved_subjects && summary.resolved_subjects > 0) {
+          parts.push(`resolved ${summary.resolved_subjects} new Keycloak subject(s)`);
+        }
+        if (summary.tuple_writes && summary.tuple_writes > 0) {
+          parts.push(`wrote ${summary.tuple_writes} OpenFGA tuple(s)`);
+        }
+        if (summary.unresolved_emails && summary.unresolved_emails.length > 0) {
+          parts.push(
+            `${summary.unresolved_emails.length} email(s) still missing in Keycloak`
+          );
+        }
+        setReconcileNotice(
+          parts.length === 0
+            ? "Already in sync — no changes needed."
+            : `Reconcile complete: ${parts.join(", ")}.`
+        );
+      }
+    } catch (err: unknown) {
+      setReconcileError(
+        err instanceof Error ? err.message : "Failed to reconcile OpenFGA"
+      );
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -871,6 +1157,22 @@ export function TeamDetailsDialog({
     },
     {}
   );
+  // Pick the "worst" sync entry per member email so the Members tab can
+  // show a single badge instead of one per identity source. Ordering of
+  // severity: drifted > unknown > pending > synced. If no entry exists
+  // for the user (no source row yet), we render no badge — silence is
+  // accurate because there's literally nothing to sync.
+  const syncByMember = (openFgaSync?.entries ?? []).reduce<
+    Record<string, TeamMembershipSyncEntry>
+  >((acc, entry) => {
+    const key = (entry.user_email ?? "").toLowerCase();
+    if (!key) return acc;
+    const existing = acc[key];
+    if (!existing || severityRank(entry.status) > severityRank(existing.status)) {
+      acc[key] = entry;
+    }
+    return acc;
+  }, {});
   const sortedMembers = [...members].sort((a, b) => {
     const roleOrder = { owner: 0, admin: 1, member: 2 };
     return (roleOrder[a.role as keyof typeof roleOrder] ?? 2) -
@@ -892,7 +1194,7 @@ export function TeamDetailsDialog({
         </DialogHeader>
 
         {/* Mode Tabs */}
-        <div className="flex gap-1 border-b pb-2">
+        <div className="flex items-center gap-1 border-b pb-2">
           <Button
             variant={activeMode === "details" ? "default" : "ghost"}
             size="sm"
@@ -940,6 +1242,25 @@ export function TeamDetailsDialog({
             className="text-xs"
           >
             Webex Spaces
+          </Button>
+          {/* Refresh re-fetches the team document, membership sources,
+              and OpenFGA sync diagnostic for this dialog. Useful when an
+              admin suspects external state (e.g. an OIDC sync run) has
+              changed the team since they opened the modal. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void refreshTeam()}
+            disabled={refreshingTeam}
+            className="ml-auto h-7 w-7 p-0"
+            title="Refresh this team"
+            aria-label="Refresh this team"
+          >
+            {refreshingTeam ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
           </Button>
         </div>
 
@@ -1029,6 +1350,94 @@ export function TeamDetailsDialog({
                     </span>
                   </div>
                 </div>
+
+                {/* OpenFGA sync status banner. Surfaces whether the tuple
+                    state on `team:<slug>` matches what Mongo expects. The
+                    four-state model (synced / drifted / pending / unknown)
+                    is defined in lib/rbac/team-openfga-sync-status.ts. */}
+                {openFgaSync && (
+                  <div
+                    className={
+                      "rounded-lg border p-3 space-y-2 " +
+                      (openFgaSync.summary.drifted > 0
+                        ? "border-destructive/40 bg-destructive/5"
+                        : openFgaSync.summary.unknown > 0
+                          ? "border-amber-500/40 bg-amber-500/5"
+                          : "border-emerald-500/30 bg-emerald-500/5")
+                    }
+                  >
+                    <div className="flex items-start gap-2">
+                      {openFgaSync.summary.drifted > 0 ? (
+                        <ShieldAlert className="h-4 w-4 mt-0.5 text-destructive" />
+                      ) : openFgaSync.summary.unknown > 0 ? (
+                        <ShieldQuestion className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      ) : (
+                        <ShieldCheck className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                      )}
+                      <div className="flex-1 text-sm">
+                        <p className="font-medium">
+                          OpenFGA authorization sync
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {openFgaSync.summary.total === 0 ? (
+                            "No active membership sources tracked for this team."
+                          ) : (
+                            <>
+                              {openFgaSync.summary.synced}/
+                              {openFgaSync.summary.total} member(s) synced
+                              {openFgaSync.summary.drifted > 0
+                                ? `, ${openFgaSync.summary.drifted} drifted`
+                                : ""}
+                              {openFgaSync.summary.pending > 0
+                                ? `, ${openFgaSync.summary.pending} pending Keycloak link`
+                                : ""}
+                              {openFgaSync.summary.unknown > 0
+                                ? `, ${openFgaSync.summary.unknown} unknown`
+                                : ""}
+                              .
+                            </>
+                          )}
+                        </p>
+                        {!openFgaSync.summary.openfga_available && (
+                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                            OpenFGA was unreachable. Tuple state cannot be
+                            verified right now.
+                          </p>
+                        )}
+                      </div>
+                      {/* Reconcile button. We show it whenever the report
+                          is loaded — the server gates the action on
+                          team-admin or platform-admin and will return 403
+                          if the caller is not permitted. We surface that
+                          inline rather than hiding the button (cheaper than
+                          a separate "can-i-reconcile" probe). */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleReconcileOpenFga}
+                        disabled={reconciling}
+                        className="gap-1 shrink-0"
+                      >
+                        {reconciling ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Reconcile
+                      </Button>
+                    </div>
+                    {reconcileError && (
+                      <p className="text-xs text-destructive">
+                        {reconcileError}
+                      </p>
+                    )}
+                    {reconcileNotice && (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                        {reconcileNotice}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -1046,16 +1455,110 @@ export function TeamDetailsDialog({
         {/* Members Mode */}
         {activeMode === "members" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
-            {/* Add Member Form */}
-            <form onSubmit={handleAddMember} className="flex gap-2">
-              <Input
-                placeholder="user@example.com"
-                value={newMemberEmail}
-                onChange={(e) => setNewMemberEmail(e.target.value)}
-                disabled={addingMember}
-                className="flex-1"
-                type="email"
-              />
+            {/* Add Member Form — Keycloak typeahead. The dropdown is purely
+                a discovery aid: pressing Enter or clicking Add still POSTs
+                the literal text in the input as `user_id`, so admins can
+                provision a not-yet-Keycloak user by typing their full
+                email. */}
+            <form
+              onSubmit={handleAddMember}
+              className="flex gap-2 relative"
+              autoComplete="off"
+            >
+              <div className="flex-1 relative">
+                <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Input
+                  placeholder="Search by name or email..."
+                  value={newMemberEmail}
+                  onChange={(e) => {
+                    setNewMemberEmail(e.target.value);
+                    setMemberSearchOpen(true);
+                  }}
+                  onFocus={() => setMemberSearchOpen(true)}
+                  onBlur={() => {
+                    // Delay so onMouseDown on a result still fires.
+                    setTimeout(() => setMemberSearchOpen(false), 120);
+                  }}
+                  disabled={addingMember}
+                  className="pl-8"
+                  // We intentionally do NOT use type="email" — admins can
+                  // search by name/username and pick the row, which then
+                  // fills in the email.
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  data-form-type="other"
+                />
+                {memberSearchOpen && newMemberEmail.trim().length >= 2 && (
+                  <div
+                    className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border bg-popover shadow-md max-h-64 overflow-auto"
+                    role="listbox"
+                    aria-label="Matching users"
+                  >
+                    {memberSearchLoading && memberSearchResults.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Searching users…
+                      </div>
+                    ) : memberSearchResults.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                        No matching users in Keycloak. Press Enter to add
+                        <span className="font-mono"> {newMemberEmail.trim()}</span> directly.
+                      </div>
+                    ) : (
+                      memberSearchResults.map((u) => {
+                        const fullName = [u.firstName, u.lastName]
+                          .filter(Boolean)
+                          .join(" ")
+                          .trim();
+                        const alreadyMember = members.some(
+                          (m) => m.user_id.toLowerCase() === u.email.toLowerCase()
+                        );
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            role="option"
+                            aria-selected={false}
+                            disabled={alreadyMember}
+                            // onMouseDown rather than onClick so the
+                            // selection fires before the input's onBlur
+                            // closes the popup.
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              if (alreadyMember) return;
+                              handlePickMemberFromSearch(u);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 border-b last:border-b-0"
+                          >
+                            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium shrink-0">
+                              {(fullName || u.email).charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm truncate">
+                                {fullName || u.username || u.email}
+                              </div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {u.email}
+                              </div>
+                            </div>
+                            {alreadyMember && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] shrink-0"
+                              >
+                                Already a member
+                              </Badge>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
               <select
                 value={newMemberRole}
                 onChange={(e) => setNewMemberRole(e.target.value as "member" | "admin")}
@@ -1090,6 +1593,10 @@ export function TeamDetailsDialog({
                 ) : (
                   sortedMembers.map((member) => {
                     const memberSources = sourcesByMember[member.user_id.toLowerCase()] ?? [];
+                    const syncEntry = syncByMember[member.user_id.toLowerCase()];
+                    const syncBadge = syncEntry
+                      ? syncBadgeAppearance(syncEntry.status)
+                      : null;
                     return (
                       <div
                         key={member.user_id}
@@ -1104,7 +1611,7 @@ export function TeamDetailsDialog({
                             <p className="text-xs text-muted-foreground">
                               Added {new Date(member.added_at).toLocaleDateString()}
                             </p>
-                            {memberSources.length > 0 && (
+                            {(memberSources.length > 0 || syncBadge) && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {memberSources.map((source) => (
                                   <Badge
@@ -1116,6 +1623,16 @@ export function TeamDetailsDialog({
                                     {source.status !== "active" ? `: ${source.status}` : ""}
                                   </Badge>
                                 ))}
+                                {syncBadge && (
+                                  <Badge
+                                    variant={syncBadge.variant}
+                                    className="text-[10px] gap-1"
+                                    title={syncEntry?.reason ?? ""}
+                                  >
+                                    {syncBadge.icon}
+                                    {syncBadge.label}
+                                  </Badge>
+                                )}
                               </div>
                             )}
                           </div>

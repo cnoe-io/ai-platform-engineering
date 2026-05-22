@@ -28,6 +28,7 @@ import { ObjectId } from 'mongodb';
 
 // Mock NextAuth
 const mockGetServerSession = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
@@ -41,6 +42,9 @@ jest.mock('@/lib/auth-config', () => ({
 
 jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
@@ -121,6 +125,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    sub: 'admin-user-sub',
     accessToken: accessTokenWithRoles(['admin']),
   };
 }
@@ -129,6 +134,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    sub: 'regular-user-sub',
     accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
@@ -154,6 +160,9 @@ const TEST_TEAM = {
 beforeEach(() => {
   jest.clearAllMocks();
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-user-sub',
+  }));
   setDefaultCheckPermissionMock();
 });
 
@@ -183,7 +192,7 @@ describe('GET /api/admin/teams', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns teams list for admin', async () => {

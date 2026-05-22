@@ -7,6 +7,7 @@ import { ObjectId } from "mongodb";
 
 const mockGetServerSession = jest.fn();
 const mockCheckPermission = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 const mockEnsureTeamClientScope = jest.fn();
 const mockListTeamMembershipSources = jest.fn();
 const mockUpsertTeamMembershipSource = jest.fn();
@@ -27,6 +28,16 @@ jest.mock("@/lib/config", () => ({
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  // GET /api/admin/teams/[id] now decorates its response with an
+  // OpenFGA sync diagnostic. Stub the helpers it calls so this
+  // unrelated test stays focused on team-source semantics rather than
+  // OpenFGA wiring.
+  isOpenFgaConfigured: () => false,
+  readOpenFgaTuples: jest.fn(),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
@@ -82,6 +93,7 @@ function adminSession() {
   return {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
+    sub: "admin-user-sub",
     accessToken: accessTokenWithRoles(["admin"]),
   };
 }
@@ -91,6 +103,7 @@ beforeEach(() => {
   mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockEnsureTeamClientScope.mockResolvedValue(undefined);
   mockListTeamMembershipSources.mockResolvedValue([
     {
@@ -129,6 +142,11 @@ describe("manual team source metadata", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:admin-user-sub",
+      relation: "can_manage",
+      object: "admin_surface:teams",
+    });
     const inserted = teamsCol.insertOne.mock.calls[0][0];
     expect(inserted).toEqual(
       expect.objectContaining({

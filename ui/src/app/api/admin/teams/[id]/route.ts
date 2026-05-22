@@ -14,6 +14,10 @@ import {
 } from '@/lib/api-middleware';
 import { deleteTeamClientScope } from '@/lib/rbac/keycloak-admin';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
+import {
+  computeTeamMembershipSyncReport,
+  readTeamOpenFgaTuples,
+} from '@/lib/rbac/team-openfga-sync-status';
 import type { UpdateTeamRequest } from '@/types/teams';
 
 function requireMongoDB() {
@@ -58,9 +62,25 @@ export const GET = withErrorHandler(async (
   }
 
   const membershipSources = await listTeamMembershipSources(params.id);
+
+  // Decorate the response with OpenFGA sync status so the Teams settings
+  // dialog can show a banner ("All members synced", "1 drifted") and a
+  // per-member badge. This is a read-only diagnostic — repair is gated
+  // behind POST /api/admin/teams/[id]/openfga/reconcile so we never write
+  // tuples just because someone viewed a team.
+  const teamSlug = typeof team.slug === 'string' ? team.slug : '';
+  const openFgaSync = teamSlug
+    ? computeTeamMembershipSyncReport({
+        teamSlug,
+        sources: membershipSources,
+        tuples: await readTeamOpenFgaTuples(teamSlug),
+      })
+    : null;
+
   return successResponse({
     team: { ...team, membership_sources: membershipSources },
     membership_sources: membershipSources,
+    openfga_sync: openFgaSync,
   });
 });
 

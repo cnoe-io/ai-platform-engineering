@@ -15,6 +15,11 @@ import {
   isValidTeamSlug,
 } from '@/lib/rbac/keycloak-admin';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
+import {
+  mongoRoleToOpenFgaRelations,
+  resolveKeycloakUserSubject,
+  writeTeamMembershipTuples,
+} from '@/lib/rbac/team-membership-sync';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 
 export const dynamic = 'force-dynamic';
@@ -120,22 +125,30 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    // Create team
+    // Build the Mongo `members` array. The creator is ALWAYS the owner —
+    // even if their own email also appears in `body.members` (which the UI
+    // sometimes does by mistake). Dedupe silently so the Members tab does
+    // not render two rows for the same user (the original bug behind the
+    // duplicate "owner + member" badges).
     const now = new Date();
-    const members = body.members?.map(email => ({
-      user_id: email,
-      role: 'member',
-      added_at: now,
-      added_by: user.email,
-    })) || [];
-
-    // Add creator as owner
-    members.push({
-      user_id: user.email,
-      role: 'owner',
-      added_at: now,
-      added_by: user.email,
-    });
+    const creatorEmail = user.email.trim().toLowerCase();
+    const inviteeEmails = (body.members ?? [])
+      .map(email => email.trim().toLowerCase())
+      .filter(email => email.length > 0 && email !== creatorEmail);
+    const members = [
+      ...inviteeEmails.map(email => ({
+        user_id: email,
+        role: 'member' as const,
+        added_at: now,
+        added_by: user.email,
+      })),
+      {
+        user_id: creatorEmail,
+        role: 'owner' as const,
+        added_at: now,
+        added_by: user.email,
+      },
+    ];
 
     const team = {
       name: body.name,
@@ -172,6 +185,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    // Sync OpenFGA + team_membership_sources for every member in the new
+    // team. This is the step that the original implementation forgot to do
+    // — without these tuples, `team:<slug>#can_use` is always false and
+    // `OWNER_TEAM_FORBIDDEN` fires on the next agent-creation request,
+    // even for the team's own creator.
+    //
+    // Failures here are logged but never thrown: the Mongo team + Keycloak
+    // scope are already committed and the startup audit will repair any
+    // tuple that didn't make it. The team-creation API is still useful
+    // even if OpenFGA is briefly unreachable.
     const createdAt = now.toISOString();
     const sourceBase = {
       team_id: result.insertedId.toString(),
@@ -185,12 +208,47 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       last_seen_at: createdAt,
       last_applied_at: createdAt,
     };
-    const membershipSources: TeamMembershipSource[] = members.map((member) => ({
-      ...sourceBase,
-      user_email: member.user_id,
-      relationship: member.role === 'owner' ? 'admin' : (member.role as 'member' | 'admin'),
-    }));
-    await Promise.all(membershipSources.map((source) => upsertTeamMembershipSource(source)));
+
+    await Promise.all(
+      members.map(async (member) => {
+        const email = member.user_id;
+        const relationship =
+          member.role === 'owner' ? 'admin' : (member.role as 'member' | 'admin');
+        // Resolve the stable Keycloak subject for this email. May be
+        // undefined when the user does not yet exist in Keycloak; we still
+        // persist the source row so a later audit can repair the tuple.
+        const userSubject = await resolveKeycloakUserSubject(email, slug);
+
+        if (userSubject) {
+          try {
+            await writeTeamMembershipTuples(
+              userSubject,
+              slug,
+              mongoRoleToOpenFgaRelations(member.role),
+              'assign',
+            );
+          } catch (err) {
+            console.error(
+              `[Admin] Failed to write OpenFGA membership tuple for ${email} on team ${slug}:`,
+              err,
+            );
+          }
+        } else {
+          console.warn(
+            `[Admin] No Keycloak subject for ${email} on team ${slug}; ` +
+              `skipping OpenFGA tuple write. Source row persisted for later repair.`,
+          );
+        }
+
+        const source: TeamMembershipSource = {
+          ...sourceBase,
+          user_email: email,
+          user_subject: userSubject,
+          relationship,
+        };
+        await upsertTeamMembershipSource(source);
+      }),
+    );
 
     console.log(`[Admin] Team created: ${body.name} (slug=${slug}) by ${user.email}`);
 

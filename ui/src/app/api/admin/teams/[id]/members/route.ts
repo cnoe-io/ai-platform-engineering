@@ -13,15 +13,14 @@ import {
 } from '@/lib/api-middleware';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import {
-  searchRealmUsers,
-  isValidTeamSlug,
-} from '@/lib/rbac/keycloak-admin';
-import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
-import {
   listActiveTeamMembershipSourcesForTeamUser,
   markTeamMembershipSourceRemoved,
   upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
+import {
+  resolveKeycloakUserSubject,
+  writeTeamMembershipTuples,
+} from '@/lib/rbac/team-membership-sync';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import type { Team } from '@/types/teams';
 
@@ -48,45 +47,10 @@ function parseTeamId(id: string): ObjectId {
   return new ObjectId(id);
 }
 
-async function resolveKeycloakUserSubject(email: string, teamSlug: string): Promise<string | undefined> {
-  if (!isValidTeamSlug(teamSlug)) {
-    console.warn(`[TeamSync] Invalid team slug "${teamSlug}" — skipping OpenFGA tuple for ${email}`);
-    return undefined;
-  }
-  try {
-    const users = await searchRealmUsers({ search: email, first: 0, max: 1 });
-    const kcUser = users.find(u => (u.email as string)?.toLowerCase() === email.toLowerCase());
-    if (!kcUser?.id) {
-      console.warn(`[TeamSync] Keycloak user not found for ${email} — skipping OpenFGA tuple`);
-      return undefined;
-    }
-    return String(kcUser.id);
-  } catch (err) {
-    console.warn(`[TeamSync] Failed to resolve Keycloak user for ${email}:`, err);
-    return undefined;
-  }
-}
-
-async function writeTeamMembershipTuple(
-  userSubject: string | undefined,
-  teamSlug: string,
-  action: 'assign' | 'remove'
-): Promise<void> {
-  if (!userSubject) return;
-  const tuple = {
-    user: `user:${userSubject}`,
-    relation: "member",
-    object: `team:${teamSlug}`,
-  };
-  const result = await writeOpenFgaTuples({
-    writes: action === 'assign' ? [tuple] : [],
-    deletes: action === 'remove' ? [tuple] : [],
-  });
-  console.log(
-    `[TeamSync] ${action === 'assign' ? 'Wrote' : 'Deleted'} OpenFGA team membership tuple ` +
-      `for user:${userSubject} team:${teamSlug} (enabled=${result.enabled})`
-  );
-}
+// `resolveKeycloakUserSubject` and `writeTeamMembershipTuples` live in
+// `@/lib/rbac/team-membership-sync` so the team-creation route can share the
+// exact same email→sub resolution and tuple-write logic. Do not duplicate them
+// here.
 
 function manualMembershipSource(input: {
   teamId: string;
@@ -181,7 +145,10 @@ export const POST = withErrorHandler(async (
     let keycloakSubject: string | undefined;
     if (teamSlug) {
       keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
-      await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'assign');
+      // POST /members only adds a single relation (member or admin) to the
+      // existing team — never both. The team-creation route is the only
+      // caller that writes both `admin` and `member` for the creator.
+      await writeTeamMembershipTuples(keycloakSubject, teamSlug, [role], 'assign');
       await upsertTeamMembershipSource(
         manualMembershipSource({
           teamId: params.id,
@@ -291,7 +258,12 @@ export const DELETE = withErrorHandler(async (
     if (teamSlug) {
       if (!stillGranted) {
         const keycloakSubject = await resolveKeycloakUserSubject(email, teamSlug);
-        await writeTeamMembershipTuple(keycloakSubject, teamSlug, 'remove');
+        await writeTeamMembershipTuples(
+          keycloakSubject,
+          teamSlug,
+          [relationship],
+          'remove',
+        );
       }
     }
 
