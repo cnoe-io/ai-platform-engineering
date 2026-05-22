@@ -66,6 +66,14 @@ export CONFLUENCE_REDIRECT_URI=http://localhost:3000/api/credentials/oauth/atlas
 export WEBEX_CLIENT_ID=...
 export WEBEX_CLIENT_SECRET=...
 export WEBEX_REDIRECT_URI=http://localhost:3000/api/credentials/oauth/webex/callback
+export PAGERDUTY_CLIENT_ID=...
+export PAGERDUTY_CLIENT_SECRET=...
+export PAGERDUTY_REDIRECT_URI=http://localhost:3000/api/credentials/oauth/pagerduty/callback
+export PAGERDUTY_SCOPES="users.read incidents.read services.read oncalls.read schedules.read teams.read escalation_policies.read"
+export GITLAB_CLIENT_ID=...
+export GITLAB_CLIENT_SECRET=...
+export GITLAB_REDIRECT_URI=http://localhost:3000/api/credentials/oauth/gitlab/callback
+export GITLAB_SCOPES="api read_user"
 ```
 
 For Kubernetes, configure `caipe-ui.externalSecrets.data` with those secret
@@ -101,7 +109,7 @@ Expected result:
 ## 7. Configure an OAuth Connector
 
 1. As a platform admin, open **OAuth Connectors**.
-2. Configure a built-in provider such as GitHub, Atlassian, or Webex.
+2. Configure a built-in provider such as GitHub, Atlassian, Webex, PagerDuty, or GitLab.
 3. Store the connector client secret through the credential-store UI/API.
 4. Enable the connector for a test team or admin policy.
 

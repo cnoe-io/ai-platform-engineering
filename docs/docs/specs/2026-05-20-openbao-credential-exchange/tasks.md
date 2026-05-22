@@ -115,7 +115,7 @@
 
 ## Phase 5: User Story 3 - Connect External OAuth Providers for Impersonation (Priority: P1)
 
-**Goal**: Users can connect GitHub, Atlassian, and Webex provider accounts using 3-legged OAuth, and server-side runtimes can exchange CAIPE identity for authorized provider credentials.
+**Goal**: Users can connect GitHub, Atlassian, Webex, and PagerDuty provider accounts using 3-legged OAuth, and server-side runtimes can exchange CAIPE identity for authorized provider credentials.
 
 **Independent Test**: Connect one provider account through consent, verify only metadata is visible in the browser, invoke an authorized agent path, and confirm credential exchange returns or injects a server-side provider credential.
 
@@ -128,7 +128,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T051 [US3] Add built-in GitHub, Atlassian, and Webex provider descriptors in `ui/src/lib/oauth-connectors/built-ins.ts`
+- [ ] T051 [US3] Add built-in GitHub, Atlassian, Webex, and PagerDuty provider descriptors in `ui/src/lib/oauth-connectors/built-ins.ts`
 - [ ] T052 [US3] Implement OAuth state and PKCE helper in `ui/src/lib/oauth-connectors/oauth-state.ts`
 - [ ] T053 [US3] Implement OAuth token exchange and refresh helper in `ui/src/lib/oauth-connectors/oauth-client.ts`
 - [ ] T054 [US3] Implement provider connection service in `ui/src/lib/oauth-connectors/provider-connections.ts`
@@ -398,7 +398,7 @@ With multiple developers:
 
 ### Additional Completed Tasks
 
-- [x] T116 Add env-driven OAuth connector startup bootstrap tests for GitHub, Atlassian/Confluence, and Webex
+- [x] T116 Add env-driven OAuth connector startup bootstrap tests for GitHub, Atlassian/Confluence, Webex, and PagerDuty
 - [x] T117 Implement idempotent `caipe-ui` TypeScript OAuth connector bootstrap from `.env`/ESO-provided env vars
 - [x] T118 Wire Docker Compose `.env` variables and Kubernetes ESO mappings for provider client IDs, secrets, and redirect URIs
 - [x] T119 Update RBAC/spec documentation for ESO-vs-`.env` bootstrap behavior

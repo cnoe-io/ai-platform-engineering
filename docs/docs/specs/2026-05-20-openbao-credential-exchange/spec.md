@@ -47,7 +47,7 @@ As a Dynamic Agent author or internal service owner, I need a standard server-to
 
 ### User Story 3 - Connect External OAuth Providers for Impersonation (Priority: P1)
 
-As a CAIPE user, I need to connect external providers such as GitHub, Atlassian, and Webex using 3-legged OAuth, so agents can act on my behalf with provider-scoped credentials instead of shared service tokens.
+As a CAIPE user, I need to connect external providers such as GitHub, Atlassian, Webex, and PagerDuty using 3-legged OAuth, so agents can act on my behalf with provider-scoped credentials instead of shared service tokens.
 
 **Why this priority**: User impersonation use cases require delegated provider credentials. Platform OBO JWTs prove the CAIPE user identity, but they do not currently provide provider-specific access tokens.
 
@@ -55,7 +55,7 @@ As a CAIPE user, I need to connect external providers such as GitHub, Atlassian,
 
 **Acceptance Scenarios**:
 
-1. **Given** a user starts a GitHub, Atlassian, or Webex connection flow, **When** they complete provider consent, **Then** CAIPE records an active provider connection linked to their CAIPE identity.
+1. **Given** a user starts a GitHub, Atlassian, Webex, or PagerDuty connection flow, **When** they complete provider consent, **Then** CAIPE records an active provider connection linked to their CAIPE identity.
 2. **Given** a user has an active provider connection, **When** an authorized Dynamic Agent requires that provider, **Then** the credential exchange service can provide a valid provider credential for that user and provider.
 3. **Given** a provider requires refresh-token rotation, **When** a token is near expiry, **Then** CAIPE refreshes the token, stores the rotated refresh token when returned, and never logs the old or new token.
 4. **Given** a user disconnects a provider connection, **When** an agent later requests that provider credential, **Then** the exchange fails with a reconnect-required outcome.
@@ -177,7 +177,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - **FR-011**: CAIPE MUST provide drift detection for missing encrypted payloads, invalid encryption metadata, unsupported key versions, stale grants, orphan future-backend paths, missing secret metadata, and failed migrations.
 - **FR-012**: CAIPE MUST audit create, read-metadata, use, rotate, share, revoke, delete, denied, and drift-detected outcomes for secrets and provider credentials without recording raw credential values.
 - **FR-013**: CAIPE MUST provide a credential exchange component for provider-delegated credentials used by agents, MCP servers, and internal microservices.
-- **FR-014**: Credential exchange MUST support 3-legged OAuth connection lifecycle states for GitHub, Atlassian, and Webex: not connected, pending consent, active, refresh required, reconnect required, revoked, and failed.
+- **FR-014**: Credential exchange MUST support 3-legged OAuth connection lifecycle states for GitHub, Atlassian, Webex, and PagerDuty: not connected, pending consent, active, refresh required, reconnect required, revoked, and failed.
 - **FR-015**: Credential exchange MUST bind each provider connection to a CAIPE user identity and MAY bind provider credentials to a team only when provider policy and CAIPE policy allow team sharing.
 - **FR-016**: Credential exchange MUST use the caller's CAIPE JWT or approved OBO token as the identity anchor for provider credential retrieval.
 - **FR-017**: Credential exchange MUST enforce that a caller is authorized to use the selected provider credential for the selected agent, MCP server, tool, or internal app before issuing or injecting a provider token.
@@ -224,7 +224,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - **Secret Consumer**: A server-side component, Dynamic Agent runtime, MCP server launcher, or internal microservice that requests credential material for an authorized operation.
 - **Credential Retrieval Request**: A JWT-authenticated request that asks for a credential by reference and includes the acting subject, resource context, and intended use.
 - **Service Credential API**: The standard internal API contract used by approved server-side CAIPE services to retrieve or exchange credential material by reference; browser clients are outside this trust boundary.
-- **Provider Connection**: A user's delegated OAuth relationship with an external provider such as GitHub, Atlassian, or Webex.
+- **Provider Connection**: A user's delegated OAuth relationship with an external provider such as GitHub, Atlassian, Webex, or PagerDuty.
 - **OAuth Connector**: An admin-configured provider definition that describes how CAIPE starts consent, exchanges codes, refreshes tokens, maps provider identity, and stores connector client credentials.
 - **Provider Token Set**: Access, ID, refresh, expiry, scope, and provider-account material associated with a provider connection and stored securely.
 - **Credential Exchange Decision**: The allow, deny, refresh, reconnect-required, or unavailable result produced when a caller asks for a provider credential.
@@ -243,7 +243,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - OpenFGA/ReBAC remains the authorization source of truth for secret discovery, metadata reads, use, management, audit, and sharing.
 - Keycloak remains the identity anchor for user JWTs, service tokens, OBO flows, and provider-connection ownership.
 - Dynamic Agent MCP server configuration can be extended to reference secrets instead of carrying raw credential values.
-- External provider support starts with GitHub, Atlassian, and Webex, with provider-specific behavior captured as metadata and tests.
+- External provider support starts with GitHub, Atlassian, Webex, and PagerDuty, with provider-specific behavior captured as metadata and tests.
 - GitHub MCP can consume user-scoped OAuth/PAT-style bearer credentials when supplied per request or per invocation, while Jira and Confluence MCP require an Atlassian OAuth bearer-token mode because their current static path uses API-token basic authentication.
 - Webex platform identity linking and Webex API 3-legged OAuth may share provider branding but are separate credential concerns unless explicitly unified during planning.
 - Existing environment-variable credential references and Kubernetes Secret/ExternalSecret patterns continue to work during a documented compatibility period.
@@ -257,7 +257,7 @@ As a platform operator, I need the security UI and credential-management pieces 
 - Exposing raw secret values to browser clients after create or rotate request submission, including via internal retrieval or exchange endpoints.
 - Building a generic public secrets API for third-party clients outside CAIPE-controlled service boundaries.
 - Migrating every existing deployment secret, such as `MONGODB_URI`, `NEXTAUTH_SECRET`, Keycloak admin secrets, Slack bot tokens, and Webex bot tokens, into the user-facing secrets manager in the initial slice.
-- Supporting arbitrary OAuth providers before GitHub, Atlassian, and Webex provider contracts are complete.
+- Supporting arbitrary OAuth providers before GitHub, Atlassian, Webex, and PagerDuty provider contracts are complete.
 
 ## Feasibility and Architecture Options
 
@@ -331,7 +331,7 @@ The implementation should selectively merge compatible PR #1282 foundations behi
 
 CAIPE presents the feature as **Connections & Secrets**, not as a raw encryption or vault UI. Users see **My Connections** for provider accounts they connected, **Team Connections** for credentials shared with teams, **Secrets** for BYO API keys and tokens, **Where Used** for agent/MCP/tool references, and **Audit** for non-secret use history.
 
-For a normal user, a GitHub/Jira/Webex-backed agent can prompt: "Connect GitHub to let this agent act as you." After consent, the user returns to CAIPE and sees connection status such as `Connected`, `Reconnect required`, `Missing scopes`, `Provider disabled`, or `Revoked`. Users can disconnect their own provider connection and see which agents or teams are allowed to use it, but they do not see raw access or refresh tokens.
+For a normal user, a GitHub/Jira/Webex/PagerDuty-backed agent can prompt: "Connect GitHub to let this agent act as you." After consent, the user returns to CAIPE and sees connection status such as `Connected`, `Reconnect required`, `Missing scopes`, `Provider disabled`, or `Revoked`. Users can disconnect their own provider connection and see which agents or teams are allowed to use it, but they do not see raw access or refresh tokens.
 
 For a Dynamic Agent or MCP author, the MCP server editor exposes a credential source selector: `Static deployment secret`, `User impersonation token`, `Team shared secret`, or `Personal secret`. When `User impersonation token` is selected, the editor requires provider, required scopes, and provider-specific context such as Atlassian `cloudid`; fallback behavior is fail-closed.
 
@@ -339,7 +339,7 @@ For admins, the Security and credential-management area exposes feature-toggle s
 
 ### Admin OAuth Connector Configuration
 
-Admins configure built-in and custom OAuth connectors from a controlled **OAuth Connectors** panel. Built-in connectors such as GitHub, Atlassian, and Webex provide provider-specific defaults. Custom connectors are allowed when they use standard authorization-code OAuth/OIDC semantics and pass validation.
+Admins configure built-in and custom OAuth connectors from a controlled **OAuth Connectors** panel. Built-in connectors such as GitHub, Atlassian, Webex, and PagerDuty provide provider-specific defaults. Custom connectors are allowed when they use standard authorization-code OAuth/OIDC semantics and pass validation.
 
 Each connector captures provider display metadata, authorization URL, token URL, optional userinfo/profile URL, optional accessible-resources URL, client ID, encrypted client secret, redirect URI, requested scopes, refresh policy, identity-claim mapping, token response mapping, and enablement state. Client secrets are stored through the envelope-encrypted credential-store interface. Connector metadata remains queryable for UI and audit.
 
@@ -409,7 +409,7 @@ Testing must cover unit-level policy checks, API-level authentication and author
 - **SC-002**: 100% of unauthorized secret retrieval attempts are denied before a decrypt operation returns credential material.
 - **SC-003**: 100% of browser attempts to retrieve or exchange raw credential material through the BFF or service credential API are denied before decrypt, provider refresh, or token issuance.
 - **SC-004**: Authorized Dynamic Agent MCP invocations can resolve configured secret references without storing raw credential values in MCP server records.
-- **SC-005**: Users can connect, view status, disconnect, and reconnect GitHub, Atlassian, and Webex provider connections through CAIPE UI.
+- **SC-005**: Users can connect, view status, disconnect, and reconnect GitHub, Atlassian, Webex, and PagerDuty provider connections through CAIPE UI.
 - **SC-006**: Provider credentials with refresh tokens are refreshed before expiry, and rotated refresh tokens are persisted without exposing old or new token values.
 - **SC-007**: Revoked or disconnected provider credentials are not returned or injected into any downstream agent, MCP server, or internal app.
 - **SC-008**: Credential audit records cover create, use, deny, rotate, refresh, revoke, share, and drift outcomes with zero raw credential values.

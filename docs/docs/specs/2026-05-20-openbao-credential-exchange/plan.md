@@ -19,7 +19,7 @@ The implementation should selectively port compatible foundations from PR #1282,
 **Project Type**: Full-stack web application plus backend/runtime integration across UI BFF, Dynamic Agents, MCP servers, and Helm deployment
 **Performance Goals**: Authorized credential retrieval should complete within normal BFF/runtime request budgets; decrypt and refresh operations must happen only after authn/authz succeeds; repeated provider refresh for the same connection should avoid duplicate concurrent refresh writes
 **Constraints**: Feature toggle disabled by default; no raw credential material in logs, traces, browser responses after create/rotate request ingestion, Helm values, or source-controlled files; browser clients may create or rotate secrets but must never retrieve credential material; deny before decrypt; custom connector SSRF protections; fail closed on KMS, policy, provider, or credential-store outages
-**Scale/Scope**: Initial provider support for GitHub, Atlassian/Jira/Confluence, and Webex; custom connector support limited to standards-compliant authorization-code OAuth/OIDC; migration preview targets MCP inline `env`, skill-hub `credentials_ref`, and catalog API key paths
+**Scale/Scope**: Initial provider support for GitHub, Atlassian/Jira/Confluence, Webex, and PagerDuty; custom connector support limited to standards-compliant authorization-code OAuth/OIDC; migration preview targets MCP inline `env`, skill-hub `credentials_ref`, and catalog API key paths
 
 ## Constitution Check
 
