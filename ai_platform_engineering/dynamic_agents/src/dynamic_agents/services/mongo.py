@@ -95,7 +95,10 @@ class MongoDBService:
         """Get a dynamic agent config by ID."""
         doc = self._get_agents_collection().find_one({"_id": agent_id})
         if doc:
-            return DynamicAgentConfig(**doc)
+            # Strip None values so pydantic default_factory applies for missing fields.
+            # Without this, explicit null values stored in MongoDB (e.g. interrupt_on: null)
+            # bypass field defaults and cause ValidationError.
+            return DynamicAgentConfig(**{k: v for k, v in doc.items() if v is not None})
         return None
 
     # =========================================================================
