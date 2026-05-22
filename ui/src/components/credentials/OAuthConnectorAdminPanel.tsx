@@ -3,12 +3,14 @@
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 
 interface OAuthConnectorMetadata {
   id: string;
   name: string;
   provider: string;
   clientId: string;
+  enabled?: boolean;
   clientSecretConfigured?: boolean;
 }
 
@@ -26,6 +28,7 @@ export function OAuthConnectorAdminPanel() {
     clientSecret: "",
     authorizationUrl: "",
     tokenUrl: "",
+    scopes: "",
     redirectUri: "",
   });
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -52,6 +55,21 @@ export function OAuthConnectorAdminPanel() {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
 
+  const applyBuiltInTemplate = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const descriptor = BUILT_IN_OAUTH_CONNECTORS.find(
+      (candidate) => candidate.provider === event.target.value,
+    );
+    if (!descriptor) return;
+    setForm((current) => ({
+      ...current,
+      name: descriptor.name,
+      provider: descriptor.provider,
+      authorizationUrl: descriptor.authorizationUrl,
+      tokenUrl: descriptor.tokenUrl,
+      scopes: descriptor.scopes.join(" "),
+    }));
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const response = await fetch("/api/admin/credentials/oauth-connectors", {
@@ -59,7 +77,10 @@ export function OAuthConnectorAdminPanel() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         ...form,
-        scopes: ["offline_access"],
+        scopes: form.scopes
+          .split(/[,\s]+/)
+          .map((scope) => scope.trim())
+          .filter(Boolean),
       }),
     });
     if (!response.ok) {
@@ -75,9 +96,27 @@ export function OAuthConnectorAdminPanel() {
       clientSecret: "",
       authorizationUrl: "",
       tokenUrl: "",
+      scopes: "",
       redirectUri: "",
     });
     setCreateOpen(false);
+  };
+
+  const handleEnabledChange = async (connector: OAuthConnectorMetadata, enabled: boolean) => {
+    const response = await fetch(`/api/admin/credentials/oauth-connectors/${connector.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: enabled ? "enable" : "disable" }),
+    });
+    if (!response.ok) {
+      setError(`Could not ${enabled ? "enable" : "disable"} ${connector.name}`);
+      return;
+    }
+    setConnectors((current) =>
+      current.map((candidate) =>
+        candidate.id === connector.id ? { ...candidate, enabled } : candidate,
+      ),
+    );
   };
 
   return (
@@ -122,6 +161,21 @@ export function OAuthConnectorAdminPanel() {
               </button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span>Built-in template</span>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2"
+                  defaultValue=""
+                  onChange={applyBuiltInTemplate}
+                >
+                  <option value="">Custom OAuth provider</option>
+                  {BUILT_IN_OAUTH_CONNECTORS.map((descriptor) => (
+                    <option key={descriptor.provider} value={descriptor.provider}>
+                      {descriptor.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="space-y-1 text-sm">
                 <span>Display name</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.name} onChange={updateForm("name")} required />
@@ -147,6 +201,10 @@ export function OAuthConnectorAdminPanel() {
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.tokenUrl} onChange={updateForm("tokenUrl")} required />
               </label>
               <label className="space-y-1 text-sm md:col-span-2">
+                <span>Scopes</span>
+                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.scopes} onChange={updateForm("scopes")} placeholder="offline_access read_user" />
+              </label>
+              <label className="space-y-1 text-sm md:col-span-2">
                 <span>Redirect URI</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
               </label>
@@ -163,12 +221,27 @@ export function OAuthConnectorAdminPanel() {
         ) : (
           <ul className="divide-y divide-border">
             {connectors.map((connector) => (
-              <li key={connector.id} className="p-4">
-                <p className="font-medium">{connector.name}</p>
-                <p className="text-xs text-muted-foreground">{connector.provider} / {connector.clientId}</p>
-                <span className="mt-2 inline-block rounded bg-muted px-2 py-1 text-xs">
-                  {connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
-                </span>
+              <li key={connector.id} className="flex items-start justify-between gap-4 p-4">
+                <div>
+                  <p className="font-medium">{connector.name}</p>
+                  <p className="text-xs text-muted-foreground">{connector.provider} / {connector.clientId}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
+                      {connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
+                    </span>
+                    <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
+                      {connector.enabled === false ? "disabled" : "enabled"}
+                    </span>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleEnabledChange(connector, connector.enabled === false)}
+                >
+                  {connector.enabled === false ? "Enable" : "Disable"}
+                </Button>
               </li>
             ))}
           </ul>

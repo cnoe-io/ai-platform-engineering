@@ -97,8 +97,32 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(response.headers.get("set-cookie")).toContain("caipe_oauth_state_github=;");
     const text = await response.text();
-    expect(text).toContain("Connection complete");
-    expect(text).toContain("Return to Connections");
+    expect(text).toContain("GitHub connected");
+    expect(text).toContain("/grid-neon-logo.svg");
+    expect(text).not.toContain("Connecting GitHub to CAIPE");
+    expect(text).not.toContain(">CAIPE / Grid<");
+    expect(text).not.toContain("Saved");
+    expect(text).not.toContain("Return to Connections");
     expect(text).toContain("caipe.oauth.connection");
+  });
+
+  it("renders a branded Webex failure page for provider OAuth errors", async () => {
+    const { GET } = await import("../callback/route");
+    const response = await GET(
+      new Request("http://localhost/api/credentials/oauth/webex/callback?error=invalid_scope") as never,
+      { params: Promise.resolve({ provider_key: "webex" }) },
+    );
+
+    expect(response.status).toBe(400);
+    const text = await response.text();
+    expect(text).toContain("Webex connection failed");
+    expect(text).toContain("/grid-neon-logo.svg");
+    expect(text).not.toContain("/provider-logos/webex.svg");
+    expect(text).not.toContain("Connecting Webex to CAIPE");
+    expect(text).not.toContain(">CAIPE / Grid<");
+    expect(text).not.toContain("Action needed");
+    expect(text).not.toContain("Return to Connections");
+    expect(text).toContain("Webex returned invalid_scope. You can close this window.");
+    expect(text).not.toContain("try again");
   });
 });

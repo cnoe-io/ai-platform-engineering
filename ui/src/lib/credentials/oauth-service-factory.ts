@@ -13,6 +13,7 @@ import {
   ProviderConnectionService,
   type OAuthConnectorDocument,
   type ProviderConnectionDocument,
+  type TokenClientResponse,
 } from "./oauth-service";
 
 function createOAuthKeyWrapper() {
@@ -72,16 +73,39 @@ export async function getProviderConnectionService(): Promise<ProviderConnection
     providerConnectionsCollection,
     connectorsCollection,
     payloadStore: await getOAuthPayloadStore(),
-    tokenClient: async (tokenUrl, body) => {
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams(body),
-      });
-      if (!response.ok) {
-        throw new Error(`OAuth token refresh failed with ${response.status}`);
-      }
-      return response.json();
-    },
+    tokenClient: exchangeOAuthToken,
   });
+}
+
+export async function exchangeOAuthToken(
+  tokenUrl: string,
+  body: Record<string, string>,
+): Promise<TokenClientResponse> {
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(body),
+  });
+  if (!response.ok) {
+    throw new Error(`OAuth token exchange failed with ${response.status}`);
+  }
+
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json") || text.trim().startsWith("{")) {
+    return JSON.parse(text) as TokenClientResponse;
+  }
+
+  const params = new URLSearchParams(text);
+  const accessToken = params.get("access_token") ?? "";
+  const refreshToken = params.get("refresh_token") ?? undefined;
+  const expiresIn = params.get("expires_in");
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_in: expiresIn ? Number(expiresIn) : undefined,
+  };
 }

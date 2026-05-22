@@ -1,15 +1,25 @@
-import { OAuthConnectorService, ProviderConnectionService } from "@/lib/credentials/oauth-service";
+import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
-class MemoryCollection {
-  docs: Record<string, unknown>[] = [];
+import {
+  OAuthConnectorService,
+  type OAuthConnectorDocument,
+  ProviderConnectionService,
+  type ProviderConnectionDocument,
+} from "../oauth-service";
 
-  async insertOne(doc: Record<string, unknown>) {
+class MemoryCollection<T extends object> {
+  docs: T[] = [];
+
+  async insertOne(doc: T) {
     this.docs.push(doc);
     return { acknowledged: true };
   }
 
   async findOne(query: Record<string, unknown>) {
-    return this.docs.find((doc) => Object.entries(query).every(([key, value]) => doc[key] === value)) ?? null;
+    return this.docs.find((doc) => {
+      const record = doc as Record<string, unknown>;
+      return Object.entries(query).every(([key, value]) => record[key] === value);
+    }) ?? null;
   }
 
   find() {
@@ -23,9 +33,25 @@ class MemoryCollection {
   async updateOne(query: Record<string, unknown>, update: { $set?: Record<string, unknown> }) {
     const doc = await this.findOne(query);
     if (!doc) return { matchedCount: 0 };
-    Object.assign(doc, update.$set ?? {});
+    Object.assign(doc as Record<string, unknown>, update.$set ?? {});
     return { matchedCount: 1 };
   }
+}
+
+interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+}
+
+function mockPutSecret() {
+  return jest.fn<(input: { secretRefId: string; plaintext: string }) => Promise<void>>(async () => undefined);
+}
+
+function mockTokenClient(response: TokenResponse) {
+  return jest.fn<(tokenUrl: string, body: Record<string, string>) => Promise<TokenResponse>>(
+    async () => response,
+  );
 }
 
 describe("OAuthConnectorService", () => {
@@ -40,8 +66,8 @@ describe("OAuthConnectorService", () => {
   });
 
   it("creates a dynamic standard OAuth connector with secret material in the encrypted store", async () => {
-    const connectors = new MemoryCollection();
-    const payloadStore = { putSecret: jest.fn(async () => undefined) };
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const payloadStore = { putSecret: mockPutSecret() };
     const service = new OAuthConnectorService({
       connectorsCollection: connectors,
       payloadStore,
@@ -75,8 +101,8 @@ describe("OAuthConnectorService", () => {
 
   it("rejects non-https OAuth endpoints and localhost SSRF targets", async () => {
     const service = new OAuthConnectorService({
-      connectorsCollection: new MemoryCollection(),
-      payloadStore: { putSecret: jest.fn(async () => undefined) },
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
+      payloadStore: { putSecret: mockPutSecret() },
       idGenerator: () => "connector-1",
     });
 
@@ -95,7 +121,7 @@ describe("OAuthConnectorService", () => {
   });
 
   it("upserts an existing connector and rotates encrypted client secret material", async () => {
-    const connectors = new MemoryCollection();
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
     connectors.docs.push({
       id: "connector-1",
       name: "GitHub",
@@ -110,7 +136,7 @@ describe("OAuthConnectorService", () => {
       createdAt: new Date("2026-01-01T00:00:00Z"),
       updatedAt: new Date("2026-01-01T00:00:00Z"),
     });
-    const payloadStore = { putSecret: jest.fn(async () => undefined) };
+    const payloadStore = { putSecret: mockPutSecret() };
     const service = new OAuthConnectorService({
       connectorsCollection: connectors,
       payloadStore,
@@ -148,8 +174,8 @@ describe("OAuthConnectorService", () => {
   });
 
   it("allows localhost redirect URIs outside production but rejects them in production", async () => {
-    const connectors = new MemoryCollection();
-    const payloadStore = { putSecret: jest.fn(async () => undefined) };
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const payloadStore = { putSecret: mockPutSecret() };
     const service = new OAuthConnectorService({
       connectorsCollection: connectors,
       payloadStore,
@@ -175,7 +201,7 @@ describe("OAuthConnectorService", () => {
       configurable: true,
     });
     const productionService = new OAuthConnectorService({
-      connectorsCollection: new MemoryCollection(),
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
       payloadStore,
       idGenerator: () => "connector-2",
     });
@@ -197,7 +223,7 @@ describe("OAuthConnectorService", () => {
 
 describe("ProviderConnectionService", () => {
   it("refreshes provider tokens using connector metadata and stores rotated tokens encrypted", async () => {
-    const providerConnections = new MemoryCollection();
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({
       id: "conn-1",
       connectorId: "connector-1",
@@ -206,23 +232,30 @@ describe("ProviderConnectionService", () => {
       refreshTokenRef: "provider_connection:conn-1:refresh_token",
       accessTokenRef: "provider_connection:conn-1:access_token",
     });
-    const connectors = new MemoryCollection();
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
     connectors.docs.push({
       id: "connector-1",
+      name: "GitHub",
+      provider: "github",
       clientId: "client-id",
       clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.example.com/login/oauth/authorize",
       tokenUrl: "https://github.example.com/login/oauth/access_token",
       scopes: ["repo", "offline_access"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
     });
     const payloadStore = {
       getSecret: jest.fn(async (ref: string) => `${ref}:value`),
-      putSecret: jest.fn(async () => undefined),
+      putSecret: mockPutSecret(),
     };
-    const tokenClient = jest.fn(async () => ({
+    const tokenClient = mockTokenClient({
       access_token: "new-access-token",
       refresh_token: "new-refresh-token",
       expires_in: 3600,
-    }));
+    });
     const service = new ProviderConnectionService({
       providerConnectionsCollection: providerConnections,
       connectorsCollection: connectors,
@@ -253,15 +286,73 @@ describe("ProviderConnectionService", () => {
     });
   });
 
+  it("refreshes PagerDuty PKCE tokens without client_secret", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "pagerduty",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-1:refresh_token",
+      accessTokenRef: "provider_connection:conn-1:access_token",
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "PagerDuty",
+      provider: "pagerduty",
+      clientId: "pagerduty-client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://identity.pagerduty.com/oauth/authorize",
+      tokenUrl: "https://identity.pagerduty.com/oauth/token",
+      scopes: ["users.read", "incidents.read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/pagerduty/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => `${ref}:value`),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "pagerduty-access-token",
+      refresh_token: "pagerduty-refresh-token",
+      expires_in: 3600,
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+    });
+
+    await service.refreshConnection("conn-1");
+
+    expect(tokenClient).toHaveBeenCalledWith(
+      "https://identity.pagerduty.com/oauth/token",
+      {
+        grant_type: "refresh_token",
+        client_id: "pagerduty-client-id",
+        refresh_token: "provider_connection:conn-1:refresh_token:value",
+      },
+    );
+    expect(tokenClient).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ client_secret: expect.any(String) }),
+    );
+  });
+
   it("starts and completes an OAuth connection without exposing provider tokens", async () => {
-    const connectors = new MemoryCollection();
-    const connections = new MemoryCollection();
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
     const payloadStore = {
       getSecret: jest.fn(async (ref: string) => {
         if (ref === "oauth_connector:connector-1:client_secret") return "client-secret";
         return "stored";
       }),
-      putSecret: jest.fn(async () => undefined),
+      putSecret: mockPutSecret(),
     };
     connectors.docs.push({
       id: "connector-1",
@@ -282,11 +373,11 @@ describe("ProviderConnectionService", () => {
       providerConnectionsCollection: connections,
       connectorsCollection: connectors,
       payloadStore,
-      tokenClient: jest.fn(async () => ({
+      tokenClient: mockTokenClient({
         access_token: "provider-access-token",
         refresh_token: "provider-refresh-token",
         expires_in: 3600,
-      })),
+      }),
       idGenerator: () => "provider-connection-1",
       now: () => new Date("2026-01-01T00:00:00Z"),
     });
@@ -300,6 +391,8 @@ describe("ProviderConnectionService", () => {
     expect(start.authorizationUrl).toContain("state=state-1");
     expect(start.authorizationUrl).toContain("code_challenge=challenge-1");
     expect(start.authorizationUrl).toContain("code_challenge_method=S256");
+    expect(start.authorizationUrl).toContain("scope=repo");
+    expect(start.authorizationUrl).not.toContain("offline_access");
 
     const completed = await service.completeConnection({
       providerKey: "github",
@@ -325,8 +418,116 @@ describe("ProviderConnectionService", () => {
     });
   });
 
+  it("uses PagerDuty PKCE token exchange without client_secret", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    const payloadStore = {
+      getSecret: jest.fn(async () => "pagerduty-client-secret"),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "pagerduty-access-token",
+      refresh_token: "pagerduty-refresh-token",
+      expires_in: 3600,
+    });
+    connectors.docs.push({
+      id: "connector-1",
+      name: "PagerDuty",
+      provider: "pagerduty",
+      clientId: "pagerduty-client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://identity.pagerduty.com/oauth/authorize",
+      tokenUrl: "https://identity.pagerduty.com/oauth/token",
+      scopes: ["users.read", "incidents.read"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/pagerduty/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      idGenerator: () => "pagerduty-connection-1",
+    });
+
+    await service.completeConnection({
+      providerKey: "pagerduty",
+      owner: { type: "user", id: "alice-sub" },
+      code: "pagerduty-code",
+      codeVerifier: "pagerduty-verifier",
+    });
+
+    expect(tokenClient).toHaveBeenCalledWith(
+      "https://identity.pagerduty.com/oauth/token",
+      {
+        grant_type: "authorization_code",
+        client_id: "pagerduty-client-id",
+        code: "pagerduty-code",
+        code_verifier: "pagerduty-verifier",
+        redirect_uri: "https://caipe.example.com/api/credentials/oauth/pagerduty/callback",
+      },
+    );
+    expect(tokenClient).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ client_secret: expect.any(String) }),
+    );
+  });
+
+  it("treats non-expiring OAuth tokens without refresh tokens as connected", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    const payloadStore = {
+      getSecret: jest.fn(async () => "client-secret"),
+      putSecret: mockPutSecret(),
+    };
+    connectors.docs.push({
+      id: "connector-1",
+      name: "GitHub",
+      provider: "github",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.example.com/login/oauth/authorize",
+      tokenUrl: "https://github.example.com/login/oauth/access_token",
+      scopes: ["repo", "read:user"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient: mockTokenClient({ access_token: "provider-access-token" }),
+      idGenerator: () => "provider-connection-1",
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    });
+
+    await expect(
+      service.completeConnection({
+        providerKey: "github",
+        owner: { type: "user", id: "alice-sub" },
+        code: "provider-code",
+        codeVerifier: "verifier-1",
+      }),
+    ).resolves.toMatchObject({
+      provider: "github",
+      status: "connected",
+    });
+
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "provider_connection:provider-connection-1:access_token",
+      plaintext: "provider-access-token",
+    });
+    expect(payloadStore.putSecret).not.toHaveBeenCalledWith(
+      expect.objectContaining({ secretRefId: "provider_connection:provider-connection-1:refresh_token" }),
+    );
+  });
+
   it("lists provider connection metadata for an owner without token refs", async () => {
-    const providerConnections = new MemoryCollection();
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({
       id: "conn-1",
       connectorId: "connector-1",
@@ -339,12 +540,12 @@ describe("ProviderConnectionService", () => {
     });
     const service = new ProviderConnectionService({
       providerConnectionsCollection: providerConnections,
-      connectorsCollection: new MemoryCollection(),
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
       payloadStore: {
         getSecret: jest.fn(async () => "secret"),
-        putSecret: jest.fn(async () => undefined),
+        putSecret: mockPutSecret(),
       },
-      tokenClient: jest.fn(async () => ({ access_token: "token" })),
+      tokenClient: mockTokenClient({ access_token: "token" }),
     });
 
     await expect(service.listConnections({ type: "user", id: "alice-sub" })).resolves.toEqual([

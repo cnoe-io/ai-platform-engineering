@@ -50,12 +50,36 @@ function scriptJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+const PROVIDER_BRANDING: Record<string, { name: string }> = {
+  atlassian: { name: "Atlassian" },
+  gitlab: { name: "GitLab" },
+  github: { name: "GitHub" },
+  pagerduty: { name: "PagerDuty" },
+  webex: { name: "Webex" },
+};
+
+function providerBranding(providerKey: string): { name: string } {
+  return PROVIDER_BRANDING[providerKey] ?? {
+    name: providerKey
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || "OAuth provider",
+  };
+}
+
 function completionPage(input: {
   providerKey: string;
   status: "success" | "error";
   title: string;
   message: string;
 }): Response {
+  const provider = providerBranding(input.providerKey);
+  const flowTitle =
+    input.status === "success"
+      ? `${provider.name} connected`
+      : `${provider.name} connection failed`;
+  const logoMarkup = `<img class="brand-logo" src="/grid-neon-logo.svg" alt="CAIPE / Grid logo" />`;
   const message = {
     type: "caipe.oauth.connection",
     provider: input.providerKey,
@@ -66,23 +90,25 @@ function completionPage(input: {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(input.title)}</title>
+    <title>${escapeHtml(`${flowTitle} - ${input.title}`)}</title>
     <style>
       :root { color-scheme: dark light; }
-      body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #09090b; color: #fafafa; }
-      main { max-width: 28rem; padding: 2rem; text-align: center; }
-      p { color: #a1a1aa; line-height: 1.5; }
-      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; }
-      a, button { border: 0; border-radius: 0.5rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 700; padding: 0.75rem 1rem; text-decoration: none; }
-      a { background: #38bdf8; color: #082f49; }
+      * { box-sizing: border-box; }
+      body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 0%, rgba(20,184,166,0.18), transparent 28rem), #09090b; color: #fafafa; }
+      main { width: min(28rem, calc(100vw - 2rem)); padding: 2.25rem; text-align: center; border: 1px solid rgba(148,163,184,0.16); border-radius: 1.25rem; background: rgba(15,23,42,0.76); box-shadow: 0 2rem 5rem rgba(0,0,0,0.32); }
+      .brand-logo { width: 3.25rem; height: 3.25rem; object-fit: contain; display: inline-grid; place-items: center; margin-bottom: 1.25rem; border-radius: 0.95rem; background: rgba(2,6,23,0.72); padding: 0.45rem; box-shadow: inset 0 0 0 1px rgba(94,234,212,0.14); }
+      h1 { margin: 0; font-size: clamp(1.9rem, 6vw, 2.65rem); line-height: 1; letter-spacing: -0.055em; }
+      p { margin: 1rem auto 0; max-width: 22rem; color: #cbd5e1; line-height: 1.55; }
+      .actions { display: flex; justify-content: center; margin-top: 1.5rem; }
+      button { border: 0; border-radius: 0.75rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 800; padding: 0.8rem 1.25rem; text-decoration: none; min-width: 10rem; }
     </style>
   </head>
   <body>
     <main>
-      <h1>${escapeHtml(input.title)}</h1>
+      ${logoMarkup}
+      <h1>${escapeHtml(flowTitle)}</h1>
       <p>${escapeHtml(input.message)}</p>
       <div class="actions">
-        <a href="/credentials">Return to Connections</a>
         <button id="close-window" type="button">Close window</button>
       </div>
     </main>
@@ -121,11 +147,12 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   const url = new URL(request.url);
   const providerError = url.searchParams.get("error");
   if (providerError) {
+    const provider = providerBranding(providerKey);
     return completionPage({
       providerKey,
       status: "error",
       title: "Connection failed",
-      message: `The provider returned an OAuth error: ${providerError}. You can close this window and try again.`,
+      message: `${provider.name} returned ${providerError}. You can close this window.`,
     });
   }
   const code = url.searchParams.get("code") ?? "";
@@ -159,7 +186,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       message:
         error instanceof Error
           ? error.message
-          : "The OAuth connection could not be completed. You can close this window and try again.",
+          : "The OAuth connection could not be completed. Just close this window.",
     });
   }
 
@@ -167,7 +194,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
     providerKey,
     status: "success",
     title: "Connection complete",
-    message: "Your OAuth connection was saved. You can close this window.",
+    message: "You can close this window.",
   });
   response.headers.set(
     "set-cookie",

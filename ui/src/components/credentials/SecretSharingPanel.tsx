@@ -23,9 +23,11 @@ function teamValue(team: TeamOption): string {
 export function SecretSharingPanel({
   secretId,
   sharedWithTeams,
+  onSharingChange,
 }: {
   secretId: string;
   sharedWithTeams: string[];
+  onSharingChange?: (teamIds: string[]) => void;
 }) {
   const [teamId, setTeamId] = React.useState("");
   const [sharedTeamIds, setSharedTeamIds] = React.useState(sharedWithTeams);
@@ -64,27 +66,30 @@ export function SecretSharingPanel({
       setError("Could not update sharing");
       return;
     }
-    setSharedTeamIds((current) =>
-      action === "share"
-        ? Array.from(new Set([...current, targetTeamId]))
-        : current.filter((team) => team !== targetTeamId),
-    );
+    setSharedTeamIds((current) => {
+      const next =
+        action === "share"
+          ? Array.from(new Set([...current, targetTeamId]))
+          : current.filter((team) => team !== targetTeamId);
+      onSharingChange?.(next);
+      return next;
+    });
     setTeamId("");
   }
 
   return (
-    <div className="mt-3 space-y-3 rounded-md border border-border p-3">
+    <div className="space-y-4">
       <form
-        className="flex gap-2"
+        className="space-y-6"
         onSubmit={(event) => {
           event.preventDefault();
           if (teamId.trim()) void updateShare("share", teamId.trim());
         }}
       >
-        <label className="flex-1 space-y-1 text-xs">
+        <label className="space-y-1.5 text-sm">
           <span>Team</span>
           <select
-            className="w-full rounded-md border border-input bg-background px-2 py-1"
+            className="w-full rounded-md border border-input bg-background px-3 py-2"
             value={teamId}
             onChange={(event) => setTeamId(event.target.value)}
           >
@@ -99,23 +104,29 @@ export function SecretSharingPanel({
             })}
           </select>
         </label>
-        <Button type="submit" size="sm" className="self-end" disabled={!teamId.trim()}>
+        <Button type="submit" size="sm" className="mt-1" disabled={!teamId.trim()}>
           Share
         </Button>
       </form>
       {sharedTeamIds.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Shared teams
+          </p>
           {sharedTeamIds.map((team) => (
-            <span key={team} className="rounded bg-muted px-2 py-1 text-xs">
-              {team}
+            <div
+              key={team}
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+            >
+              <span>Shared with {team}</span>
               <button
                 type="button"
-                className="ml-2 text-muted-foreground"
+                className="text-xs font-medium text-muted-foreground hover:text-destructive"
                 onClick={() => void updateShare("revoke", team)}
               >
-                revoke
+                Revoke
               </button>
-            </span>
+            </div>
           ))}
         </div>
       )}

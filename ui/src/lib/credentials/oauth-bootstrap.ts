@@ -4,10 +4,11 @@ import { BUILT_IN_OAUTH_CONNECTORS } from "./built-in-oauth-connectors";
 type Env = Record<string, string | undefined>;
 
 interface BootstrapProviderEnv {
-  provider: "github" | "atlassian" | "webex";
+  provider: "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
   clientIdEnv: string;
   clientSecretEnv: string;
   redirectUriEnv: string;
+  scopesEnv?: string;
 }
 
 const PROVIDER_ENV: BootstrapProviderEnv[] = [
@@ -28,6 +29,20 @@ const PROVIDER_ENV: BootstrapProviderEnv[] = [
     clientIdEnv: "WEBEX_CLIENT_ID",
     clientSecretEnv: "WEBEX_CLIENT_SECRET",
     redirectUriEnv: "WEBEX_REDIRECT_URI",
+  },
+  {
+    provider: "pagerduty",
+    clientIdEnv: "PAGERDUTY_CLIENT_ID",
+    clientSecretEnv: "PAGERDUTY_CLIENT_SECRET",
+    redirectUriEnv: "PAGERDUTY_REDIRECT_URI",
+    scopesEnv: "PAGERDUTY_SCOPES",
+  },
+  {
+    provider: "gitlab",
+    clientIdEnv: "GITLAB_CLIENT_ID",
+    clientSecretEnv: "GITLAB_CLIENT_SECRET",
+    redirectUriEnv: "GITLAB_REDIRECT_URI",
+    scopesEnv: "GITLAB_SCOPES",
   },
 ];
 
@@ -70,6 +85,21 @@ function normalizeRedirectUri(
   return redirectUri;
 }
 
+function scopesForProvider(
+  descriptor: NonNullable<(typeof BUILT_IN_OAUTH_CONNECTORS)[number]>,
+  providerEnv: BootstrapProviderEnv,
+  env: Env,
+): string[] {
+  const configured = providerEnv.scopesEnv ? value(env, providerEnv.scopesEnv) : null;
+  if (!configured) {
+    return descriptor.scopes;
+  }
+  return configured
+    .split(/[,\s]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
 export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): CreateConnectorInput[] {
   const inputs: CreateConnectorInput[] = [];
   for (const providerEnv of PROVIDER_ENV) {
@@ -89,7 +119,7 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
       clientSecret,
       authorizationUrl: descriptor.authorizationUrl,
       tokenUrl: descriptor.tokenUrl,
-      scopes: descriptor.scopes,
+      scopes: scopesForProvider(descriptor, providerEnv, env),
       redirectUri: normalizeRedirectUri(providerEnv.provider, redirectUri, env),
     });
   }

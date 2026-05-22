@@ -147,6 +147,51 @@ function toConnectorMetadata(doc: OAuthConnectorDocument): OAuthConnectorMetadat
   return { ...metadata, clientSecretConfigured: true };
 }
 
+function authorizationScopes(provider: string, scopes: string[]): string[] {
+  if (provider.toLowerCase() !== "github") {
+    return scopes;
+  }
+  return scopes.filter((scope) => scope !== "offline_access");
+}
+
+function authorizationCodeTokenBody(input: {
+  provider: string;
+  clientId: string;
+  clientSecret: string;
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}): Record<string, string> {
+  const body: Record<string, string> = {
+    grant_type: "authorization_code",
+    client_id: input.clientId,
+    code: nonEmpty(input.code, "code"),
+    code_verifier: nonEmpty(input.codeVerifier, "codeVerifier"),
+    redirect_uri: input.redirectUri,
+  };
+  if (input.provider.toLowerCase() !== "pagerduty") {
+    body.client_secret = input.clientSecret;
+  }
+  return body;
+}
+
+function refreshTokenBody(input: {
+  provider: string;
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+}): Record<string, string> {
+  const body: Record<string, string> = {
+    grant_type: "refresh_token",
+    client_id: input.clientId,
+    refresh_token: input.refreshToken,
+  };
+  if (input.provider.toLowerCase() !== "pagerduty") {
+    body.client_secret = input.clientSecret;
+  }
+  return body;
+}
+
 export class OAuthConnectorService {
   private readonly connectorsCollection: Collection<OAuthConnectorDocument>;
   private readonly payloadStore: PayloadStore;
@@ -273,7 +318,7 @@ export class ProviderConnectionService {
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", connector.clientId);
     url.searchParams.set("redirect_uri", connector.redirectUri);
-    url.searchParams.set("scope", connector.scopes.join(" "));
+    url.searchParams.set("scope", authorizationScopes(connector.provider, connector.scopes).join(" "));
     url.searchParams.set("state", nonEmpty(input.state, "state"));
     url.searchParams.set("code_challenge", nonEmpty(input.codeChallenge, "codeChallenge"));
     url.searchParams.set("code_challenge_method", "S256");
@@ -288,14 +333,17 @@ export class ProviderConnectionService {
   }): Promise<ProviderConnectionMetadata> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
     const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
-    const token = await this.tokenClient(connector.tokenUrl, {
-      grant_type: "authorization_code",
-      client_id: connector.clientId,
-      client_secret: clientSecret,
-      code: nonEmpty(input.code, "code"),
-      code_verifier: nonEmpty(input.codeVerifier, "codeVerifier"),
-      redirect_uri: connector.redirectUri,
-    });
+    const token = await this.tokenClient(
+      connector.tokenUrl,
+      authorizationCodeTokenBody({
+        provider: connector.provider,
+        clientId: connector.clientId,
+        clientSecret,
+        code: input.code,
+        codeVerifier: input.codeVerifier,
+        redirectUri: connector.redirectUri,
+      }),
+    );
 
     const id = this.idGenerator();
     const accessTokenRef = `provider_connection:${id}:access_token`;
@@ -317,7 +365,7 @@ export class ProviderConnectionService {
       connectorId: connector.id,
       provider: connector.provider,
       owner: input.owner,
-      status: token.refresh_token ? "connected" : "needs_reauth",
+      status: token.refresh_token || !token.expires_in ? "connected" : "needs_reauth",
       accessTokenRef,
       refreshTokenRef,
       expiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
@@ -359,12 +407,15 @@ export class ProviderConnectionService {
       this.payloadStore.getSecret(connector.clientSecretRef),
       this.payloadStore.getSecret(connection.refreshTokenRef),
     ]);
-    const token = await this.tokenClient(connector.tokenUrl, {
-      grant_type: "refresh_token",
-      client_id: connector.clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-    });
+    const token = await this.tokenClient(
+      connector.tokenUrl,
+      refreshTokenBody({
+        provider: connector.provider,
+        clientId: connector.clientId,
+        clientSecret,
+        refreshToken,
+      }),
+    );
 
     await this.payloadStore.putSecret({
       secretRefId: connection.accessTokenRef,

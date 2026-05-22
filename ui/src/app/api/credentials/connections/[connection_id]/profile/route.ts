@@ -9,7 +9,7 @@ import {
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
-type Provider = "github" | "atlassian" | "webex";
+type Provider = "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
 type ProviderProfileFailure = {
   ok: false;
   status: number;
@@ -23,6 +23,15 @@ type TokenDiagnostic = {
   action: string;
   http_status?: number;
 };
+
+function defaultProfileFailureMessage(status: number): string {
+  return `Profile check failed with HTTP ${status}`;
+}
+
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
 
 interface RouteContext {
   params: Promise<{ connection_id: string }>;
@@ -42,6 +51,10 @@ function profileEndpoint(provider: Provider): string {
       return "https://api.atlassian.com/me";
     case "webex":
       return "https://webexapis.com/v1/people/me";
+    case "pagerduty":
+      return "https://api.pagerduty.com/users/me";
+    case "gitlab":
+      return "https://gitlab.com/api/v4/user";
   }
 }
 
@@ -57,6 +70,10 @@ function providerDisplayName(provider: Provider): string {
       return "Atlassian";
     case "webex":
       return "Webex";
+    case "pagerduty":
+      return "PagerDuty";
+    case "gitlab":
+      return "GitLab";
   }
 }
 
@@ -67,6 +84,9 @@ function profileHeaders(provider: Provider, accessToken: string): Record<string,
   };
   if (provider === "github") {
     headers["x-github-api-version"] = "2022-11-28";
+  }
+  if (provider === "pagerduty") {
+    headers.accept = "application/vnd.pagerduty+json;version=2";
   }
   return headers;
 }
@@ -95,6 +115,25 @@ function safeProfile(provider: Provider, payload: Record<string, unknown>): Reco
         emails: payload.emails,
         userName: payload.userName,
       };
+    case "pagerduty": {
+      const user = typeof payload.user === "object" && payload.user !== null
+        ? (payload.user as Record<string, unknown>)
+        : payload;
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        html_url: user.html_url,
+      };
+    }
+    case "gitlab":
+      return {
+        id: payload.id,
+        username: payload.username,
+        name: payload.name,
+        email: payload.email,
+        web_url: payload.web_url,
+      };
   }
 }
 
@@ -108,7 +147,7 @@ function providerFailure(
       ? payload.message
       : typeof payload.error === "string"
         ? payload.error
-        : `Profile check failed with HTTP ${status}`;
+        : defaultProfileFailureMessage(status);
   console.warn(
     `[credentials] ${provider} profile check failed with HTTP ${status}: ${message}`,
   );
@@ -149,6 +188,16 @@ function tokenRefreshFailureDiagnostic(provider: Provider): TokenDiagnostic {
   };
 }
 
+function profileFailureAction(provider: Provider, failure: ProviderProfileFailure): string {
+  if (provider === "atlassian" && failure.status === 403) {
+    return "Ask an Atlassian admin to verify User Identity API access, or rely on accessible resources for token validation.";
+  }
+  if (provider === "webex" && failure.status === 403) {
+    return "Verify the Webex integration includes spark:people_read, then relink Webex. If it still fails, confirm the Webex user can sign in and has the required role or license.";
+  }
+  return `Relink ${providerDisplayName(provider)} and try the profile check again.`;
+}
+
 function profileDiagnostic(provider: Provider, failure?: ProviderProfileFailure): TokenDiagnostic {
   if (!failure) {
     return {
@@ -163,12 +212,44 @@ function profileDiagnostic(provider: Provider, failure?: ProviderProfileFailure)
     id: "provider_profile",
     label: `${providerDisplayName(provider)} user profile`,
     status: provider === "atlassian" && failure.status === 403 ? "warning" : "failed",
-    detail: `${providerDisplayName(provider)} returned HTTP ${failure.status}: ${failure.message}.`,
-    action:
-      provider === "atlassian" && failure.status === 403
-        ? "Ask an Atlassian admin to verify User Identity API access, or rely on accessible resources for token validation."
-        : `Relink ${providerDisplayName(provider)} and try the profile check again.`,
+    detail:
+      failure.message === defaultProfileFailureMessage(failure.status)
+        ? `${providerDisplayName(provider)} returned HTTP ${failure.status}.`
+        : sentence(`${providerDisplayName(provider)} returned HTTP ${failure.status}: ${failure.message}`),
+    action: profileFailureAction(provider, failure),
     http_status: failure.status,
+  };
+}
+
+function parseScopeHeader(value: string | null): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+function githubOAuthScopesDiagnostic(headers?: Headers): TokenDiagnostic | null {
+  if (!headers) {
+    return null;
+  }
+  const granted = parseScopeHeader(headers.get("x-oauth-scopes"));
+  const accepted = parseScopeHeader(headers.get("x-accepted-oauth-scopes"));
+  if (granted.length === 0 && accepted.length === 0) {
+    return null;
+  }
+  const missingAccepted = accepted.filter((scope) => !granted.includes(scope));
+  const grantedText = granted.length > 0 ? granted.join(", ") : "none";
+  const acceptedText = accepted.length > 0 ? accepted.join(", ") : "none";
+  return {
+    id: "github_oauth_scopes",
+    label: "GitHub OAuth scopes",
+    status: missingAccepted.length === 0 ? "passed" : "warning",
+    detail: `GitHub token grants ${grantedText}; this endpoint accepts ${acceptedText}.`,
+    action:
+      missingAccepted.length === 0
+        ? "No action needed."
+        : `Relink GitHub with the accepted scopes: ${missingAccepted.join(", ")}.`,
   };
 }
 
@@ -204,7 +285,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   if (!connection) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
-  if (!["github", "atlassian", "webex"].includes(connection.provider)) {
+  if (!["github", "atlassian", "webex", "pagerduty", "gitlab"].includes(connection.provider)) {
     throw new ApiError("Provider profile checks are not supported", 400, "UNSUPPORTED_PROVIDER");
   }
 
@@ -231,7 +312,6 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   const profilePayload = (await profileResponse.json().catch(() => ({}))) as Record<string, unknown>;
   if (!profileResponse.ok) {
     const failure = providerFailure(provider, profileResponse.status, profilePayload);
-    diagnostics.push(profileDiagnostic(provider, failure));
     if (provider === "atlassian") {
       const resourcesResponse = await fetch(atlassianAccessibleResourcesEndpoint(), {
         headers: profileHeaders(provider, token.accessToken),
@@ -249,11 +329,11 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
           profile_check: failure,
           accessible_resources: accessibleResources,
           diagnostics,
-          next_action:
-            "Token is valid for Atlassian resources; profile endpoint needs Atlassian app/user permission review.",
+          next_action: "No action needed.",
         });
       }
     }
+    diagnostics.push(profileDiagnostic(provider, failure));
     return successResponse({
       provider,
       ok: false,
@@ -266,6 +346,12 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   }
 
   diagnostics.push(profileDiagnostic(provider));
+  if (provider === "github") {
+    const scopeDiagnostic = githubOAuthScopesDiagnostic(profileResponse.headers);
+    if (scopeDiagnostic) {
+      diagnostics.push(scopeDiagnostic);
+    }
+  }
   return successResponse({
     provider,
     ok: true,

@@ -1,11 +1,13 @@
+import { afterAll, beforeEach, describe, expect, it } from "@jest/globals";
+
 import {
   getCredentialFeatureConfig,
   isCredentialFeatureEnabled,
-} from "@/lib/feature-flags/credentials";
+} from "../credentials";
 
 const ORIGINAL_ENV = process.env;
 
-function resetEnv(overrides: NodeJS.ProcessEnv = {}): void {
+function resetEnv(overrides: Record<string, string | undefined> = {}): void {
   process.env = { ...ORIGINAL_ENV, ...overrides };
   delete process.env.CAIPE_CREDENTIALS_ENABLED;
   delete process.env.CREDENTIAL_STORE_BACKEND;

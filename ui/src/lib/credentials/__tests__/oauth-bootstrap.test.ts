@@ -1,4 +1,26 @@
+import { describe, expect, it, jest } from "@jest/globals";
+
 import { buildOAuthConnectorBootstrapInputs, bootstrapOAuthConnectorsFromEnv } from "../oauth-bootstrap";
+import type { CreateConnectorInput, OAuthConnectorMetadata, OAuthConnectorService } from "../oauth-service";
+
+type UpsertConnector = OAuthConnectorService["upsertConnector"];
+
+function connectorMetadata(input: Partial<CreateConnectorInput> & { id?: string } = {}): OAuthConnectorMetadata {
+  return {
+    id: input.id ?? "connector-1",
+    name: input.name ?? "GitHub",
+    provider: input.provider ?? "github",
+    clientId: input.clientId ?? "github-client",
+    authorizationUrl: input.authorizationUrl ?? "https://github.com/login/oauth/authorize",
+    tokenUrl: input.tokenUrl ?? "https://github.com/login/oauth/access_token",
+    scopes: input.scopes ?? ["repo", "read:user"],
+    redirectUri: input.redirectUri ?? "https://caipe.example.com/api/credentials/oauth/github/callback",
+    enabled: true,
+    createdAt: new Date("2026-05-21T00:00:00.000Z"),
+    updatedAt: new Date("2026-05-21T00:00:00.000Z"),
+    clientSecretConfigured: true,
+  };
+}
 
 describe("OAuth connector env bootstrap", () => {
   it("builds provider connector inputs from env without exposing secret values", () => {
@@ -12,16 +34,105 @@ describe("OAuth connector env bootstrap", () => {
       WEBEX_CLIENT_ID: "webex-client",
       WEBEX_CLIENT_SECRET: "webex-secret",
       WEBEX_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/webex/callback",
+      PAGERDUTY_CLIENT_ID: "pagerduty-client",
+      PAGERDUTY_CLIENT_SECRET: "pagerduty-secret",
+      PAGERDUTY_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/pagerduty/callback",
+      PAGERDUTY_SCOPES: "users.read incidents.read",
+      GITLAB_CLIENT_ID: "gitlab-client",
+      GITLAB_CLIENT_SECRET: "gitlab-secret",
+      GITLAB_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
     });
 
-    expect(inputs.map((input) => input.provider)).toEqual(["github", "atlassian", "webex"]);
+    expect(inputs.map((input) => input.provider)).toEqual(["github", "atlassian", "webex", "pagerduty", "gitlab"]);
+    expect(inputs[0].scopes).toEqual(["repo", "read:user"]);
+    expect(inputs[0].scopes).not.toContain("offline_access");
     expect(inputs[1]).toMatchObject({
       name: "Atlassian Cloud",
       clientId: "atlassian-client",
       clientSecret: "atlassian-secret",
     });
     expect(inputs[1].scopes).toContain("read:me");
+    expect(inputs[2]).toMatchObject({
+      name: "Webex",
+      clientId: "webex-client",
+      clientSecret: "webex-secret",
+      scopes: [
+        "spark:kms",
+        "spark:people_read",
+        "meeting:recordings_read",
+        "identity:people_read",
+        "spark:messages_read",
+        "spark:mcp",
+        "spark-admin:people_read",
+      ],
+    });
+    expect(inputs[3]).toMatchObject({
+      name: "PagerDuty",
+      clientId: "pagerduty-client",
+      clientSecret: "pagerduty-secret",
+      scopes: ["users.read", "incidents.read"],
+    });
+    expect(inputs[4]).toMatchObject({
+      name: "GitLab",
+      clientId: "gitlab-client",
+      clientSecret: "gitlab-secret",
+      authorizationUrl: "https://gitlab.com/oauth/authorize",
+      tokenUrl: "https://gitlab.com/oauth/token",
+      scopes: ["api", "read_user"],
+    });
     expect(JSON.stringify(inputs)).not.toContain("oauth_connector:");
+  });
+
+  it("uses read-only PagerDuty scopes when PAGERDUTY_SCOPES is not set", () => {
+    const inputs = buildOAuthConnectorBootstrapInputs({
+      PAGERDUTY_CLIENT_ID: "pagerduty-client",
+      PAGERDUTY_CLIENT_SECRET: "pagerduty-secret",
+      PAGERDUTY_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/pagerduty/callback",
+    });
+
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        provider: "pagerduty",
+        scopes: expect.arrayContaining([
+          "users.read",
+          "incidents.read",
+          "services.read",
+          "oncalls.read",
+          "schedules.read",
+          "teams.read",
+          "escalation_policies.read",
+        ]),
+      }),
+    ]);
+  });
+
+  it("uses GitLab.com defaults and allows overriding GitLab scopes", () => {
+    const defaults = buildOAuthConnectorBootstrapInputs({
+      GITLAB_CLIENT_ID: "gitlab-client",
+      GITLAB_CLIENT_SECRET: "gitlab-secret",
+      GITLAB_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
+    });
+    const overridden = buildOAuthConnectorBootstrapInputs({
+      GITLAB_CLIENT_ID: "gitlab-client",
+      GITLAB_CLIENT_SECRET: "gitlab-secret",
+      GITLAB_REDIRECT_URI: "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
+      GITLAB_SCOPES: "read_user read_api",
+    });
+
+    expect(defaults).toEqual([
+      expect.objectContaining({
+        provider: "gitlab",
+        authorizationUrl: "https://gitlab.com/oauth/authorize",
+        tokenUrl: "https://gitlab.com/oauth/token",
+        scopes: ["api", "read_user"],
+      }),
+    ]);
+    expect(overridden).toEqual([
+      expect.objectContaining({
+        provider: "gitlab",
+        scopes: ["read_user", "read_api"],
+      }),
+    ]);
   });
 
   it("normalizes legacy local GitHub and Webex callback URLs to the CAIPE UI callback route", () => {
@@ -49,7 +160,7 @@ describe("OAuth connector env bootstrap", () => {
 
   it("skips incomplete provider env sets and upserts only when enabled", async () => {
     const service = {
-      upsertConnector: jest.fn(async () => ({ id: "connector-1" })),
+      upsertConnector: jest.fn<UpsertConnector>(async (input) => connectorMetadata(input)),
     };
 
     await bootstrapOAuthConnectorsFromEnv({
@@ -82,9 +193,9 @@ describe("OAuth connector env bootstrap", () => {
   it("continues bootstrapping remaining providers when one provider fails validation", async () => {
     const service = {
       upsertConnector: jest
-        .fn()
+        .fn<UpsertConnector>()
         .mockRejectedValueOnce(new Error("redirectUri must be an external HTTPS URL"))
-        .mockResolvedValueOnce({ id: "connector-2" }),
+        .mockResolvedValueOnce(connectorMetadata({ id: "connector-2" })),
     };
 
     await expect(
