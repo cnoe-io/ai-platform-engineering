@@ -47,6 +47,11 @@ import {
   projectEvent,
   type ArtifactPatch,
 } from "@/lib/agentic-sdlc/projector";
+import {
+  isCiEvent,
+  ciEventArtifactId,
+  projectCiEvent,
+} from "@/lib/agentic-sdlc/ci-projection";
 import type {
   OnboardedRepo,
   AgenticSdlcArtifact,
@@ -155,6 +160,81 @@ async function processOneById(
       { _id: eventId },
       { $set: { projection_status: "failed" } },
     );
+    return;
+  }
+
+  // CI events update only the PR/task artifact's `ci_summary` and
+  // `head_sha` fields -- they never own stage, labels, or title, so
+  // they go through a dedicated patch path that won't stomp the
+  // issue/PR projector's state.
+  if (isCiEvent(ev)) {
+    const artifactId = ciEventArtifactId(ev);
+    if (artifactId) {
+      const artifacts = await agenticSdlcArtifacts();
+      const filter = {
+        repo_id: ev.repo_id,
+        kind: "pull_request" as const,
+        artifact_id: artifactId,
+      };
+      const prior = (await artifacts.findOne(filter)) as AgenticSdlcArtifact | null;
+      // Read prior CI events on this artifact to rebuild the
+      // "latest per check_name" map deterministically. Pilot scale
+      // means this is cheap; we cap at 50 to avoid pathological
+      // CI-spam loops dragging projection latency.
+      const history = (await events
+        .find({
+          repo_id: ev.repo_id,
+          artifact_id: artifactId,
+          github_event_type: { $in: ["check_run", "check_suite", "workflow_run"] },
+          _id: { $ne: eventId },
+        })
+        .sort({ occurred_at: -1 })
+        .limit(50)
+        .toArray()) as AgenticSdlcEvent[];
+      const ciPatch = projectCiEvent(ev, history, prior);
+      if (ciPatch && prior) {
+        const now = new Date();
+        await artifacts.updateOne(filter, {
+          $set: {
+            ci_summary: ciPatch.ci_summary,
+            head_sha: ciPatch.head_sha,
+            updated_at: now,
+          },
+        });
+        const final = (await artifacts.findOne(filter)) as AgenticSdlcArtifact | null;
+        if (final) {
+          const artifactPayload = sanitizeArtifactForSse(final);
+          publish(repoTopic(ev.repo_id), {
+            event: "artifact_upserted",
+            data: artifactPayload,
+          });
+          publish(portfolioTopic(), {
+            event: "artifact_upserted",
+            data: artifactPayload,
+          });
+        }
+      }
+    }
+    // Fall through to the standard finalisation (mark projected,
+    // bump webhook_last_event_at, etc.) — no further projection.
+    await events.updateOne(
+      { _id: eventId },
+      { $set: { projection_status: "projected" } },
+    );
+    await repos.updateOne(
+      { repo_id: ev.repo_id },
+      {
+        $set: {
+          webhook_status: "healthy",
+          webhook_last_event_at: ev.occurred_at,
+          updated_at: new Date(),
+        },
+      },
+    );
+    const eventPayload = sanitizeEventForSse(ev);
+    publish(repoTopic(ev.repo_id), { event: "event_appended", data: eventPayload });
+    publish(portfolioTopic(), { event: "event_appended", data: eventPayload });
+    recordProjectionLatency((Date.now() - enqueuedAtMs) / 1000);
     return;
   }
 

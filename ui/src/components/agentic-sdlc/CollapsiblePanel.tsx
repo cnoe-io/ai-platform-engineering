@@ -45,7 +45,7 @@ export function CollapsiblePanel({
     >
       <div
         className={cn(
-          "flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4",
+          "collapsible-panel-header flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4",
           open && "border-b border-border/25",
           headerClassName,
         )}

@@ -51,6 +51,7 @@ const ACCEPTED_EVENT_TYPES = new Set<string>([
   "push",
   "check_run",
   "check_suite",
+  "workflow_run",
   "deployment",
   "deployment_status",
   "label",
@@ -290,6 +291,44 @@ function summariseEvent(
     artifactId = child.subIssue?.node_id ?? "";
     occurredAt = child.subIssue?.updated_at ? new Date(child.subIssue.updated_at) : new Date();
     epicId = child.parentIssue?.node_id ?? null;
+  } else if (eventType === "check_run") {
+    artifactKind = "pull_request";
+    const checkRun = payload.check_run as
+      | {
+          id?: number | string;
+          completed_at?: string;
+          started_at?: string;
+          pull_requests?: { node_id?: string }[];
+        }
+      | undefined;
+    artifactId = checkRun?.pull_requests?.[0]?.node_id ?? "";
+    occurredAt = checkRun?.completed_at
+      ? new Date(checkRun.completed_at)
+      : checkRun?.started_at
+        ? new Date(checkRun.started_at)
+        : new Date();
+  } else if (eventType === "check_suite") {
+    artifactKind = "pull_request";
+    const suite = payload.check_suite as
+      | {
+          id?: number | string;
+          updated_at?: string;
+          pull_requests?: { node_id?: string }[];
+        }
+      | undefined;
+    artifactId = suite?.pull_requests?.[0]?.node_id ?? "";
+    occurredAt = suite?.updated_at ? new Date(suite.updated_at) : new Date();
+  } else if (eventType === "workflow_run") {
+    artifactKind = "unknown";
+    const run = payload.workflow_run as
+      | {
+          node_id?: string;
+          updated_at?: string;
+          pull_requests?: { node_id?: string }[];
+        }
+      | undefined;
+    artifactId = run?.pull_requests?.[0]?.node_id ?? run?.node_id ?? "";
+    occurredAt = run?.updated_at ? new Date(run.updated_at) : new Date();
   } else if (eventType === "label") {
     artifactKind = "label";
   }

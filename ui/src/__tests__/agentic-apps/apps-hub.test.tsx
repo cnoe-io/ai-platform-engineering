@@ -71,6 +71,34 @@ describe("AgenticAppsHub", () => {
     );
   });
 
+  it("exposes a card-wide launch link so clicks anywhere on the card open the app", () => {
+    render(<AgenticAppsHub apps={[finopsApp]} />);
+
+    const launchLink = screen.getByRole("link", { name: "Launch FinOps Dashboard" });
+    expect(launchLink).toHaveAttribute("href", "/apps/finops");
+    expect(launchLink).toHaveAttribute("title", "Launch FinOps Dashboard");
+    expect(launchLink.className).toMatch(/absolute/);
+    expect(launchLink.className).toMatch(/inset-0/);
+  });
+
+  it("does not render a card-wide launch link for blocked apps", () => {
+    render(
+      <AgenticAppsHub
+        apps={[
+          {
+            ...finopsApp,
+            canLaunch: false,
+            blockedReasons: ["unauthorized"],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Launch FinOps Dashboard" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("hides inline runtime labels and exposes them only via the runtime info tooltip", async () => {
     const user = userEvent.setup();
     render(<AgenticAppsHub apps={[finopsApp]} />);

@@ -41,7 +41,7 @@ export type ArtifactPatch = Pick<
   | "needs_human"
   | "stalled_since"
   | "github_url"
-> & { last_event_at: Date };
+> & { last_event_at: Date; head_sha?: string | null };
 
 export function projectEvent(
   ev: AgenticSdlcEvent,
@@ -95,6 +95,8 @@ function projectPullRequest(
 
   const agentLabels = labels.filter((l) => l.startsWith("agent:"));
 
+  const head = pr.head as { sha?: string } | undefined;
+
   return {
     repo_id: ev.repo_id,
     kind: "pull_request",
@@ -113,6 +115,7 @@ function projectPullRequest(
     stalled_since: null,
     github_url: (pr.html_url as string | undefined) ?? "",
     last_event_at: ev.occurred_at,
+    head_sha: typeof head?.sha === "string" ? head.sha : null,
   };
 }
 
