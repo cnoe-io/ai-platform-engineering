@@ -169,7 +169,9 @@ class QueryRequest(BaseModel):
   query: str = Field(..., description="Query string to search for")
   limit: int = Field(3, description="Maximum number of results to return", ge=1, le=100)
   similarity_threshold: float = Field(0.3, description="Minimum similarity score", ge=0.0, le=1.0)
-  filters: Optional[Dict[str, str | bool]] = Field(None, description="Additional filters as key-value pairs")
+  filters: Optional[Dict[str, str | bool | List[str]]] = Field(
+    None, description="Additional filters as key-value pairs (values may be lists for OR / IN semantics)"
+  )
   ranker_type: str = Field("weighted", description="Type of ranker to use")
   ranker_params: Optional[Dict[str, Any]] = Field({"weights": [0.7, 0.3]}, description="Parameters for the ranker")
 

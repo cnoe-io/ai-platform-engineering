@@ -89,7 +89,7 @@ class WorkerSpider(Spider):
     self.crawl_request = request
     self.result_queue = result_queue
 
-    self.origin_url = request.url
+    self.start_url = request.url
     self.max_pages = request.max_pages
     self.crawl_mode = request.crawl_mode
     self.follow_external = request.follow_external_links
@@ -221,14 +221,9 @@ class WorkerSpider(Spider):
       return None
     return Request(url, **kwargs)
 
-  async def start(self):
-    """Generate initial request(s) based on crawl mode (Scrapy 2.16+ entry point)."""
-    for request in self.start_requests():
-      yield request
-
   def start_requests(self):
     """Generate initial request(s) based on crawl mode."""
-    if not self._is_safe_crawl_url(self.origin_url, count_failure=True):
+    if not self._is_safe_crawl_url(self.start_url, count_failure=True):
       return
 
     # Send initial progress message for JS rendering
@@ -246,16 +241,16 @@ class WorkerSpider(Spider):
       # For sitemap mode, try to discover sitemap.xml
       # First try subdirectory path, then fall back to root domain
       # For example: https://example.com/docs/ -> try /docs/sitemap.xml, then /sitemap.xml
-      parsed = urlparse(self.origin_url)
-      subdirectory_base = self.origin_url.rstrip("/")
+      parsed = urlparse(self.start_url)
+      subdirectory_base = self.start_url.rstrip("/")
       root_base = f"{parsed.scheme}://{parsed.netloc}"
 
       # Determine if we have a subdirectory path
       has_subdirectory = parsed.path and parsed.path.rstrip("/") != ""
 
       # Check if user provided a direct sitemap URL
-      if self.origin_url.endswith("sitemap.xml") or self.origin_url.endswith("sitemap.xml.gz"):
-        sitemap_url = self.origin_url
+      if self.start_url.endswith("sitemap.xml") or self.start_url.endswith("sitemap.xml.gz"):
+        sitemap_url = self.start_url
       else:
         # Try subdirectory sitemap.xml first (if there's a path)
         sitemap_url = f"{subdirectory_base}/sitemap.xml"
@@ -276,7 +271,7 @@ class WorkerSpider(Spider):
         yield request
     else:
       # Single URL or recursive mode - start with the URL
-      request = self._safe_request(self.origin_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
+      request = self._safe_request(self.start_url, callback=self.parse_page, errback=self.handle_error, meta=self._build_request_meta())
       if request:
         yield request
 
@@ -338,7 +333,7 @@ class WorkerSpider(Spider):
     3. If all fail, raise error (don't fall back to single page crawl)
     """
     meta = failure.request.meta
-    subdirectory_base = meta.get("subdirectory_base", self.origin_url.rstrip("/"))
+    subdirectory_base = meta.get("subdirectory_base", self.start_url.rstrip("/"))
     root_base = meta.get("root_base", subdirectory_base)
     has_subdirectory = meta.get("has_subdirectory", False)
     is_root_fallback = meta.get("is_root_fallback", False)
@@ -539,7 +534,7 @@ class WorkerSpider(Spider):
     # This ensures that in recursive mode, we follow links on the actual domain we landed on
     if self.effective_domain is None:
       response_domain = urlparse(response.url).netloc
-      start_domain = urlparse(self.origin_url).netloc
+      start_domain = urlparse(self.start_url).netloc
       if response_domain != start_domain:
         self.effective_domain = response_domain
         self._log(logging.INFO, f"Detected redirect: {start_domain} -> {response_domain}, updating effective domain")
@@ -682,7 +677,7 @@ class WorkerSpider(Spider):
       if self.effective_domain:
         allowed_domain = self.effective_domain
       else:
-        allowed_domain = urlparse(self.origin_url).netloc
+        allowed_domain = urlparse(self.start_url).netloc
 
       url_domain = urlparse(url).netloc
       if url_domain != allowed_domain:
@@ -856,7 +851,7 @@ class WorkerSpider(Spider):
 
       filter_details = []
       if self.urls_filtered_external > 0:
-        original_domain = urlparse(self.origin_url).netloc
+        original_domain = urlparse(self.start_url).netloc
         effective = self.effective_domain or original_domain
         if original_domain != effective:
           filter_details.append(f"{self.urls_filtered_external} filtered as external (sitemap domain '{effective}' differs from start URL domain '{original_domain}')")
@@ -874,7 +869,7 @@ class WorkerSpider(Spider):
 
       # Suggest fix for domain mismatch
       if self.urls_filtered_external > 0 and self.effective_domain:
-        original_domain = urlparse(self.origin_url).netloc
+        original_domain = urlparse(self.start_url).netloc
         if original_domain != self.effective_domain:
           parts.append(f"Tip: The site redirects from '{original_domain}' to '{self.effective_domain}'. Try using 'https://{self.effective_domain}' as the start URL, or enable 'Follow external links' to allow cross-domain crawling.")
     else:

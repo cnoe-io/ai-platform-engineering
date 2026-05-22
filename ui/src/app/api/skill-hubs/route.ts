@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
   validateCredentialsRef,
+  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import {
   normalizeHubLocation,
   validateIncludePaths,
@@ -19,7 +19,7 @@ import type { CrawlEvent } from "@/lib/crawl-events";
 /**
  * Skill Hubs API — Admin endpoints for managing external skill hubs.
  *
- * GET  /api/skill-hubs       — List all registered hubs (admin only)
+ * GET  /api/skill-hubs       — List all registered hubs (authenticated read-only)
  * POST /api/skill-hubs       — Register a new hub (admin only)
  *
  * Per contracts/skill-hubs-api.md
@@ -33,6 +33,8 @@ interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels: string[];
+  /** Team ids or slugs granted can_use on every skill crawled from this hub. */
+  shared_with_teams?: string[];
   /** Optional path-prefix allow-list for hub crawl (FR-020). */
   include_paths?: string[];
   /**
@@ -56,8 +58,22 @@ interface SkillHubDoc {
 }
 
 function sanitizeHub(doc: SkillHubDoc) {
-  const { _id, ...rest } = doc;
+  const rest: Omit<SkillHubDoc, "_id"> & { _id?: ObjectId } = { ...doc };
+  delete rest._id;
   return rest;
+}
+
+function normalizeTeamRefs(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -65,8 +81,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     return NextResponse.json({ hubs: [] });
   }
 
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireBaselineAdminSurfaceRead(session, "skills");
 
     const collection = await getCollection<SkillHubDoc>("skill_hubs");
     const hubs = await collection.find().sort({ created_at: 1 }).toArray();
@@ -126,7 +142,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         };
       }),
     });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -134,8 +149,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Skill hubs require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireAdminSurfaceManage(session, "skills");
 
     const body = await request.json();
 
@@ -166,6 +181,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const labels: string[] = Array.isArray(body.labels)
       ? body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [];
+    const sharedWithTeams = normalizeTeamRefs(body.shared_with_teams);
 
     const includePaths = validateIncludePaths(body.include_paths);
     // `max_tree_pages` only meaningfully changes GitLab behaviour — the
@@ -208,9 +224,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     };
     if (includePaths) hubDoc.include_paths = includePaths;
     if (maxTreePages !== undefined) hubDoc.max_tree_pages = maxTreePages;
+    if (sharedWithTeams) hubDoc.shared_with_teams = sharedWithTeams;
 
-    await collection.insertOne(hubDoc as any);
+    await collection.insertOne(hubDoc);
 
     return NextResponse.json(sanitizeHub(hubDoc), { status: 201 });
-  });
 });

@@ -1,0 +1,550 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { Loader2 } from "lucide-react";
+import { useSession } from "next-auth/react";
+
+export interface UserDetailModalProps {
+  userId: string;
+  onClose: () => void;
+  onSaved: () => void;
+  readOnly?: boolean;
+}
+
+type ProfileUser = {
+  id: string;
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  enabled: boolean;
+  createdAt?: number | null;
+  attributes: Record<string, string[]>;
+  slackLinkStatus: "linked" | "unlinked";
+  sessions: Array<{
+    id: string;
+    start?: number;
+    lastAccess?: number;
+  }>;
+  federatedIdentities: Array<{
+    identityProvider: string;
+    userId: string;
+    userName: string;
+  }>;
+  teams: Array<{ team_id: string; tenant_id: string }>;
+  lastAccess: number | null;
+};
+
+function formatTs(ms: number | null | undefined): string {
+  if (ms == null || ms <= 0) return "";
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toLocaleString();
+  }
+}
+
+async function readJson(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export function UserDetailModal({
+  userId,
+  onClose,
+  onSaved,
+  readOnly = false,
+}: UserDetailModalProps) {
+  const { update: updateSession } = useSession();
+  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [user, setUser] = useState<ProfileUser | null>(null);
+  const [teamOptions, setTeamOptions] = useState<
+    Array<{ teamId: string; label: string }>
+  >([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const refreshProfile = useCallback(async () => {
+    setLoadError(null);
+    const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`);
+    const json = (await readJson(res)) as {
+      success?: boolean;
+      data?: { user?: ProfileUser };
+      error?: string;
+    } | null;
+    if (!res.ok || !json?.success || !json.data?.user) {
+      throw new Error(
+        (json && typeof json === "object" && "error" in json && json.error
+          ? String(json.error)
+          : null) || `Failed to load user (${res.status})`
+      );
+    }
+    setUser(json.data.user);
+  }, [userId]);
+
+  const loadTeams = useCallback(async () => {
+    const teamsRes = await fetch("/api/admin/teams");
+    const teamsJson = (await readJson(teamsRes)) as {
+      success?: boolean;
+      data?: { teams?: Array<{ name?: string }> };
+    } | null;
+    if (
+      teamsRes.ok &&
+      teamsJson?.success &&
+      Array.isArray(teamsJson.data?.teams)
+    ) {
+      setTeamOptions(
+        teamsJson.data.teams
+          .map((t) => {
+            const name = typeof t.name === "string" ? t.name.trim() : "";
+            if (!name) return null;
+            return { teamId: name, label: name };
+          })
+          .filter((x): x is { teamId: string; label: string } => x != null)
+      );
+    } else {
+      setTeamOptions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        if (readOnly) {
+          await refreshProfile();
+        } else {
+          await Promise.all([refreshProfile(), loadTeams()]);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : "Load failed");
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshProfile, loadTeams, readOnly]);
+
+  const runAction = useCallback(
+    async (key: string, fn: () => Promise<void>) => {
+      setActionError(null);
+      setBusy(key);
+      try {
+        await fn();
+        await refreshProfile();
+        onSaved();
+        // Refresh client session-derived UI after account/team mutations.
+        void updateSession({ forceRefresh: true });
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : "Request failed");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refreshProfile, onSaved, updateSession]
+  );
+
+  const fullName = useMemo(() => {
+    if (!user) return "";
+    const a = user.firstName.trim();
+    const b = user.lastName.trim();
+    const combined = `${a} ${b}`.trim();
+    return combined || user.username || user.email || "User";
+  }, [user]);
+
+  const initials = useMemo(() => {
+    if (!user) return "?";
+    const parts = [user.firstName.trim(), user.lastName.trim()].filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    if (parts.length === 1 && parts[0].length >= 2) {
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    const src = user.email || user.username || "?";
+    const alnum = src.replace(/[^a-zA-Z0-9]/g, "");
+    return (alnum.slice(0, 2) || "?").toUpperCase();
+  }, [user]);
+
+  const memberTeamIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of user?.teams ?? []) s.add(t.team_id);
+    return s;
+  }, [user?.teams]);
+
+  const addableTeams = useMemo(() => {
+    return teamOptions.filter((t) => !memberTeamIds.has(t.teamId));
+  }, [teamOptions, memberTeamIds]);
+
+  const idpLabel = useMemo(() => {
+    const feds = user?.federatedIdentities ?? [];
+    if (feds.length === 0) return "Local";
+    return feds.map((f) => f.identityProvider).join(", ") || "Local";
+  }, [user?.federatedIdentities]);
+
+  const slackUserId = user?.attributes?.slack_user_id?.[0]?.trim() ?? "";
+  const webexUserId = user?.attributes?.webex_user_id?.[0]?.trim() ?? "";
+  const webexLinked = webexUserId.length > 0;
+
+  const lastLoginLabel =
+    user?.lastAccess != null && user.lastAccess > 0
+      ? formatTs(user.lastAccess)
+      : "Never";
+
+  const createdLabel =
+    user?.createdAt != null && user.createdAt > 0
+      ? formatTs(user.createdAt)
+      : "—";
+
+  const toggleEnabled = () => {
+    if (!user) return;
+    const next = !user.enabled;
+    void runAction("enabled", async () => {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Update failed (${res.status})`);
+      }
+    });
+  };
+
+  const removeTeam = (teamId: string) => {
+    void runAction(`team-del-${teamId}`, async () => {
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(userId)}/teams`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teamId }),
+        }
+      );
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Remove team failed (${res.status})`);
+      }
+    });
+  };
+
+  const addTeam = (teamId: string) => {
+    if (!teamId) return;
+    void runAction(`team-add-${teamId}`, async () => {
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(userId)}/teams`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teamId }),
+        }
+      );
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Add team failed (${res.status})`);
+      }
+    });
+  };
+
+  const unlinkSlack = () => {
+    if (!user || user.slackLinkStatus !== "linked") return;
+    if (!window.confirm("Remove Slack link for this user?")) return;
+    void runAction("slack-unlink", async () => {
+      const res = await fetch(`/api/admin/slack/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Unlink Slack failed (${res.status})`);
+      }
+    });
+  };
+
+  const unlinkWebex = () => {
+    if (!user || !webexLinked) return;
+    if (!window.confirm("Remove Webex link for this user?")) return;
+    void runAction("webex-unlink", async () => {
+      const res = await fetch(`/api/admin/webex/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const json = (await readJson(res)) as { success?: boolean; error?: string };
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || `Unlink Webex failed (${res.status})`);
+      }
+    });
+  };
+
+  const modalInner = (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card text-card-foreground border border-border rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="user-detail-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
+            <span className="text-sm">Loading user…</span>
+          </div>
+        ) : loadError ? (
+          <div className="space-y-4">
+            <p className="text-sm text-destructive">{loadError}</p>
+            <button
+              type="button"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          </div>
+        ) : user ? (
+          <>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-border pb-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground"
+                  aria-hidden
+                >
+                  {initials}
+                </div>
+                <div className="min-w-0">
+                  <h2
+                    id="user-detail-modal-title"
+                    className="text-lg font-semibold truncate"
+                  >
+                    {fullName}
+                  </h2>
+                  <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <span className="text-sm text-muted-foreground">Account</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={user.enabled}
+                  disabled={readOnly || busy === "enabled"}
+                  onClick={() => toggleEnabled()}
+                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-neutral-400 ${
+                    user.enabled ? "bg-emerald-500" : "bg-muted"
+                  } ${readOnly || busy === "enabled" ? "opacity-60 cursor-not-allowed" : ""}`}
+                >
+                  <span
+                    className={`pointer-events-none absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-transform ${
+                      user.enabled ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span className="text-sm font-medium text-foreground">
+                  {user.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+            </div>
+
+            {actionError ? (
+              <p className="mt-4 text-sm text-destructive" role="alert">
+                {actionError}
+              </p>
+            ) : null}
+
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Teams</h3>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {(user.teams ?? []).length === 0 ? (
+                  <span className="text-sm text-muted-foreground">No teams</span>
+                ) : (
+                  (user.teams ?? []).map((t) => (
+                    <span
+                      key={`${t.team_id}:${t.tenant_id}`}
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
+                    >
+                      {t.team_id}
+                      <span className="text-muted-foreground font-normal">
+                        ({t.tenant_id})
+                      </span>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="ml-0.5 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          aria-label={`Remove team ${t.team_id}`}
+                          disabled={busy != null}
+                          onClick={() => removeTeam(t.team_id)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  ))
+                )}
+              </div>
+              {!readOnly && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="add-team" className="text-sm text-muted-foreground">
+                    Add team
+                  </label>
+                  <select
+                    id="add-team"
+                    className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
+                    defaultValue=""
+                    disabled={busy != null || addableTeams.length === 0}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      e.target.value = "";
+                      if (v) addTeam(v);
+                    }}
+                  >
+                    <option value="">
+                      {addableTeams.length === 0
+                        ? "No teams to add"
+                        : "Select a team…"}
+                    </option>
+                    {addableTeams.map((t) => (
+                      <option key={t.teamId} value={t.teamId}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </section>
+
+            <section className="mt-6 border-t border-border pt-6">
+              <h3 className="text-sm font-semibold text-foreground mb-3">
+                Identity & account
+              </h3>
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">IdP source</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
+                    {idpLabel}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Slack</dt>
+                  <dd className="mt-0.5">
+                    {user.slackLinkStatus === "linked" ? (
+                      <span className="inline-flex flex-col gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
+                            Linked
+                          </span>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              disabled={busy === "slack-unlink"}
+                              onClick={() => unlinkSlack()}
+                              className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {busy === "slack-unlink" ? "Unlinking…" : "Unlink Slack"}
+                            </button>
+                          )}
+                        </span>
+                        {slackUserId ? (
+                          <span className="font-mono text-xs text-muted-foreground">{slackUserId}</span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
+                        Unlinked
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Webex</dt>
+                  <dd className="mt-0.5">
+                    {webexLinked ? (
+                      <span className="inline-flex flex-col gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center w-fit rounded-full bg-emerald-500/15 text-emerald-400 px-2 py-0.5 text-xs font-medium">
+                            Linked
+                          </span>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              disabled={busy === "webex-unlink"}
+                              onClick={() => unlinkWebex()}
+                              className="rounded-md border border-destructive/40 px-2 py-0.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {busy === "webex-unlink" ? "Unlinking…" : "Unlink Webex"}
+                            </button>
+                          )}
+                        </span>
+                        <span className="font-mono text-xs text-muted-foreground">{webexUserId}</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
+                        Unlinked
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Last login</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
+                    {lastLoginLabel}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Account created</dt>
+                  <dd className="font-medium text-foreground mt-0.5">
+                    {createdLabel}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+
+            <div className="mt-8 flex justify-end gap-2 border-t border-border pt-4">
+              <button
+                type="button"
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+                onClick={onClose}
+              >
+                Close
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (!mounted) return null;
+
+  return createPortal(modalInner, document.body);
+}

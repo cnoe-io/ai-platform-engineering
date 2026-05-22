@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
   validateCredentialsRef,
+  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import {
   normalizeHubLocation,
   validateIncludePaths,
@@ -22,14 +22,27 @@ import {
  * Per contracts/skill-hubs-api.md
  */
 
+function normalizeTeamRefs(values: unknown): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export const PATCH = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     if (!isMongoDBConfigured) {
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
       const body = await request.json();
@@ -60,6 +73,14 @@ export const PATCH = withErrorHandler(
         update.credentials_ref = validateCredentialsRef(body.credentials_ref);
       if (Array.isArray(body.labels))
         update.labels = body.labels.map((l: unknown) => String(l).trim().toLowerCase()).filter(Boolean).slice(0, 20);
+      if (body.shared_with_teams !== undefined) {
+        const teamRefs = normalizeTeamRefs(body.shared_with_teams);
+        if (teamRefs && teamRefs.length > 0) {
+          update.shared_with_teams = teamRefs;
+        } else {
+          unset.shared_with_teams = "";
+        }
+      }
       if (body.include_paths !== undefined) {
         const validated = validateIncludePaths(body.include_paths);
         if (validated && validated.length > 0) {
@@ -93,11 +114,11 @@ export const PATCH = withErrorHandler(
       if (Object.keys(unset).length > 0) writeOp.$unset = unset;
       await collection.updateOne({ id }, writeOp);
 
-      const updated = await collection.findOne({ id });
-      const { _id, ...rest } = updated as any;
+      const updated = (await collection.findOne({ id })) as Record<string, unknown> | null;
+      const rest = { ...(updated ?? {}) };
+      delete rest._id;
 
       return NextResponse.json(rest);
-    });
   },
 );
 
@@ -107,8 +128,8 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
 
@@ -126,6 +147,5 @@ export const DELETE = withErrorHandler(
         { success: true, message: `Hub ${id} deleted` },
         { status: 200 },
       );
-    });
   },
 );

@@ -9,6 +9,8 @@ import os
 import logging
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from starlette.middleware import Middleware
+from mcp_agent_auth.middleware import MCPAuthMiddleware
 from mcp_jira.utils.logging import setup_logging
 
 # Import tools
@@ -133,10 +135,13 @@ def main():
     mcp.tool()(filters.delete_filter)
 
     # Run the MCP server
-    if MCP_MODE.lower() in ["sse", "http"]:
-        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+    mode = MCP_MODE.lower()
+    if mode == "http":
+        mcp.run(transport=mode, host=MCP_HOST, port=MCP_PORT, middleware=[Middleware(MCPAuthMiddleware)])
+    elif mode == "sse":
+        mcp.run(transport=mode, host=MCP_HOST, port=MCP_PORT)
     else:
-        mcp.run(transport=MCP_MODE.lower())
+        mcp.run(transport=mode)
     logging.info("="*40)
     logging.info(f"{SERVER_NAME} MCP server started successfully.")
     logging.info("="*40)

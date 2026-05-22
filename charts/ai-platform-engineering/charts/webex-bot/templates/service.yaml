@@ -1,0 +1,18 @@
+{{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "WEBEX_ADMIN_API_ENABLED"))) "true" }}
+{{- if $adminApiEnabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "webex-bot.fullname" . }}
+  labels:
+    {{- include "webex-bot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ default "3002" (index .Values.config "WEBEX_ADMIN_API_PORT") | int }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+  selector:
+    {{- include "webex-bot.selectorLabels" . | nindent 4 }}
+{{- end }}

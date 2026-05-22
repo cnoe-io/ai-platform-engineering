@@ -55,7 +55,9 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     const fetchServers = async () => {
       setLoading(true);
       try {
-        const response = await fetch("/api/mcp-servers?page_size=100");
+        const response = await fetch("/api/mcp-servers?page_size=100", {
+          credentials: "include",
+        });
         const data = await response.json();
         if (data.success) {
           // Only show enabled servers
@@ -81,9 +83,20 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     try {
       const response = await fetch(`/api/mcp-servers/probe?id=${serverId}`, {
         method: "POST",
+        credentials: "include",
       });
       const data = await response.json();
       if (data.success) {
+        if (data.data?.success === false) {
+          setProbeStates((prev) => ({
+            ...prev,
+            [serverId]: {
+              loading: false,
+              error: data.data.error || "Probe failed",
+            },
+          }));
+          return;
+        }
         const tools = data.data.tools as MCPToolInfo[];
         setProbeStates((prev) => ({
           ...prev,

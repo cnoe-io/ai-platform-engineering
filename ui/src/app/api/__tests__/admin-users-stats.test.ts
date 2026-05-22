@@ -1,0 +1,493 @@
+/**
+ * @jest-environment node
+ */
+/**
+ * Tests for Admin Users Stats API Route
+ *
+ * Covers:
+ * - GET /api/admin/users/stats — paginated user list with per-user statistics (MongoDB-backed)
+ *
+ * Features tested:
+ * - Authentication: 401 when unauthenticated
+ * - Authorization (Keycloak-only):
+ *     - 403 when PDP denies and user lacks the `admin` realm role
+ *     - 200 when Keycloak Authorization Services grants `admin_ui#view`
+ *     - 200 when PDP denies but user has `admin` realm role (RESOURCE_ROLE_FALLBACK)
+ *     - 403 for legacy signals only (canViewAdmin / Mongo metadata.role / bootstrap email)
+ *       — these are intentionally NOT honored by the Keycloak-only contract
+ * - MongoDB guard: 503 when MongoDB is not configured
+ * - Pagination (page, limit, search params)
+ * - Batch aggregation for conversation counts, message counts, last activity
+ * - User role from metadata.role or default 'user'
+ * - Edge case: empty database returns empty list
+ * - Edge case: user with no conversations/messages
+ *
+ * Note: this endpoint is the MongoDB-backed activity view that lives at
+ * /api/admin/users/stats. The sibling /api/admin/users endpoint serves
+ * Keycloak identities and is tested in admin-users.test.ts.
+ */
+
+import { NextRequest } from 'next/server';
+import { ObjectId } from 'mongodb';
+
+// ============================================================================
+// Mocks
+// ============================================================================
+
+const mockGetServerSession = jest.fn();
+jest.mock('next-auth', () => ({
+  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+}));
+
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
+
+jest.mock('@/lib/config', () => ({
+  getConfig: (key: string) => key === 'ssoEnabled',
+}));
+
+// Keycloak Authorization Services PDP — mocked at the module level so we can
+// flip allow/deny per test. Mirrors the pattern used by admin-stats.test.ts.
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
+
+const mockCollections: Record<string, any> = {};
+const mockGetCollection = jest.fn((name: string) => {
+  if (!mockCollections[name]) {
+    mockCollections[name] = createMockCollection();
+  }
+  return Promise.resolve(mockCollections[name]);
+});
+
+let mockIsMongoDBConfigured = true;
+jest.mock('@/lib/mongodb', () => ({
+  getCollection: (...args: any[]) => mockGetCollection(...args),
+  get isMongoDBConfigured() {
+    return mockIsMongoDBConfigured;
+  },
+}));
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function createMockCollection() {
+  return {
+    find: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        skip: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    }),
+    findOne: jest.fn().mockResolvedValue(null),
+    insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
+    updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    countDocuments: jest.fn().mockResolvedValue(0),
+    aggregate: jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+    }),
+  };
+}
+
+function makeRequest(url: string): NextRequest {
+  return new NextRequest(new URL(url, 'http://localhost:3000'));
+}
+
+/**
+ * Build an unsigned (h.payload.s) JWT whose payload only contains the
+ * `realm_access.roles` claim. `requireRbacPermission` decodes this claim
+ * via `hasRoleFallback` when the Keycloak PDP denies — that path is what
+ * the role-based fallback assertions exercise.
+ */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
+/**
+ * Admin session with the `admin` realm role baked into the access token.
+ * Even if the Keycloak PDP is mocked to deny, the `RESOURCE_ROLE_FALLBACK`
+ * for `admin_ui` (= 'admin') will allow this session through.
+ */
+function adminSession() {
+  return {
+    user: { email: 'admin@example.com', name: 'Admin User' },
+    role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
+    sub: 'admin-sub',
+    org: 'test-org',
+  };
+}
+
+/**
+ * Regular user session — no admin realm role. Combined with the default
+ * `mockCheckPermission` deny, this should always be 403.
+ */
+function userSession() {
+  return {
+    user: { email: 'user@example.com', name: 'Regular User' },
+    role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
+    sub: 'user-sub',
+    org: 'test-org',
+  };
+}
+
+function resetMocks() {
+  mockGetServerSession.mockReset();
+  mockGetCollection.mockClear();
+  mockIsMongoDBConfigured = true;
+  // Default-deny on the PDP so each test must explicitly opt in to allow.
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+  Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
+}
+
+/** Set up users collection to return paginated data. */
+function setupUsersCol(usersData: any[]) {
+  const usersCol = createMockCollection();
+  usersCol.find.mockReturnValue({
+    sort: jest.fn().mockReturnValue({
+      skip: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue(usersData),
+        }),
+      }),
+    }),
+  });
+  usersCol.countDocuments.mockResolvedValue(usersData.length);
+  mockCollections['users'] = usersCol;
+  return usersCol;
+}
+
+/** Set up conversations collection with batch aggregation results. */
+function setupConvCol(convCounts: { email: string; count: number }[], lastActivities: { email: string; date: Date }[] = []) {
+  const convCol = createMockCollection();
+  convCol.aggregate.mockImplementation(() => {
+    const toArrayFn = jest.fn();
+    if (convCol.aggregate.mock.calls.length % 3 === 1) {
+      toArrayFn.mockResolvedValue(convCounts.map(c => ({ _id: c.email, count: c.count })));
+    } else if (convCol.aggregate.mock.calls.length % 3 === 0) {
+      toArrayFn.mockResolvedValue(lastActivities.map(a => ({ _id: a.email, last_activity: a.date })));
+    } else {
+      toArrayFn.mockResolvedValue([]);
+    }
+    return { toArray: toArrayFn };
+  });
+  mockCollections['conversations'] = convCol;
+  return convCol;
+}
+
+/** Set up messages collection with batch aggregation results. */
+function setupMsgCol(msgCounts: { email: string; count: number }[]) {
+  const msgCol = createMockCollection();
+  msgCol.aggregate.mockReturnValue({
+    toArray: jest.fn().mockResolvedValue(msgCounts.map(m => ({ _id: m.email, count: m.count }))),
+  });
+  mockCollections['messages'] = msgCol;
+  return msgCol;
+}
+
+// ============================================================================
+// Test imports (after mocks)
+// ============================================================================
+
+import { GET } from '../admin/users/stats/route';
+
+// ============================================================================
+// Tests: Authentication & Authorization
+// ============================================================================
+
+describe('GET /api/admin/users/stats — Auth (Keycloak-only)', () => {
+  beforeEach(resetMocks);
+
+  it('returns 401 when not authenticated', async () => {
+    mockGetServerSession.mockResolvedValue(null);
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 when PDP denies and user has no admin realm role', async () => {
+    // Default mock = PDP deny + user has only `chat_user` role.
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
+  });
+
+  it('returns 200 when Keycloak Authorization Services grants admin_ui#view', async () => {
+    // PDP allows the call regardless of realm roles.
+    mockCheckPermission.mockResolvedValue({ allowed: true });
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+
+  it('returns 200 via role-fallback when PDP denies but user has admin realm role', async () => {
+    // PDP deny, but `admin` realm role triggers RESOURCE_ROLE_FALLBACK['admin_ui'].
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+
+  it('returns 403 for legacy canViewAdmin signal (Keycloak-only contract)', async () => {
+    // Pre-RBAC sessions used `canViewAdmin: true` (OIDC group claim match).
+    // Per the Keycloak-only policy, that signal is intentionally NOT honored
+    // — the user must have either an `admin_ui#view` permission grant or
+    // the `admin` realm role.
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
+  });
+
+  it('returns 403 for legacy MongoDB metadata.role=admin signal (Keycloak-only contract)', async () => {
+    // Pre-RBAC sessions could be elevated by setting `metadata.role: 'admin'`
+    // in the MongoDB users collection. Per the Keycloak-only policy, that
+    // signal is intentionally NOT honored either.
+    mockGetServerSession.mockResolvedValue({ ...userSession(), role: 'admin' });
+    // `role: 'admin'` on the session object alone (without a matching claim
+    // in the access token) is not enough; the role-fallback check inspects
+    // `realm_access.roles` from the token.
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain('You do not have permission to perform this action');
+  });
+
+  it('returns 503 when MongoDB is not configured', async () => {
+    mockIsMongoDBConfigured = false;
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe('MONGODB_NOT_CONFIGURED');
+  });
+});
+
+// ============================================================================
+// Tests: User listing with stats
+// ============================================================================
+
+describe('GET /api/admin/users/stats — User List', () => {
+  beforeEach(resetMocks);
+
+  it('returns users with their statistics and pagination', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const now = new Date();
+    const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const usersData = [
+      {
+        _id: new ObjectId(),
+        email: 'alice@example.com',
+        name: 'Alice',
+        created_at: lastWeek,
+        last_login: now,
+        metadata: { role: 'user' },
+      },
+      {
+        _id: new ObjectId(),
+        email: 'bob@example.com',
+        name: 'Bob',
+        created_at: lastWeek,
+        last_login: lastWeek,
+        metadata: { role: 'admin' },
+      },
+    ];
+
+    setupUsersCol(usersData);
+    setupConvCol(
+      [{ email: 'alice@example.com', count: 5 }, { email: 'bob@example.com', count: 3 }],
+      [{ email: 'alice@example.com', date: now }],
+    );
+    setupMsgCol([
+      { email: 'alice@example.com', count: 25 },
+      { email: 'bob@example.com', count: 10 },
+    ]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.data.users).toHaveLength(2);
+    expect(body.data.total).toBe(2);
+    expect(body.data.pagination).toBeDefined();
+    expect(body.data.pagination.page).toBe(1);
+
+    const alice = body.data.users.find((u: any) => u.email === 'alice@example.com');
+    expect(alice).toBeDefined();
+    expect(alice.name).toBe('Alice');
+    expect(alice.role).toBe('user');
+    expect(alice.stats.conversations).toBe(5);
+    expect(alice.stats.messages).toBe(25);
+
+    const bob = body.data.users.find((u: any) => u.email === 'bob@example.com');
+    expect(bob).toBeDefined();
+    expect(bob.name).toBe('Bob');
+    expect(bob.role).toBe('admin');
+    expect(bob.stats.conversations).toBe(3);
+    expect(bob.stats.messages).toBe(10);
+  });
+
+  it('returns empty list when no users exist', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    setupUsersCol([]);
+    setupConvCol([]);
+    setupMsgCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.users).toEqual([]);
+    expect(body.data.total).toBe(0);
+    expect(body.data.pagination.total_pages).toBe(0);
+  });
+});
+
+// ============================================================================
+// Tests: Batch aggregation for message counts
+// ============================================================================
+
+describe('GET /api/admin/users/stats — Batch Aggregation', () => {
+  beforeEach(resetMocks);
+
+  it('uses batch aggregation with $match/$group for message counts', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const usersData = [
+      { _id: new ObjectId(), email: 'test@example.com', name: 'Test', created_at: new Date(), last_login: new Date(), metadata: { role: 'user' } },
+    ];
+    setupUsersCol(usersData);
+    const msgCol = setupMsgCol([]);
+    setupConvCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    await GET(req);
+
+    expect(msgCol.aggregate).toHaveBeenCalled();
+    const pipeline = msgCol.aggregate.mock.calls[0][0];
+    expect(Array.isArray(pipeline)).toBe(true);
+
+    const matchStage = pipeline.find((stage: Record<string, any>) => stage.$match);
+    expect(matchStage).toBeDefined();
+    expect(matchStage.$match.owner_id).toBeDefined();
+
+    const groupStage = pipeline.find((stage: Record<string, any>) => stage.$group);
+    expect(groupStage).toBeDefined();
+    expect(groupStage.$group._id).toBe('$owner_id');
+  });
+
+  it('assigns 0 messages for users not in aggregation result', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const usersData = [
+      { _id: new ObjectId(), email: 'newuser@example.com', name: 'New User', created_at: new Date(), last_login: new Date() },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.users[0].stats.messages).toBe(0);
+    expect(body.data.users[0].stats.conversations).toBe(0);
+  });
+});
+
+// ============================================================================
+// Tests: User metadata
+// ============================================================================
+
+describe('GET /api/admin/users/stats — Metadata', () => {
+  beforeEach(resetMocks);
+
+  it('defaults role to "user" when metadata.role is not set', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const now = new Date();
+    const usersData = [
+      { _id: new ObjectId(), email: 'norole@example.com', name: 'No Role User', created_at: now, last_login: now },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([]);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.users[0].role).toBe('user');
+  });
+
+  it('falls back last_activity to last_login when no conversation', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const loginTime = new Date('2025-12-01T10:00:00Z');
+    const usersData = [
+      { _id: new ObjectId(), email: 'lonely@example.com', name: 'Lonely User', created_at: new Date('2025-01-01'), last_login: loginTime },
+    ];
+    setupUsersCol(usersData);
+    setupMsgCol([]);
+    setupConvCol([], []);
+
+    const req = makeRequest('/api/admin/users/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.users[0].last_activity).toBe(loginTime.toISOString());
+  });
+});

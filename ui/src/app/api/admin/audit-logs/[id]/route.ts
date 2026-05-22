@@ -5,11 +5,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
@@ -31,8 +31,8 @@ export const DELETE = withErrorHandler(
       );
     }
 
-    return withAuth(request, async (req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'admin_ui', 'admin');
 
       const { id: conversationId } = await params;
       if (!conversationId) {
@@ -106,6 +106,5 @@ export const DELETE = withErrorHandler(
         checkpoint_writes_deleted: checkpointWritesCount,
         files_deleted: filesDeleted,
       });
-    });
   },
 );

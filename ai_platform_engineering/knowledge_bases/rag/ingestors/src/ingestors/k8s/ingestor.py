@@ -201,6 +201,7 @@ async def sync_k8s_resources(client: Client):
   datasource_id = f"k8s-cluster-{CLUSTER_NAME}"
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name=f"Kubernetes: {CLUSTER_NAME}",
     ingestor_id=client.ingestor_id or "",
     description=f"Kubernetes resources for cluster {CLUSTER_NAME}",
     source_type="kubernetes",

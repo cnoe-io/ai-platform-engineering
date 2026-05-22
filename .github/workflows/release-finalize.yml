@@ -65,6 +65,8 @@ jobs:
             "[CI] CAIPE UI Build and Push"
             "[CI] Slack Bot Build and Push"
             "[CI] Skill Scanner Build and Push"
+            "[CI] Keycloak Init Build and Push"
+            "[CI] OpenFGA Authz Bridge Build and Push"
             "[CI][Helm] Publish Tagged Helm Charts"
           )
 

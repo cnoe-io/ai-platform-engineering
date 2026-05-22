@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -70,26 +70,34 @@ function generateSlug(name: string): string {
   return slug ? `agent-${slug}` : "";
 }
 
+// Visibility picker — `private` was retired on 2026-05-22 (see
+// `docs/docs/changes/2026-05-22-remove-private-agents.md` and the
+// `VisibilityType` definition in `@/types/dynamic-agent`). Every dynamic
+// agent is now team-owned; users who want a truly personal agent should
+// create a single-member team and own the agent through that team.
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
-  { 
-    value: "private", 
-    label: "Private", 
-    icon: <Lock className="h-4 w-4" />,
-    description: "Only you can use this agent" 
-  },
-  { 
-    value: "team", 
-    label: "Team", 
+  {
+    value: "team",
+    label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Share with specific teams" 
+    description: "Owner-team members can use; admins can manage. Optionally share with other teams.",
   },
-  { 
-    value: "global", 
-    label: "Global", 
+  {
+    value: "global",
+    label: "Global",
     icon: <Globe className="h-4 w-4" />,
-    description: "Available to all users" 
+    description: "Available to all users; owner-team admins manage it.",
   },
 ];
+
+interface TeamOption {
+  _id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  user_role?: string | null;
+  can_own_agents?: boolean;
+}
 
 // Step definitions for the wizard
 const STEPS = [
@@ -338,10 +346,23 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   );
   const [description, setDescription] = React.useState(source?.description || "");
   const [systemPrompt, setSystemPrompt] = React.useState(source?.system_prompt || "");
-  const [visibility, setVisibility] = React.useState<VisibilityType>(source?.visibility || "private");
+  // Default to `team` for new agents — every agent must have an owner
+  // team, and team-scoped sharing is the safest default. `private` is
+  // retired (see `VisibilityType` in `@/types/dynamic-agent`); legacy
+  // docs that still carry `visibility: 'private'` on the wire are coerced
+  // to `team` here so the picker has a matching tile to highlight. The
+  // BFF-side `coerceAgentVisibilityOnRead` helper does the same on read,
+  // but we coerce defensively in the UI in case a stale GET response
+  // slips through before that helper is wired into every route.
+  const [visibility, setVisibility] = React.useState<VisibilityType>(() => {
+    const raw = source?.visibility as VisibilityType | "private" | undefined;
+    if (raw === "team" || raw === "global") return raw;
+    return "team";
+  });
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
     source?.shared_with_teams || []
   );
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
@@ -407,7 +428,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
   const [availableTeams, setAvailableTeams] = React.useState<
-    { _id: string; name: string; description?: string }[]
+    TeamOption[]
   >([]);
 
   // AI suggestion state
@@ -607,6 +628,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -622,6 +644,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -829,6 +852,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       setLoading(false);
       return;
     }
+    if (!isEditing && !ownerTeamSlug) {
+      setError("Owner team is required");
+      setLoading(false);
+      return;
+    }
 
     // Validate ID for new agents
     if (!isEditing) {
@@ -896,6 +924,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
+          owner_team_slug: ownerTeamSlug,
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -936,7 +965,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
+  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0 && (isEditing || ownerTeamSlug);
 
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
@@ -1335,8 +1364,39 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="ownerTeam">
+                  Owner Team {!isEditing && <span className="text-destructive">*</span>}
+                </Label>
+                <select
+                  id="ownerTeam"
+                  value={ownerTeamSlug}
+                  onChange={(e) => setOwnerTeamSlug(e.target.value)}
+                  disabled={loading || isEditing}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select a team that will own this agent</option>
+                  {availableTeams
+                    .filter((team) => team.slug)
+                    .map((team) => (
+                      <option key={team._id} value={team.slug} disabled={!team.can_own_agents}>
+                        {team.name}
+                        {team.user_role ? ` (${team.user_role})` : ""}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Owner-team members can use the agent; owner-team admins can manage it.
+                </p>
+                {!isEditing && availableTeams.every((team) => !team.can_own_agents) && (
+                  <p className="text-xs text-destructive">
+                    You need to be a platform admin or a team admin to create a team-owned agent.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
                 <Label>Visibility</Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {VISIBILITY_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
@@ -1658,6 +1718,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   disabled={loading}
                 />
               </div>
+
+              {/* Advanced: Middleware */}
+              <div className="border-t pt-4">
+                <MiddlewarePicker
+                  value={features}
+                  onChange={setFeatures}
+                  disabled={loading}
+                  availableModels={availableModels}
+                />
+              </div>
             </div>
           )}
 
@@ -1749,7 +1819,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
+          <Button onClick={handleSubmit} disabled={loading || !isValid}>
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   getPaginationParams,
   ApiError,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
@@ -27,8 +27,8 @@ export const GET = withErrorHandler(
       );
     }
 
-    return withAuth(request, async (req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'admin_ui', 'audit.view');
 
       const { id: conversationId } = await params;
 
@@ -62,7 +62,7 @@ export const GET = withErrorHandler(
         }
       }
 
-      const { page, pageSize, skip } = getPaginationParams(req);
+      const { page, pageSize, skip } = getPaginationParams(request);
       const messages = await getCollection<Message>('messages');
 
       const query = { conversation_id: conversationId };
@@ -96,6 +96,5 @@ export const GET = withErrorHandler(
           has_more: page * pageSize < total,
         },
       });
-    });
   },
 );

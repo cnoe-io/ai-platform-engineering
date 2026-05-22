@@ -13,11 +13,25 @@ const defaultAgents = [
 
 function mockFetch({
   agents = defaultAgents,
-  config = { success: true, data: { default_agent_id: null } },
+  config = {
+    success: true,
+    data: {
+      default_agent_id: null,
+      release_notes: {
+        enabled: true,
+        release_version: '0.5.1',
+        announcement_revision: 2,
+        announcement_id: '0.5.1:revision-2',
+        show_toast: true,
+        toast_duration_ms: 8000,
+        show_migration_cta: true,
+      },
+    },
+  },
   patch = { success: true },
 }: {
   agents?: Array<{ _id: string; name: string; description?: string }>;
-  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string } };
+  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: any } };
   patch?: { success: boolean };
 } = {}) {
   global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
@@ -115,5 +129,13 @@ describe('PlatformSettingsTab', () => {
       );
     });
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('does not render release notes controls in the Default Agent tab', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    await screen.findByRole('combobox');
+    expect(screen.queryByText('Release notes')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Active release version')).not.toBeInTheDocument();
   });
 });

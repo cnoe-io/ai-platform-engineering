@@ -397,6 +397,7 @@ async def sync_jira_projects(client: Client) -> None:
                 logger.info(f"No issues found for {project_key}/{ds_name}, updating datasource timestamp")
                 datasource = DataSourceInfo(
                     datasource_id=datasource_id,
+                    name=f"Jira: {ds_name} ({project_key})",
                     ingestor_id=client.ingestor_id or "",
                     description=f"Jira issues: {ds_name} ({project_key})",
                     source_type="jira",
@@ -440,6 +441,7 @@ async def sync_jira_projects(client: Client) -> None:
             # Upsert datasource
             datasource = DataSourceInfo(
                 datasource_id=datasource_id,
+                name=f"Jira: {ds_name} ({project_key})",
                 ingestor_id=client.ingestor_id or "",
                 description=f"Jira issues: {ds_name} ({project_key})",
                 source_type="jira",

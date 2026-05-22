@@ -3,7 +3,7 @@
 // assisted-by claude code claude-sonnet-4-6
 
 import React, { useEffect, useState } from "react";
-import { Loader2, Save, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Save } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
@@ -149,6 +149,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
           )}
         </CardContent>
       </Card>
+
     </div>
   );
 }
