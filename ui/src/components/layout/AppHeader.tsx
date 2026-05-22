@@ -418,8 +418,8 @@ export function AppHeader() {
 
   return (
     <>
-    <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+    <header className="h-14 overflow-hidden border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
@@ -430,9 +430,9 @@ export function AppHeader() {
             alt={`${config.appName} Logo`}
             className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
-          <span className="font-bold text-base gradient-text">{config.appName}</span>
+          <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
           {config.envBadge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+            <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
               {config.envBadge}
             </span>
           )}
@@ -560,7 +560,7 @@ export function AppHeader() {
                 <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
+            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
               <div className="bg-gradient-to-br from-card via-card to-card/95">
                 {/* Header with gradient */}
                 <div className="gradient-primary-br p-4">
