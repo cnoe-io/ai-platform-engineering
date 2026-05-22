@@ -3111,6 +3111,34 @@ function AdminPage() {
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={loadAdminData}
+        onTeamMutated={(updatedTeam) => {
+          // In-place patch of the teams[] state so the row in the
+          // background list re-renders with the new member count /
+          // attributes — without triggering loadAdminData() (which
+          // sets loading=true and re-fetches the entire dashboard).
+          //
+          // The Team shape used by this page is a structural superset
+          // of the one returned by /api/admin/teams/[id]/* mutation
+          // endpoints; we merge so any locally-known fields the API
+          // doesn't echo back (e.g. denormalised StatChip counters)
+          // survive the patch.
+          setTeams((prev) =>
+            prev.map((t) =>
+              t._id === updatedTeam._id
+                ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
+                : t,
+            ),
+          );
+          // Also keep `selectedTeam` (the prop the dialog reads from)
+          // in sync so its `useEffect(() => setCurrentTeam(team), [team])`
+          // can pick up the patched payload if the dialog re-opens
+          // before the next dashboard refresh.
+          setSelectedTeam((prev) =>
+            prev
+              ? ({ ...prev, ...(updatedTeam as Partial<TeamType>) } as TeamType)
+              : (updatedTeam as TeamType),
+          );
+        }}
       />
 
       <Dialog

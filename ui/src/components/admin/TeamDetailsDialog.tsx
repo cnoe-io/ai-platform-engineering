@@ -158,6 +158,16 @@ interface TeamDetailsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTeamUpdated: () => void;
+  /**
+   * Lightweight callback for in-modal mutations (add/remove member, edit
+   * details). When provided, the parent receives the updated Team payload
+   * and is expected to patch its local `teams[]` state in place — avoiding
+   * a full admin-page reload (which otherwise blanks the dashboard).
+   *
+   * When omitted, the dialog falls back to `onTeamUpdated()` for backwards
+   * compatibility.
+   */
+  onTeamMutated?: (team: Team) => void;
 }
 
 function getRoleIcon(role: string) {
@@ -253,6 +263,7 @@ export function TeamDetailsDialog({
   open,
   onOpenChange,
   onTeamUpdated,
+  onTeamMutated,
 }: TeamDetailsDialogProps) {
   const [activeMode, setActiveMode] = useState<DialogMode>(mode);
   const [loading, setLoading] = useState(false);
@@ -282,7 +293,16 @@ export function TeamDetailsDialog({
   const [memberSearchOpen, setMemberSearchOpen] = useState(false);
   const memberSearchAbortRef = useRef<AbortController | null>(null);
 
-  // Removing member
+  // Removing member.
+  //   `pendingRemoveMember` — user clicked the trash icon and is being shown
+  //     the inline confirm row, but hasn't confirmed yet (no API call in
+  //     flight). Replaces the previous window.confirm() blocking prompt,
+  //     which broke the in-modal UX by hijacking the entire tab.
+  //   `removingMember` — request is actually in flight; row shows a spinner
+  //     and the trash button is disabled.
+  const [pendingRemoveMember, setPendingRemoveMember] = useState<string | null>(
+    null,
+  );
   const [removingMember, setRemovingMember] = useState<string | null>(null);
 
   // Spec 104 — Resources tab state
@@ -353,6 +373,7 @@ export function TeamDetailsDialog({
       setMemberSearchResults([]);
       setMemberSearchLoading(false);
       setMemberSearchOpen(false);
+      setPendingRemoveMember(null);
       setResourcesData(null);
       setResourcesNotice(null);
       setChannelsData(null);
@@ -1005,9 +1026,14 @@ export function TeamDetailsDialog({
         throw new Error(data.error || "Failed to update team");
       }
 
-      setCurrentTeam(data.data.team);
+      const updatedTeam = data.data.team as Team;
+      setCurrentTeam(updatedTeam);
       setIsEditing(false);
-      onTeamUpdated();
+      if (onTeamMutated) {
+        onTeamMutated(updatedTeam);
+      } else {
+        onTeamUpdated();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to update team");
     } finally {
@@ -1037,7 +1063,8 @@ export function TeamDetailsDialog({
         throw new Error(data.error || "Failed to add member");
       }
 
-      setCurrentTeam(data.data.team);
+      const updatedTeam = data.data.team as Team;
+      setCurrentTeam(updatedTeam);
       setNewMemberEmail("");
       setNewMemberRole("member");
       setMemberSearchResults([]);
@@ -1047,7 +1074,15 @@ export function TeamDetailsDialog({
       // primary list update above already shows the new member; this
       // is a follow-up that hydrates secondary metadata.
       void refreshTeam();
-      onTeamUpdated();
+      // Prefer the lightweight callback so the parent admin page can
+      // patch its `teams[]` state in place — no full dashboard reload,
+      // no setLoading(true), no flicker. Fall back to onTeamUpdated()
+      // only if the parent hasn't opted in.
+      if (onTeamMutated) {
+        onTeamMutated(updatedTeam);
+      } else {
+        onTeamUpdated();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to add member");
     } finally {
@@ -1068,9 +1103,8 @@ export function TeamDetailsDialog({
   const handleRemoveMember = async (email: string) => {
     if (!currentTeam) return;
 
-    if (!confirm(`Remove ${email} from ${currentTeam.name}?`)) return;
-
     setRemovingMember(email);
+    setPendingRemoveMember(null);
     setError(null);
 
     try {
@@ -1084,9 +1118,14 @@ export function TeamDetailsDialog({
         throw new Error(data.error || "Failed to remove member");
       }
 
-      setCurrentTeam(data.data.team);
+      const updatedTeam = data.data.team as Team;
+      setCurrentTeam(updatedTeam);
       void refreshTeam();
-      onTeamUpdated();
+      if (onTeamMutated) {
+        onTeamMutated(updatedTeam);
+      } else {
+        onTeamUpdated();
+      }
     } catch (err: any) {
       setError(err.message || "Failed to remove member");
     } finally {
@@ -1597,10 +1636,16 @@ export function TeamDetailsDialog({
                     const syncBadge = syncEntry
                       ? syncBadgeAppearance(syncEntry.status)
                       : null;
+                    const isPendingRemove =
+                      pendingRemoveMember === member.user_id;
                     return (
                       <div
                         key={member.user_id}
-                        className="flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 group"
+                        className={`flex items-center justify-between py-2 px-3 rounded-md group ${
+                          isPendingRemove
+                            ? "bg-destructive/5 ring-1 ring-destructive/20"
+                            : "hover:bg-muted/50"
+                        }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
@@ -1643,19 +1688,74 @@ export function TeamDetailsDialog({
                             {member.role}
                           </Badge>
                           {member.role !== "owner" && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleRemoveMember(member.user_id)}
-                              disabled={removingMember === member.user_id}
-                            >
-                              {removingMember === member.user_id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
+                            pendingRemoveMember === member.user_id &&
+                            removingMember !== member.user_id ? (
+                              // Inline confirm row — replaces the previous
+                              // window.confirm() blocking prompt. Stays on
+                              // the same row so focus, scroll position, and
+                              // the parent modal are all preserved.
+                              <div
+                                className="flex items-center gap-1"
+                                role="group"
+                                aria-label={`Confirm removal of ${member.user_id}`}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") {
+                                    e.stopPropagation();
+                                    setPendingRemoveMember(null);
+                                  }
+                                }}
+                              >
+                                <span
+                                  className="text-xs text-muted-foreground mr-1"
+                                  aria-live="polite"
+                                >
+                                  Remove?
+                                </span>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() =>
+                                    handleRemoveMember(member.user_id)
+                                  }
+                                  autoFocus
+                                  aria-label={`Confirm remove ${member.user_id}`}
+                                >
+                                  <Check className="h-3.5 w-3.5 mr-1" />
+                                  Remove
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-muted-foreground"
+                                  onClick={() => setPendingRemoveMember(null)}
+                                  aria-label="Cancel removal"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className={`h-7 w-7 p-0 text-muted-foreground hover:text-destructive ${
+                                  removingMember === member.user_id
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                }`}
+                                onClick={() =>
+                                  setPendingRemoveMember(member.user_id)
+                                }
+                                disabled={removingMember === member.user_id}
+                                aria-label={`Remove ${member.user_id}`}
+                              >
+                                {removingMember === member.user_id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            )
                           )}
                         </div>
                       </div>
