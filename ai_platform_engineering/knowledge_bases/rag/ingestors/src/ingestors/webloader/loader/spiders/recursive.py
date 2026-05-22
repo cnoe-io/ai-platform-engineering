@@ -47,7 +47,7 @@ class RecursiveCrawlSpider(CrawlSpider):
         job_manager: Job status manager
         datasource_info: Datasource metadata
     """
-    self.start_url = start_url
+    self.origin_url = start_url
     self.scrape_settings = scrape_settings
     self.job_id = job_id
     self.client = client
@@ -60,7 +60,7 @@ class RecursiveCrawlSpider(CrawlSpider):
     self.visited_urls: Set[str] = set()
 
     # Set start URLs
-    self.start_urls = [start_url]
+    self.origin_urls = [start_url]
 
     # Set allowed domains
     parsed = urlparse(start_url)
@@ -121,7 +121,7 @@ class RecursiveCrawlSpider(CrawlSpider):
 
   def start_requests(self) -> Iterator[Request]:
     """Generate initial requests with Playwright support."""
-    for url in self.start_urls:
+    for url in self.origin_urls:
       yield self._make_request(url, callback=self.parse_page)
 
   def _make_request(self, url: str, callback=None, **kwargs) -> Request:
