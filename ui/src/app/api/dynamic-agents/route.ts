@@ -19,6 +19,7 @@ import {
 import type {
   DynamicAgentConfig,
   VisibilityType,
+  LegacyVisibilityType,
   SubAgentRef,
 } from "@/types/dynamic-agent";
 import {
@@ -214,7 +215,10 @@ async function validateSubagentVisibility(
       };
     }
 
-    const subVis = sub.visibility as VisibilityType;
+    // Sub agents read from the DB may still carry the legacy "private" visibility
+    // until the migration script rewrites them. Treat any non team/global value as
+    // private for the purpose of these checks.
+    const subVis = sub.visibility as LegacyVisibilityType;
 
     // Global parent → only global subagents
     if (parentVisibility === "global" && subVis !== "global") {
@@ -224,13 +228,12 @@ async function validateSubagentVisibility(
       };
     }
     // Team parent → team or global subagents only
-    if (parentVisibility === "team" && subVis === "private") {
+    if (parentVisibility === "team" && subVis !== "team" && subVis !== "global") {
       return {
         valid: false,
-        error: `Team agents can only use team or global subagents. "${sub.name}" is private.`,
+        error: `Team agents can only use team or global subagents. "${sub.name}" is ${subVis}.`,
       };
     }
-    // Private parent → any visibility (no restriction)
   }
 
   return { valid: true };
@@ -322,8 +325,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
     const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
     const requestedOwnerTeamId = normalizeString(body.owner_team_id);
-    const visibility: VisibilityType =
-      (body.visibility as VisibilityType | undefined) ?? (requestedOwnerTeamSlug || requestedOwnerTeamId ? "team" : "private");
+    // Coerce any legacy 'private' on the wire to 'team' (private visibility was
+    // retired 2026-05-22; see refactor commit 096a8b159). New agents without an
+    // explicit visibility default to 'team' so they always have an owner team.
+    const rawVisibility = body.visibility as LegacyVisibilityType | undefined;
+    const visibility: VisibilityType = rawVisibility === "global" ? "global" : "team";
     let ownerTeam: TeamOwnershipDoc | null = null;
     let ownerTeamSlug: string | null = null;
     if (visibility === "global") {

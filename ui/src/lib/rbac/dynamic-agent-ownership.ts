@@ -60,10 +60,13 @@ export function normalizeLegacyVisibility(
  * Idempotent — calling this on a doc that already has
  * `visibility: 'team' | 'global'` is a no-op.
  */
-export function coerceAgentVisibilityOnRead<T extends Record<string, unknown>>(doc: T): T {
-  const current = doc.visibility;
-  if (current === "private") {
-    doc.visibility = "team";
+export function coerceAgentVisibilityOnRead<
+  T extends { visibility?: LegacyVisibilityType },
+>(doc: T): T {
+  if (doc.visibility === "private") {
+    // Cast through unknown because T['visibility'] may be a narrow union that
+    // does not statically include 'team' even though it does at runtime.
+    (doc as { visibility?: VisibilityType }).visibility = "team";
   }
   return doc;
 }

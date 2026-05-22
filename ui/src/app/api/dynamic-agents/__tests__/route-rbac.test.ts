@@ -419,7 +419,9 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
-  it("allows users to create private agents without an owner team", async () => {
+  it("rejects creation when 'private' visibility is sent without an owner team (private retired)", async () => {
+    // Post-2026-05-22 'private' visibility was retired: the API coerces the
+    // legacy value to 'team', which then requires an explicit owner team.
     const insertOne = jest.fn();
     mockGetCollection.mockImplementation(async (name: string) => {
       if (name === "dynamic_agents") {
@@ -445,21 +447,10 @@ describe("dynamic agents RBAC routes", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
-    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "agent-operations-helper",
-        ownerSubject: "alice-sub",
-        ownerTeamSlug: null,
-      }),
-    );
-    expect(insertOne).toHaveBeenCalledWith(
-      expect.objectContaining({
-        visibility: "private",
-        owner_subject: "alice-sub",
-        owner_team_slug: undefined,
-      }),
-    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "OWNER_TEAM_REQUIRED" });
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
   it("returns 404 when the requested owner team does not exist", async () => {
@@ -539,6 +530,18 @@ describe("dynamic agents RBAC routes", () => {
       if (resource.type === "organization") throw new Error("not platform admin");
     });
     mockGetCollection.mockImplementation(async (name: string) => {
+      // Provide a valid owner team so we reach the subject check rather than
+      // bailing out earlier on OWNER_TEAM_REQUIRED. Private visibility was
+      // retired 2026-05-22; every agent now requires a team.
+      if (name === "teams") {
+        return {
+          findOne: jest.fn().mockResolvedValue({
+            _id: "team-id",
+            slug: "platform",
+            members: [{ user_id: "alice@example.com", role: "member" }],
+          }),
+        };
+      }
       if (name === "dynamic_agents") return { findOne: jest.fn().mockResolvedValue(null), insertOne };
       throw new Error(`unexpected collection ${name}`);
     });
@@ -552,6 +555,7 @@ describe("dynamic agents RBAC routes", () => {
           name: "Operations Helper",
           system_prompt: "Help ops",
           model: { id: "gpt-4.1", provider: "openai" },
+          owner_team_slug: "platform",
         }),
       }),
     );

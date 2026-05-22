@@ -50,7 +50,12 @@ interface TeamAssignment {
 }
 
 interface TeamDoc {
-  _id: unknown;
+  // MongoDB's TypeScript driver collapses `Filter<T>._id` to
+  // `FilterOperators<never>` when `_id` is typed as `unknown` here, which
+  // blocks any `bulkWrite({ filter: { _id: ... } })` call below. Declare it
+  // explicitly as the union the driver and our `teamIdForFilter()` helper
+  // actually return.
+  _id: string | ObjectId;
   slug?: string;
   name?: string;
   members?: Array<{ user_id?: string; role?: string }>;

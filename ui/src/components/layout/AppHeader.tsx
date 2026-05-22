@@ -110,11 +110,15 @@ function GuardedLink({
   children,
   className,
   prefetch,
+  title,
+  "aria-label": ariaLabel,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
   prefetch?: boolean;
+  title?: string;
+  "aria-label"?: string;
 }) {
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
@@ -129,7 +133,14 @@ function GuardedLink({
   };
 
   return (
-    <Link href={href} prefetch={prefetch} className={className} onClick={handleClick}>
+    <Link
+      href={href}
+      prefetch={prefetch}
+      className={className}
+      onClick={handleClick}
+      title={title}
+      aria-label={ariaLabel}
+    >
       {children}
     </Link>
   );
