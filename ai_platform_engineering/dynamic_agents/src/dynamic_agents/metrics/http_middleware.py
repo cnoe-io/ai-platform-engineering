@@ -5,6 +5,8 @@ No JWT parsing — auth is handled by the UI gateway in 0.4.0.
 
 import logging
 import time
+from collections import deque
+from threading import Lock
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -16,7 +18,31 @@ from dynamic_agents.metrics.agent_metrics import metrics
 logger = logging.getLogger(__name__)
 
 # Paths that we skip tracking (but still serve)
-_EXCLUDED = frozenset({"/health", "/ready", "/healthz", "/", "/metrics"})
+_EXCLUDED = frozenset({"/health", "/ready", "/healthz", "/readyz", "/", "/metrics"})
+
+# Sliding window tracking for 5xx error rate used by /readyz.
+# Stores True (5xx/error) or False (non-5xx) for the last N requests.
+_WINDOW_SIZE = 20
+_ERROR_THRESHOLD = 0.5  # fail readyz if ≥50% of window are errors
+_READYZ_MIN_REQUESTS = 5  # don't penalise startup — require at least this many samples
+
+_error_window: deque[bool] = deque(maxlen=_WINDOW_SIZE)
+_error_window_lock = Lock()
+
+
+def record_response_outcome(is_error: bool) -> None:
+    with _error_window_lock:
+        _error_window.append(is_error)
+
+
+def get_error_rate() -> tuple[float, int]:
+    """Return (error_rate, sample_count) from the current sliding window."""
+    with _error_window_lock:
+        window = list(_error_window)
+    count = len(window)
+    if count == 0:
+        return 0.0, 0
+    return sum(window) / count, count
 
 
 class PrometheusHTTPMiddleware(BaseHTTPMiddleware):
@@ -57,6 +83,7 @@ class PrometheusHTTPMiddleware(BaseHTTPMiddleware):
             raise
         finally:
             metrics.active_requests.dec()
+            record_response_outcome(status in ("5xx", "error"))
             duration = time.monotonic() - start
             # Normalise path to avoid cardinality explosion:
             # /api/v1/agents/<id>/chat → /api/v1/agents/:id/chat

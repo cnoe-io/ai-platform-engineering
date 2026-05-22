@@ -3,8 +3,14 @@
 import time
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 
 from dynamic_agents.config import Settings, get_settings
+from dynamic_agents.metrics.http_middleware import (
+    _READYZ_MIN_REQUESTS,
+    _ERROR_THRESHOLD,
+    get_error_rate,
+)
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import get_runtime_cache
 
@@ -33,12 +39,27 @@ async def health_check(
 @router.get("/readyz")
 async def readiness_check(
     mongo: MongoDBService = Depends(get_mongo_service),
-) -> dict:
-    """Readiness probe — returns 200 if the service is ready to accept traffic."""
-    if mongo._client is not None:
-        return {"ready": True}
-    else:
-        return {"ready": False, "error": "MongoDB not connected"}
+) -> JSONResponse:
+    """Readiness probe — returns 200 if ready, 503 if unhealthy.
+
+    Fails if MongoDB is disconnected OR if the sliding-window 5xx error rate
+    exceeds the threshold (requires a minimum number of samples so startup is
+    not penalised).
+    """
+    if mongo._client is None:
+        return JSONResponse(status_code=503, content={"ready": False, "error": "MongoDB not connected"})
+
+    error_rate, sample_count = get_error_rate()
+    if sample_count >= _READYZ_MIN_REQUESTS and error_rate >= _ERROR_THRESHOLD:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ready": False,
+                "error": f"High 5xx error rate: {error_rate:.0%} of last {sample_count} requests",
+            },
+        )
+
+    return JSONResponse(status_code=200, content={"ready": True})
 
 
 @router.get("/debug/config")
