@@ -135,22 +135,38 @@ function GuardedLink({
   );
 }
 
+// Baseline breakpoint: collapse the inline nav (Home/Chat/Skills/...) into
+// the "More" popover. Tuned so 8 primary nav pills + standard right-side
+// cluster (status pill + settings + user menu) still fit on a typical
+// laptop without overlap.
 const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
+// Wider breakpoint used when an admin-only migration banner is showing on
+// the right. Each banner pill ("Migrations required: N" /
+// "Version metadata needed: N" / "Migration override active") adds a
+// chunky labelled chip plus a gap, and combined with the "Report a
+// Problem" full-text button can push the right cluster into the inline
+// nav. Collapsing earlier in that case prevents the overlap seen on
+// 1180–1320px viewports.
+const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1320px)";
 
-function useHeaderNavCollapsed(): boolean {
+function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
+  const query = earlyCollapse
+    ? HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER
+    : HEADER_NAV_COLLAPSE_QUERY;
+
   const [collapsed, setCollapsed] = React.useState(() => {
     if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(HEADER_NAV_COLLAPSE_QUERY).matches;
+    return window.matchMedia(query).matches;
   });
 
   React.useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
-    const media = window.matchMedia(HEADER_NAV_COLLAPSE_QUERY);
+    const media = window.matchMedia(query);
     const handleChange = () => setCollapsed(media.matches);
     handleChange();
     media.addEventListener?.("change", handleChange);
     return () => media.removeEventListener?.("change", handleChange);
-  }, []);
+  }, [query]);
 
   return collapsed;
 }
@@ -273,7 +289,18 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
-  const headerNavCollapsed = useHeaderNavCollapsed();
+  // When an admin-only migration banner is showing on the right of the
+  // header, the right cluster gets ~150–200px wider. Use a slightly
+  // larger breakpoint so the inline nav collapses into "More" before
+  // the cluster overlaps with the nav at viewports in the 1180–1320px
+  // band (the size where the bug originally manifested).
+  const hasMigrationBanner = Boolean(
+    isAdmin &&
+      (migrationStatus.status?.is_blocking ||
+        migrationStatus.status?.needs_version_bootstrap ||
+        migrationStatus.status?.override_active),
+  );
+  const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
   const secondaryNavItems = [
     config.taskBuilderEnabled && {
       key: "task-builder",
@@ -816,31 +843,48 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
+          {/*
+            Admin-only migration banners. The full descriptive label is
+            only rendered at `xl:` (>=1280px) so the right-side cluster
+            stays compact on smaller laptop viewports (where the banner
+            otherwise overlapped with the inline nav / Report a Problem
+            button). On narrower screens we collapse to a tooltip-only
+            icon + count chip. The `title` attribute on each link gives
+            screen-reader and hover users the full message.
+          */}
           {isAdmin && migrationStatus.status?.is_blocking && (
             <GuardedLink
               href="/admin?cat=security&tab=migrations"
               className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+              title={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
+              aria-label={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
             >
               <AlertTriangle className="h-3 w-3" />
-              Migrations required: {migrationStatus.status.blocking_required_count}
+              <span className="hidden xl:inline">Migrations required:</span>
+              <span>{migrationStatus.status.blocking_required_count}</span>
             </GuardedLink>
           )}
           {isAdmin && !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap && (
             <GuardedLink
               href="/admin?cat=security&tab=migrations"
               className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+              title={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
+              aria-label={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
             >
               <AlertTriangle className="h-3 w-3" />
-              Version metadata needed: {migrationStatus.status.version_bootstrap_required_count ?? 0}
+              <span className="hidden xl:inline">Version metadata needed:</span>
+              <span>{migrationStatus.status.version_bootstrap_required_count ?? 0}</span>
             </GuardedLink>
           )}
           {isAdmin && migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
             <GuardedLink
               href="/admin?cat=security&tab=migrations"
               className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
+              title="Migration override active"
+              aria-label="Migration override active"
             >
               <AlertTriangle className="h-3 w-3" />
-              Migration override active
+              <span className="hidden xl:inline">Migration override active</span>
             </GuardedLink>
           )}
         </div>
