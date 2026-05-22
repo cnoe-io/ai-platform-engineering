@@ -134,11 +134,6 @@ const sidebars: SidebarsConfig = {
                       id: 'installation/helm-charts/ai-platform-engineering/slack-bot-chart',
                       label: 'slack-bot',
                     },
-                    {
-                      type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/webex-bot-chart',
-                      label: 'webex-bot',
-                    },
                   ],
                 },
                 {
