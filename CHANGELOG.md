@@ -2,6 +2,37 @@
 
 ## 0.5.1-rc.12 (2026-05-20)
 
+## 0.4.15-dev.3 (2026-05-21)
+
+### Fix
+
+- **rag**: handle list[dict] return type in _truncate_output
+
+## 0.4.15-dev.2 (2026-05-21)
+
+### Fix
+
+- **ui**: update escalation-handoff micro_prompt wording
+- **ui**: update clear-role-definition micro_prompt to include personality
+- **ui**: remove no-second-person-preamble AI review rule
+- **ui**: persist ui, features, and interrupt_on fields in seedAgents
+
+## 0.4.15-dev.1 (2026-05-20)
+
+### Fix
+
+- **security**: close reopened code scanning alerts
+
+## 0.4.15 (2026-05-20)
+
+### Feat
+
+- **curl**: SDPL-1874 add allow_non_public_urls option to curl builtin tool
+
+### Refactor
+
+- **curl**: SDPL-1874 pass allow_non_public_urls through _validate_fetch_url
+
 ## 0.4.14-dev.2 (2026-05-20)
 
 ### Fix

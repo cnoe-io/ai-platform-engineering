@@ -79,13 +79,13 @@ def run_scan_all_on_directory(target_dir: Path) -> dict[str, Any]:
             "duration_sec": time.time() - t0,
             "max_severity": "high",
         }
-    except Exception as e:
-        logger.warning("skill-scanner execution failed: %s", e)
+    except Exception as exc:
+        logger.warning("skill-scanner execution failed: %s", type(exc).__name__)
         return {
             "skipped": False,
             "exit_code": -2,
             "stdout": "",
-            "stderr": str(e)[:2000],
+            "stderr": "skill-scanner execution failed",
             "duration_sec": time.time() - t0,
             "max_severity": None,
         }

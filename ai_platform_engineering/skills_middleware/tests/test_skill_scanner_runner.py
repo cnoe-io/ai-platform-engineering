@@ -5,7 +5,15 @@
 
 """Unit tests for skill_scanner_runner path validation."""
 
+import logging
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+
 from ai_platform_engineering.skills_middleware.skill_scanner_runner import (
+    run_scan_all_on_directory,
     write_single_skill_to_temp_tree,
 )
 
@@ -55,3 +63,26 @@ class TestWriteSingleSkillToTempTree:
         assert root.is_dir()
         # Should be inside a temp directory
         assert "config-scan-" in root.name
+
+
+def test_run_scan_all_sanitizes_execution_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(
+        "ai_platform_engineering.skills_middleware.skill_scanner_runner.shutil.which",
+        lambda name: "/usr/local/bin/skill-scanner",
+    )
+
+    def raise_secret_error(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("token=super-secret")
+
+    monkeypatch.setattr(subprocess, "run", raise_secret_error)
+
+    with caplog.at_level(logging.WARNING):
+        result = run_scan_all_on_directory(tmp_path)
+
+    assert result["exit_code"] == -2
+    assert result["stderr"] == "skill-scanner execution failed"
+    assert "super-secret" not in caplog.text

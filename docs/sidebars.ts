@@ -321,6 +321,8 @@ const sidebars: SidebarsConfig = {
           label: 'Knowledge Bases',
           items: [
             { type: 'doc', id: 'knowledge_bases/index', label: 'Overview' },
+            // assisted-by Codex Codex-sonnet-4-6
+            { type: 'doc', id: 'knowledge_bases/api-reference', label: 'API Reference' },
             { type: 'doc', id: 'knowledge_bases/architecture', label: 'Architecture' },
             { type: 'doc', id: 'knowledge_bases/ingestors', label: 'Ingestors' },
             { type: 'doc', id: 'knowledge_bases/ontology-agent', label: 'Ontology Agent' },

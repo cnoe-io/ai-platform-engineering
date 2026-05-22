@@ -75,7 +75,9 @@ jobs:
         if: ${{ always() && steps.scan.outputs.sarif != '' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
-          category: "grype-filesystem"
+          # Keep this stable as "grype": GitHub Code Scanning correlates SARIF
+          # by category, and renaming it leaves old alerts orphaned.
+          category: "grype"
           # On pull_request events the default checkout produces a merge commit
           # (refs/pull/N/merge), but GitHub Code Scanning PR checks require the
           # analysis to be associated with refs/pull/N/head + the head commit SHA.

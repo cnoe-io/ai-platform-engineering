@@ -72,15 +72,16 @@ def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _validate_fetch_url(url: str, allowed_domains: str) -> tuple[bool, str, str]:
+def _validate_fetch_url(url: str, allowed_domains: str, allow_non_public_urls: bool = False) -> tuple[bool, str, str]:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return False, "Invalid URL - must start with http:// or https://", ""
 
     domain = (parsed.hostname or "").lower()
-    is_routable, route_error = _is_publicly_routable_host(domain)
-    if not is_routable:
-        return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+    if not allow_non_public_urls:
+        is_routable, route_error = _is_publicly_routable_host(domain)
+        if not is_routable:
+            return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
 
     is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
     if not is_allowed:
@@ -135,6 +136,17 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                     label="HTTPS Only",
                     description="If enabled (default), reject non-https:// URLs.",
                     default=True,
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="allow_non_public_urls",
+                    type="boolean",
+                    label="Allow Non-Public URLs",
+                    description=(
+                        "If enabled, allow curl to reach URLs that resolve to private/internal IP addresses. "
+                        "Disabled by default (SSRF protection). Only enable for agents that need internal network access."
+                    ),
+                    default=False,
                     required=False,
                 ),
             ],
@@ -350,7 +362,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     return fetch_url
 
 
-def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True, allow_non_public_urls: bool = False):
     """Create a curl tool with domain restrictions.
 
     Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
@@ -359,6 +371,8 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
     Args:
         allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
         https_only: If True (default), reject non-https URLs.
+        allow_non_public_urls: If True, skip SSRF IP routing validation so the tool can
+            reach private/internal addresses. Off by default.
 
     Returns:
         A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
@@ -418,11 +432,11 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
                     logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
                     return msg
 
-        # Check domain ACL and SSRF protection (same validation as fetch_url)
+        # Check domain ACL and SSRF protection
         for token in args[1:]:
             if token.startswith("https://") or token.startswith("http://"):
                 try:
-                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains, allow_non_public_urls)
                     if not is_valid:
                         logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
                         return f"ERROR: {error_msg}"

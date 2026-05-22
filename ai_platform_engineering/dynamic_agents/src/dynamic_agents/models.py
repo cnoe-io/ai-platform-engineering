@@ -268,6 +268,10 @@ class CurlToolConfig(BaseModel):
         default=True,
         description="If True (default), reject non-https:// URLs.",
     )
+    allow_non_public_urls: bool = Field(
+        default=False,
+        description="If True, allow URLs that resolve to private/internal IP addresses. Off by default (SSRF protection).",
+    )
 
 
 class CurrentDatetimeToolConfig(BaseModel):
