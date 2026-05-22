@@ -54,12 +54,14 @@ from dynamic_agents.services.builtin_tools import (
     create_wait_tool,
     create_workflow_tools,
 )
+from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.mcp_client import (
     build_mcp_connections,
     filter_tools_by_allowed,
     get_tools_with_resilience,
+    resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
@@ -169,6 +171,30 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
+        # Spec 102 Phase 8 / T107: prefer the per-request bearer from
+        # current_user_token (set by JwtAuthMiddleware) so the same token
+        # the BFF authenticated us with is forwarded to MCP servers.
+        # Fall back to UserContext-attached fields for backward compat
+        # with the X-User-Context legacy path.
+        from dynamic_agents.auth.token_context import current_user_token as _ctx_tok
+
+        ctx_token = _ctx_tok.get()
+        legacy_token = (user.obo_jwt or user.access_token) if user else None
+        self._auth_bearer: str | None = ctx_token or legacy_token
+        # Spec 104: never silently substitute the dynamic-agents service
+        # account token here — the runtime must run with the user's OBO
+        # token so AgentGateway/OpenFGA can evaluate the signed active-team
+        # context. If we have nothing, log loudly and let the
+        # downstream call 401; we'd rather fail closed than show the user
+        # tools that belong to the SA.
+        if self._auth_bearer is None:
+            logger.warning(
+                "AgentRuntime for '%s' has no user JWT (ctx_token + legacy both empty); "
+                "outbound MCP calls will be unauthenticated and AgentGateway will reject them. "
+                "This usually means JwtAuthMiddleware was bypassed or the BFF stripped the "
+                "Authorization header.",
+                config.name,
+            )
         self._session_id = session_id
         self._graph = None
 
@@ -287,6 +313,17 @@ class AgentRuntime:
             ttl = max_ttl
         return ttl
 
+    def _credential_exchange_client(self) -> CredentialExchangeClient | None:
+        """Create a credential API client when impersonation token resolution is configured."""
+
+        if not self.settings.credential_api_url or not self._auth_bearer:
+            return None
+        return CredentialExchangeClient(
+            base_url=self.settings.credential_api_url,
+            audience=self.settings.credential_service_audience,
+            token_provider=lambda: self._auth_bearer or "",
+        )
+
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
         if self._initialized:
@@ -304,8 +341,18 @@ class AgentRuntime:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            # 1a. Fetch relevant MCP server configs
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+                agent_id=self.config.id,
+            )
+            connections = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
+            )
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
@@ -826,9 +873,21 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
-        server_ids = [sid for sid, val in subagent_config.allowed_tools.items() if val is not False]
+        #    Inherit parent's AG routing and auth (FR-038f)
+        server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+                agent_id=subagent_config.id,
+            )
+            connections = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
+            )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
                 all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
