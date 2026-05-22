@@ -179,7 +179,7 @@ class TestAddInternalComment:
     """Tests for add_internal_comment function."""
 
     @pytest.mark.asyncio
-    async def test_add_internal_comment_uses_jsm_private_comment(self, monkeypatch):
+    async def test_add_internal_comment_uses_platform_internal_property(self, monkeypatch):
         """Test adding a Jira Service Management internal note."""
         captured_request = {}
 
@@ -191,8 +191,7 @@ class TestAddInternalComment:
                 True,
                 {
                     "id": "10003",
-                    "body": "Initial investigation: test",
-                    "public": False,
+                    "body": kwargs.get("data", {}).get("body"),
                 },
             )
 
@@ -205,12 +204,20 @@ class TestAddInternalComment:
         result_dict = json.loads(result)
 
         assert result_dict["id"] == "10003"
-        assert captured_request["path"] == "rest/servicedeskapi/request/PROJ-123/comment"
+        assert captured_request["path"] == "rest/api/3/issue/PROJ-123/comment"
         assert captured_request["method"] == "POST"
-        assert captured_request["data"] == {
-            "body": "Initial investigation: test",
-            "public": False,
-        }
+        assert captured_request["data"]["body"]["type"] == "doc"
+        assert captured_request["data"]["body"]["content"][0]["content"][0]["text"] == (
+            "Initial investigation: test"
+        )
+        assert captured_request["data"]["properties"] == [
+            {
+                "key": "sd.public.comment",
+                "value": {
+                    "internal": True,
+                },
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_add_internal_comment_read_only(self, monkeypatch):

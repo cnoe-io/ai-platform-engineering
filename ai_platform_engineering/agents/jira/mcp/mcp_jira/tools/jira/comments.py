@@ -188,10 +188,11 @@ async def add_internal_comment(
 ) -> str:
     """Add an internal note to a Jira Service Management request.
 
-    Use this tool for private/internal JSM notes only. It calls the Jira Service
-    Management request comment API with ``public=false``. This is different from
-    Jira Platform's issue comment ``visibility`` field, which restricts comments
-    by Jira role/group and does not mean "internal note" versus "reply to customer".
+    Use this tool for private/internal JSM notes only. It calls the Jira Platform
+    comment API with the Jira Service Management ``sd.public.comment`` entity
+    property set to ``internal=true``. This is different from Jira Platform's
+    issue comment ``visibility`` field, which restricts comments by Jira
+    role/group and does not mean "internal note" versus "reply to customer".
 
     Args:
         issue_key: Jira Service Management issue key.
@@ -214,18 +215,39 @@ async def add_internal_comment(
         f"add_internal_comment called with issue_key={issue_key}, body length={len(body)}"
     )
 
-    comment_data: Dict[str, Any] = {
-        "body": body,
-        "public": False,
+    adf_body = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": body
+                    }
+                ]
+            }
+        ]
     }
 
-    # Atlassian's documented JSM Cloud API uses `public=false` to create an
-    # internal note on the customer request:
-    # https://developer.atlassian.com/cloud/jira/service-desk/rest/api-group-request/#api-rest-servicedeskapi-request-issueidorkey-comment-post
-    # The Jira Platform `/rest/api/3` comment endpoint only supports role/group
-    # visibility restrictions.
+    comment_data: Dict[str, Any] = {
+        "body": adf_body,
+        "properties": [
+            {
+                "key": "sd.public.comment",
+                "value": {
+                    "internal": True,
+                },
+            }
+        ],
+    }
+
+    # JSM also supports `public=false` on `/rest/servicedeskapi`, but that path
+    # can fail for issues without portal-origin request context. Atlassian's
+    # platform comment API supports internal notes through this entity property.
     success, response = await make_api_request(
-        path=f"rest/servicedeskapi/request/{issue_key}/comment",
+        path=f"rest/api/3/issue/{issue_key}/comment",
         method="POST",
         data=comment_data,
     )
