@@ -22,5 +22,5 @@ class SingleUrlSpider(BaseWebSpider):
 
   def start_requests(self) -> Iterator[Request]:
     """Generate a single request for the start URL."""
-    self.logger_custom.info(f"Starting single URL scrape: {self.start_url}")
-    yield self._make_request(self.start_url, callback=self.parse)
+    self.logger_custom.info(f"Starting single URL scrape: {self.origin_url}")
+    yield self._make_request(self.origin_url, callback=self.parse)

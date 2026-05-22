@@ -46,7 +46,7 @@ class SitemapCrawlSpider(SitemapSpider):
         job_manager: Job status manager
         datasource_info: Datasource metadata
     """
-    self.start_url = start_url
+    self.origin_url = start_url
     self.scrape_settings = scrape_settings
     self.job_id = job_id
     self.client = client
