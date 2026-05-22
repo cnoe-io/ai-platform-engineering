@@ -49,6 +49,7 @@
     "github",
     "jira",
     "komodor",
+    "litellm",
     "netutils",
     "pagerduty",
     "splunk",
@@ -61,4 +62,3 @@
     "ingestors"
   ]
 }
-
