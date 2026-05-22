@@ -393,6 +393,22 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/credential-oauth-connectors
     #     property: WEBEX_REDIRECT_URI
+    # - secretKey: PAGERDUTY_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_CLIENT_ID
+    # - secretKey: PAGERDUTY_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_CLIENT_SECRET
+    # - secretKey: PAGERDUTY_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_REDIRECT_URI
+    # - secretKey: PAGERDUTY_SCOPES
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_SCOPES
 
 # Structured application config (models, MCP servers, agents).
 # Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.
