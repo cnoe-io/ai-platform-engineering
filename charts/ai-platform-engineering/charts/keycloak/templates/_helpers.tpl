@@ -85,6 +85,20 @@ CAIPE UI client-secret K8s Secret name.
 {{- end }}
 
 {{/*
+CAIPE Platform client-secret K8s Secret name.
+- explicit user-provided existing Secret wins
+- else if ESO is enabled for platformClient, the chart owns a Secret named
+  <fullname>-platform-client
+*/}}
+{{- define "keycloak.platformClientSecretName" -}}
+{{- if .Values.platformClient.secretRef }}
+{{- .Values.platformClient.secretRef }}
+{{- else }}
+{{- include "keycloak.fullname" . }}-platform-client
+{{- end }}
+{{- end }}
+
+{{/*
 IdP client-secret K8s Secret name.
 - explicit user-provided existing Secret wins
 - else if ESO is enabled for IdP, the chart owns a Secret named <fullname>-idp

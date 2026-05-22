@@ -115,6 +115,25 @@ uiClient:
       key: ""
       property: ""
 
+# ---------- CAIPE Platform OIDC client ----------
+# The `caipe-platform` confidential client is used by caipe-ui for admin API
+# calls (KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform, KEYCLOAK_ADMIN_CLIENT_SECRET).
+# Production installs should source the client secret from Kubernetes/ESO so
+# init-idp can reconcile the existing Keycloak client without placing the secret
+# in the realm ConfigMap.
+platformClient:
+  secretRef: ""
+  secretKey: "KEYCLOAK_ADMIN_CLIENT_SECRET"
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
 # ---------- Upstream Identity Provider (generic OIDC) ----------
 # Configures an external IDP broker (e.g. Okta, Azure AD, Duo SSO).
 # Three ways to provide IDP_CLIENT_SECRET:
