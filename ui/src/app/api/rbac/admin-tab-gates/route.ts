@@ -265,11 +265,20 @@ export async function GET(request?: NextRequest) {
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   for (const tab of ALL_TABS) {
     const actor = simulatedUser ?? currentUser;
-    let allowed = BASELINE_TABS.has(tab) && actor
-      ? await hasBaselineAdminSurfaceRead(actor, tab)
-      : simulatedUser
-        ? await hasAdminSurfaceManage(simulatedUser, tab)
-        : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    let allowed =
+      tab === "credentials"
+        ? simulatedUser
+          ? await checkTupleAllowed({
+              user: simulatedUser,
+              relation: "can_manage",
+              object: organizationObjectId(),
+            })
+          : isAdmin
+        : BASELINE_TABS.has(tab) && actor
+          ? await hasBaselineAdminSurfaceRead(actor, tab)
+          : simulatedUser
+            ? await hasAdminSurfaceManage(simulatedUser, tab)
+            : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
     if (!allowed && actor && !simulatedUser) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }

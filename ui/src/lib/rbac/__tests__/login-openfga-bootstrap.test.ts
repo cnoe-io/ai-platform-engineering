@@ -85,6 +85,12 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:users" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:teams" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:skills" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:health" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:credentials" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
       ]),
@@ -184,6 +190,64 @@ describe("login OpenFGA bootstrap", () => {
     expect(result.status).toBe("completed");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [{ user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" }],
+      deletes: [],
+    });
+  });
+
+  it("backfills new required grants into stored built-in admin profiles", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "openfga_baseline_profiles") {
+        return {
+          findOne: jest.fn().mockImplementation(async (query: { _id: string }) =>
+            query._id === "profiles_v2"
+              ? {
+                  _id: "profiles_v2",
+                  global_member_profile_id: "org-member",
+                  global_admin_profile_id: "org-admin",
+                  profiles: [
+                    {
+                      id: "org-member",
+                      name: "Organization member",
+                      role: "member",
+                      built_in: true,
+                      grants: ["organization-member", "own-profile-owner"],
+                    },
+                    {
+                      id: "org-admin",
+                      name: "Organization admin",
+                      role: "admin",
+                      built_in: true,
+                      grants: ["organization-admin"],
+                    },
+                  ],
+                }
+              : null,
+          ),
+        };
+      }
+      if (name === "teams") {
+        return { find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }) };
+      }
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue(null) };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { reconcileLoginOpenFgaAccess } = await import("../login-openfga-bootstrap");
+
+    const result = await reconcileLoginOpenFgaAccess({
+      subject: "sub-admin",
+      email: "admin@example.com",
+      isAuthorized: true,
+      isAdmin: true,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:teams" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:credentials" },
+      ]),
       deletes: [],
     });
   });

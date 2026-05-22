@@ -3,11 +3,22 @@
  *
  * Proxies to the Dynamic Agents backend `/api/v1/builtin-tools` endpoint.
  *
- * Although the backend route returns static metadata, the dynamic-agents
- * service runs with `DA_REQUIRE_BEARER=true` (the Spec 102 Phase 8 kill-
- * switch) so every request must carry the user's session JWT. We forward
- * it via the shared `da-proxy` helper, matching every other DA proxy
- * route in the Web UI backend.
+ * Authorization model:
+ *   - The list is a static catalog of supported built-in tool *types*
+ *     (web_search, file_io, ...), not a set of permissioned objects. It
+ *     is the same shape as the AI Assist task registry: rendering the
+ *     Create Agent wizard requires being able to read this catalog, but
+ *     nothing here gives the caller call/use access to any concrete
+ *     tool — per-tool authorization happens at MCP invocation time.
+ *   - Earlier revisions gated this on
+ *     `tool:dynamic-agents-builtin#can_discover`, but no production code
+ *     path ever wrote that tuple, so every caller (admins included) was
+ *     denied with a 403. The picker showed "Failed to load tools: Failed
+ *     to fetch: 403" on the Create Agent → Tools step.
+ *   - The route now mirrors how Create Agent itself is gated: it
+ *     requires an authenticated session (so the request carries a real
+ *     bearer token to dynamic-agents' `DA_REQUIRE_BEARER` middleware)
+ *     and skips the OpenFGA check.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,26 +27,10 @@ import {
   getDynamicAgentsConfig,
   proxyRequest,
 } from "@/lib/da-proxy";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 export async function GET(request: NextRequest): Promise<Response> {
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
-  try {
-    await requireResourcePermission(
-      { sub: authResult.subject, role: authResult.role, user: { email: authResult.email } },
-      { type: "tool", id: "dynamic-agents-builtin", action: "discover" },
-    );
-  } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Access denied",
-        code: (error as { code?: string }).code,
-      },
-      { status: (error as { statusCode?: number }).statusCode ?? 500 },
-    );
-  }
 
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;

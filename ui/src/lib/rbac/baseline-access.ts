@@ -161,6 +161,16 @@ export function adminBaselineGrantDefinitions(): BaselineFgaGrantDefinition[] {
       description: "Allows admins to sync MCP servers through AgentGateway.",
       tuple: (subject) => ({ user: `user:${subject}`, relation: "manager", object: "mcp_server:agentgateway" }),
     },
+    ...BASELINE_ADMIN_SURFACES.map((surface) => ({
+      id: `admin-surface:${surface}:manage`,
+      label: `Manage ${surface.replaceAll("_", " ")} admin surface`,
+      description: `Allows admins to manage the ${surface.replaceAll("_", " ")} admin surface.`,
+      tuple: (subject: string) => ({
+        user: `user:${subject}`,
+        relation: "manager",
+        object: adminSurfaceObject(surface),
+      }),
+    })),
     ...PRIVILEGED_ADMIN_SURFACES.map((surface) => ({
       id: `admin-surface:${surface}:manage`,
       label: `Manage ${surface.replaceAll("_", " ")} admin surface`,
@@ -248,6 +258,20 @@ function normalizeProfileDefinition(value: unknown): BaselineFgaProfileDefinitio
   };
 }
 
+function mergeBuiltInProfileDefaults(
+  profile: BaselineFgaProfileDefinition,
+  defaults: Map<string, BaselineFgaProfileDefinition>,
+): BaselineFgaProfileDefinition {
+  const defaultProfile = defaults.get(profile.id);
+  if (!profile.built_in || !defaultProfile || defaultProfile.role !== profile.role) {
+    return profile;
+  }
+  return {
+    ...profile,
+    grants: Array.from(new Set([...defaultProfile.grants, ...profile.grants])),
+  };
+}
+
 export function normalizeBaselineFgaProfileBundle(input: {
   profiles?: unknown;
   global_member_profile_id?: unknown;
@@ -262,7 +286,7 @@ export function normalizeBaselineFgaProfileBundle(input: {
     for (const value of input.profiles) {
       const profile = normalizeProfileDefinition(value);
       if (!profile) continue;
-      byId.set(profile.id, profile);
+      byId.set(profile.id, mergeBuiltInProfileDefaults(profile, byId));
     }
   }
   const profiles = Array.from(byId.values());

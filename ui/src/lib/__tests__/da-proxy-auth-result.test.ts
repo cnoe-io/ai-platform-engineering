@@ -85,7 +85,7 @@ describe("authenticateRequest auth result", () => {
     });
   });
 
-  it("returns a structured 401 when a browser session has no access token for DA backend calls", async () => {
+  it("allows browser session fallback without a bearer token for DA backend calls", async () => {
     mockGetAuthFromBearerOrSession.mockResolvedValue({
       user: { email: "alice@example.com", name: "Alice", role: "admin" },
       session: {
@@ -97,14 +97,12 @@ describe("authenticateRequest auth result", () => {
 
     const result = await authenticateRequest(request("/api/dynamic-agents/middleware"));
 
-    expect(result).toBeInstanceOf(NextResponse);
-    const response = result as NextResponse;
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toMatchObject({
-      success: false,
-      code: "MISSING_ACCESS_TOKEN",
-      reason: "missing_bearer",
-      action: "sign_in",
+    expect(result).not.toBeInstanceOf(NextResponse);
+    expect(result).toMatchObject({
+      subject: "alice-sub",
+      email: "alice@example.com",
+      role: "admin",
+      bearerToken: undefined,
     });
   });
 });

@@ -33,7 +33,11 @@ describe("bootstrap admin reconciliation", () => {
       .mockResolvedValueOnce({ id: "sub-admin", email: "admin@cisco.com", created: false })
       .mockResolvedValueOnce({ id: "sub-second", email: "second@cisco.com", created: true });
     mockGetCollection.mockRejectedValue(new Error("Mongo unavailable in bootstrap admin test"));
-    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 11, deletes: 0 });
+    mockWriteOpenFgaTuples.mockImplementation(async (input: { writes: unknown[] }) => ({
+      enabled: true,
+      writes: input.writes.length,
+      deletes: 0,
+    }));
   });
 
   afterAll(() => {
@@ -49,7 +53,7 @@ describe("bootstrap admin reconciliation", () => {
     expect(result.configured_emails).toEqual(["admin@cisco.com", "second@cisco.com"]);
     expect(result.resolved_count).toBe(2);
     expect(result.created_count).toBe(1);
-    expect(result.tuple_write_count).toBe(22);
+    expect(result.tuple_write_count).toBe(58);
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("admin@cisco.com");
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("second@cisco.com");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
@@ -65,6 +69,12 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:users" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:teams" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:skills" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:metrics" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:health" },
+        { user: "user:sub-admin", relation: "manager", object: "admin_surface:credentials" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:openfga" },
         { user: "user:sub-admin", relation: "manager", object: "admin_surface:migrations" },
       ]),
@@ -76,13 +86,13 @@ describe("bootstrap admin reconciliation", () => {
           email: "admin@cisco.com",
           user_id: "sub-admin",
           status: "existing",
-          tuple_write_count: 11,
+          tuple_write_count: 29,
         }),
         expect.objectContaining({
           email: "second@cisco.com",
           user_id: "sub-second",
           status: "created",
-          tuple_write_count: 11,
+          tuple_write_count: 29,
         }),
       ]),
     );

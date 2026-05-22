@@ -41,7 +41,8 @@ export interface AuthResult {
    * request, when available. Forwarded to DA as ``Authorization:
    * Bearer <token>`` so DA's ``JwtAuthMiddleware`` can validate it
    * against Keycloak and bind ``current_user_token`` for downstream
-   * MCP / agentgateway calls. See spec 102 Phase 8 / T103, T106.
+   * MCP / AgentGateway calls. Browser sessions can temporarily fall back
+   * to ``X-User-Context`` when the server-side token cache is lost.
    */
   bearerToken?: string;
   /** W3C trace context propagated from the Web UI backend authz span. */
@@ -105,18 +106,6 @@ export async function authenticateRequest(
     const bearerToken = (s?.accessToken as string | undefined) || undefined;
     const subject = (s?.sub as string | undefined) || user.email;
     const tenantId = (s?.org as string | undefined) || "default";
-    if (!bearerToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "A Keycloak access token is required for Dynamic Agents access. Please sign in again.",
-          code: "MISSING_ACCESS_TOKEN",
-          reason: "missing_bearer",
-          action: "sign_in",
-        },
-        { status: 401 },
-      );
-    }
     return { subject, email: user.email, role: user.role, tenantId, userContextHeader: encoded, bearerToken };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

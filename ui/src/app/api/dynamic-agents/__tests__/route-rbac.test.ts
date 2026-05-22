@@ -684,16 +684,26 @@ describe("dynamic agents RBAC routes", () => {
     expect(deleteOne).toHaveBeenCalledWith({ _id: "agent-1" });
   });
 
-  it("requires builtin tool discovery before proxying dynamic agent tool metadata", async () => {
+  // Built-in tool metadata is the same kind of static, system-wide
+  // catalog as the AI Assist task list: every signed-in user who can
+  // open the Create Agent wizard needs to render the picker, regardless
+  // of organization role or per-tool grants. Gating it on a
+  // `tool:dynamic-agents-builtin#can_discover` tuple that nothing ever
+  // seeds is what produced "Failed to load tools: Failed to fetch: 403"
+  // for admins on the agent builder screen. Pin the new contract here:
+  // authenticate the caller, do NOT call OpenFGA, and proxy through.
+  it("proxies built-in tool metadata for any authenticated caller without an OpenFGA gate", async () => {
     const { GET } = await import("../builtin-tools/route");
 
     const response = await GET(request("/api/dynamic-agents/builtin-tools"));
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "alice-sub", role: "admin", user: { email: "alice@example.com" } },
-      { type: "tool", id: "dynamic-agents-builtin", action: "discover" },
-    );
+    // Authentication still required — the route must not silently allow
+    // anonymous traffic to enumerate the supported built-in tools list.
+    expect(mockAuthenticateRequest).toHaveBeenCalledTimes(1);
+    // No per-tool OpenFGA check for the built-in catalog. The route only
+    // hands off to DA with the caller's bearer token.
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
     expect(mockProxyRequest).toHaveBeenCalledWith(
       "http://dynamic-agents:8000/api/v1/builtin-tools",
       "GET",
@@ -702,16 +712,23 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
-  it("does not proxy builtin tool metadata when tool discovery is denied", async () => {
-    mockRequireResourcePermission.mockRejectedValue(
-      Object.assign(new Error("tool denied"), { statusCode: 403, code: "tool#discover" }),
+  it("rejects unauthenticated callers on built-in tool metadata", async () => {
+    // Real-world denial path from `authenticateRequest`: returns a
+    // NextResponse (not a plain Response). The route uses `instanceof`
+    // to short-circuit, so the mock must match the real type.
+    const { NextResponse } = await import("next/server");
+    mockAuthenticateRequest.mockResolvedValueOnce(
+      NextResponse.json(
+        { success: false, error: "not signed in", code: "NOT_SIGNED_IN" },
+        { status: 401 },
+      ),
     );
     const { GET } = await import("../builtin-tools/route");
 
     const response = await GET(request("/api/dynamic-agents/builtin-tools"));
 
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "tool#discover" });
+    expect(response.status).toBe(401);
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
     expect(mockProxyRequest).not.toHaveBeenCalled();
   });
 });

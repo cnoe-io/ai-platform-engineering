@@ -19,14 +19,17 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
+const mockGetConfig = jest.fn((key: string) =>
+  ({
+    feedbackEnabled: true,
+    npsEnabled: true,
+    auditLogsEnabled: true,
+    actionAuditEnabled: true,
+    credentialsEnabled: true,
+  })[key] ?? false,
+);
 jest.mock("@/lib/config", () => ({
-  getConfig: (key: string) =>
-    ({
-      feedbackEnabled: true,
-      npsEnabled: true,
-      auditLogsEnabled: true,
-      actionAuditEnabled: true,
-    })[key] ?? false,
+  getConfig: (key: string) => mockGetConfig(key),
 }));
 
 const mockCheckOpenFgaTuple = jest.fn();
@@ -45,6 +48,15 @@ function request(path: string): NextRequest {
 describe("GET /api/rbac/admin-tab-gates", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetConfig.mockImplementation((key: string) =>
+      ({
+        feedbackEnabled: true,
+        npsEnabled: true,
+        auditLogsEnabled: true,
+        actionAuditEnabled: true,
+        credentialsEnabled: true,
+      })[key] ?? false,
+    );
     mockGetCollection.mockImplementation(() => {
       throw new Error("admin_tab_policies should not be read");
     });
@@ -71,6 +83,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       skills: true,
       metrics: true,
       health: true,
+      credentials: true,
       roles: true,
       identity_group_sync: true,
       slack: true,
@@ -137,6 +150,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
           "admin_surface:skills",
           "admin_surface:metrics",
           "admin_surface:health",
+          "admin_surface:credentials",
         ].includes(tuple.object),
     }));
 
@@ -150,6 +164,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       skills: true,
       metrics: true,
       health: true,
+      credentials: false,
       roles: false,
       identity_group_sync: false,
       slack: false,
@@ -158,6 +173,22 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       openfga: false,
       migrations: false,
     });
+  });
+
+  it("hides the admin credentials tab when the credentials feature flag is disabled", async () => {
+    mockGetServerSession.mockResolvedValue({
+      role: "admin",
+      sub: "admin-sub",
+      user: { email: "admin@example.com" },
+    });
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+    mockGetConfig.mockImplementation((key: string) => key !== "credentialsEnabled");
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.gates.credentials).toBe(false);
   });
 
   it("repairs baseline member tuples before evaluating non-admin tab gates", async () => {

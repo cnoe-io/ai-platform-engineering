@@ -79,6 +79,17 @@ describe("ReBAC resource catalog", () => {
     );
   });
 
+  it("does not seed the placeholder current-user resource that has no ReBAC relationships", async () => {
+    const catalog = await listRebacCatalog();
+
+    expect(catalog.resources).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "user", id: "current-user" }),
+        expect.objectContaining({ type: "user_profile", id: "current-user" }),
+      ]),
+    );
+  });
+
   it("collapses conversation catalog entries to the typed wildcard", async () => {
     const catalog = await listRebacCatalog();
 

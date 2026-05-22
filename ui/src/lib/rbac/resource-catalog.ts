@@ -38,8 +38,6 @@ export interface RebacCatalog {
 
 const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("organization", "caipe", "CAIPE", "rebac_shadowed"),
-  resource("user", "current-user", "Current User", "role_gated"),
-  resource("user_profile", "current-user", "Current User Profile", "rebac_enforced"),
   resource("external_group", "example-enterprise-group", "Example Enterprise Group", "rebac_shadowed"),
   resource("team", "platform", "Platform", "rebac_shadowed"),
   resource("slack_workspace", "workspace-default", "Default Slack Workspace", "role_gated"),
