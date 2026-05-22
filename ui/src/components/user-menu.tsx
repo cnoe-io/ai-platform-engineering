@@ -272,7 +272,7 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
   );
 }
 
-export function UserMenu() {
+export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
@@ -466,8 +466,10 @@ export function UserMenu() {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setOpen(!open)}
+        aria-label={compact ? `User menu for ${displayName}` : undefined}
         className={cn(
           "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
+          compact && "px-1.5",
           open
             ? "bg-primary/10"
             : "hover:bg-muted"
@@ -484,11 +486,13 @@ export function UserMenu() {
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
-        <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>
-        <ChevronDown className={cn(
-          "h-3 w-3 text-muted-foreground transition-transform",
-          open && "rotate-180"
-        )} />
+        {!compact && <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>}
+        {!compact && (
+          <ChevronDown className={cn(
+            "h-3 w-3 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )} />
+        )}
       </button>
 
       <AnimatePresence>

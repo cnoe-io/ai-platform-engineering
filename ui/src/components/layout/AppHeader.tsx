@@ -17,6 +17,7 @@ import {
   Bot,
   AlertTriangle,
   KeyRound,
+  MoreHorizontal,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -40,12 +41,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
@@ -138,6 +133,26 @@ function GuardedLink({
       {children}
     </Link>
   );
+}
+
+const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
+
+function useHeaderNavCollapsed(): boolean {
+  const [collapsed, setCollapsed] = React.useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(HEADER_NAV_COLLAPSE_QUERY).matches;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(HEADER_NAV_COLLAPSE_QUERY);
+    const handleChange = () => setCollapsed(media.matches);
+    handleChange();
+    media.addEventListener?.("change", handleChange);
+    return () => media.removeEventListener?.("change", handleChange);
+  }, []);
+
+  return collapsed;
 }
 
 export function AppHeader() {
@@ -238,6 +253,11 @@ export function AppHeader() {
   };
 
   const combinedStatus = getCombinedStatus();
+  const combinedStatusLabel =
+    combinedStatus === "connected" ? "Connected" :
+    combinedStatus === "checking" ? "Checking" :
+    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
+    "Disconnected";
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -253,11 +273,115 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
+  const headerNavCollapsed = useHeaderNavCollapsed();
+  const secondaryNavItems = [
+    config.taskBuilderEnabled && {
+      key: "task-builder",
+      href: "/task-builder",
+      label: "Task Builder",
+      Icon: Workflow,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    config.workflowsEnabled && {
+      key: "workflows",
+      href: "/workflows",
+      label: "Workflows",
+      Icon: Workflow,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    ragEnabled && {
+      key: "knowledge",
+      href: "/knowledge-bases",
+      label: "Knowledge Bases",
+      Icon: Database,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+      key: "dynamic-agents",
+      href: "/dynamic-agents",
+      label: "Agents",
+      Icon: Bot,
+      activeClassName: "bg-purple-500 text-white shadow-sm",
+    },
+    storageMode === "mongodb" && config.credentialsEnabled && {
+      key: "credentials",
+      href: "/credentials",
+      label: "Connections",
+      Icon: KeyRound,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    session && {
+      key: "admin",
+      href: "/admin",
+      label: "Admin",
+      Icon: Shield,
+      disabled: storageMode !== "mongodb",
+      activeClassName:
+        activeTab === "admin" && isAdmin
+          ? "bg-red-500 text-white shadow-sm"
+          : "bg-primary text-primary-foreground shadow-sm",
+    },
+  ].filter(Boolean) as Array<{
+    key: string;
+    href: string;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    activeClassName: string;
+    disabled?: boolean;
+  }>;
+
+  const renderSecondaryNavItem = (
+    item: (typeof secondaryNavItems)[number],
+    variant: "inline" | "menu",
+  ) => {
+    const Icon = item.Icon;
+    const baseClassName =
+      variant === "inline"
+        ? "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all"
+        : "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors";
+    const inactiveClassName =
+      variant === "inline"
+        ? "text-muted-foreground hover:text-foreground"
+        : "text-muted-foreground hover:bg-muted hover:text-foreground";
+    const disabledClassName =
+      variant === "inline"
+        ? "text-muted-foreground/50 opacity-50 cursor-not-allowed"
+        : "text-muted-foreground/50 opacity-50 cursor-not-allowed";
+    const className = cn(
+      baseClassName,
+      item.disabled
+        ? disabledClassName
+        : activeTab === item.key
+          ? item.activeClassName
+          : inactiveClassName,
+    );
+
+    const content = (
+      <>
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        {item.label}
+      </>
+    );
+
+    if (item.disabled) {
+      return (
+        <div key={item.key} className={className}>
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <GuardedLink key={item.key} href={item.href} prefetch={true} className={className}>
+        {content}
+      </GuardedLink>
+    );
+  };
 
   return (
     <>
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
@@ -339,140 +463,45 @@ export function AppHeader() {
             <Zap className="h-3.5 w-3.5 shrink-0" />
             Skills
           </GuardedLink>
-          {/* Task Builder tab - only show if task builder is enabled */}
-          {config.taskBuilderEnabled && (
-          <GuardedLink
-            href="/task-builder"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "task-builder"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Workflow className="h-3.5 w-3.5 shrink-0" />
-            Task Builder
-          </GuardedLink>
-          )}
-          {/* Workflows tab - only show if workflows are enabled */}
-          {config.workflowsEnabled && (
-          <GuardedLink
-            href="/workflows"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "workflows"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Workflow className="h-3.5 w-3.5 shrink-0" />
-            Workflows
-          </GuardedLink>
-          )}
-          {/* Knowledge Bases tab - only show if RAG is enabled */}
-          {ragEnabled && (
-            <GuardedLink
-              href="/knowledge-bases"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "knowledge"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Database className="h-3.5 w-3.5 shrink-0" />
-               Knowledge Bases
-            </GuardedLink>
-          )}
-          {/* Dynamic Agents tab - APIs enforce OpenFGA resource checks. */}
-          {storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
-            <GuardedLink
-              href="/dynamic-agents"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "dynamic-agents"
-                  ? "bg-purple-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Bot className="h-3.5 w-3.5 shrink-0" />
-              Agents
-            </GuardedLink>
-          )}
-          {storageMode === 'mongodb' && config.credentialsEnabled && (
-            <GuardedLink
-              href="/credentials"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "credentials"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <KeyRound className="h-3.5 w-3.5 shrink-0" />
-              Connections
-            </GuardedLink>
-          )}
-          {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
-          {session && (
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {storageMode === 'mongodb' ? (
-                    <GuardedLink
-                      href="/admin"
-                      prefetch={true}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                        activeTab === "admin" && isAdmin
-                          ? "bg-red-500 text-white shadow-sm"
-                          : activeTab === "admin"
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Shield className="h-3.5 w-3.5 shrink-0" />
-                      Admin
-                    </GuardedLink>
-                  ) : (
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
-                        "text-muted-foreground/50 opacity-50"
-                      )}
-                    >
-                      <Shield className="h-3.5 w-3.5 shrink-0" />
-                      Admin
-                    </div>
+          {!headerNavCollapsed && secondaryNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
+          {headerNavCollapsed && secondaryNavItems.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="More navigation"
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                    secondaryNavItems.some((item) => activeTab === item.key)
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                </TooltipTrigger>
-                {storageMode !== 'mongodb' && (
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">
-                      Admin dashboard requires MongoDB to be configured. Please set up MongoDB to enable user and team management.
-                    </p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
+                  <span className="sr-only">More</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-56 p-2">
+                <div className="space-y-1">
+                  {secondaryNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
         </div>
       </div>
 
       {/* Status & Actions */}
-      <div className="flex items-center gap-3">
+      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
         {/* Combined Connection Status */}
         <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <button
+                aria-label={`System status: ${combinedStatusLabel}`}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
+                  headerNavCollapsed && "h-8 w-8 justify-center px-0",
                   combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
@@ -490,10 +519,7 @@ export function AppHeader() {
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                {combinedStatus === "connected" ? "Connected" :
-                 combinedStatus === "checking" ? "Checking" :
-                 combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-                 "Disconnected"}
+                <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
@@ -820,17 +846,22 @@ export function AppHeader() {
         </div>
 
         {/* Personalization, Links & User */}
-        <div className="flex items-center gap-1 border-l border-border pl-3">
+        <div className={cn("flex items-center gap-1 border-l border-border", headerNavCollapsed ? "pl-1.5" : "pl-3")}>
           {config.reportProblemEnabled && (
             <>
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                size={headerNavCollapsed ? "icon" : "sm"}
+                aria-label="Report a Problem"
+                title="Report a Problem"
+                className={cn(
+                  "h-8 text-xs text-muted-foreground hover:text-foreground",
+                  headerNavCollapsed ? "w-8" : "gap-1.5",
+                )}
                 onClick={() => setReportDialogOpen(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Report a Problem
+                {!headerNavCollapsed && "Report a Problem"}
               </Button>
               <ReportProblemDialog
                 open={reportDialogOpen}
@@ -838,7 +869,7 @@ export function AppHeader() {
               />
             </>
           )}
-          <SettingsPanel />
+          <SettingsPanel compact={headerNavCollapsed} />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
@@ -864,7 +895,7 @@ export function AppHeader() {
             </Button>
           )}
           {/* User Menu - Only shown when SSO is enabled */}
-          <UserMenu />
+          <UserMenu compact={headerNavCollapsed} />
         </div>
       </div>
     </header>

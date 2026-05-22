@@ -36,6 +36,22 @@ jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
+function setHeaderNavConstrained(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
+}
+
 // Mock admin role hook
 let mockIsAdmin = false
 let mockCanAccessDynamicAgents = false
@@ -173,47 +189,67 @@ jest.mock('@/components/ticket/ReportProblemDialog', () => ({
 
 // Mock Link component
 jest.mock('next/link', () => {
-  return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  const MockLink = React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
     <a ref={ref} href={href} className={className} data-testid={`link-${href}`} {...props}>{children}</a>
   ))
+  MockLink.displayName = 'MockLink'
+  return MockLink
 })
 
 // Mock UI components
-jest.mock('@/components/ui/tooltip', () => ({
-  Tooltip: ({ children }: any) => <>{children}</>,
-  TooltipContent: ({ children }: any) => <div>{children}</div>,
-  TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
+jest.mock('@/components/ui/tooltip', () => {
+  const TooltipTrigger = React.forwardRef(function MockTooltipTrigger(
+    { children, asChild, ...props }: any,
+    ref: any,
+  ) {
     if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
+      return children
     }
     return <div ref={ref} {...props}>{children}</div>
-  }),
-}))
+  })
+  return {
+    Tooltip: ({ children }: any) => <>{children}</>,
+    TooltipContent: ({ children }: any) => <div>{children}</div>,
+    TooltipProvider: ({ children }: any) => <>{children}</>,
+    TooltipTrigger,
+  }
+})
 
-jest.mock('@/components/ui/popover', () => ({
-  Popover: ({ children }: any) => <>{children}</>,
-  PopoverContent: ({ children }: any) => <div>{children}</div>,
-  PopoverTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
+jest.mock('@/components/ui/popover', () => {
+  const PopoverTrigger = React.forwardRef(function MockPopoverTrigger(
+    { children, asChild, ...props }: any,
+    ref: any,
+  ) {
     if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
+      return children
     }
     return <div ref={ref} {...props}>{children}</div>
-  }),
-}))
+  })
+  return {
+    Popover: ({ children }: any) => <>{children}</>,
+    PopoverContent: ({ children }: any) => <div>{children}</div>,
+    PopoverTrigger,
+  }
+})
 
 jest.mock('@/components/user-menu', () => ({
-  UserMenu: () => <div data-testid="user-menu" />,
+  UserMenu: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="user-menu" data-compact={compact ? 'true' : 'false'} />
+  ),
 }))
 
 jest.mock('@/components/settings-panel', () => ({
-  SettingsPanel: () => <div data-testid="settings-panel" />,
+  SettingsPanel: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="settings-panel" data-compact={compact ? 'true' : 'false'} />
+  ),
 }))
 
 jest.mock('@/components/ui/button', () => ({
-  Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
+  Button: React.forwardRef(function MockButton({ children, ...props }: any, ref: any) {
+    return (
     <button ref={ref} {...props}>{children}</button>
-  )),
+    )
+  }),
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -249,6 +285,7 @@ describe('AppHeader — nav tabs', () => {
     mockReportProblemEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    setHeaderNavConstrained(false)
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -319,6 +356,35 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
+    })
+
+    it('collapses secondary top navigation into More on constrained widths', () => {
+      setHeaderNavConstrained(true)
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = true
+      mockIsAdmin = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByRole('button', { name: /more navigation/i })).toHaveClass('w-8')
+      expect(screen.getByText('Home')).toBeInTheDocument()
+      expect(screen.getByText(/Chat/)).toBeInTheDocument()
+      expect(screen.getByText('Skills')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+    })
+
+    it('collapses header status and account actions on constrained widths', () => {
+      setHeaderNavConstrained(true)
+      mockReportProblemEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
+      expect(screen.getByRole('button', { name: /report a problem/i })).toHaveClass('w-8')
+      expect(screen.queryByText('Report a Problem')).not.toBeInTheDocument()
+      expect(screen.getByTestId('settings-panel')).toHaveAttribute('data-compact', 'true')
+      expect(screen.getByTestId('user-menu')).toHaveAttribute('data-compact', 'true')
     })
 
     it('shows Skills as active on /skills', () => {
