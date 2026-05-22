@@ -119,7 +119,7 @@ sequenceDiagram
 
 1. **Policy timeline** — admins change ReBAC relationships through the OpenFGA/ReBAC UI and team resource APIs. Those writes update MongoDB provenance and OpenFGA tuples; AgentGateway does not maintain a CEL policy CRUD surface or Mongo-backed config bridge.
 2. **Key timeline** — Keycloak publishes its signing keys on a public endpoint. AG fetches them lazily (startup, TTL expiry, or unknown `kid`). **Keycloak is not a runtime dependency of AG** — requests succeed even if Keycloak is briefly unreachable, as long as the cached JWKS has a valid key for the JWT's `kid`.
-3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie; if that cache is lost after a UI restart, the browser session is marked `AccessTokenMissing` and redirected through login rather than proxying tokenless Dynamic Agent/RAG requests. On every successful CAIPE login, the BFF reconciles OpenFGA tuples for users who passed `OIDC_REQUIRED_GROUP`; those tuples come from the admin-managed default OpenFGA grant profile bundle when present, otherwise the built-in Org Member / Org Admin defaults. Users in `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS` receive the selected admin profile grants. Team-assigned custom profiles override the global member/admin profile for matching team users and are materialized as direct user tuples; multiple team overrides union with each other. Admin changes in Security & Policy → OpenFGA → Default FGA Grants can save future-login templates and reconcile all known users immediately. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
+3. **Login timeline** — Duo SSO authenticates the human at the start of the Keycloak SSO session. Keycloak exchanges that Duo assertion for CAIPE tokens; the UI keeps refreshing 1-hour access tokens through Keycloak while the 8-hour idle / 24-hour max SSO session remains valid. CAIPE UI keeps large OAuth tokens in a server-side token cache and only stores slim session metadata in the httpOnly cookie. If that cache is lost after a UI restart, RAG and token-enforced data-plane calls redirect through login, while Dynamic Agents browser proxy routes can still forward the signed-in `X-User-Context` fallback for configuration and save flows; AgentGateway-backed MCP probes/tools may still require a fresh Keycloak bearer. On every successful CAIPE login, the BFF reconciles OpenFGA tuples for users who passed `OIDC_REQUIRED_GROUP`; those tuples come from the admin-managed default OpenFGA grant profile bundle when present, otherwise the built-in Org Member / Org Admin defaults. Users in `OIDC_REQUIRED_ADMIN_GROUP` or `BOOTSTRAP_ADMIN_EMAILS` receive the selected admin profile grants. Team-assigned custom profiles override the global member/admin profile for matching team users and are materialized as direct user tuples; multiple team overrides union with each other. Admin changes in Security & Policy → OpenFGA → Default FGA Grants can save future-login templates and reconcile all known users immediately. If enabled, CAIPE also uses the login-time `memberOf` / `groups` claims to reconcile only the signed-in user's managed team memberships. This claim path is additive; full inventory, removals, and drift still come from direct Okta/AD API sync. **Duo is not on the request hot path** — it is only touched on login or when Keycloak/upstream IdP policy requires interactive reauthentication. AgentGateway only needs to understand the Keycloak-signed JWT and the OpenFGA decision.
 4. **Request timeline** — the OBO JWT carries the user's identity and roles end-to-end. The *same token* is verified by AG (edge) and optionally re-verified by the MCP server (depth). This is deliberate: a compromised AG doesn't let tokens past MCP without signature check.
 
 > **Demo tip:** when presenting this diagram live, start by highlighting the **Login timeline** and note "this happens once, then Keycloak refreshes the CAIPE access token while the SSO session is active". Then trace through the **Request timeline** and ask the audience where Duo appears — the answer is *nowhere*, because every downstream check uses the Keycloak-signed JWT. This is the clearest way to explain why CAIPE can swap IdPs without touching agent code.
@@ -148,7 +148,7 @@ sequenceDiagram
     participant MDB as MongoDB audit_events
 
     Client->>WebUIBackend: POST /api/v1/chat/stream/start
-    WebUIBackend->>WebUIBackend: authenticate session or bearer<br/>and require cached Keycloak access token
+    WebUIBackend->>WebUIBackend: authenticate session or bearer<br/>and attach bearer when cached
     WebUIBackend->>WebUIBackend: create authz traceparent
     WebUIBackend->>FGA: Check user:<sub> can_use agent:<agent_id><br/>traceparent
     opt subject tuple absent and email claim present
@@ -165,8 +165,8 @@ sequenceDiagram
         WebUIBackend-->>Client: 403 pdp_denied or 503 pdp_unavailable
     else allowed
         WebUIBackend->>MDB: write openfga_rebac audit event
-        WebUIBackend->>DA: proxy request with Bearer token<br/>and traceparent
-        DA->>DA: JwtAuthMiddleware validates bearer and binds current_user_token + traceparent
+        WebUIBackend->>DA: proxy request with Bearer when present,<br/>X-User-Context fallback, and traceparent
+        DA->>DA: JwtAuthMiddleware validates bearer when present<br/>and binds current_user_token + traceparent
         DA->>FGA: Check user:<sub> can_use agent:<agent_id><br/>child traceparent
         opt subject tuple absent and email claim present
             DA->>FGA: Check user:<email> can_use agent:<agent_id><br/>child traceparent
@@ -178,7 +178,7 @@ sequenceDiagram
         else allowed
             DA->>MDB: write openfga_rebac runtime audit event
             DA->>Runtime: create, invoke, or resume runtime work
-            Runtime->>AG: MCP tools/call with Bearer token<br/>+ signed X-CAIPE-Agent-Context
+            Runtime->>AG: MCP tools/call with Bearer when available<br/>+ signed X-CAIPE-Agent-Context
             AG->>FGA: Check user:<sub> can_call mcp_gateway:list
             AG->>FGA: Check user:<sub> can_use agent:<agent_id>
             AG->>FGA: Check agent:<agent_id> can_call tool:<server>/<tool>
@@ -256,9 +256,19 @@ keeps the signed-in CAIPE session context:
 sequenceDiagram
   participant B as Browser
   participant UI as CAIPE UI BFF
+  participant KC as Keycloak / NextAuth
   participant P as OAuth Provider
   participant DB as MongoDB Envelope Store
 
+  B->>UI: Navigate to /credentials
+  UI->>KC: Require signed-in NextAuth session
+  alt no active session
+    UI-->>B: Redirect to /login?callbackUrl=/credentials
+  end
+  UI->>FGA: Check user:<sub> can_use organization:<org_key>
+  alt not an organization member
+    UI-->>B: Hide credentials page
+  end
   B->>UI: Navigate to GET /api/credentials/oauth/{provider}/connect
   UI->>UI: Verify session, create state + PKCE verifier
   UI->>B: 302 Location: provider authorize URL<br/>Set-Cookie: signed httpOnly state
@@ -267,9 +277,16 @@ sequenceDiagram
   B->>UI: Callback with signed state cookie
   UI->>P: Exchange code + code_verifier for provider tokens
   UI->>DB: Store access/refresh token refs encrypted
-  UI->>B: Completion page with Return to Connections link<br/>BroadcastChannel/postMessage connection event
-  B->>B: Return to Connections and refresh connection list
+  UI->>B: Compact completion page<br/>BroadcastChannel/postMessage connection event
+  B->>B: Close popup and refresh connection list
 ```
+
+The `/credentials` page is feature-flagged by `CAIPE_CREDENTIALS_ENABLED` and
+then gated by OpenFGA organization membership (`can_use
+organization:<org_key>`). The Admin → Settings → Credentials tab is separately
+feature-flagged and visible only for organization admins (`can_manage
+organization:<org_key>`), even if a non-admin has read-only baseline admin
+surface grants.
 
 The browser never receives provider tokens or decrypted secret material. Local
 development may use `http://localhost` redirect URIs, but production connector
@@ -281,8 +298,8 @@ route at `/api/credentials/oauth/{provider}/callback`, so the provider returns
 to the BFF route that stores the encrypted token set.
 
 After a connection exists, the Connections page can run **Check GitHub Profile**,
-**Check Atlassian Profile**, or **Check Webex Profile**. The browser calls the
-BFF profile-check route for its own connection id; the BFF verifies the session,
+**Check Atlassian Profile**, **Check Webex Profile**, or **Check PagerDuty
+Profile**. The browser calls the BFF profile-check route for its own connection id; the BFF verifies the session,
 loads only connections owned by the signed-in Keycloak `sub`, refreshes the
 provider token server-side, calls the provider profile endpoint, and returns a
 small redacted profile summary. Atlassian checks also fall back to
@@ -409,6 +426,124 @@ For Webex spaces, the raw room UUID is the policy identifier in
 `ciscospark://us/ROOM/<uuid>` before MongoDB/OpenFGA lookups and re-encoded only
 for outbound Webex API calls.
 
+### Team Creation OpenFGA Sync
+
+When an admin creates a team through `POST /api/admin/teams`, the Web UI
+backend must synchronize four pieces of state in one shot — Mongo `teams`,
+Mongo `team_membership_sources`, Keycloak (per-team client scope), and
+OpenFGA (membership tuples). The OpenFGA write is what makes
+`team:<slug>#can_use` resolve true for the creator on subsequent requests
+like Dynamic Agent creation. **Skipping the OpenFGA step leaves
+`team:<slug>#can_use` false even though Mongo has the membership row, and
+`OWNER_TEAM_FORBIDDEN` fires on the very next agent-creation API call.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as Creator
+    participant BFF as Next.js Web UI backend
+    participant KC as Keycloak Admin REST
+    participant FGA as OpenFGA
+    participant MDB as MongoDB
+
+    Admin->>BFF: POST /api/admin/teams { name, slug, members[] }
+    BFF->>BFF: Dedupe creator email out of members[]<br/>(silent — prevents duplicate "owner + member" rows)
+    BFF->>MDB: teams.insertOne with creator role='owner'<br/>and remaining members role='member'
+    BFF->>KC: ensureTeamClientScope(slug)<br/>(synchronous; failure rolls back the Mongo doc)
+    loop For every member row (creator + invitees)
+        BFF->>KC: searchRealmUsers email → keycloak_sub
+        alt sub resolved
+            BFF->>FGA: Write user:<sub>#<relation> team:<slug><br/>(creator: BOTH admin + member,<br/>invitee: member only)
+        else sub unknown (e.g. user not yet in Keycloak)
+            BFF->>BFF: Log warning. Team creation still succeeds.<br/>Startup audit will repair tuples on next reconcile.
+        end
+        BFF->>MDB: upsertTeamMembershipSource<br/>(user_email + user_subject + relationship)
+    end
+    BFF-->>Admin: 201 with team document
+```
+
+Why the creator gets **both** `admin` and `member` tuples even though `admin`
+alone would satisfy `can_use` (model: `can_use = member ∪ admin`):
+
+1. The team Members tab in the Admin UI reads the Mongo `members[]` array
+   verbatim. If the creator is only stored as `role: 'owner'`, the tab
+   continues to show them as the only member, which matches the visible Mongo
+   intent.
+2. The redundant `member` tuple keeps the OpenFGA store self-describing — a
+   future read of `team:<slug>#member` returns every human-or-admin member,
+   not just the team admins.
+3. It costs one extra tuple per creator and removes a class of "I'm an
+   admin, why don't list endpoints that filter by `team#member` include me?"
+   bugs.
+
+The same helpers (`resolveKeycloakUserSubject` and `writeTeamMembershipTuples`
+in `ui/src/lib/rbac/team-membership-sync.ts`) are used by
+`POST /api/admin/teams/[id]/members` so the add-member path is symmetric:
+adding a `member` writes a `member` tuple, adding an `admin` writes an
+`admin` tuple, and removing the last source for a relation deletes the
+corresponding tuple.
+
+### Team OpenFGA Sync Diagnostic
+
+Even with the team-creation sync wired up correctly, a team can drift out
+of step with OpenFGA over time: someone wrote a Mongo source row before
+the user had logged in to Keycloak (so we couldn't yet resolve their
+`sub`), the OpenFGA store was rebuilt without replaying tuples, or a
+legacy team was created before the sync helpers existed. The Teams
+settings dialog now surfaces drift directly to the admin instead of
+hiding it behind backend logs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Admin as Team Admin
+    participant UI as Teams settings dialog
+    participant BFF as Next.js Web UI backend
+    participant FGA as OpenFGA
+    participant MDB as MongoDB
+
+    Admin->>UI: Open team
+    UI->>BFF: GET /api/admin/teams/[id]
+    BFF->>MDB: teams.findOne + listTeamMembershipSources(team_id)
+    BFF->>FGA: ReadTuples object=team:<slug> (paginated)
+    BFF->>BFF: computeTeamMembershipSyncReport(sources, tuples)
+    BFF-->>UI: { team, membership_sources, openfga_sync: { summary, entries[] } }
+    UI->>UI: Render banner on Details tab + per-member badge
+    opt Admin clicks Reconcile
+        UI->>BFF: POST /api/admin/teams/[id]/openfga/reconcile
+        BFF->>BFF: requireTeamMembershipManagementPermission<br/>(platform admin OR scoped team admin)
+        loop For each active source row
+            alt Source has no user_subject yet
+                BFF->>BFF: resolveKeycloakUserSubject(email)
+                BFF->>MDB: Persist resolved sub back to source row
+            end
+            BFF->>FGA: writeTeamMembershipTuples assign<br/>(idempotent — assign on existing tuple is a no-op)
+        end
+        BFF->>FGA: ReadTuples object=team:<slug> (post-repair)
+        BFF-->>UI: { summary, openfga_sync: <fresh report> }
+        UI->>UI: Show "resolved N subjects, wrote M tuples" notice
+    end
+```
+
+The diagnostic reports four states per source row:
+
+| State | Meaning | Admin action |
+| --- | --- | --- |
+| `synced` | Source row has `user_subject` AND OpenFGA contains the matching `user:<sub>#<relation> team:<slug>` tuple | None |
+| `pending` | Source row exists but `user_subject` is empty (e.g. the user has never signed in to Keycloak yet) | Wait for first sign-in, or click Reconcile once Keycloak knows the user |
+| `drifted` | `user_subject` is resolved but OpenFGA is missing the matching tuple | Click Reconcile |
+| `unknown` | OpenFGA read failed or the store is unconfigured | Check OpenFGA health in Security & Policy |
+
+`needs_attention` on the summary is true if any row is `drifted` or
+`unknown`. `pending` does not flip the banner red — it's an
+informational state, not a failure mode.
+
+The Reconcile endpoint is intentionally idempotent: write-on-already-present
+is a no-op at the OpenFGA layer, so it is safe to invoke repeatedly. It
+returns `unresolved_emails` for any source rows whose subject could not
+be re-resolved (e.g. an invitee's Keycloak account still does not exist),
+so the admin can chase those manually rather than spinning on the button.
+
 ### Dynamic Agent Creation Ownership
 
 New Dynamic Agents must be assigned to an owner team during creation. The Web UI
@@ -440,6 +575,75 @@ sequenceDiagram
         BFF-->>UI: 400/404/403
     end
 ```
+
+---
+
+### AgentGateway MCP Endpoint Routing
+
+**Invariant.** Every MCP server routed through AgentGateway must persist
+an endpoint of the form `{agentgateway_base}/mcp/<server_id>`.
+AgentGateway dispatches by **path prefix** (`/mcp/<target>`); a bare
+`{agentgateway_base}/mcp` falls through to a non-registered route and
+returns `HTTP 404 Not Found` on every probe and tool call. The class
+first surfaced in production as the Confluence card showing:
+
+> Failed to connect to MCP server: HTTP 404 Not Found from `http://agentgateway:4000/mcp`
+
+**Defence in depth.** The invariant is enforced in four places — any one
+of them is sufficient on its own, but all four together mean a bad
+endpoint cannot persist for long:
+
+| Layer | What it does | Code |
+|------|------|------|
+| Save-side normaliser (BFF) | `POST/PUT /api/mcp-servers` rewrites a bare gateway URL to `/<server_id>` form before insert/update — prevents future drift | `ui/src/lib/rbac/mcp-endpoint-normalizer.ts`, `ui/src/app/api/mcp-servers/route.ts` |
+| Editor picker (UI) | `MCPServerEditor` calls `/api/mcp-servers/agentgateway/discover` on open and offers a `Pick AgentGateway target` row that fills the endpoint with the canonical `/<id>` form | `ui/src/components/dynamic-agents/MCPServerEditor.tsx` |
+| Read-side self-heal (runtime) | `build_mcp_connection_config` in dynamic-agents re-normalises against `AGENT_GATEWAY_URL` before handing the URL to the MCP transport, so legacy rows still work until repaired | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mcp_client.py`, `services/mcp_endpoint_normalizer.py` |
+| One-shot repair script | `scripts/fix-mcp-endpoint-routing.ts` audits the `mcp_servers` collection (dry-run by default) and rewrites mis-shaped rows under `--apply` | `scripts/fix-mcp-endpoint-routing.ts` |
+
+**Direct upstream URLs are never rewritten.** AgentGateway routing is
+opt-in per server, and silently rewriting `http://mcp-confluence:8000/mcp`
+would break stdio and in-cluster topologies. The normaliser detects
+gateway endpoints by origin match against the configured
+`AGENT_GATEWAY_URL`; anything else passes through unchanged.
+
+**Config-driven rows are never rewritten by the repair script.** Their
+source of truth is `config.yaml`. If a config-driven row is mis-shaped,
+the script logs it under `untouchedConfigDriven` so an operator can fix
+the YAML instead.
+
+**Operator workflow for the repair script:**
+
+```bash
+# Dry-run — prints which rows would change, no Mongo writes.
+MONGODB_URI=mongodb://... \
+AGENT_GATEWAY_URL=http://agentgateway:4000 \
+  npx ts-node scripts/fix-mcp-endpoint-routing.ts
+
+# Apply the repairs (idempotent — re-running is a no-op).
+MONGODB_URI=mongodb://... \
+AGENT_GATEWAY_URL=http://agentgateway:4000 \
+  npx ts-node scripts/fix-mcp-endpoint-routing.ts --apply
+```
+
+The dry-run output includes a `reason` for each candidate
+(`bare_gateway_base`, `gateway_root_only`, `wrong_target_suffix`)
+so the admin can sanity-check the proposed change before committing.
+
+**Testing the repair script:** the pure helpers (`normalizeMcpEndpointForServer`,
+`buildRepairPlan`) are covered by `scripts/__tests__/fix-mcp-endpoint-routing.test.ts`
+and run with the same invocation as the other `scripts/__tests__/*.test.ts`
+files:
+
+```bash
+npx ts-node --compiler-options '{"module":"CommonJS"}' \
+  scripts/__tests__/fix-mcp-endpoint-routing.test.ts
+```
+
+The Mongo IO half of the script (`main()` / `MongoClient.connect()`) is left
+to live verification because it needs a real database; the pure helpers cover
+every classification path (`bare_gateway_base`, `gateway_root_only`,
+`wrong_target_suffix`), the safety rules (direct upstream / config-driven /
+no `_id` / no endpoint), and the customisable AgentGateway base URL.
 
 ---
 
@@ -853,7 +1057,7 @@ sequenceDiagram
     end
 ```
 
-Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `tool:dynamic-agents-builtin` for built-in tool discovery, and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. Task Builder routes are intentionally excluded from this pass because they are scheduled for refactor.
+Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `mcp_server:<id>#can_discover` for the Create Agent → Tools Probe button (probing only enumerates advertised tool metadata, so it is gated on `can_discover` rather than `can_invoke`; the model already grants discover to organization members, organization admins, team-shared members, owners, and channel/group routings), and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. The Dynamic Agent **built-in tool catalog** at `GET /api/dynamic-agents/builtin-tools` is intentionally not strict-gated — the catalog is a static metadata listing of supported built-in tool *types* (web_search, file_io, etc.), is needed by every authenticated user who can open the Create Agent wizard, and per-tool authorization happens at MCP invocation time. The route requires an authenticated session and forwards the bearer token to dynamic-agents (where `DA_REQUIRE_BEARER` still applies); it does not consult OpenFGA. Task Builder routes are intentionally excluded from this pass because they are scheduled for refactor.
 
 ---
 
