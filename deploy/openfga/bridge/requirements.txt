@@ -1,0 +1,6 @@
+httpx==0.28.1
+PyJWT==2.10.1
+cryptography==48.0.0
+grpcio==1.74.0
+protobuf==6.32.1
+pymongo==4.17.0
