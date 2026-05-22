@@ -118,8 +118,24 @@ def _is_rbac_code(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in RBAC_PATHS)
 
 
+class _GitInvocationError(RuntimeError):
+    """Raised when a git command we depend on fails.
+
+    Kept internal so this script stays dependency-free. The top-level
+    ``__main__`` block translates it into ``sys.exit(2)`` (internal
+    error), preserving the original CLI contract while letting the
+    helpers below stay pure ``-> str`` functions with no implicit
+    ``None`` return path.
+    """
+
+
 def _git(args: list[str]) -> str:
-    """Run a git command and return stdout (raises on non-zero exit)."""
+    """Run a git command and return stdout.
+
+    Raises ``_GitInvocationError`` on non-zero exit. The caller (or the
+    top-level entrypoint) is responsible for converting the error into
+    a process exit code.
+    """
     try:
         out = subprocess.run(
             ["git", *args],
@@ -127,19 +143,18 @@ def _git(args: list[str]) -> str:
             text=True,
             check=True,
         )
-        return out.stdout
     except subprocess.CalledProcessError as exc:
-        sys.stderr.write(
-            f"git {' '.join(args)} failed: {exc.stderr or exc.stdout}\n"
-        )
-        sys.exit(2)
+        raise _GitInvocationError(
+            f"git {' '.join(args)} failed: {exc.stderr or exc.stdout}"
+        ) from exc
+    return out.stdout
 
 
 def _resolve_base(base: str | None) -> str:
     """Resolve the comparison base ref.
 
     If --base is given, use it verbatim. Otherwise try ``origin/main``,
-    then ``main``. Fail if none resolve.
+    then ``main``. Raises ``_GitInvocationError`` if none resolve.
     """
     if base:
         return base
@@ -150,14 +165,13 @@ def _resolve_base(base: str | None) -> str:
                 capture_output=True,
                 check=True,
             )
-            return candidate
         except subprocess.CalledProcessError:
             continue
-    sys.stderr.write(
+        return candidate
+    raise _GitInvocationError(
         "Could not resolve a base ref (tried origin/main, main). "
-        "Pass --base explicitly.\n"
+        "Pass --base explicitly."
     )
-    sys.exit(2)
 
 
 def _changed_files(base: str, head: str) -> list[str]:
@@ -238,4 +252,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except _GitInvocationError as err:
+        sys.stderr.write(f"{err}\n")
+        sys.exit(2)
