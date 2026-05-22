@@ -30,6 +30,17 @@ describe("MCPServerEditor credential sources", () => {
         body: expect.stringContaining("credential_sources"),
       }),
     );
-    expect((global.fetch as jest.Mock).mock.calls[0][1].body).toContain("conn-1");
+    // The editor also fires a best-effort AgentGateway discovery
+    // fetch on mount (see MCPServerEditor for the "Pick AgentGateway
+    // target" picker). Find the actual create-server POST by URL
+    // instead of relying on the call index — otherwise a future
+    // ordering change would silently re-break this assertion.
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    const createCall = calls.find(
+      ([url, init]: [string, RequestInit | undefined]) =>
+        url === "/api/mcp-servers" && init?.method === "POST",
+    );
+    expect(createCall).toBeDefined();
+    expect(createCall?.[1]?.body).toContain("conn-1");
   });
 });

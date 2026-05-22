@@ -53,6 +53,48 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
 
+  // AgentGateway target picker. Discovery is best-effort: when the
+  // backend isn't reachable or AgentGateway isn't configured we just
+  // hide the helper UI. Failing closed here would force the admin back
+  // to typing endpoints by hand, which is what got us into the bare
+  // `http://agentgateway:4000/mcp` (no `/<id>` suffix) → 404 mess.
+  type AgentGatewayTarget = {
+    id: string;
+    name?: string;
+    endpoint: string;
+    target_endpoint?: string;
+  };
+  const [agentGatewayTargets, setAgentGatewayTargets] = React.useState<AgentGatewayTarget[]>([]);
+  const [gatewayDiscoveryLoaded, setGatewayDiscoveryLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadDiscovery() {
+      try {
+        const res = await fetch("/api/mcp-servers/agentgateway/discover");
+        if (!res.ok) {
+          if (!cancelled) setGatewayDiscoveryLoaded(true);
+          return;
+        }
+        const payload = (await res.json()) as {
+          success?: boolean;
+          data?: { targets?: AgentGatewayTarget[] };
+        };
+        if (!cancelled && payload?.success && Array.isArray(payload.data?.targets)) {
+          setAgentGatewayTargets(payload.data.targets);
+        }
+      } catch {
+        // best-effort; the dropdown just won't appear
+      } finally {
+        if (!cancelled) setGatewayDiscoveryLoaded(true);
+      }
+    }
+    void loadDiscovery();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleAddArg = () => {
     if (newArg.trim()) {
       setArgs([...args, newArg.trim()]);
@@ -390,6 +432,35 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   disabled={loading}
                   className="font-mono"
                 />
+                {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Or pick an AgentGateway target — this fills the endpoint with the
+                      target-qualified URL (<code className="font-mono">/mcp/&lt;target&gt;</code>) so the
+                      gateway can route this server correctly.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {agentGatewayTargets.map((target) => (
+                        <Button
+                          key={target.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={loading || readOnly}
+                          onClick={() => setEndpoint(target.endpoint)}
+                          title={
+                            target.target_endpoint
+                              ? `${target.endpoint} → ${target.target_endpoint}`
+                              : target.endpoint
+                          }
+                          className="font-mono"
+                        >
+                          {target.id}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

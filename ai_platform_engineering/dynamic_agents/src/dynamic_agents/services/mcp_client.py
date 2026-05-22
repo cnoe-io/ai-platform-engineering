@@ -18,6 +18,9 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.models import MCPServerConfig, TransportType
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
+from dynamic_agents.services.mcp_endpoint_normalizer import (
+    normalize_mcp_endpoint_for_server,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,41 @@ def _gateway_mcp_server_ids() -> set[str]:
     raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
     values = {item.strip() for item in raw.split(",") if item.strip()}
     return values or {"jira"}
+
+
+def _agent_gateway_base_url() -> str | None:
+    """Resolve the AgentGateway base URL from env.
+
+    Returns the origin (e.g. ``http://agentgateway:4000``) without a
+    ``/mcp`` suffix. ``None`` when no override is set — in that case the
+    normaliser has no anchor and self-heal is a no-op.
+    """
+    raw = (os.getenv("AGENT_GATEWAY_URL") or os.getenv("AGENTGATEWAY_URL") or "").strip()
+    if not raw:
+        return None
+    # Tolerate operators who set the URL with or without `/mcp`. The
+    # normaliser only matches on origin, but having a clean base keeps
+    # log lines readable.
+    return raw[: -len("/mcp")] if raw.rstrip("/").endswith("/mcp") else raw.rstrip("/")
+
+
+def _heal_endpoint(server: MCPServerConfig) -> str | None:
+    """Self-heal stale AgentGateway endpoints at read time.
+
+    Background: ``POST/PUT /api/mcp-servers`` (BFF) now normalises
+    endpoints on save, but Mongo can still hold legacy rows where an
+    admin saved ``http://agentgateway:4000/mcp`` (the bare base) instead
+    of ``http://agentgateway:4000/mcp/<id>``. Those rows produce
+    ``HTTP 404 Not Found from http://agentgateway:4000/mcp`` on every
+    probe and tool call because AgentGateway routes by path prefix.
+
+    Self-healing here means probe/runtime works even before the legacy
+    row is repaired in Mongo (via the repair script or by re-saving).
+    """
+    base = _agent_gateway_base_url()
+    if not base:
+        return server.endpoint
+    return normalize_mcp_endpoint_for_server(server.endpoint, server.id, base)
 
 
 def _b64url(data: bytes) -> str:
@@ -146,11 +184,15 @@ def build_mcp_connection_config(
             return cfg
         return {**cfg, "headers": {**cfg.get("headers", {}), **headers}}
 
+    # Self-heal stale AgentGateway endpoints (e.g. bare
+    # ``http://agentgateway:4000/mcp`` written by an older save path)
+    # before we hand the URL to the transport. See ``_heal_endpoint``.
+    healed_endpoint = _heal_endpoint(server)
     if server.transport == TransportType.SSE:
         url = (
             f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
-            if agent_gateway_url and server.endpoint
-            else server.endpoint
+            if agent_gateway_url and healed_endpoint
+            else healed_endpoint
         )
         return attach_headers(
             {
@@ -161,8 +203,8 @@ def build_mcp_connection_config(
     if server.transport == TransportType.HTTP:
         url = (
             f"{agent_gateway_url.rstrip('/')}/mcp/{server.id}"
-            if agent_gateway_url and server.endpoint
-            else server.endpoint
+            if agent_gateway_url and healed_endpoint
+            else healed_endpoint
         )
         return attach_headers(
             {
@@ -388,6 +430,84 @@ def _extract_error_message(exc: BaseException) -> str:
     return str(exc)
 
 
+# Messages that the langchain-mcp-adapters / streamable-http transport emits
+# without an attached HTTP response. They tell the UI "something went wrong on
+# the wire", but not whether the wire died on a 401 from AgentGateway, a
+# connection refused, or a clean disconnect. Treat them as opaque and re-probe
+# the endpoint over plain HTTP so we can surface a concrete cause.
+_OPAQUE_MCP_TRANSPORT_MESSAGES = (
+    "session terminated",
+    "session closed",
+    "stream ended",
+)
+
+
+def _is_opaque_transport_message(message: str) -> bool:
+    """True if the inner exception message carries no actionable detail."""
+    lowered = (message or "").strip().lower()
+    return any(token in lowered for token in _OPAQUE_MCP_TRANSPORT_MESSAGES)
+
+
+async def _diagnose_endpoint_failure(endpoint: str) -> str:
+    """Issue a direct HTTP probe to ``endpoint`` and translate the result into
+    a one-line diagnostic message.
+
+    Returns one of:
+      - ``"HTTP <status> <reason> from <endpoint>"`` when the server replies
+      - ``"Cannot connect to <endpoint>: <details>"`` when no response arrives
+
+    Never raises — the caller already has an exception to attach this to.
+    """
+    if not endpoint:
+        return "MCP endpoint URL is not configured"
+
+    # Honor the same TLS / CA bundle posture as the MCP HTTP factory so this
+    # diagnostic doesn't lie about cert problems.
+    ca_bundle = (
+        os.getenv("CUSTOM_CA_BUNDLE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
+        or os.getenv("SSL_CERT_FILE")
+    )
+    ssl_verify = os.getenv("SSL_VERIFY", "true").lower()
+    if ca_bundle and os.path.exists(ca_bundle):
+        verify: Any = ssl.create_default_context(cafile=ca_bundle)
+    elif ssl_verify == "false":
+        verify = False
+    else:
+        verify = True
+
+    headers: dict[str, str] = {}
+    token = current_user_token.get()
+    if token:
+        # Match what the MCP HTTP client would have sent so the upstream
+        # auth decision matches the one that failed.
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        async with httpx.AsyncClient(verify=verify, timeout=httpx.Timeout(5.0)) as client:
+            response = await client.get(endpoint, headers=headers)
+    except (httpx.ConnectError, httpx.TransportError, httpx.TimeoutException) as exc:
+        # Avoid leaking deep tracebacks; one short line is what the UI wants.
+        return f"Cannot connect to {endpoint}: {type(exc).__name__}: {exc}"
+    except Exception as exc:  # pragma: no cover - defensive
+        return f"Cannot reach {endpoint}: {exc}"
+
+    reason = (
+        response.reason_phrase
+        or response.extensions.get("reason_phrase", b"").decode("ascii", "replace")
+        if hasattr(response, "extensions")
+        else response.reason_phrase
+    )
+    if not reason:
+        # Map a few common ones if the server omitted the reason phrase.
+        reason = {401: "Unauthorized", 403: "Forbidden", 404: "Not Found"}.get(
+            response.status_code, ""
+        )
+    if reason:
+        return f"HTTP {response.status_code} {reason} from {endpoint}"
+    return f"HTTP {response.status_code} from {endpoint}"
+
+
 async def get_tools_with_resilience(
     connections: dict[str, dict[str, Any]],
 ) -> tuple[list, list[str], dict[str, str]]:
@@ -462,14 +582,33 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
     # as a context manager. Use get_tools() directly instead.
     client = MultiServerMCPClient(connections, tool_name_prefix=True)
 
+    # Resolve the URL the transport actually used so any diagnostic
+    # re-probe targets the same address (otherwise admins would see a
+    # 404 against the un-healed legacy endpoint, which is confusing).
+    healed_probe_endpoint = _heal_endpoint(server) or server.endpoint
     try:
         tools = await client.get_tools()
     except BaseExceptionGroup as e:
-        # Extract meaningful error from exception group
         error_msg = _extract_error_message(e)
+        # The streamable-http MCP transport raises generic "Session
+        # terminated" / "Session closed" exceptions when the upstream
+        # closes the SSE leg early — including on a clean 401/403 from
+        # AgentGateway. Re-probe the endpoint directly so the UI sees a
+        # concrete HTTP status / connectivity reason instead of an opaque
+        # transport message.
+        if _is_opaque_transport_message(error_msg) and healed_probe_endpoint:
+            diagnostic = await _diagnose_endpoint_failure(healed_probe_endpoint)
+            raise RuntimeError(
+                f"Failed to connect to MCP server: {diagnostic}"
+            ) from e
         raise RuntimeError(f"Failed to connect to MCP server: {error_msg}") from e
     except Exception as e:
         error_msg = _extract_error_message(e)
+        if _is_opaque_transport_message(error_msg) and healed_probe_endpoint:
+            diagnostic = await _diagnose_endpoint_failure(healed_probe_endpoint)
+            raise RuntimeError(
+                f"Failed to probe MCP server: {diagnostic}"
+            ) from e
         raise RuntimeError(f"Failed to probe MCP server: {error_msg}") from e
 
     # Convert tools to serializable dicts

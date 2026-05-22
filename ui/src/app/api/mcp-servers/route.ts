@@ -23,6 +23,8 @@ import {
   deleteAllMcpServerRelationshipTuples,
   reconcileMcpServerRelationships,
 } from "@/lib/rbac/openfga-owned-resources";
+import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
+import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
 import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
@@ -71,6 +73,20 @@ function pickMutableFields(
     }
   }
   return result;
+}
+
+/**
+ * Resolve the AgentGateway base URL for endpoint normalisation. Returns
+ * just the origin (protocol://host:port), with no `/mcp` suffix —
+ * `normalizeMcpEndpointForServer` constructs the rest.
+ *
+ * We re-derive from `agentGatewayMcpEndpointUrl()` rather than reading
+ * env vars directly so the override hierarchy (AGENT_GATEWAY_URL ▶
+ * AGENTGATEWAY_URL ▶ default) stays in one place.
+ */
+function agentGatewayBaseForNormalizer(): string {
+  const withMcp = agentGatewayMcpEndpointUrl();
+  return withMcp.replace(/\/mcp$/, "");
 }
 
 /**
@@ -172,6 +188,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       body.endpoint as string | undefined,
     );
 
+    // Normalise AgentGateway endpoints. If the admin (or the editor)
+    // sends a bare gateway URL we silently rewrite it to the
+    // target-qualified form `/mcp/<server_id>` before persisting. This
+    // prevents the "Probe → 404 from agentgateway:4000/mcp" class of
+    // bug from ever landing in Mongo. Direct upstream URLs and stdio
+    // servers are passed through unchanged.
+    const normalisedEndpoint = normalizeMcpEndpointForServer({
+      endpoint: body.endpoint as string | undefined,
+      serverId,
+      agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+    });
+
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
     const doc: MCPServerConfig = {
@@ -179,7 +207,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       name: body.name as string,
       description: (body.description as string) ?? "",
       transport: body.transport as TransportType,
-      endpoint: body.endpoint as string | undefined,
+      endpoint: normalisedEndpoint,
       command: body.command as string | undefined,
       args: body.args as string[] | undefined,
       env: body.env as Record<string, string> | undefined,
@@ -252,6 +280,19 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (Object.keys(updateData).length === 0) {
       // No fields to update — return current state
       return successResponse(server);
+    }
+
+    // If the admin is updating the endpoint, run it through the same
+    // AgentGateway normaliser used on create. This means an admin who
+    // saves an existing row that already has a bad endpoint (e.g. the
+    // currently-broken Confluence row) will repair it just by hitting
+    // Save — no extra steps required.
+    if (typeof updateData.endpoint === "string") {
+      updateData.endpoint = normalizeMcpEndpointForServer({
+        endpoint: updateData.endpoint,
+        serverId: String(id),
+        agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
+      });
     }
 
     updateData.updated_at = new Date().toISOString();
