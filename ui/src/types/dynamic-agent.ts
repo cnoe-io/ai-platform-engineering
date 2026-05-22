@@ -8,7 +8,31 @@
 
 export type TransportType = 'stdio' | 'sse' | 'http';
 
-export type VisibilityType = 'private' | 'team' | 'global';
+/**
+ * Visibility of a dynamic agent.
+ *
+ *   - `team`:   the owner team's members get `can_use`; the owner team's
+ *               admins get `can_manage`. Additional teams in
+ *               `shared_with_teams` get `can_use`.
+ *   - `global`: everyone gets `can_use` (via `user:* user agent:<id>`).
+ *               The owner team's admins still manage the agent.
+ *
+ * NOTE: `'private'` was retired on 2026-05-22. Every dynamic agent is now
+ * team-owned. Users who want a truly personal agent should create a
+ * single-member team and own the agent through that team. Legacy
+ * `visibility: 'private'` documents are coerced to `'team'` at read time
+ * and converted in place by the admin "Reconcile dynamic agent OpenFGA"
+ * migration. See `docs/docs/changes/2026-05-22-remove-private-agents.md`.
+ */
+export type VisibilityType = 'team' | 'global';
+
+/**
+ * Wire-level type accepted on the way IN to the BFF. We still accept the
+ * historical `'private'` string so old clients (and Mongo docs being
+ * re-saved) don't fail outright — the BFF normalizes it to `'team'` and
+ * surfaces a deprecation warning in the response.
+ */
+export type LegacyVisibilityType = VisibilityType | 'private';
 
 // =============================================================================
 // MCP Server Types
@@ -347,6 +371,14 @@ export interface DynamicAgentConfig {
   enabled: boolean;
   owner_id: string;
   owner_subject?: string;
+  /**
+   * Every dynamic agent is owned by a team (visibility was either `team`
+   * or `global`). `owner_team_slug` is the source of truth; `owner_team_id`
+   * is the matching Mongo ObjectId string for legacy lookups. Both are
+   * effectively required from 2026-05-22 onward — the BFF rejects writes
+   * that omit them. They remain optional on the type only so the legacy
+   * coercion path (`normalizeLegacyVisibility`) can flag drift.
+   */
   owner_team_slug?: string;
   owner_team_id?: string;
   is_system: boolean;
@@ -367,8 +399,10 @@ export interface DynamicAgentConfigCreate {
   allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig;  // Required: LLM model configuration
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
   shared_with_teams?: string[];
+  /** Required for the new contract. */
   owner_team_slug?: string;
   owner_team_id?: string;
   subagents?: SubAgentRef[];
@@ -387,7 +421,11 @@ export interface DynamicAgentConfigUpdate {
   allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
+  /** Updates may move the agent to a different owner team. */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];

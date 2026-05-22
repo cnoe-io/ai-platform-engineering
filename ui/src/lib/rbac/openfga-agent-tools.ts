@@ -19,7 +19,39 @@ export interface AgentToolTupleDiffInput {
   nextAllowedTools: AllowedToolsConfig;
   ownerSubject?: string | null;
   organizationId?: string | null;
+  /**
+   * The current desired owner-team slug. Required for every dynamic agent
+   * after 2026-05-22 (private was retired). When set, we write the
+   * canonical pair of inheritance tuples that grants team members
+   * `can_use` and team admins `can_manage`. When `null`/`undefined` we
+   * skip team writes — used only by the legacy migration path; live
+   * routes should always pass a slug.
+   */
   ownerTeamSlug?: string | null;
+  /**
+   * Optional: the previous owner-team slug recorded on the agent before
+   * this reconcile call. When provided and different from `ownerTeamSlug`,
+   * we emit deletes for the stale `team:<slug>#member → agent#user` and
+   * `team:<slug>#admin → agent#manager` tuples so owner-team transitions
+   * (or migrations from a legacy team-less agent to a real team) do not
+   * leave residue.
+   *
+   * Pass `undefined` for fresh creates (no previous state) and pass the
+   * old value on updates. Idempotent: passing the same slug as
+   * `ownerTeamSlug` is a no-op for the team tuples.
+   */
+  previousOwnerTeamSlug?: string | null;
+  /**
+   * When `true` we write `user:* user agent:<id>` so every authenticated
+   * user has `can_use` on this agent. Used for `visibility === 'global'`.
+   */
+  globalUserAccess?: boolean;
+  /**
+   * When the previous reconcile was global but the next state is not, we
+   * emit a delete for `user:* user agent:<id>` so the agent loses the
+   * everyone-can-use grant. Mirrors `previousOwnerTeamSlug`.
+   */
+  previousGlobalUserAccess?: boolean;
 }
 
 export interface ReconcileAgentToolTuplesInput extends AgentToolTupleDiffInput {
@@ -99,19 +131,66 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
       object: `agent:${input.agentId}`,
     });
   }
-  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+  const nextTeamSlug =
+    input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)
+      ? input.ownerTeamSlug
+      : null;
+  const previousTeamSlug =
+    input.previousOwnerTeamSlug && isValidOpenFgaId(input.previousOwnerTeamSlug)
+      ? input.previousOwnerTeamSlug
+      : null;
+
+  if (nextTeamSlug) {
     writes.push(
       {
-        user: `team:${input.ownerTeamSlug}#member`,
+        user: `team:${nextTeamSlug}#member`,
         relation: "user",
         object: `agent:${input.agentId}`,
       },
       {
-        user: `team:${input.ownerTeamSlug}#admin`,
+        user: `team:${nextTeamSlug}#admin`,
         relation: "manager",
         object: `agent:${input.agentId}`,
       },
     );
+  }
+
+  // If the agent's owner team changed (or was removed entirely — e.g. a
+  // migration from the pre-private-removal era), retire the previous
+  // team's tuples so the old team's members do not retain `can_use` and
+  // the old team's admins do not retain `can_manage`. We skip this when
+  // the previous and next slugs match (idempotent re-reconcile case).
+  if (previousTeamSlug && previousTeamSlug !== nextTeamSlug) {
+    deletes.push(
+      {
+        user: `team:${previousTeamSlug}#member`,
+        relation: "user",
+        object: `agent:${input.agentId}`,
+      },
+      {
+        user: `team:${previousTeamSlug}#admin`,
+        relation: "manager",
+        object: `agent:${input.agentId}`,
+      },
+    );
+  }
+
+  // `visibility === 'global'` is encoded as a `user:* user agent:<id>`
+  // tuple. We write/delete it here so the reconcile pass is the single
+  // source of truth — `available/route.ts` no longer needs to repair it
+  // at list time. Idempotent at the OpenFGA layer.
+  if (input.globalUserAccess) {
+    writes.push({
+      user: "user:*",
+      relation: "user",
+      object: `agent:${input.agentId}`,
+    });
+  } else if (input.previousGlobalUserAccess) {
+    deletes.push({
+      user: "user:*",
+      relation: "user",
+      object: `agent:${input.agentId}`,
+    });
   }
 
   for (const [serverId, tools] of next) {
