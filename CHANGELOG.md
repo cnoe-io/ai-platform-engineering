@@ -1,3 +1,15 @@
+## 0.4.17-dev.2 (2026-05-22)
+
+### Fix
+
+- **jira**: create internal comments via platform API
+- **dynamic-agents**: apply _strip_nulls to MCPServerConfig construction sites
+- **ui**: revert interrupt_on default to undefined, consistent with other fields
+- **dynamic-agents**: strip None values from MongoDB doc before pydantic validation
+- **ui**: default interrupt_on to empty object instead of undefined in seed config
+
+## 0.4.17 (2026-05-22)
+
 ## 0.4.16-dev.1 (2026-05-22)
 
 ### Fix
