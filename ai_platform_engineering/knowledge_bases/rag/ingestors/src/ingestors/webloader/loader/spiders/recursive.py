@@ -60,7 +60,7 @@ class RecursiveCrawlSpider(CrawlSpider):
     self.visited_urls: Set[str] = set()
 
     # Set start URLs
-    self.origin_urls = [start_url]
+    self.start_urls = [start_url]
 
     # Set allowed domains
     parsed = urlparse(start_url)
@@ -119,9 +119,14 @@ class RecursiveCrawlSpider(CrawlSpider):
 
     super().__init__(*args, **kwargs)
 
+  async def start(self):
+    """Generate initial requests (Scrapy 2.16+ entry point)."""
+    for request in self.start_requests():
+      yield request
+
   def start_requests(self) -> Iterator[Request]:
     """Generate initial requests with Playwright support."""
-    for url in self.origin_urls:
+    for url in self.start_urls:
       yield self._make_request(url, callback=self.parse_page)
 
   def _make_request(self, url: str, callback=None, **kwargs) -> Request:

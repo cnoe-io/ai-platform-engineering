@@ -221,6 +221,11 @@ class WorkerSpider(Spider):
       return None
     return Request(url, **kwargs)
 
+  async def start(self):
+    """Generate initial request(s) based on crawl mode (Scrapy 2.16+ entry point)."""
+    for request in self.start_requests():
+      yield request
+
   def start_requests(self):
     """Generate initial request(s) based on crawl mode."""
     if not self._is_safe_crawl_url(self.origin_url, count_failure=True):

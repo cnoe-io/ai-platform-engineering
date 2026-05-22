@@ -59,6 +59,11 @@ class BaseWebSpider(scrapy.Spider):
     self.pages_crawled = 0
     self.max_pages = scrape_settings.max_pages
 
+  async def start(self):
+    """Generate initial requests (Scrapy 2.16+ entry point)."""
+    for request in self.start_requests():
+      yield request
+
   def start_requests(self) -> Iterator[Request]:
     """
     Generate initial requests.
