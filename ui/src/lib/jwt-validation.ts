@@ -14,6 +14,12 @@
 
 import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload, errors as joseErrors } from 'jose';
 
+import {
+  KNOWN_NEXTAUTH_PLACEHOLDERS,
+  getSafeNextAuthSecret,
+  isStrictSecretMode,
+} from './nextauth-secret-guard';
+
 export interface JWTIdentity {
   email: string;
   name: string;
@@ -245,13 +251,14 @@ const MAX_EXPIRY_DAYS = 90;
 /**
  * Get the HS256 signing key for skills API tokens.
  * Uses SKILLS_API_SECRET if set, falling back to NEXTAUTH_SECRET for backward compatibility.
+ *
+ * R4: the signing-key path goes through `getSafeNextAuthSecret` which
+ * rejects known dev placeholders in production builds — minting a token
+ * with `caipe-dev-secret` would be cross-install-forgeable, so we'd
+ * rather fail loudly at mint time.
  */
 function getLocalSigningKey(): Uint8Array {
-  const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    throw new Error('Neither SKILLS_API_SECRET nor NEXTAUTH_SECRET is configured');
-  }
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(getSafeNextAuthSecret());
 }
 
 /**
@@ -311,6 +318,21 @@ export async function validateLocalSkillsJWT(
   const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return null; // No secret configured — cannot be a local token
+  }
+  // R4: in strict mode, refuse to validate skills tokens against a
+  // known dev-placeholder secret. The token MAY have been minted by an
+  // attacker who knows the leaked placeholder; treating it as invalid
+  // here is the right failure (the caller falls through to OIDC).
+  if (isStrictSecretMode() && KNOWN_NEXTAUTH_PLACEHOLDERS.has(secret.trim())) {
+    // Loud-but-not-fatal: log so an operator searching logs sees this
+    // even when the BFF is otherwise quiet, but DON'T throw — that
+    // would 5xx the whole request when the right move is to fall back
+    // to OIDC.
+    console.error(
+      "[NextAuthSecretGuard] Refusing to validate skills token against a known " +
+        "dev placeholder NEXTAUTH_SECRET in strict mode. Rotate the secret."
+    );
+    return null;
   }
 
   const key = new TextEncoder().encode(secret);

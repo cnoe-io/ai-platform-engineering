@@ -28,6 +28,11 @@ This only works correctly because `trustEmail=true` is set on the IdP. That flag
 
 Production installs should also keep `keycloak.idp.forceRedirect=true` (exported to `KEYCLOAK_FORCE_IDP_REDIRECT=true`). That makes the app realm's browser flow require the IdP redirector and disables the local Keycloak username/password form, so users go to the enterprise IdP even if a client does not send `kc_idp_hint`.
 
+The other side of the `kc_idp_hint` contract is on the UI: `ui/src/lib/auth-config.ts` only spreads `kc_idp_hint=${OIDC_IDP_HINT}` into the NextAuth authorization params when `OIDC_IDP_HINT` is **set and non-empty**. Two tests pin this contract end-to-end:
+
+* `ui/src/lib/__tests__/auth-config.test.ts` (describe `OIDC kc_idp_hint forwarding`) asserts the hint is forwarded verbatim when configured and is **omitted** when the env var is unset or empty.
+* `tests/integration/test_keycloak_idp_hint_redirect.sh` boots a throwaway Keycloak, runs `init-idp.sh`, and asserts `GET /realms/caipe/protocol/openid-connect/auth` 302/303s to `/broker/${IDP_ALIAS}/login` with no hint, with a valid hint, and degrades gracefully (no 5xx) with an unknown hint. Both are gated in CI via the `idp-hint-test` job in `.github/workflows/ci-keycloak-init.yml` (also runnable locally via `make test-keycloak-idp-hint` or `make test-keycloak-sso-all`). See [Secrets bootstrap → SSO bootstrap — `kc_idp_hint` and the IdP redirector](./secrets-bootstrap.md#sso-bootstrap--kc_idp_hint-and-the-idp-redirector) for the long-form walkthrough.
+
 **Security implication:** if the upstream IdP can be compromised to issue arbitrary email claims, an attacker could link to any existing account. This is acceptable here because Okta and Duo SSO (and other supported IdPs) are corporate SSO providers — trust in the email claim is the same as trust in the IdP.
 
 The complete one-time login sequence (Browser → Keycloak → upstream IdP → Keycloak → CAIPE UI) is shown inline in [Per-request authorization](#per-request-authorization-end-to-end) below — look for the "One-time login path" rectangle. With the default realm policy, active users refresh silently through Keycloak for up to the configured SSO idle and max lifetimes.

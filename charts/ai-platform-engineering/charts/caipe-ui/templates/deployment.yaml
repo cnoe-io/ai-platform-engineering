@@ -72,6 +72,23 @@ spec:
             - name: APP_CONFIG_PATH
               value: "/etc/caipe-ui/app-config.yaml"
             {{- end }}
+            {{- /* R1 upstream fix (May 2026): inject the Keycloak Admin
+                   REST client_secret via valueFrom.secretKeyRef when the
+                   operator has wired keycloakAdminClient.secretName. The
+                   matching client ID is surfaced through the ConfigMap
+                   (see configmap.yaml) so the BFF's `fetchFreshAdminToken`
+                   sees both halves of the credential without falling
+                   back to the master-realm admin/admin password grant.
+                   Skip this block entirely when secretName is empty so
+                   standalone subchart installs without an in-cluster
+                   Keycloak keep rendering cleanly. */ -}}
+            {{- if .Values.keycloakAdminClient.secretName }}
+            - name: KEYCLOAK_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakAdminClient.secretName | quote }}
+                  key: {{ .Values.keycloakAdminClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
+            {{- end }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
