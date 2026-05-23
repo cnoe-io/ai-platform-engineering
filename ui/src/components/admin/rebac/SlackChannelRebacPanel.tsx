@@ -518,15 +518,19 @@ export function SlackChannelRebacPanel({
   };
 
   const fetchBotMemberChannels = async (): Promise<DiscoveredSlackChannel[]> => {
+    // Issue #1506: previously this set `refresh=1` on the first page of every
+    // Discover click, which defeated the server-side cache entirely and
+    // tripped Slack's per-tenant rate limits on workspaces with thousands of
+    // channels. The cache TTL (10 min, server-side) is short enough for human
+    // admin workflows; a hard refresh button can be added separately if/when
+    // operators actually need it.
     const discovered: DiscoveredSlackChannel[] = [];
     let cursor: string | null | undefined;
-    let firstPage = true;
     do {
       const params = new URLSearchParams({
         member_only: "1",
         limit: "500",
       });
-      if (firstPage) params.set("refresh", "1");
       if (cursor) params.set("cursor", cursor);
       const response = await fetch(`/api/admin/slack/available-channels?${params.toString()}`, {
         cache: "no-store",
@@ -535,7 +539,6 @@ export function SlackChannelRebacPanel({
       const data = apiData<SlackChannelDiscoveryPayload>(await response.json());
       discovered.push(...(data.channels ?? []));
       cursor = data.has_more ? data.next_cursor : null;
-      firstPage = false;
     } while (cursor);
     return discovered.filter((channel) => channel.is_member !== false);
   };
