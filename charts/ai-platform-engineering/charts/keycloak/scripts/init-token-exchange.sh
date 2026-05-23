@@ -534,4 +534,69 @@ else
   echo "${TAG}   WARNING: could not bind scope (HTTP ${HTTP_CODE})."
 fi
 
+# -------------------------------------------------------------------
+# Strict client-secret mode guard (token-exchange scope: caipe-slack-bot
+# + caipe-webex-bot).
+#
+# When KEYCLOAK_STRICT_CLIENT_SECRETS=true, attempt a client_credentials
+# token grant against the dev placeholder secrets for the two bot
+# clients reconciled by THIS script. If Keycloak still accepts either —
+# for example because tokenExchange.secretRef / webexTokenExchange.secretRef
+# is unset — log a loud ERROR and exit non-zero so the Helm install
+# fails fast.
+#
+# init-idp.sh has its own copy of this guard scoped to caipe-ui +
+# caipe-platform. Together they cover all four dev placeholders.
+#
+# assisted-by Claude:claude-opus-4-7
+# -------------------------------------------------------------------
+_assert_dev_placeholders_rejected() {
+  if [ "${KEYCLOAK_STRICT_CLIENT_SECRETS:-false}" != "true" ]; then
+    return 0
+  fi
+
+  echo "${TAG} Strict mode: verifying caipe-slack-bot + caipe-webex-bot reject their dev placeholders ..."
+
+  KC_TOKEN_URL="${KC_URL}/realms/${REALM}/protocol/openid-connect/token"
+  violations=0
+
+  # Pairs: "<clientId>|<dev-placeholder-secret>"
+  pairs="caipe-slack-bot|caipe-slack-bot-dev-secret
+caipe-webex-bot|caipe-webex-bot-dev-secret"
+
+  IFS_OLD="${IFS}"
+  IFS='
+'
+  for pair in ${pairs}; do
+    cid="${pair%%|*}"
+    placeholder="${pair##*|}"
+    HTTP_CODE=$(curl -sS -o /tmp/_strict_te_body.$$ -w "%{http_code}" \
+      -X POST "${KC_TOKEN_URL}" \
+      -d "grant_type=client_credentials&client_id=${cid}&client_secret=${placeholder}" 2>/dev/null || echo "000")
+    BODY=$(cat /tmp/_strict_te_body.$$ 2>/dev/null || echo "")
+    rm -f /tmp/_strict_te_body.$$
+    if [ "${HTTP_CODE}" = "200" ] && echo "${BODY}" | grep -q '"access_token"'; then
+      echo "${TAG}   ERROR: Keycloak still accepts the dev placeholder client_secret for '${cid}'." >&2
+      echo "${TAG}          Set the matching tokenExchange.secretRef / webexTokenExchange.secretRef and retry." >&2
+      violations=$((violations + 1))
+    else
+      echo "${TAG}   OK: '${cid}' rejects its dev placeholder (HTTP ${HTTP_CODE})."
+    fi
+  done
+  IFS="${IFS_OLD}"
+
+  if [ "${violations}" -gt 0 ]; then
+    echo "${TAG} Strict mode FAILED: ${violations} bot client(s) still accept dev placeholder secrets." >&2
+    echo "${TAG} See https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/docs/security/rbac/secrets-bootstrap.md#production-hardening" >&2
+    return 1
+  fi
+
+  echo "${TAG} Strict mode passed: caipe-slack-bot + caipe-webex-bot reject their dev placeholders."
+  return 0
+}
+
+if ! _assert_dev_placeholders_rejected; then
+  exit 1
+fi
+
 echo "${TAG} Done — token exchange configured for '${BOT_CLIENT_ID}'."

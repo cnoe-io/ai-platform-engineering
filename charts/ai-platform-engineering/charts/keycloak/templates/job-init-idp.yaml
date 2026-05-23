@@ -88,6 +88,16 @@ spec:
                   name: {{ include "keycloak.uiClientSecretName" . }}
                   key: {{ .Values.uiClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
             {{- end }}
+            {{- /* KEYCLOAK_PLATFORM_CLIENT_SECRET — when provided, init-idp.sh
+                   reconciles the caipe-platform client_secret in Keycloak,
+                   replacing the dev placeholder shipped in realm-config.json. */}}
+            {{- if or .Values.platformClient.secretRef .Values.platformClient.externalSecret.enabled }}
+            - name: KEYCLOAK_PLATFORM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.platformClientSecretName" . }}
+                  key: {{ .Values.platformClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
+            {{- end }}
             - name: IDP_ACCESS_GROUP
               value: {{ .Values.idp.accessGroup | quote }}
             - name: IDP_ADMIN_GROUP
@@ -99,6 +109,13 @@ spec:
               value: "true"
             - name: IDP_PKCE_METHOD
               value: {{ .Values.idp.pkce.method | default "S256" | quote }}
+            {{- end }}
+            {{- /* Strict client-secret mode — fail the Job if any of the four
+                   dev placeholder secrets is still accepted by Keycloak after
+                   reconciliation. See values.yaml `strictClientSecrets`. */}}
+            {{- if .Values.strictClientSecrets }}
+            - name: KEYCLOAK_STRICT_CLIENT_SECRETS
+              value: "true"
             {{- end }}
           volumeMounts:
             - name: init-scripts

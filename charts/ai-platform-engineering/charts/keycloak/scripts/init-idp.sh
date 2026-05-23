@@ -40,21 +40,16 @@ BOT_OBO_AUDIENCE_CLIENT_ID="${CAIPE_PLATFORM_AUDIENCE:-caipe-platform}"
 # -------------------------------------------------------------------
 # Persona seeding (spec 102 T019).
 #
-# Runs only when KEYCLOAK_SEED_DEMO_USERS=true because these are local
-# dev/CI personas, not production users. Idempotent — re-runnable.
+# Demo persona seeding has been removed from this script — pre-seeding
+# identity rows with hardcoded passwords is not appropriate for a script
+# that ships in a Helm chart. The KEYCLOAK_SEED_DEMO_USERS env var and
+# `seed_personas_main` shell below are left as no-ops so existing
+# values.yaml and CI env files keep parsing; the body of the function
+# is now a documentation echo.
 #
-# Personas (see spec.md §Personas):
-#   alice_admin            → local identity only; organization admin is OpenFGA
-#   bob_chat_user          → local identity only
-#   carol_kb_ingestor      → local identity only; KB grants are OpenFGA/team based
-#   dave_no_role           → local identity only
-#   eve_dynamic_agent_user → local identity only
-#   frank_service_account  → ALREADY EXISTS as caipe-platform's service account user
-#                            (we don't create a regular user for frank)
-#
-# All passwords are "test-password-123" — overridable per-persona via env
-# (e.g. ALICE_ADMIN_PASSWORD). Matches the default in
-# tests/rbac/fixtures/keycloak.{py,ts} _DEFAULT_PASSWORD.
+# Tests that need ephemeral persona accounts should provision them at
+# test setup time via the Keycloak Admin API
+# (see tests/rbac/fixtures/keycloak.{py,ts}).
 # -------------------------------------------------------------------
 
 # --- helper: extract a string field from JSON (no jq needed) -------------
@@ -119,18 +114,12 @@ seed_personas_main() {
     echo "${USER_ID}"
   }
 
-  PASS_ALICE="${ALICE_ADMIN_PASSWORD:-test-password-123}"
-  PASS_BOB="${BOB_CHAT_USER_PASSWORD:-test-password-123}"
-  PASS_CAROL="${CAROL_KB_INGESTOR_PASSWORD:-test-password-123}"
-  PASS_DAVE="${DAVE_NO_ROLE_PASSWORD:-test-password-123}"
-  PASS_EVE="${EVE_DYNAMIC_AGENT_USER_PASSWORD:-test-password-123}"
-
-  upsert_persona "alice_admin" "alice@example.com" "${PASS_ALICE}" "Alice" "Admin" >/dev/null
-  upsert_persona "bob_chat_user" "bob@example.com" "${PASS_BOB}" "Bob" "ChatUser" >/dev/null
-  upsert_persona "carol_kb_ingestor" "carol@example.com" "${PASS_CAROL}" "Carol" "Ingestor" >/dev/null
-  upsert_persona "dave_no_role" "dave@example.com" "${PASS_DAVE}" "Dave" "NoRole" >/dev/null
-  upsert_persona "eve_dynamic_agent_user" "eve@example.com" "${PASS_EVE}" "Eve" "DynamicAgent" >/dev/null
-  echo "[init-idp] [spec-102]   demo users are identity-only; grants are OpenFGA/team relationships."
+  # No demo personas are seeded from this script. CAIPE intentionally avoids
+  # pre-seeding identity rows in Keycloak: the upstream IdP (or JIT user
+  # creation) is the source of truth, and tests/CI provision their own
+  # ephemeral users via the Admin API.
+  # assisted-by Claude:claude-opus-4-7
+  echo "[init-idp] [spec-102]   no demo personas seeded by this script (identity is upstream-IdP / JIT)."
 
   echo "[init-idp] [spec-102] persona seeding done. Verify with:"
   echo "[init-idp] [spec-102]   curl -sf -H \"\${PERSONA_AUTH}\" \"${KC_URL}/admin/realms/${REALM}/users?max=20\""
@@ -348,6 +337,172 @@ json.dump(client, sys.stdout)
 }
 
 _reconcile_caipe_ui_client_secret
+
+# -------------------------------------------------------------------
+# Reconcile the caipe-platform confidential client_secret from
+# KEYCLOAK_PLATFORM_CLIENT_SECRET.
+#
+# Background: the realm-config.json shipped with the chart bakes a
+# placeholder secret ("caipe-platform-dev-secret") into the
+# caipe-platform client so the realm can import cleanly on first
+# boot. That placeholder is fine for dev/CI but is a real risk in
+# production — anyone with the rendered ConfigMap can mint
+# client_credentials tokens. Mirrors _reconcile_caipe_ui_client_secret.
+#
+# When KEYCLOAK_PLATFORM_CLIENT_SECRET is empty we leave the
+# Keycloak-managed value alone (default for dev installs).
+#
+# assisted-by Claude:claude-opus-4-7
+# -------------------------------------------------------------------
+_reconcile_caipe_platform_client_secret() {
+  local PLATFORM_CLIENT_SECRET="${KEYCLOAK_PLATFORM_CLIENT_SECRET:-}"
+  local PLATFORM_CLIENT_ID="${KEYCLOAK_PLATFORM_CLIENT_ID:-caipe-platform}"
+
+  if [ -z "${PLATFORM_CLIENT_SECRET}" ]; then
+    echo "[init-idp] KEYCLOAK_PLATFORM_CLIENT_SECRET not set — leaving ${PLATFORM_CLIENT_ID} client_secret unchanged."
+    return 0
+  fi
+
+  echo "[init-idp] Reconciling client_secret on '${PLATFORM_CLIENT_ID}' from KEYCLOAK_PLATFORM_CLIENT_SECRET ..."
+  if [ -z "${AUTH:-}" ]; then
+    local _tok
+    _tok=$(curl -sf -X POST "${KC_URL}/realms/master/protocol/openid-connect/token" \
+      -d "grant_type=password&client_id=admin-cli&username=${KEYCLOAK_ADMIN:-admin}&password=${KEYCLOAK_ADMIN_PASSWORD:-admin}" 2>/dev/null \
+      | grep -o '"access_token" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [ -z "${_tok}" ]; then
+      echo "[init-idp]   ERROR: could not acquire admin token — cannot reconcile ${PLATFORM_CLIENT_ID} client_secret." >&2
+      return 1
+    fi
+    AUTH="Authorization: Bearer ${_tok}"
+  fi
+
+  local PLATFORM_CLIENT_UUID
+  PLATFORM_CLIENT_UUID=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${PLATFORM_CLIENT_ID}" 2>/dev/null \
+    | grep -o '"id" *: *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"/\1/')
+
+  if [ -z "${PLATFORM_CLIENT_UUID}" ]; then
+    echo "[init-idp]   ERROR: client ${PLATFORM_CLIENT_ID} not found — cannot reconcile client_secret." >&2
+    return 1
+  fi
+
+  local PLATFORM_CLIENT_JSON
+  PLATFORM_CLIENT_JSON=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${PLATFORM_CLIENT_UUID}" 2>/dev/null || echo "")
+  if [ -z "${PLATFORM_CLIENT_JSON}" ]; then
+    echo "[init-idp]   ERROR: could not fetch client ${PLATFORM_CLIENT_ID} — cannot reconcile client_secret." >&2
+    return 1
+  fi
+
+  local UPDATED_PLATFORM_CLIENT_JSON
+  UPDATED_PLATFORM_CLIENT_JSON=$(printf '%s' "${PLATFORM_CLIENT_JSON}" | \
+    KEYCLOAK_PLATFORM_CLIENT_SECRET="${PLATFORM_CLIENT_SECRET}" \
+    python3 -c '
+import json
+import os
+import sys
+
+client = json.load(sys.stdin)
+client["secret"] = os.environ["KEYCLOAK_PLATFORM_CLIENT_SECRET"]
+client["publicClient"] = False
+client.setdefault("protocol", "openid-connect")
+json.dump(client, sys.stdout)
+' 2>/dev/null)
+
+  if [ -z "${UPDATED_PLATFORM_CLIENT_JSON}" ]; then
+    echo "[init-idp]   ERROR: failed to render patched ${PLATFORM_CLIENT_ID} client JSON." >&2
+    return 1
+  fi
+
+  curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${PLATFORM_CLIENT_UUID}" \
+    -d "${UPDATED_PLATFORM_CLIENT_JSON}" >/dev/null \
+    && echo "[init-idp]   ${PLATFORM_CLIENT_ID} client_secret reconciled." \
+    || {
+      echo "[init-idp]   ERROR: failed to update ${PLATFORM_CLIENT_ID} client_secret." >&2
+      return 1
+    }
+}
+
+_reconcile_caipe_platform_client_secret
+
+# -------------------------------------------------------------------
+# Strict client-secret mode guard (init-idp scope: caipe-ui + caipe-platform).
+#
+# When KEYCLOAK_STRICT_CLIENT_SECRETS=true, attempt a client_credentials
+# token grant against each of the dev placeholder secrets for clients
+# that THIS script just reconciled (caipe-ui, caipe-platform). If Keycloak
+# still accepts ANY of them — for example because an operator forgot to
+# set the matching secretRef/externalSecret, or the reconcile step
+# silently failed — log a loud ERROR and exit non-zero so the Helm
+# install fails fast instead of leaving a production realm with accepted
+# dev secrets.
+#
+# The two bot clients (caipe-slack-bot, caipe-webex-bot) are reconciled by
+# init-token-exchange.sh, which has its own copy of this guard.
+#
+# Runs BEFORE the IdP broker setup so it executes even when the script
+# would otherwise abort on missing IDP_* env vars. (For installs that
+# don't set IDP, the script still exits cleanly after the strict guard.)
+#
+# Safe to no-op when:
+#   - the realm/client doesn't exist (404)
+#   - the network is unreachable (curl error)
+# Only an HTTP 200 with a real access_token is treated as a failure.
+#
+# assisted-by Claude:claude-opus-4-7
+# -------------------------------------------------------------------
+_assert_dev_placeholders_rejected() {
+  if [ "${KEYCLOAK_STRICT_CLIENT_SECRETS:-false}" != "true" ]; then
+    return 0
+  fi
+
+  echo "[init-idp] Strict mode: verifying caipe-ui + caipe-platform reject their dev placeholders ..."
+
+  local KC_TOKEN_URL="${KC_URL}/realms/${REALM}/protocol/openid-connect/token"
+  local violations=0
+
+  # Pairs: "<clientId>|<dev-placeholder-secret>"
+  local pairs="caipe-ui|caipe-ui-dev-secret
+caipe-platform|caipe-platform-dev-secret"
+
+  local IFS_OLD="${IFS}"
+  IFS='
+'
+  for pair in ${pairs}; do
+    local cid="${pair%%|*}"
+    local placeholder="${pair##*|}"
+    local response http_code body
+    response=$(curl -sS -o /tmp/_strict_body.$$ -w "%{http_code}" \
+      -X POST "${KC_TOKEN_URL}" \
+      -d "grant_type=client_credentials&client_id=${cid}&client_secret=${placeholder}" 2>/dev/null || echo "000")
+    http_code="${response}"
+    body=$(cat /tmp/_strict_body.$$ 2>/dev/null || echo "")
+    rm -f /tmp/_strict_body.$$
+    if [ "${http_code}" = "200" ] && echo "${body}" | grep -q '"access_token"'; then
+      echo "[init-idp]   ERROR: Keycloak still accepts the dev placeholder client_secret for '${cid}'." >&2
+      echo "[init-idp]          Set the matching secretRef or externalSecret for this client and retry." >&2
+      violations=$((violations + 1))
+    else
+      echo "[init-idp]   OK: '${cid}' rejects its dev placeholder (HTTP ${http_code})."
+    fi
+  done
+  IFS="${IFS_OLD}"
+
+  if [ "${violations}" -gt 0 ]; then
+    echo "[init-idp] Strict mode FAILED: ${violations} client(s) still accept dev placeholder secrets." >&2
+    echo "[init-idp] See https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/docs/security/rbac/secrets-bootstrap.md#production-hardening" >&2
+    return 1
+  fi
+
+  echo "[init-idp] Strict mode passed: caipe-ui + caipe-platform reject their dev placeholders."
+  return 0
+}
+
+if ! _assert_dev_placeholders_rejected; then
+  # Explicit exit so the Job fails even if the caller has disabled `set -e`.
+  exit 1
+fi
 
 # The Web UI BFF calls the Slack bot admin API with a Keycloak
 # client_credentials token. The same caipe-ui confidential client is used for

@@ -70,6 +70,13 @@ spec:
                   name: {{ include "keycloak.webexBotSecretName" . }}
                   key: KC_WEBEX_BOT_CLIENT_SECRET
             {{- end }}
+            {{- /* Strict client-secret mode — fail the Job if any of the four
+                   dev placeholder secrets is still accepted by Keycloak after
+                   reconciliation. See values.yaml `strictClientSecrets`. */}}
+            {{- if .Values.strictClientSecrets }}
+            - name: KEYCLOAK_STRICT_CLIENT_SECRETS
+              value: "true"
+            {{- end }}
           volumeMounts:
             - name: init-scripts
               mountPath: /scripts
