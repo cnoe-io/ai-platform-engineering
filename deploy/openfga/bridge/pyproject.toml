@@ -1,0 +1,48 @@
+[project]
+name = "caipe-openfga-authz-bridge"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "gRPC ext_authz target for AgentGateway that calls OpenFGA Check"
+readme = "README.md"
+authors = [
+    { name = "CNOE Team", email = "info@cnoe.io" },
+]
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "cryptography==48.0.0",
+    "grpcio==1.74.0",
+    "httpx==0.28.1",
+    "protobuf==6.32.1",
+    "pyjwt==2.10.1",
+    "pymongo==4.17.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.3",
+    "pyyaml==6.0.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 140
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+]
+ignore = ["F403"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
