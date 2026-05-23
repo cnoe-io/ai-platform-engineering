@@ -1,0 +1,132 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Host-specific Agent Gateway configuration for https://caipe-rbac.outshift.io.
+# The JWKS endpoint stays Docker-internal, but the expected JWT issuer must
+# match the browser-facing Keycloak issuer embedded in tokens.
+
+binds:
+- port: 4000
+  listeners:
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: https://caipe-rbac.outshift.io/realms/caipe
+        audiences: [caipe-platform, agentgateway]
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - matches: [{ path: { pathPrefix: /mcp/argocd } }]
+      policies: &mcpAuthzPolicy
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub}'
+        authorization:
+          rules:
+          - allow: 'true'
+      backends:
+      - mcp:
+          targets:
+          - name: argocd
+            mcp: { host: http://mcp-argocd:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/backstage } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: backstage
+            mcp: { host: http://mcp-backstage:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/confluence } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: confluence
+            mcp: { host: http://mcp-confluence:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/github } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: github
+            mcp: { host: http://github-mcp-server:8082/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: gitlab
+            mcp: { host: http://mcp-gitlab:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/jira } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: jira
+            mcp: { host: http://mcp-jira:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/komodor } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: komodor
+            mcp: { host: http://mcp-komodor:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/netutils } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: netutils
+            mcp: { host: http://mcp-netutils:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/pagerduty } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: pagerduty
+            mcp: { host: http://mcp-pagerduty:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/rag } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: rag
+            mcp: { host: http://rag-server:9446/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/slack } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: slack
+            mcp: { host: http://mcp-slack:3001/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/splunk } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: splunk
+            mcp: { host: http://mcp-splunk:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/victorops } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: victorops
+            mcp: { host: http://mcp-victorops:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/webex } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: webex
+            mcp: { host: http://mcp-webex:8000/mcp }
+
+config:
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: debug
+    format: json

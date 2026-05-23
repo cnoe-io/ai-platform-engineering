@@ -55,6 +55,21 @@ async function apiPost<T>(endpoint: string, data?: unknown, params?: Record<stri
     return response.json();
 }
 
+async function apiPatch<T>(endpoint: string, data?: unknown): Promise<T> {
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || error.detail || `HTTP ${response.status}`);
+    }
+    if (response.status === 204) return {} as T;
+    return response.json();
+}
+
 async function apiDelete<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
     let url = `${API_BASE}${endpoint}`;
     if (params) {
@@ -88,6 +103,13 @@ export const getDataSources = async (): Promise<{ success: boolean; datasources:
 
 export const deleteDataSource = async (datasourceId: string): Promise<void> => {
     return apiDelete('/v1/datasource', { datasource_id: datasourceId });
+};
+
+export const renameDataSource = async (
+    datasourceId: string,
+    name: string,
+): Promise<{ datasource_id: string; name: string; changed: boolean }> => {
+    return apiPatch(`/v1/datasource/${encodeURIComponent(datasourceId)}`, { name });
 };
 
 // Cleanup response type

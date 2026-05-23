@@ -1,0 +1,1 @@
+../../charts/ai-platform-engineering/charts/keycloak/scripts/init-token-exchange.sh

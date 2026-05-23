@@ -1,3 +1,25 @@
+## 0.4.17-dev.2 (2026-05-22)
+
+### Fix
+
+- **jira**: create internal comments via platform API
+- **dynamic-agents**: apply _strip_nulls to MCPServerConfig construction sites
+- **ui**: revert interrupt_on default to undefined, consistent with other fields
+- **dynamic-agents**: strip None values from MongoDB doc before pydantic validation
+- **ui**: default interrupt_on to empty object instead of undefined in seed config
+
+## 0.4.17 (2026-05-22)
+
+## 0.4.16-dev.1 (2026-05-22)
+
+### Fix
+
+- **rag**: pin twisted==26.4.0 stable, fix Scrapy 2.16 TLS bug
+- **rag**: add async start() for Scrapy 2.16 and fix start_urls rename
+- **rag**: rename self.start_url to self.origin_url for Scrapy 2.16 compat
+
+## 0.4.16 (2026-05-21)
+
 ## 0.4.15-dev.3 (2026-05-21)
 
 ### Fix

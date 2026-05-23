@@ -113,6 +113,14 @@ runs:
       run: |
         set -euo pipefail
 
+        if [[ "${{ inputs.artifact_suffix }}" != "final" ]]; then
+          echo "Skipping comment dispatch for non-final prebuild status artifact."
+          exit 0
+        fi
+
+        payload_file="$(mktemp)"
+        trap 'rm -f "${payload_file}"' EXIT
+
         jq -n \
           --argjson pr_number "${{ inputs.pr_number }}" \
           --arg head_sha "${{ inputs.head_sha }}" \
@@ -122,5 +130,17 @@ runs:
               pr_number: $pr_number,
               head_sha: $head_sha
             }
-          }' \
-          | gh api --method POST /repos/${{ github.repository }}/dispatches --input -
+          }' > "${payload_file}"
+
+        dispatch_reconciler() {
+          gh api --method POST /repos/${{ github.repository }}/dispatches --input "${payload_file}"
+        }
+
+        # assisted-by Codex Codex-sonnet-4-6
+        # The uploaded artifact is the durable status record; dispatch only nudges
+        # the PR comment reconciler and should not turn a good build red.
+        if dispatch_reconciler; then
+          exit 0
+        fi
+
+        echo "::warning::Prebuild status artifact was uploaded, but the comment reconciler dispatch failed. Continuing because the build result is independent of comment refresh."

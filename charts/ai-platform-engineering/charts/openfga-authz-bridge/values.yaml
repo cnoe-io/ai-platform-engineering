@@ -1,0 +1,83 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cnoe-io/openfga-authz-bridge
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 9100
+
+openfga:
+  httpUrl: "http://openfga:8080"
+  storeName: caipe-openfga
+  storeId: ""
+  relation: can_call
+  object: mcp_gateway:list
+  bypassSubs: ""
+
+agentContext:
+  # Secret shared with Dynamic Agents for signed agent_id context headers.
+  # Leave empty to enforce only the coarse user mcp_gateway:list gate.
+  existingSecret:
+    name: ""
+    key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+
+tokenValidation:
+  # The bridge validates bearer JWTs itself before calling OpenFGA. Keep this
+  # pointing at an internal JWKS endpoint when Keycloak runs in-cluster.
+  jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+  issuer: ""
+  audiences: []
+  algorithms:
+    - RS256
+
+audit:
+  enabled: true
+  mongodbUri: ""
+  mongodbDatabase: caipe
+  tenantId: default
+  subjectSalt: caipe-098-audit
+  existingSecret:
+    name: ""
+    key: MONGODB_URI
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  seccompProfile:
+    type: RuntimeDefault

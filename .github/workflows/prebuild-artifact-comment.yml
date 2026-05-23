@@ -13,7 +13,9 @@ permissions:
 
 concurrency:
   group: prebuild-artifact-comment-pr-${{ github.event.client_payload.pr_number }}-sha-${{ github.event.client_payload.head_sha }}
-  cancel-in-progress: false
+  # assisted-by Codex Codex-sonnet-4-6
+  # Later dispatches reconcile the same artifact set, so stale runs can be canceled.
+  cancel-in-progress: true
 
 jobs:
   reconcile:
