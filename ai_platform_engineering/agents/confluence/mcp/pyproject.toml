@@ -13,11 +13,14 @@ dependencies = [
   "python-dotenv==1.2.2",
   "pydantic==2.12.5",
   "mcp==1.27.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "fastmcp==3.2.4",
   "typing-extensions==4.15.0"
 ]
 [tool.poetry.scripts]
 mcp_argocd = "mcp_confluence.server:main"
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [build-system]
 requires = ["hatchling"]
