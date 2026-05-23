@@ -85,6 +85,23 @@ CAIPE UI client-secret K8s Secret name.
 {{- end }}
 
 {{/*
+CAIPE platform (supervisor) client-secret K8s Secret name.
+- explicit user-provided existing Secret wins
+- else if ESO is enabled for platformClient, the chart owns a Secret named
+  <fullname>-platform-client
+The Secret is consumed by init-idp + auth-reconcile as
+KEYCLOAK_PLATFORM_CLIENT_SECRET and PUT into Keycloak via the Admin API so
+the realm ConfigMap never has to hold the production secret.
+*/}}
+{{- define "keycloak.platformClientSecretName" -}}
+{{- if .Values.platformClient.secretRef }}
+{{- .Values.platformClient.secretRef }}
+{{- else }}
+{{- include "keycloak.fullname" . }}-platform-client
+{{- end }}
+{{- end }}
+
+{{/*
 IdP client-secret K8s Secret name.
 - explicit user-provided existing Secret wins
 - else if ESO is enabled for IdP, the chart owns a Secret named <fullname>-idp

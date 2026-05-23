@@ -718,8 +718,14 @@ services:
       - NEXT_PUBLIC_MONGODB_ENABLED=${NEXT_PUBLIC_MONGODB_ENABLED:-false}
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-ui-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       # NextAuth configuration (required for production)
-      # Generate a secret with: openssl rand -base64 32
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      # Generate a secret with: openssl rand -base64 48
+      # R4: NEXTAUTH_SECRET MUST be set in the environment (e.g. via .env)
+      # for this production compose file. The `:?...` Compose syntax aborts
+      # `docker compose up` with the supplied message if the env var is
+      # missing or empty so an operator never silently inherits a shared
+      # placeholder. (For local dev that genuinely wants a placeholder,
+      # use docker-compose.dev.yaml instead.) assisted-by Claude:claude-opus-4-7
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:?NEXTAUTH_SECRET must be set in your .env (run: openssl rand -base64 48)}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
       # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
       - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}

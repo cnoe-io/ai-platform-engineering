@@ -107,6 +107,35 @@ async function requestTokenFromKeycloak(
   return { token: data.access_token, expiresAtMs };
 }
 
+/**
+ * Decide whether the `admin/admin` password-grant fallback against
+ * `/realms/master` is allowed in this process. The fallback is a
+ * convenience for local dev / docker-compose where the operator may not
+ * have plumbed `KEYCLOAK_ADMIN_CLIENT_ID/SECRET` yet — but in a real
+ * deployment it represents master-realm admin escalation from the BFF
+ * if the Keycloak bootstrap admin password is still the default. We
+ * therefore disable it unless the operator opts in OR the process is
+ * obviously a dev/test build.
+ *
+ * Opt-in signals (any one wins):
+ *   - `ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=true` (the explicit knob;
+ *     set by docker-compose.dev and by the umbrella chart's values
+ *     under a `dev-fallback` profile)
+ *   - `NODE_ENV !== "production"` (matches every dev build of Node and
+ *     keeps the local DX unchanged)
+ *
+ * Anything else throws — see the call site below — so a misconfigured
+ * production install fails loudly with a configuration error instead of
+ * silently calling /realms/master with `admin/admin`.
+ */
+function adminPasswordFallbackAllowed(): boolean {
+  const explicit = process.env.ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK?.trim().toLowerCase();
+  if (explicit === "true" || explicit === "1") return true;
+  if (explicit === "false" || explicit === "0") return false;
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase();
+  return nodeEnv !== "production";
+}
+
 async function fetchFreshAdminToken(): Promise<TokenCache> {
   const clientId = process.env.KEYCLOAK_ADMIN_CLIENT_ID?.trim();
   const clientSecret = process.env.KEYCLOAK_ADMIN_CLIENT_SECRET?.trim();
@@ -124,9 +153,26 @@ async function fetchFreshAdminToken(): Promise<TokenCache> {
         "client_credentials"
       );
     } catch (err) {
-      console.warn("[KeycloakAdmin] client_credentials failed, falling back to password grant:", err);
+      if (!adminPasswordFallbackAllowed()) {
+        // Re-throw the underlying error verbatim so the operator sees
+        // exactly which Keycloak response broke us (status + body).
+        throw err;
+      }
+      console.warn(
+        "[KeycloakAdmin] client_credentials failed, falling back to password grant:",
+        err
+      );
     }
   } else {
+    if (!adminPasswordFallbackAllowed()) {
+      throw new Error(
+        "Keycloak admin credentials missing: set KEYCLOAK_ADMIN_CLIENT_ID + " +
+          "KEYCLOAK_ADMIN_CLIENT_SECRET (via the keycloak.platformClient secret " +
+          "in the Helm chart, or your secret store). The admin/admin password-grant " +
+          "fallback is disabled in production — set " +
+          "ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=true to opt in for local dev only."
+      );
+    }
     console.warn("[KeycloakAdmin] Missing admin client id/secret; using password grant (dev)");
   }
 

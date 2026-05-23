@@ -2666,7 +2666,25 @@ deploy_langfuse() {
 create_langfuse_api_keys() {
   step "Creating Langfuse account and API keys"
 
-  # Check if keys already exist from a previous run
+  # Workshop credentials are per-install: generated fresh on first run, then
+  # reused from the `langfuse-credentials` Secret on subsequent runs so the UI
+  # login keeps working after a re-run. Anyone with cluster access can retrieve
+  # them with the kubectl command printed in the "Services Ready" banner.
+  LANGFUSE_EMAIL="lab@lab.com"
+  local existing_pw
+  existing_pw=$(kubectl get secret langfuse-credentials -n langfuse -o jsonpath='{.data.LANGFUSE_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing_pw" ]]; then
+    LANGFUSE_PASSWORD="$existing_pw"
+    log "Reusing existing Langfuse workshop password from langfuse-credentials Secret"
+  else
+    # Langfuse password policy requires upper, lower, digit and >=8 chars; the
+    # "Lf!" prefix guarantees that even though `openssl rand -hex` only emits
+    # hex digits.
+    LANGFUSE_PASSWORD="Lf!$(openssl rand -hex 16)"
+    log "Generated random Langfuse workshop password"
+  fi
+
+  # Check if API keys already exist from a previous run
   local existing_pk existing_sk
   existing_pk=$(kubectl get secret langfuse-secret -n caipe -o jsonpath='{.data.LANGFUSE_PUBLIC_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
   existing_sk=$(kubectl get secret langfuse-secret -n caipe -o jsonpath='{.data.LANGFUSE_SECRET_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
@@ -2702,19 +2720,33 @@ create_langfuse_api_keys() {
     sleep 5
   done
 
+  # The signup body is JSON; build it in Python so the generated password is
+  # safely JSON-escaped (the hex+"Lf!" prefix avoids quote/backslash hazards
+  # today, but doing this defensively keeps the call correct if the generator
+  # ever changes).
+  local signup_body
+  signup_body=$(LANGFUSE_EMAIL="$LANGFUSE_EMAIL" LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" \
+    python3 -c 'import json,os; print(json.dumps({"name":"lab","email":os.environ["LANGFUSE_EMAIL"],"password":os.environ["LANGFUSE_PASSWORD"]}))')
   curl -sf -X POST "${base}/api/auth/signup" \
     -H 'Content-Type: application/json' \
-    -d '{"name":"lab","email":"lab@lab.com","password":"Lab12345!"}' &>/dev/null || true
+    -d "${signup_body}" &>/dev/null || true
   log "User account ready"
 
   local csrf
   csrf=$(curl -sf -c /tmp/langfuse-cookies "${base}/api/auth/csrf" \
     | python3 -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
 
+  # The credentials callback expects application/x-www-form-urlencoded; the
+  # password can in principle contain reserved chars (& = +), so url-encode
+  # it via Python rather than naive string interpolation.
+  local lf_email_enc lf_password_enc
+  lf_email_enc=$(LANGFUSE_EMAIL="$LANGFUSE_EMAIL" python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["LANGFUSE_EMAIL"], safe=""))')
+  lf_password_enc=$(LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["LANGFUSE_PASSWORD"], safe=""))')
+
   curl -sf -c /tmp/langfuse-cookies -b /tmp/langfuse-cookies \
     -X POST "${base}/api/auth/callback/credentials" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
-    -d "csrfToken=${csrf}&email=lab@lab.com&password=Lab12345!&callbackUrl=${base}" \
+    -d "csrfToken=${csrf}&email=${lf_email_enc}&password=${lf_password_enc}&callbackUrl=${base}" \
     -o /dev/null
 
   local org_id
@@ -2754,8 +2786,8 @@ create_langfuse_api_keys() {
     --from-literal=LANGFUSE_PUBLIC_KEY="$LANGFUSE_PUBLIC_KEY" \
     --from-literal=LANGFUSE_SECRET_KEY="$LANGFUSE_SECRET_KEY" \
     --from-literal=LANGFUSE_BASEURL="$langfuse_baseurl" \
-    --from-literal=LANGFUSE_EMAIL="lab@lab.com" \
-    --from-literal=LANGFUSE_PASSWORD="Lab12345!" \
+    --from-literal=LANGFUSE_EMAIL="$LANGFUSE_EMAIL" \
+    --from-literal=LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "langfuse-credentials stored in langfuse namespace"
 
@@ -3397,9 +3429,53 @@ _patch_rag_server_envfrom() {
   log "Patched rag-server: added rag-azure-openai-secret to envFrom"
 }
 
+# R2 (May 2026): The bitnami/mongodb install used to ship with the
+# literal password "changeme" baked into four sites in this script
+# (helm upgrade auth.rootPassword + auth.passwords[0], plus the
+# MONGODB_URI written into the dynamic-agents/supervisor/ui ConfigMaps).
+# Any operator who ran the workshop on-ramp inherited the same admin
+# password — and the same cluster-internal `mongodb://admin:changeme@…`
+# URI made it into the BFF's session-store Secret.
+#
+# This helper produces a per-install random password and persists it
+# in the `caipe-mongodb-credentials` Secret so:
+#   (a) re-runs of setup-caipe.sh reuse the password (idempotent),
+#   (b) the password is recoverable via `kubectl get secret …` for
+#       anyone doing post-hoc debugging or backup/restore.
+#
+# Mirrors the Langfuse `existing_pw` pattern already in this script
+# (see lines ~2671-2685). assisted-by Claude:claude-opus-4-7
+_resolve_mongodb_password() {
+  local existing_pw
+  existing_pw=$(kubectl get secret caipe-mongodb-credentials -n caipe \
+    -o jsonpath='{.data.MONGODB_ROOT_PASSWORD}' 2>/dev/null \
+    | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing_pw" ]]; then
+    MONGODB_ROOT_PASSWORD="$existing_pw"
+    log "Reusing existing MongoDB root password from caipe-mongodb-credentials Secret"
+  else
+    # `openssl rand -hex 24` → 48 hex chars (24 bytes of entropy). Hex
+    # avoids any character that would need URL-encoding inside the
+    # MONGODB_URI connection string (no '@', '/', ':', '?', etc.).
+    MONGODB_ROOT_PASSWORD="$(openssl rand -hex 24)"
+    log "Generated random MongoDB root password"
+  fi
+  # Persist (or refresh) the Secret so re-runs reuse it. --dry-run +
+  # apply is the standard idempotent pattern used elsewhere in this
+  # script.
+  kubectl create secret generic caipe-mongodb-credentials \
+    --namespace caipe \
+    --from-literal=MONGODB_ROOT_USERNAME="admin" \
+    --from-literal=MONGODB_ROOT_PASSWORD="${MONGODB_ROOT_PASSWORD}" \
+    --from-literal=MONGODB_DATABASE="caipe" \
+    --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+}
+
 _ensure_dynamic_agents_mongodb() {
   local mongo_svc="caipe-mongodb"
-  local mongo_uri="mongodb://admin:changeme@${mongo_svc}:27017/caipe?authSource=caipe"
+  _resolve_mongodb_password
+  local mongo_uri="mongodb://admin:${MONGODB_ROOT_PASSWORD}@${mongo_svc}:27017/caipe?authSource=caipe"
 
   if ! kubectl get deploy "${mongo_svc}" -n caipe &>/dev/null; then
     step "Deploying MongoDB for dynamic-agents"
@@ -3407,14 +3483,14 @@ _ensure_dynamic_agents_mongodb() {
     helm upgrade --install "${mongo_svc}" bitnami/mongodb \
       -n caipe \
       --set auth.enabled=true \
-      --set auth.rootPassword=changeme \
+      --set "auth.rootPassword=${MONGODB_ROOT_PASSWORD}" \
       --set "auth.databases[0]=caipe" \
       --set "auth.usernames[0]=admin" \
-      --set "auth.passwords[0]=changeme" \
+      --set "auth.passwords[0]=${MONGODB_ROOT_PASSWORD}" \
       --set persistence.size=2Gi \
       --timeout 3m &>/dev/null
     kubectl rollout status deploy/"${mongo_svc}" -n caipe --timeout=180s &>/dev/null
-    log "MongoDB deployed (${mongo_svc})"
+    log "MongoDB deployed (${mongo_svc}) with random root password"
   else
     log "MongoDB already present (${mongo_svc}) — skipping install"
   fi
@@ -4137,12 +4213,20 @@ deploy_caipe() {
     # Build models list from llm-secret LLM_PROVIDER
     local _provider="${LLM_PROVIDER:-anthropic-claude}"
 
-    # Write auth/OIDC config into the values file
+    # Write auth/OIDC config into the values file. R2 (May 2026):
+    # MONGODB_ROOT_PASSWORD comes from _resolve_mongodb_password() which
+    # is called by _ensure_dynamic_agents_mongodb() — guaranteed to run
+    # before deploy_caipe() per the orchestration at line ~6060.
+    # Fall back to a clearly-broken placeholder if the variable isn't
+    # set (defensive: should only happen if someone re-orders the call
+    # graph and skips the MongoDB step), so the failure surfaces loudly
+    # at pod start rather than silently using "changeme".
+    local _mongo_pw="${MONGODB_ROOT_PASSWORD:-MONGODB_ROOT_PASSWORD_UNSET}"
     cat > "$_da_values_file" <<DAEOF
 dynamic-agents:
   config:
     # MongoDB URI baked in at deploy time so the pod can start before post_deploy_patches.
-    MONGODB_URI: "mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=caipe"
+    MONGODB_URI: "mongodb://admin:${_mongo_pw}@caipe-mongodb:27017/caipe?authSource=caipe"
 DAEOF
     if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
       cat >> "$_da_values_file" <<DAEOF
@@ -5395,7 +5479,11 @@ monitor_port_forwards() {
   fi
   if $ENABLE_TRACING; then
     echo -e "    Langfuse UI     ${CYAN}http://localhost:${LANGFUSE_PORT}${NC}"
-    echo -e "      Login: ${DIM}lab@lab.com / Lab12345!${NC}"
+    if [[ -n "${LANGFUSE_EMAIL:-}" && -n "${LANGFUSE_PASSWORD:-}" ]]; then
+      echo -e "      Login: ${DIM}${LANGFUSE_EMAIL} / ${LANGFUSE_PASSWORD}${NC}"
+    else
+      echo -e "      ${DIM}Login: see langfuse-credentials Secret (kubectl command below)${NC}"
+    fi
   fi
   if $ENABLE_RBAC_RUNTIME; then
     echo -e "    Keycloak        ${CYAN}http://localhost:${KEYCLOAK_PORT}${NC}"
@@ -5430,6 +5518,11 @@ monitor_port_forwards() {
   if $ENABLE_TRACING; then
     echo -e "  ${BOLD}Retrieve Langfuse credentials:${NC}"
     echo -e "    ${DIM}kubectl get secret langfuse-credentials -n langfuse -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
+    echo ""
+  fi
+  if $ENABLE_DYNAMIC_AGENTS; then
+    echo -e "  ${BOLD}Retrieve MongoDB credentials${NC} ${DIM}(R2: random per-install, persisted in caipe-mongodb-credentials):${NC}"
+    echo -e "    ${DIM}kubectl get secret caipe-mongodb-credentials -n caipe -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
     echo ""
   fi
   echo -e "  ${BOLD}CLI chat:${NC}"

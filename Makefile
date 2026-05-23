@@ -190,13 +190,34 @@ build-caipe-ui: ## Build CAIPE UI Docker image locally
 		--build-arg CAIPE_URL=http://caipe-supervisor:8000 \
 		.
 
-run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires caipe-supervisor)
+run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires NEXTAUTH_SECRET env var)
+	@# R4: refuse to start the BFF with a known dev placeholder for
+	@# NEXTAUTH_SECRET. NEXTAUTH_SECRET HS256-signs session cookies and the
+	@# internal skills-API JWTs (see ui/src/lib/jwt-validation.ts) — a
+	@# shared placeholder means tokens forged in one install are valid in
+	@# every other install that copied this make target.
+	@if [ -z "$$NEXTAUTH_SECRET" ]; then \
+		echo ""; \
+		echo "ERROR: NEXTAUTH_SECRET is not set." >&2; \
+		echo "Generate one with: openssl rand -base64 48" >&2; \
+		echo "Then export NEXTAUTH_SECRET=... and re-run make." >&2; \
+		echo ""; \
+		exit 1; \
+	fi
+	@case "$$NEXTAUTH_SECRET" in \
+		caipe-dev-secret|"changeme"|"please-change-me"|"dev"|"test"|"secret") \
+			echo ""; \
+			echo "ERROR: NEXTAUTH_SECRET is a known dev placeholder ('$$NEXTAUTH_SECRET')." >&2; \
+			echo "Generate a real one with: openssl rand -base64 48" >&2; \
+			echo "" >&2; \
+			exit 1 ;; \
+	esac
 	@echo "Running CAIPE UI container..."
 	docker run --rm -it \
 		-p 3000:3000 \
 		-e NEXT_PUBLIC_CAIPE_URL=http://localhost:8000 \
 		-e CAIPE_URL=http://localhost:8000 \
-		-e NEXTAUTH_SECRET=caipe-dev-secret \
+		-e NEXTAUTH_SECRET="$$NEXTAUTH_SECRET" \
 		-e NEXTAUTH_URL=http://localhost:3000 \
 		--name caipe-ui-local \
 		$(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG)
@@ -395,6 +416,22 @@ argocd-sanity: setup-venv  ## Run argocd agent integration tests
 	@echo "Running argocd agent integration tests..."
 	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
 	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true -o log_cli_level=INFO
+
+test-keycloak-reconcile:  ## End-to-end test of init-idp.sh caipe-platform client_secret reconcile (boots throwaway Keycloak)
+	@echo "Running Keycloak platform-client reconcile integration test..."
+	@KC_PORT=$${KC_PORT:-28080} ./tests/integration/test_keycloak_platform_client_reconcile.sh
+
+test-keycloak-strict-secrets:  ## End-to-end test of strict client-secret mode (boots throwaway Keycloak; covers all 4 dev placeholders)
+	@echo "Running Keycloak strict client-secret integration test..."
+	@KC_PORT=$${KC_PORT:-19080} ./tests/integration/test_keycloak_strict_client_secrets.sh
+
+test-keycloak-idp-hint:  ## End-to-end test of kc_idp_hint + identity-provider-redirector wiring
+	@echo "Running Keycloak kc_idp_hint / IdP redirector integration test..."
+	@KC_PORT=$${KC_PORT:-21080} ./tests/integration/test_keycloak_idp_hint_redirect.sh
+
+test-keycloak-secrets-all: test-keycloak-reconcile test-keycloak-strict-secrets  ## Run all Keycloak client_secret integration tests
+
+test-keycloak-sso-all: test-keycloak-reconcile test-keycloak-strict-secrets test-keycloak-idp-hint  ## Run every Keycloak SSO bootstrap integration test (client secrets + IdP redirector)
 
 detailed-sanity: detailed-test ## Run tests with verbose output and detailed logs
 detailed-test: setup-venv ## Run tests with verbose output and detailed logs

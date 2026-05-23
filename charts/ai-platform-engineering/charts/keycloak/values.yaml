@@ -67,6 +67,21 @@ features:
   tokenExchange: true
   adminFineGrainedAuthz: true
 
+# ---------- Strict client-secret mode (production hardening) ----------
+# When true, the init-idp and init-token-exchange Jobs run a final guard at
+# the end of their reconcile passes: they attempt a `client_credentials`
+# token grant for each of the four known development placeholder secrets
+# (caipe-ui-dev-secret, caipe-platform-dev-secret, caipe-slack-bot-dev-secret,
+# caipe-webex-bot-dev-secret). If Keycloak still accepts ANY of them — for
+# example because an operator forgot to set the matching `secretRef` /
+# `externalSecret` — the Job logs a loud ERROR identifying the client and
+# exits non-zero, failing the Helm install fast.
+#
+# Default is `false` so the docker-compose dev flow and CI matrix runs (which
+# intentionally use the placeholders) keep working. Production GitOps installs
+# should set `keycloak.strictClientSecrets: true`.
+strictClientSecrets: false
+
 # ---------- Realm ----------
 realm:
   name: caipe
@@ -105,6 +120,35 @@ uiClient:
     - "http://localhost:3000/*"
   webOrigins:
     - "http://localhost:3000"
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
+# ---------- CAIPE platform OIDC client ----------
+# The realm import ships the `caipe-platform` confidential client with a
+# placeholder secret ("caipe-platform-dev-secret") so first-boot import works
+# without any external state. Production installs MUST override this — anyone
+# who can read the rendered realm ConfigMap can otherwise mint
+# client_credentials tokens for the supervisor's audience.
+#
+# Three ways to provide:
+#   (1) DEV       — leave both fields empty → realm placeholder is used
+#                   (only acceptable for local dev / CI matrix runs).
+#   (2) PROD K8S  — pre-create a K8s Secret with key OIDC_CLIENT_SECRET
+#                   and set `platformClient.secretRef: <secret-name>`.
+#   (3) PROD ESO  — `platformClient.externalSecret.enabled: true` +
+#                   `secretStoreRef` + `remoteRef`. Chart emits an
+#                   ExternalSecret which `init-idp` reads as
+#                   KEYCLOAK_PLATFORM_CLIENT_SECRET and PUTs into Keycloak.
+platformClient:
+  secretRef: ""
+  secretKey: "OIDC_CLIENT_SECRET"
   externalSecret:
     enabled: false
     refreshInterval: "1h"

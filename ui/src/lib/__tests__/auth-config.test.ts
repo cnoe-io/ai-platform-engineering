@@ -282,6 +282,76 @@ describe('auth-config', () => {
   })
 
   // ─────────────────────────────────────────────────────────────────────────
+  // kc_idp_hint forwarding
+  //
+  // The provider passes `kc_idp_hint` to Keycloak whenever OIDC_IDP_HINT is
+  // set, which makes Keycloak skip its own login page and redirect straight
+  // to the configured upstream IdP (Okta / Duo SSO / Azure AD …). The
+  // conditional spread in auth-config.ts is the only mechanism preventing
+  // an empty hint from being forwarded — an empty hint can confuse some
+  // Keycloak builds, and a missing OIDC_IDP_HINT should mean "let Keycloak
+  // decide" (via init-idp.sh's forceRedirect plumbing).
+  // ─────────────────────────────────────────────────────────────────────────
+  describe('OIDC kc_idp_hint forwarding', () => {
+    const originalEnv = process.env
+
+    beforeEach(() => {
+      // See note in 'Token refresh configuration' — jest.resetModules() omitted intentionally.
+      process.env = { ...originalEnv }
+    })
+
+    afterAll(() => {
+      process.env = originalEnv
+    })
+
+    it('forwards kc_idp_hint as an authorization param when OIDC_IDP_HINT is set', () => {
+      process.env.OIDC_IDP_HINT = 'duo-sso'
+
+      jest.isolateModules(() => {
+        const { authOptions } = require('../auth-config')
+        const provider = authOptions.providers[0]
+        const params = provider.authorization.params
+
+        expect(params).toMatchObject({ kc_idp_hint: 'duo-sso' })
+        // Scope must still be present and unaffected.
+        expect(params.scope).toContain('openid')
+      })
+    })
+
+    it('forwards a different IdP alias verbatim (no hardcoding)', () => {
+      process.env.OIDC_IDP_HINT = 'okta-prod'
+
+      jest.isolateModules(() => {
+        const { authOptions } = require('../auth-config')
+        const provider = authOptions.providers[0]
+        expect(provider.authorization.params.kc_idp_hint).toBe('okta-prod')
+      })
+    })
+
+    it('omits kc_idp_hint entirely when OIDC_IDP_HINT is unset', () => {
+      delete process.env.OIDC_IDP_HINT
+
+      jest.isolateModules(() => {
+        const { authOptions } = require('../auth-config')
+        const provider = authOptions.providers[0]
+        expect('kc_idp_hint' in provider.authorization.params).toBe(false)
+      })
+    })
+
+    it('omits kc_idp_hint entirely when OIDC_IDP_HINT is the empty string', () => {
+      // Empty-string env vars are falsy in Node, so the conditional spread
+      // must NOT inject `kc_idp_hint: ""` — Keycloak treats that ambiguously.
+      process.env.OIDC_IDP_HINT = ''
+
+      jest.isolateModules(() => {
+        const { authOptions } = require('../auth-config')
+        const provider = authOptions.providers[0]
+        expect('kc_idp_hint' in provider.authorization.params).toBe(false)
+      })
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────────
   // JWT callback — real implementation tests
   // ─────────────────────────────────────────────────────────────────────────
 
