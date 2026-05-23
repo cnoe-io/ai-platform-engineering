@@ -16,7 +16,7 @@ jest.mock("@/lib/api-middleware", () => ({
   withErrorHandler: (handler: unknown) => handler,
 }));
 
-import { applyRunnableGate, type CatalogSkill } from "../route";
+import { applyRunnableGate, filterSkillsByOpenFga, type CatalogSkill } from "../route";
 
 const baseSkill: CatalogSkill = {
   id: "x",
@@ -68,6 +68,165 @@ describe("applyRunnableGate", () => {
       runnable: false,
     });
     expect(out.runnable).toBe(false);
+  });
+});
+
+describe("filterSkillsByOpenFga", () => {
+  it("fails closed for non-admin callers without a stable subject", async () => {
+    const filtered = await filterSkillsByOpenFga([{ ...baseSkill, id: "private" }], {
+      subject: null,
+      mode: "read",
+    });
+
+    expect(filtered).toEqual([]);
+  });
+
+  it("does not call OpenFGA and returns all skills for admins", async () => {
+    const check = jest.fn(async () => ({ allowed: false }));
+    const skills: CatalogSkill[] = [
+      { ...baseSkill, id: "admin-visible-a" },
+      { ...baseSkill, id: "admin-visible-b" },
+    ];
+
+    const filtered = await filterSkillsByOpenFga(skills, {
+      subject: null,
+      mode: "read",
+      isAdmin: true,
+      check,
+    });
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["admin-visible-a", "admin-visible-b"]);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("keeps only skills the subject can read", async () => {
+    const skills: CatalogSkill[] = [
+      { ...baseSkill, id: "hub-h1-safe", name: "safe" },
+      { ...baseSkill, id: "hub-h1-hidden", name: "hidden" },
+    ];
+    const checks: string[] = [];
+
+    const filtered = await filterSkillsByOpenFga(skills, {
+      subject: "user:alice-sub",
+      mode: "read",
+      check: async (tuple) => {
+        checks.push(`${tuple.user} ${tuple.relation} ${tuple.object}`);
+        return { allowed: tuple.object === "skill:hub-h1-safe" };
+      },
+    });
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["hub-h1-safe"]);
+    expect(checks).toEqual([
+      "user:alice-sub can_read skill:hub-h1-safe",
+      "user:alice-sub can_read skill:hub-h1-hidden",
+    ]);
+  });
+
+  it("keeps built-in catalog skills visible for signed-in readers without per-skill tuples", async () => {
+    const check = jest.fn(async () => ({ allowed: false }));
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "builtin-safe", source: "default", name: "Built in" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "read",
+        check,
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["builtin-safe"]);
+    expect(check).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_read",
+      object: "skill:team-private",
+    });
+    expect(check).not.toHaveBeenCalledWith(
+      expect.objectContaining({ object: "skill:builtin-safe" }),
+    );
+  });
+
+  it("requires can_use when content is being loaded for runtime consumers", async () => {
+    const filtered = await filterSkillsByOpenFga(
+      [{ ...baseSkill, id: "hub-h1-runnable" }],
+      {
+        subject: "user:alice-sub",
+        mode: "use",
+        check: async (tuple) => ({ allowed: tuple.relation === "can_use" }),
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["hub-h1-runnable"]);
+  });
+
+  it("keeps built-in catalog skills visible in use mode for users with baseline org access", async () => {
+    const checks: string[] = [];
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "builtin-safe", source: "default", name: "Built in" },
+        { ...baseSkill, id: "team-private", source: "agent_skills", name: "Team private" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "use",
+        check: async (tuple) => {
+          checks.push(`${tuple.user} ${tuple.relation} ${tuple.object}`);
+          return { allowed: tuple.object === "organization:caipe" };
+        },
+      }
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["builtin-safe"]);
+    expect(checks).toEqual([
+      "user:alice-sub can_use organization:caipe",
+      "user:alice-sub can_use skill:team-private",
+    ]);
+  });
+
+  it("drops skills whose OpenFGA check throws instead of failing open", async () => {
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "safe" },
+        { ...baseSkill, id: "pdp-error" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "read",
+        check: async (tuple) => {
+          if (tuple.object === "skill:pdp-error") {
+            throw new Error("OpenFGA unavailable for object");
+          }
+          return { allowed: true };
+        },
+      },
+    );
+
+    expect(filtered.map((skill) => skill.id)).toEqual(["safe"]);
+  });
+
+  it("checks every candidate skill using its stable catalog id", async () => {
+    const checkedObjects: string[] = [];
+
+    await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "local-skill" },
+        { ...baseSkill, id: "hub-hub1-skill2", source: "hub" },
+      ],
+      {
+        subject: "user:alice-sub",
+        mode: "use",
+        check: async (tuple) => {
+          checkedObjects.push(`${tuple.relation} ${tuple.object}`);
+          return { allowed: false };
+        },
+      },
+    );
+
+    expect(checkedObjects).toEqual([
+      "can_use skill:local-skill",
+      "can_use skill:hub-hub1-skill2",
+    ]);
   });
 });
 

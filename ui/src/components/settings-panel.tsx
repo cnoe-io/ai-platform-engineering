@@ -58,7 +58,7 @@ export function isMemoryEnabled(): boolean {
   return isFeatureEnabled("memory");
 }
 
-export function SettingsPanel() {
+export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -123,6 +123,8 @@ export function SettingsPanel() {
 
   // Load settings on mount: try MongoDB first, fall back to localStorage
   useEffect(() => {
+    // Existing hydration guard: the panel depends on browser-only theme and portal APIs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
 
     const savedFontSize = localStorage.getItem("caipe-font-size") as FontSize | null;
@@ -469,14 +471,15 @@ export function SettingsPanel() {
     <>
       <Button
         variant="ghost"
-        size="sm"
-        className="gap-1.5 text-xs h-8"
+        size={compact ? "icon" : "sm"}
+        className={cn("h-8", compact ? "w-8" : "gap-1.5 text-xs")}
         onClick={() => setOpen(true)}
         title="UI Personalization"
+        aria-label="UI Personalization"
       >
         <Palette className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">{currentTheme.label}</span>
-        <ChevronDown className="h-3 w-3" />
+        {!compact && <span className="hidden sm:inline">{currentTheme.label}</span>}
+        {!compact && <ChevronDown className="h-3 w-3" />}
       </Button>
 
       {typeof document !== "undefined" && createPortal(modalContent, document.body)}

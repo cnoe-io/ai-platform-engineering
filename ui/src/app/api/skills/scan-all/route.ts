@@ -16,6 +16,7 @@ import {
   loadTemplateAncillaryFiles,
   resolveTemplateDir,
 } from "@/app/api/skills/skill-templates-loader";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 /**
  * Persistence shape for a built-in template scan. Built-ins live on the
@@ -647,10 +648,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     if (user.role !== "admin") {
       throw new ApiError("Bulk scan is restricted to admins.", 403);
     }
+    await requireResourcePermission(session, {
+      type: "admin_surface",
+      id: "skills-scan-all",
+      action: "admin",
+    });
 
     const body = (await req.json().catch(() => ({}))) as BulkBody;
     const scope: Scope = body.scope ?? "all";

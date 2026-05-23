@@ -246,9 +246,20 @@ export async function POST(request: NextRequest) {
   const enabledCriteria = (config.criteria ?? []).slice(0, MAX_CRITERIA);
   const model = await resolveModel(body.model, config.model);
 
+  // Forward the same auth headers `da-proxy.buildBackendHeaders` would, so
+  // each parallel `/api/v1/assistant/suggest` call passes through DA's
+  // JwtAuthMiddleware. Forgetting the bearer token here is what produced
+  // the "AI Review — 0/N criteria passed: Backend error: Unauthorized"
+  // failure mode for signed-in admins; pin all three headers explicitly.
   const headers: Record<string, string> = {};
   if (auth.userContextHeader) {
     headers["X-User-Context"] = auth.userContextHeader;
+  }
+  if (auth.bearerToken) {
+    headers["Authorization"] = `Bearer ${auth.bearerToken}`;
+  }
+  if (auth.traceparent) {
+    headers.traceparent = auth.traceparent;
   }
 
   // ---- Run all criteria in parallel --------------------------------------

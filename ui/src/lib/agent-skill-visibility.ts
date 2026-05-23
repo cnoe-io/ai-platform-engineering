@@ -1,30 +1,19 @@
 import { getCollection } from "@/lib/mongodb";
-import { getUserTeamIds } from "@/lib/api-middleware";
 import { canMutateBuiltinSkill } from "@/lib/builtin-skill-policy";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
- * Load a single agent_skills row if the user is allowed to see it
- * (system, owner, global, or team-shared).
+ * Load a single agent_skills row by id.
+ *
+ * Authorization is enforced by callers with concrete OpenFGA checks. Legacy
+ * `visibility`, `owner_id`, and `shared_with_teams` fields are metadata only.
  */
 export async function getAgentSkillVisibleToUser(
   id: string,
-  ownerEmail: string,
+  _ownerEmail: string,
 ): Promise<AgentSkill | null> {
   const collection = await getCollection<AgentSkill>("agent_skills");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
-
-  return collection.findOne({
-    id,
-    $or: [
-      { is_system: true },
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
+  return collection.findOne({ id });
 }
 
 /**
@@ -38,9 +27,9 @@ export async function getAgentSkillVisibleToUser(
  *      escape via the ``POST /api/skills/configs/[id]/clone`` route
  *      that produces an editable user-owned copy.
  *
- *   2. Ownership: a user can mutate a non-built-in row when they
- *      own it. (Visibility-based read access is handled by
- *      ``getAgentSkillVisibleToUser`` separately.)
+ *   2. Concrete resource authorization is enforced by callers through OpenFGA
+ *      (`skill#write`, `skill#manage`, etc.). Non-built-in rows reach this
+ *      helper only after that check has allowed the operation.
  *
  * Note: the ``user`` argument is kept for forward-compatibility with
  * an admin override (e.g. ``user.role === "admin"`` could in future
@@ -54,5 +43,5 @@ export function userCanModifyAgentSkill(
   if (existing.is_system) {
     return canMutateBuiltinSkill(existing);
   }
-  return existing.owner_id === user.email;
+  return true;
 }

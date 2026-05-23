@@ -28,6 +28,7 @@ import { ObjectId } from 'mongodb';
 
 // Mock NextAuth
 const mockGetServerSession = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
@@ -35,7 +36,40 @@ jest.mock('next-auth', () => ({
 // Mock auth config
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+jest.mock('@/lib/rbac/keycloak-admin', () => ({
+  ensureTeamClientScope: jest.fn().mockResolvedValue(undefined),
+  deleteTeamClientScope: jest.fn().mockResolvedValue(undefined),
+  isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
+}));
+
+/** After resetModules(), re-require the mock so we configure the fresh jest.fn(). */
+function setDefaultCheckPermissionMock() {
+  const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
+    checkPermission: jest.Mock;
+  };
+  checkPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+}
+
+function resetRouteModules() {
+  jest.resetModules();
+  setDefaultCheckPermissionMock();
+}
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -79,10 +113,20 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'), options);
 }
 
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    sub: 'admin-user-sub',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -90,6 +134,8 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    sub: 'regular-user-sub',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -113,8 +159,11 @@ const TEST_TEAM = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Clear mock collections
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-user-sub',
+  }));
+  setDefaultCheckPermissionMock();
 });
 
 // ============================================================================
@@ -125,7 +174,7 @@ describe('GET /api/admin/teams', () => {
   let GET: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/route');
     GET = mod.GET;
   });
@@ -137,30 +186,13 @@ describe('GET /api/admin/teams', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user lacks admin_ui#view', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/teams');
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
-  });
-
-  it('allows non-admin users with view access to read teams (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-    const teamsCol = createMockCollection();
-    teamsCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([TEST_TEAM]),
-      }),
-    });
-    mockCollections['teams'] = teamsCol;
-
-    const req = makeRequest('/api/admin/teams');
-    const res = await GET(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns teams list for admin', async () => {
@@ -182,6 +214,15 @@ describe('GET /api/admin/teams', () => {
     expect(body.data.teams).toHaveLength(1);
     expect(body.data.teams[0].name).toBe('Platform Engineering');
   });
+
+  it('marks team list responses as no-store so refreshes read MongoDB', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const req = makeRequest('/api/admin/teams?fresh=123');
+
+    const res = await GET(req);
+
+    expect(res.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+  });
 });
 
 // ============================================================================
@@ -192,7 +233,7 @@ describe('POST /api/admin/teams', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/route');
     POST = mod.POST;
   });
@@ -271,6 +312,32 @@ describe('POST /api/admin/teams', () => {
     const body = await res.json();
     expect(body.error).toContain('already exists');
   });
+
+  it('returns a friendly message when identity setup fails', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(null);
+    mockCollections['teams'] = teamsCol;
+    const { ensureTeamClientScope } = require('@/lib/rbac/keycloak-admin') as {
+      ensureTeamClientScope: jest.Mock;
+    };
+    ensureTeamClientScope.mockRejectedValueOnce(new Error('raw scope failure'));
+
+    const req = makeRequest('/api/admin/teams', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'New Team' }),
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(502);
+    expect(body.error).toContain("We couldn't finish setting up this team");
+    expect(body.error).not.toContain('Keycloak');
+    expect(body.error).not.toContain('scope');
+    expect(body.error).not.toContain('raw scope failure');
+    expect(teamsCol.deleteOne).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============================================================================
@@ -281,7 +348,7 @@ describe('GET /api/admin/teams/[id]', () => {
   let GET: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     GET = mod.GET;
   });
@@ -297,24 +364,11 @@ describe('GET /api/admin/teams/[id]', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('returns 403 when user is not authenticated', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
     const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
     expect(res.status).toBe(403);
-  });
-
-  it('allows non-admin users with view access to read team details (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-    const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
-    mockCollections['teams'] = teamsCol;
-
-    const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}`);
-    const res = await GET(req, makeContext(TEST_TEAM_ID.toString()));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
   });
 
   it('returns 400 for invalid ID format', async () => {
@@ -359,7 +413,7 @@ describe('PATCH /api/admin/teams/[id]', () => {
   let PATCH: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     PATCH = mod.PATCH;
   });
@@ -445,7 +499,7 @@ describe('DELETE /api/admin/teams/[id]', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/route');
     DELETE = mod.DELETE;
   });
@@ -495,7 +549,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     POST = mod.POST;
   });
@@ -628,7 +682,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     DELETE = mod.DELETE;
   });
