@@ -30,16 +30,68 @@ spec:
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "slack-bot.appVersion" .) }}"
+          image: "{{ include "slack-bot.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ .Values.image.tag | default (include "slack-bot.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.botConfig }}
+          {{- /* Build env: block conditionally. Three independent sources may
+                 contribute entries:
+                   1. botConfig          → SLACK_INTEGRATION_BOT_CONFIG path
+                   2. oauth2.*           → OAUTH2_CLIENT_SECRET (OBO flow)
+                   3. keycloakBot.*      → KEYCLOAK_BOT_CLIENT_SECRET
+                   4. keycloakAdmin.*    → KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET
+                                            (slack-bot Admin-API user lookup)
+                 At least one must be present for the YAML key to be valid. */ -}}
+          {{- $hasOauth2Secret := and .Values.oauth2 .Values.oauth2.clientSecretFromSecret .Values.oauth2.clientSecretFromSecret.name }}
+          {{- $hasKcBotSecret := and .Values.keycloakBot .Values.keycloakBot.clientSecretFromSecret .Values.keycloakBot.clientSecretFromSecret.name }}
+          {{- $hasKcAdminSecret := and .Values.keycloakAdmin .Values.keycloakAdmin.clientSecretFromSecret .Values.keycloakAdmin.clientSecretFromSecret.name }}
+          {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
+          {{- $needEnv := or .Values.botConfig $hasOauth2Secret $hasKcBotSecret $hasKcAdminSecret $hasKcAdminClientId }}
+          {{- if $needEnv }}
           env:
+            {{- if .Values.botConfig }}
             - name: SLACK_INTEGRATION_BOT_CONFIG
               value: "/etc/caipe/bot-config.yaml"
+            {{- end }}
+            {{- if $hasOauth2Secret }}
+            # Single-source-of-truth: pull OAUTH2_CLIENT_SECRET from the
+            # Secret managed by the keycloak subchart (or its ExternalSecret).
+            # This guarantees the value used by this pod EXACTLY matches the
+            # client_secret stored in Keycloak's caipe-slack-bot client.
+            # Overrides any OAUTH2_CLIENT_SECRET that might also come in via
+            # `existingSecret`/`externalSecrets` because env: takes precedence
+            # over envFrom: in Kubernetes.
+            - name: OAUTH2_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2.clientSecretFromSecret.name | quote }}
+                  key: {{ .Values.oauth2.clientSecretFromSecret.key | default "KC_BOT_CLIENT_SECRET" | quote }}
+            {{- end }}
+            {{- if $hasKcBotSecret }}
+            # Keycloak bot client_secret for Slack OBO token exchange.
+            - name: KEYCLOAK_BOT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakBot.clientSecretFromSecret.name | quote }}
+                  key: {{ .Values.keycloakBot.clientSecretFromSecret.key | default "KC_BOT_CLIENT_SECRET" | quote }}
+            {{- end }}
+            {{- if $hasKcAdminClientId }}
+            # Slack-bot Admin REST API client_id (for user lookup by slack_user_id).
+            # Surface-specific name (KEYCLOAK_SLACK_BOT_ADMIN_*) leaves room for
+            # future bot surfaces (Webex, Teams, …). Distinct from OAUTH2_* (OBO
+            # flow) and from the UI BFF's KEYCLOAK_ADMIN_* vars — see values.yaml.
+            - name: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID
+              value: {{ .Values.keycloakAdmin.clientId | quote }}
+            {{- end }}
+            {{- if $hasKcAdminSecret }}
+            - name: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.keycloakAdmin.clientSecretFromSecret.name | quote }}
+                  key: {{ .Values.keycloakAdmin.clientSecretFromSecret.key | default "KC_PLATFORM_CLIENT_SECRET" | quote }}
+            {{- end }}
           {{- end }}
           envFrom:
             # Flat config → ConfigMap (non-sensitive env vars)
@@ -55,11 +107,20 @@ spec:
             - secretRef:
                 name: {{ include "slack-bot.fullname" . }}-secret
             {{- end }}
-          {{- if eq (default "socket" (index .Values.config "SLACK_BOT_MODE")) "http" }}
+          {{- $botMode := default "socket" (index .Values.config "SLACK_BOT_MODE") }}
+          {{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "SLACK_ADMIN_API_ENABLED"))) "true" }}
+          {{- if or (eq $botMode "http") $adminApiEnabled }}
           ports:
+            {{- if eq $botMode "http" }}
             - name: http
               containerPort: 3000
               protocol: TCP
+            {{- end }}
+            {{- if $adminApiEnabled }}
+            - name: admin
+              containerPort: {{ default "3001" (index .Values.config "SLACK_ADMIN_API_PORT") | int }}
+              protocol: TCP
+            {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
