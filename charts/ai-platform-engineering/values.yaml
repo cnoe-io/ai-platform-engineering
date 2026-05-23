@@ -1002,6 +1002,21 @@ dynamic-agents:
     port: 8001
   # ConfigMap for non-sensitive configuration
   config:
+    # ─── Keycloak / OIDC (REQUIRED for Bearer token validation) ─────────
+    # In-cluster Keycloak service URL used for the server-to-server JWKS
+    # fetch. The bundled Keycloak subchart exposes its service as
+    # `<release>-keycloak`; this default works for the umbrella chart
+    # but MUST be overridden when pointing dynamic-agents at an external
+    # Keycloak (production IdP / forge.dev / etc.).
+    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    # Browser-facing issuer string baked into JWTs (Keycloak's
+    # KC_HOSTNAME). Override when the public issuer differs from
+    # KEYCLOAK_URL (the typical production topology), e.g.
+    # OIDC_ISSUER: "https://idp.example.com/realms/caipe".
+    # Leaving this empty falls back to deriving the issuer from
+    # KEYCLOAK_URL, which only works in dev where both URLs coincide;
+    # NOTES.txt prints a warning otherwise.
+    OIDC_ISSUER: ""
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
     # Connections & Secrets credential exchange client. Disabled by default.
