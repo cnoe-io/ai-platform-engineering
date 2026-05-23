@@ -39,8 +39,13 @@ AuditEventType = Literal["auth", "tool_action", "agent_delegation"]
 AuditOutcome = Literal["allow", "deny", "success", "error"]
 AuditSource = Literal["bff", "supervisor", "slack"]
 
-_indexes_ensured = False
 _indexes_lock = threading.Lock()
+# Use a mutable container so the lazy-init write path is recognised as a real
+# mutation by CodeQL's `py/unused-global-variable` analyser. The original
+# `_indexes_ensured` scalar tripped that check because the write at the bottom
+# of `_ensure_indexes()` does not directly reach the reads at the top of the
+# same function (cross-invocation only).
+_audit_state: Dict[str, bool] = {"indexes_ensured": False}
 
 
 def _hash_subject(sub: str) -> str:
@@ -49,11 +54,10 @@ def _hash_subject(sub: str) -> str:
 
 def _ensure_indexes() -> None:
     """Create indexes on first write (idempotent, called once per process)."""
-    global _indexes_ensured
-    if _indexes_ensured:
+    if _audit_state["indexes_ensured"]:
         return
     with _indexes_lock:
-        if _indexes_ensured:
+        if _audit_state["indexes_ensured"]:
             return
         client = get_mongodb_client()
         if client is None:
@@ -66,7 +70,7 @@ def _ensure_indexes() -> None:
             coll.create_index([("subject_hash", 1), ("ts", -1)])
             coll.create_index([("agent_name", 1), ("ts", -1)])
             coll.create_index([("correlation_id", 1)])
-            _indexes_ensured = True
+            _audit_state["indexes_ensured"] = True
             logger.info("audit_events indexes ensured")
         except PyMongoError as exc:
             logger.warning(f"Failed to create audit_events indexes: {exc}")

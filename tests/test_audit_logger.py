@@ -14,9 +14,9 @@ import ai_platform_engineering.utils.audit_logger as audit_logger
 
 @pytest.fixture(autouse=True)
 def reset_audit_module_state():
-    audit_logger._indexes_ensured = False
+    audit_logger._audit_state["indexes_ensured"] = False
     yield
-    audit_logger._indexes_ensured = False
+    audit_logger._audit_state["indexes_ensured"] = False
 
 
 def test_hash_subject_is_stable():
