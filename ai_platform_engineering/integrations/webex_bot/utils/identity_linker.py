@@ -15,7 +15,6 @@ from .webex_ids import is_valid_webex_person_id
 
 logger = logging.getLogger("caipe.webex_bot.identity_linker")
 
-_LINK_TTL_SECONDS = int(os.environ.get("WEBEX_LINK_TTL_SECONDS", "600"))
 _LINK_BASE_URL = os.environ.get(
     "WEBEX_LINKING_BASE_URL",
     os.environ.get("CAIPE_UI_BASE_URL", "http://localhost:3000"),

@@ -68,19 +68,27 @@ class WebexMessageResult:
 
 
 class IdentityLinkerProtocol(Protocol):
-    async def resolve(self, webex_user_id: str) -> Optional[str]: ...
+    async def resolve(self, webex_user_id: str) -> Optional[str]:
+        """Return the Keycloak user id linked to ``webex_user_id`` or ``None``."""
+        raise NotImplementedError
 
-    async def linking_url(self, webex_user_id: str) -> Optional[str]: ...
+    async def linking_url(self, webex_user_id: str) -> Optional[str]:
+        """Return a deep-link URL the user can click to link their account."""
+        raise NotImplementedError
 
 
 class TeamResolverProtocol(Protocol):
-    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution: ...
+    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution:
+        """Resolve the active team for ``space_id`` / ``keycloak_user_id``."""
+        raise NotImplementedError
 
 
 class OboExchangerProtocol(Protocol):
     async def impersonate(
         self, keycloak_user_id: str, *, active_team: str
-    ) -> OboToken: ...
+    ) -> OboToken:
+        """Mint an on-behalf-of token for the given Keycloak user / team."""
+        raise NotImplementedError
 
 
 class RebacCheckerProtocol(Protocol):
@@ -92,7 +100,9 @@ class RebacCheckerProtocol(Protocol):
         agent_id: str,
         active_team: Optional[str],
         obo_token: str,
-    ) -> WebexSpaceRebacDecision: ...
+    ) -> WebexSpaceRebacDecision:
+        """Decide whether the caller may invoke ``agent_id`` in this space."""
+        raise NotImplementedError
 
 
 class RouteResolverProtocol(Protocol):
@@ -103,7 +113,9 @@ class RouteResolverProtocol(Protocol):
         space_id: str,
         person_id: str,
         text: str,
-    ) -> WebexRouteResolution: ...
+    ) -> WebexRouteResolution:
+        """Resolve the agent route to dispatch this message to."""
+        raise NotImplementedError
 
 
 DispatchFn = Callable[[dict[str, Any]], Awaitable[None]]

@@ -33,7 +33,6 @@ from .keycloak_admin import (
 
 logger = logging.getLogger("caipe.slack_bot.identity_linker")
 
-_LINK_TTL_SECONDS = int(os.environ.get("SLACK_LINK_TTL_SECONDS", "600"))
 _LINK_BASE_URL = os.environ.get(
     "SLACK_LINKING_BASE_URL",
     os.environ.get("CAIPE_UI_BASE_URL", "http://localhost:3000"),
@@ -105,8 +104,10 @@ async def generate_linking_url(slack_user_id: str) -> str:
     """Create a time-bounded, HMAC-signed linking URL for the given Slack user.
 
     Returns an HTTPS URL (in production) containing the Slack user ID,
-    a UNIX timestamp, and an HMAC-SHA256 signature. The URL is valid
-    for ``_LINK_TTL_SECONDS`` (default 10 minutes).
+    a UNIX timestamp, and an HMAC-SHA256 signature. TTL enforcement
+    (default 10 minutes, override via ``SLACK_LINK_TTL_SECONDS``) is
+    performed by the consuming endpoint when it validates the embedded
+    timestamp.
     """
     ts = int(time.time())
     sig = _sign(slack_user_id, ts)

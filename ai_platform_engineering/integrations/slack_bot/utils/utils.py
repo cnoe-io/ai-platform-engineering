@@ -8,6 +8,12 @@ from .config import config
 from loguru import logger
 
 
+# One-shot warn flag for the "missing_scope" branch in get_channel_context.
+# Logged once per process, then suppressed to avoid log spam when the bot
+# lacks channels:read / groups:read / im:read / mpim:read.
+_MISSING_CHANNEL_SCOPE_LOGGED: bool = False
+
+
 def verify_thread_exists(client, channel_id: str, thread_ts: str) -> bool:
   """Verify that thread_ts references a message that still exists.
 

@@ -280,7 +280,6 @@ class TestInstall:
     def test_install_is_idempotent(self):
         # Reset the module-level guard for a clean assertion.
         from ai_platform_engineering.integrations.slack_bot.utils import log_redaction
-        log_redaction._INSTALLED = False
         log_redaction._SHARED_FILTER = None
 
         bolt_lg = logging.getLogger("slack_bolt")
@@ -295,7 +294,6 @@ class TestInstall:
 
     def test_install_respects_opt_out_env(self, monkeypatch):
         from ai_platform_engineering.integrations.slack_bot.utils import log_redaction
-        log_redaction._INSTALLED = False
         log_redaction._SHARED_FILTER = None
 
         bolt_lg = logging.getLogger("slack_bolt")
@@ -308,7 +306,8 @@ class TestInstall:
         install()
 
         assert len(bolt_lg.filters) == before  # no filter added on logger
-        assert not log_redaction._INSTALLED
+        # Opt-out returns early before _SHARED_FILTER is assigned.
+        assert log_redaction._SHARED_FILTER is None
 
     def test_install_redacts_records_from_child_loggers(self):
         """Regression test for the Bolt warning leak.
@@ -319,7 +318,6 @@ class TestInstall:
         it actually fires (i.e. on handlers).
         """
         from ai_platform_engineering.integrations.slack_bot.utils import log_redaction
-        log_redaction._INSTALLED = False
         log_redaction._SHARED_FILTER = None
 
         # Set up a captured root handler BEFORE install — install() must

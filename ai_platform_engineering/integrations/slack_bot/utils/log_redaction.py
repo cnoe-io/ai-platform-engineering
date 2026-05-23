@@ -199,7 +199,6 @@ class SecretRedactionFilter(logging.Filter):
 # Installation                                                                #
 # --------------------------------------------------------------------------- #
 
-_INSTALLED = False
 _SHARED_FILTER: SecretRedactionFilter | None = None
 
 
@@ -272,13 +271,13 @@ def install(logger_names: Iterable[str] | None = None) -> SecretRedactionFilter:
     Set ``SLACK_BOT_DISABLE_LOG_REDACTION=true`` to skip installation (useful
     when debugging the filter itself).
     """
-    global _INSTALLED, _SHARED_FILTER
+    global _SHARED_FILTER
 
     if os.environ.get("SLACK_BOT_DISABLE_LOG_REDACTION", "").lower() in ("1", "true", "yes"):
         # Always return a filter object so callers can use it manually.
         return _SHARED_FILTER or SecretRedactionFilter()
 
-    if _INSTALLED and _SHARED_FILTER is not None:
+    if _SHARED_FILTER is not None:
         return _SHARED_FILTER
 
     flt = SecretRedactionFilter()
@@ -295,5 +294,4 @@ def install(logger_names: Iterable[str] | None = None) -> SecretRedactionFilter:
     _attach_to_all_handlers(flt)
     _install_handler_hook(flt)
 
-    _INSTALLED = True
     return flt

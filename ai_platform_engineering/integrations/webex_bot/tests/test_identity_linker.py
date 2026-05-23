@@ -5,8 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
-import os
 from typing import Optional
 
 import pytest
@@ -19,13 +17,6 @@ from ai_platform_engineering.integrations.webex_bot.utils.identity_linker import
 from ai_platform_engineering.integrations.webex_bot.utils.keycloak_admin import (
     WEBEX_USER_ATTRIBUTE,
 )
-
-
-@pytest.fixture(autouse=True)
-def _restore_identity_linker_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
-    yield
-    monkeypatch.delenv("WEBEX_LINK_TTL_SECONDS", raising=False)
-    importlib.reload(il)
 
 
 def test_ui_nonce_collection_and_attribute_names() -> None:
@@ -46,21 +37,6 @@ def test_resolve_webex_user_rejects_invalid_person_id(
     monkeypatch.setattr(il, "get_user_by_attribute", fake_lookup)
     assert asyncio.run(il.resolve_webex_user("bad/id")) is None
     assert called is False
-
-
-def test_link_ttl_defaults_to_600_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("WEBEX_LINK_TTL_SECONDS", raising=False)
-    reloaded = importlib.reload(il)
-    assert reloaded._LINK_TTL_SECONDS == 600
-    assert int(os.environ.get("WEBEX_LINK_TTL_SECONDS", "600")) == 600
-
-
-def test_link_ttl_honors_webex_link_ttl_seconds_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("WEBEX_LINK_TTL_SECONDS", "900")
-    reloaded = importlib.reload(il)
-    assert reloaded._LINK_TTL_SECONDS == 900
 
 
 def test_resolve_webex_user_returns_none_when_unlinked(

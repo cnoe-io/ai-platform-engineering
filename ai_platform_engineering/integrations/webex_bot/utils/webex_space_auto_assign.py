@@ -124,7 +124,6 @@ class WebexSpaceAutoAssigner:
         }
         routes_written = False
         mapping_written = False
-        openfga_written = False
         try:
             routes.update_one(
                 route_filter,
@@ -169,18 +168,13 @@ class WebexSpaceAutoAssigner:
                 upsert=True,
             )
             mapping_written = True
+            # `_write_openfga_tuple` is the last step in the try block; if it
+            # raises, control flows to except with no OpenFGA write to roll
+            # back. If it succeeds, no later statement can raise. Therefore
+            # we never need to roll back an OpenFGA tuple here.
             self._write_openfga_tuple(tuple_key)
-            openfga_written = True
         except (PyMongoError, requests.RequestException) as exc:
             logger.warning("Webex space auto-assignment failed for space=%s: %s", space_id, exc)
-            if openfga_written:
-                try:
-                    self._delete_openfga_tuple(tuple_key)
-                except requests.RequestException:
-                    logger.warning(
-                        "Webex space auto-assign rollback: failed to delete OpenFGA tuple for space=%s",
-                        space_id,
-                    )
             if mapping_written:
                 mappings.delete_one({"webex_space_id": space_id})
             if routes_written:
