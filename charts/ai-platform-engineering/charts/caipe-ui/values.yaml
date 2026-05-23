@@ -189,6 +189,30 @@ config:
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment
   NODE_ENV: "production"
+  # Production-safety gate for the BFF admin-token fallback path.
+  #
+  # When `KEYCLOAK_ADMIN_CLIENT_ID/SECRET` are unset (or client_credentials
+  # returns 401), `ui/src/lib/rbac/keycloak-admin.ts` historically fell back
+  # to `password / admin-cli / admin / admin` against `/realms/master`. In
+  # a misconfigured cluster where Keycloak still has its bootstrap admin
+  # password, this is master-realm admin escalation from the BFF.
+  #
+  # As of R1, the fallback is gated:
+  #   - In production (`NODE_ENV=production`, which is the chart default),
+  #     the BFF refuses to fall back and throws a configuration error so
+  #     the misconfiguration is loud instead of latent.
+  #   - In dev (`NODE_ENV != "production"`), the fallback is allowed so
+  #     local docker-compose / make targets keep working out of the box.
+  #   - Either default can be overridden with this flag:
+  #     - `"true"`  → fallback enabled regardless of `NODE_ENV`
+  #     - `"false"` → fallback disabled regardless of `NODE_ENV`
+  #     - `""` (default) → behavior determined by `NODE_ENV`.
+  #
+  # Leave empty in production. Set to `"true"` only in throwaway clusters
+  # where the Keycloak bootstrap admin password is known not to be the
+  # default (or has already been rotated).
+  # assisted-by Claude:claude-opus-4-7
+  ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK: ""
   # MongoDB configuration
   MONGODB_DATABASE: "caipe"
   # RAG Server URL (if RAG is enabled)
@@ -308,6 +332,54 @@ config:
 # Slack bot admin sync/reload uses OIDC_CLIENT_ID/OIDC_CLIENT_SECRET. Webex bot
 # admin sync/reload still requires WEBEX_BOT_ADMIN_CLIENT_SECRET when enabled.
 existingSecret: ""
+
+# ---------- Keycloak Admin REST client wiring (R1 upstream fix, May 2026) ----------
+#
+# The BFF's `fetchFreshAdminToken` (ui/src/lib/rbac/keycloak-admin.ts) needs
+# `KEYCLOAK_ADMIN_CLIENT_ID` + `KEYCLOAK_ADMIN_CLIENT_SECRET` in the pod's
+# environment to call the Keycloak Admin REST API via the supervisor's
+# confidential `caipe-platform` client. Before this block was added, the
+# operator had two flavors of half-fix:
+#
+#   - Set `caipe-ui.existingSecret=<same-secret>` which mounts the Secret
+#     into the pod under the WRONG env-var name (`OIDC_CLIENT_SECRET`).
+#   - Hand-roll an `extraDeploy:` Secret keyed under
+#     `KEYCLOAK_ADMIN_CLIENT_SECRET` and mount it via `existingSecret`.
+#
+# Now: setting `keycloakAdminClient.secretName` to the same Secret the
+# keycloak chart's `platformClient.secretRef`/`externalSecret` writes
+# auto-injects both env vars correctly. The umbrella chart's
+# `values.yaml` defaults this to `caipe-platform-secret` — the
+# conventional Secret name used across the rest of the chart — so
+# operators who follow the standard naming convention get the wiring
+# for free.
+#
+# For non-default Secret names (rare): override BOTH
+# `keycloak.platformClient.secretRef` AND `caipe-ui.keycloakAdminClient.secretName`
+# to the same value. Helm does not support cross-subchart value
+# substitution at template time, so this is the simplest contract that
+# also lets ESO-only installs work without changing the keycloak chart's
+# helper logic.
+#
+# Leave `secretName` empty in standalone caipe-ui dev installs (where
+# the BFF talks to an external Keycloak via its own credentials in
+# `existingSecret` or `OIDC_CLIENT_SECRET`).
+# assisted-by Claude:claude-opus-4-7
+keycloakAdminClient:
+  # Name of the K8s Secret holding the Keycloak Admin REST client_secret.
+  # Defaults to "" in the standalone subchart; the umbrella sets this to
+  # "caipe-platform-secret" so a Helm install with only
+  # `keycloak.platformClient.secretRef=caipe-platform-secret` lights up
+  # the BFF admin path automatically.
+  secretName: ""
+  # Key inside `secretName` that holds the actual client_secret value.
+  # Matches `keycloak.platformClient.secretKey` (default: OIDC_CLIENT_SECRET).
+  secretKey: "OIDC_CLIENT_SECRET"
+  # Client ID to use when calling the Keycloak Admin REST API. The realm
+  # ships `caipe-platform` with `service-accounts-enabled: true` and the
+  # `realm-management` role mappings — see realm-config.json. There is
+  # no reason to change this in a vanilla install.
+  clientId: "caipe-platform"
 
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
 # Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)

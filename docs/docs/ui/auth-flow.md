@@ -265,7 +265,10 @@ OIDC_REQUIRED_GROUP=caipe-users
 OIDC_GROUP_CLAIM=groups  # auto-detect if not set; supports comma-separated (e.g., "groups,members,roles")
 
 # NextAuth Session
-NEXTAUTH_SECRET=your-secret-here
+# Generate a real value with:    openssl rand -base64 48
+# DO NOT copy a placeholder — R4 strict mode rejects known placeholders
+# (`caipe-dev-secret`, `changeme`, `your-secret-here`, etc.) in production.
+NEXTAUTH_SECRET=<generated-with-openssl-rand-base64-48>
 NEXTAUTH_URL=http://localhost:3000
 ```
 

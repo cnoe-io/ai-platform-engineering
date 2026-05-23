@@ -190,13 +190,34 @@ build-caipe-ui: ## Build CAIPE UI Docker image locally
 		--build-arg CAIPE_URL=http://caipe-supervisor:8000 \
 		.
 
-run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires caipe-supervisor)
+run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires NEXTAUTH_SECRET env var)
+	@# R4: refuse to start the BFF with a known dev placeholder for
+	@# NEXTAUTH_SECRET. NEXTAUTH_SECRET HS256-signs session cookies and the
+	@# internal skills-API JWTs (see ui/src/lib/jwt-validation.ts) — a
+	@# shared placeholder means tokens forged in one install are valid in
+	@# every other install that copied this make target.
+	@if [ -z "$$NEXTAUTH_SECRET" ]; then \
+		echo ""; \
+		echo "ERROR: NEXTAUTH_SECRET is not set." >&2; \
+		echo "Generate one with: openssl rand -base64 48" >&2; \
+		echo "Then export NEXTAUTH_SECRET=... and re-run make." >&2; \
+		echo ""; \
+		exit 1; \
+	fi
+	@case "$$NEXTAUTH_SECRET" in \
+		caipe-dev-secret|"changeme"|"please-change-me"|"dev"|"test"|"secret") \
+			echo ""; \
+			echo "ERROR: NEXTAUTH_SECRET is a known dev placeholder ('$$NEXTAUTH_SECRET')." >&2; \
+			echo "Generate a real one with: openssl rand -base64 48" >&2; \
+			echo "" >&2; \
+			exit 1 ;; \
+	esac
 	@echo "Running CAIPE UI container..."
 	docker run --rm -it \
 		-p 3000:3000 \
 		-e NEXT_PUBLIC_CAIPE_URL=http://localhost:8000 \
 		-e CAIPE_URL=http://localhost:8000 \
-		-e NEXTAUTH_SECRET=caipe-dev-secret \
+		-e NEXTAUTH_SECRET="$$NEXTAUTH_SECRET" \
 		-e NEXTAUTH_URL=http://localhost:3000 \
 		--name caipe-ui-local \
 		$(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG)
