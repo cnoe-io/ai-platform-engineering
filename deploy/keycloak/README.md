@@ -2,6 +2,21 @@
 
 This guide explains how to set up and configure Keycloak as an OAuth2 server for CAIPE A2A authentication.
 
+> **Note on init scripts:** `init-idp.sh` and `init-token-exchange.sh` in this directory
+> are **symlinks** into the canonical location `charts/ai-platform-engineering/charts/keycloak/scripts/`.
+> The Helm chart consumes them via `.Files.Get` (which is sandboxed to the chart dir),
+> and `docker-compose.dev.yaml` bind-mounts them via `./deploy/keycloak/init-*.sh`
+> (Docker resolves the host symlink before mounting). **Edit only the canonical files
+> in `charts/.../keycloak/scripts/`** — never replace the symlinks with a copy.
+> Both scripts must remain busybox-`sh`/`sed` portable since they run inside
+> `alpine/curl` containers in both Docker Compose and Kubernetes.
+>
+> **Note on realm import:** Docker Compose mounts the canonical chart realm
+> export from `charts/ai-platform-engineering/charts/keycloak/realm-config.json`.
+> Do not create `deploy/keycloak/realm-config.json`; if that missing bind-mount
+> path is allowed to become a directory, Keycloak starts with only the `master`
+> realm and `caipe-ui` login fails with `Realm does not exist`.
+
 ## Quick Start
 
 1. **Start Keycloak Server**
@@ -16,7 +31,8 @@ This guide explains how to set up and configure Keycloak as an OAuth2 server for
    - Password: `admin`
 
 3. **Configure Realm**
-   - The `caipe` realm is automatically imported from `caipe-realm.json`
+   - The `caipe` realm is automatically imported from
+     `../../charts/ai-platform-engineering/charts/keycloak/realm-config.json`
    - Switch to the `caipe` realm in the admin console
 
 ## Client Configuration
@@ -85,10 +101,9 @@ The A2A middleware validates JWT tokens using:
 
 ## Realm Configuration
 
-The `caipe-realm.json` file includes:
+The canonical chart `realm-config.json` file includes:
 - Pre-configured realm with `caipe` as the realm name
-- Default user `caipe` with password `caipe`
-- Client scopes for profile, email, and CAIPE audience
+- Client scopes for profile, email, roles, and CAIPE audiences
 - Security policies and authentication flows
 
 ## Production Considerations
@@ -119,6 +134,14 @@ For production deployments:
    - Verify TOKEN_ENDPOINT is correct
    - Check client credentials are valid
    - Ensure client has service account enabled
+
+4. **Realm does not exist / Keycloak never becomes healthy**
+   - Verify the mounted import path is a file, not a directory:
+     `charts/ai-platform-engineering/charts/keycloak/realm-config.json`
+   - Check `http://localhost:7080/realms/caipe/protocol/openid-connect/certs`
+     returns `200`
+   - If a stale empty `deploy/keycloak/realm-config.json/` directory exists,
+     remove it before recreating the Keycloak container
 
 ### Debug Mode
 
