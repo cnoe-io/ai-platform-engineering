@@ -984,8 +984,9 @@ async def check_kb_datasource_access(
   if "*" in accessible:
     return
   if not accessible:
-    if openfga_denied:
-      raise HTTPException(status_code=403, detail="Access denied for this datasource")
+    # Reached only when openfga_denied is False (the `if openfga_denied`
+    # block above always returns or raises). The 403 here means the user
+    # has no team-grant for any KB in this scope.
     raise HTTPException(
       status_code=403,
       detail="No accessible knowledge bases for this operation",
