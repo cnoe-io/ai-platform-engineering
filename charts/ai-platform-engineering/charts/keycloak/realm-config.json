@@ -66,7 +66,7 @@
     {
       "clientId": "caipe-ui",
       "name": "CAIPE Admin UI",
-      "description": "Next.js frontend \u2014 confidential OIDC client for Admin UI (NextAuth server-side flow)",
+      "description": "Next.js frontend — confidential OIDC client for Admin UI (NextAuth server-side flow)",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-ui-dev-secret",
@@ -138,7 +138,7 @@
     {
       "clientId": "caipe-platform",
       "name": "CAIPE Platform Resource Server",
-      "description": "Confidential service client \u2014 identity and token-exchange only; CAIPE authorization is enforced in OpenFGA.",
+      "description": "Confidential service client — identity and token-exchange only; CAIPE authorization is enforced in OpenFGA.",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-platform-dev-secret",
@@ -163,7 +163,7 @@
     {
       "clientId": "caipe-slack-bot",
       "name": "CAIPE Slack Bot",
-      "description": "Confidential client \u2014 service account with token-exchange permission for OBO (FR-018, FR-021)",
+      "description": "Confidential client — service account with token-exchange permission for OBO (FR-018, FR-021)",
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-slack-bot-dev-secret",
@@ -350,7 +350,7 @@
     },
     {
       "name": "roles",
-      "description": "Realm roles claim mapper \u2014 carries resolved realm roles in JWT",
+      "description": "Realm roles claim mapper — carries resolved realm roles in JWT",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -375,7 +375,7 @@
     },
     {
       "name": "groups",
-      "description": "Upstream IdP groups in JWT \u2014 maps idp_groups user attribute into groups claim (FR-010)",
+      "description": "Upstream IdP groups in JWT — maps idp_groups user attribute into groups claim (FR-010)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -402,7 +402,7 @@
     },
     {
       "name": "org",
-      "description": "Organization / tenant claim mapper \u2014 carries org attribute in JWT (FR-020)",
+      "description": "Organization / tenant claim mapper — carries org attribute in JWT (FR-020)",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -715,120 +715,6 @@
     ]
   },
   "users": [
-    {
-      "username": "admin-user",
-      "enabled": true,
-      "email": "admin@example.com",
-      "emailVerified": true,
-      "firstName": "Admin",
-      "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "admin"
-        }
-      ],
-      "realmRoles": [
-        "offline_access",
-        "uma_authorization"
-      ],
-      "attributes": {
-        "org": [
-          "acme"
-        ]
-      }
-    },
-    {
-      "username": "standard-user",
-      "enabled": true,
-      "email": "standard@example.com",
-      "emailVerified": true,
-      "firstName": "Standard",
-      "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "standard"
-        }
-      ],
-      "realmRoles": [
-        "offline_access",
-        "uma_authorization"
-      ],
-      "attributes": {
-        "org": [
-          "acme"
-        ]
-      }
-    },
-    {
-      "username": "kb-admin-user",
-      "enabled": true,
-      "email": "kbadmin@example.com",
-      "emailVerified": true,
-      "firstName": "KB Admin",
-      "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "kbadmin"
-        }
-      ],
-      "realmRoles": [
-        "offline_access",
-        "uma_authorization"
-      ],
-      "attributes": {
-        "org": [
-          "acme"
-        ]
-      }
-    },
-    {
-      "username": "denied-user",
-      "enabled": true,
-      "email": "denied@example.com",
-      "emailVerified": true,
-      "firstName": "Denied",
-      "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "denied"
-        }
-      ],
-      "realmRoles": [
-        "offline_access"
-      ],
-      "attributes": {
-        "org": [
-          "acme"
-        ]
-      }
-    },
-    {
-      "username": "org-b-user",
-      "enabled": true,
-      "email": "orgb@example.com",
-      "emailVerified": true,
-      "firstName": "Org-B",
-      "lastName": "User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "orgb"
-        }
-      ],
-      "realmRoles": [
-        "offline_access",
-        "uma_authorization"
-      ],
-      "attributes": {
-        "org": [
-          "globex"
-        ]
-      }
-    },
     {
       "username": "service-account-caipe-platform",
       "enabled": true,
