@@ -206,3 +206,34 @@ dependencies:
     version: 0.4.18-dev.4 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     tags:
       - slack-bot
+  # Webex Bot Integration (client, not an agent)
+  - name: webex-bot
+    version: 0.4.17 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - webex-bot
+  # Keycloak Identity Provider for CAIPE RBAC/OIDC.
+  # Intentional local subchart: CAIPE owns realm import, token-exchange/OBO,
+  # IdP/auth-flow reconciliation, branded theme packaging, and ExternalSecret
+  # wiring. There is no upstream Keycloak chart that provides these CAIPE
+  # bootstrap invariants without additional Jobs/templates.
+  - name: keycloak
+    version: 0.4.17 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    tags:
+      - keycloak
+  # OpenFGA relationship authorization service
+  - name: openfga
+    version: 0.4.17 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: openfga.enabled
+  # AgentGateway ext_authz bridge backed by OpenFGA
+  - name: openfga-authz-bridge
+    version: 0.4.17 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: openfgaAuthzBridge.enabled
+  # AgentGateway standalone proxy for RBAC-protected MCP routing.
+  # Intentional local subchart for this release: this deploys the standalone
+  # static-config proxy with CAIPE's OpenFGA ext_authz config. The upstream
+  # agentgateway/kgateway charts install controller/CRD based Gateway resources
+  # and remain the target for a later migration once we can preserve this
+  # release's static MCP routing and authz bridge contract.
+  - name: agentgateway
+    version: 0.4.17 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: agentgateway.enabled
