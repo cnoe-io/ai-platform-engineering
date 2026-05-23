@@ -9,6 +9,13 @@ on:
     paths:
       - 'build/Dockerfile.keycloak-init'
       - 'charts/ai-platform-engineering/charts/keycloak/scripts/**'
+      - 'charts/ai-platform-engineering/charts/keycloak/realm-config.json'
+      - 'charts/ai-platform-engineering/charts/keycloak/templates/job-init-*.yaml'
+      - 'charts/ai-platform-engineering/charts/keycloak/templates/job-auth-reconcile.yaml'
+      - 'charts/ai-platform-engineering/charts/keycloak/templates/platform-client-external-secret.yaml'
+      - 'tests/integration/test_keycloak_platform_client_reconcile.sh'
+      - 'tests/integration/test_keycloak_strict_client_secrets.sh'
+      - 'tests/integration/test_keycloak_idp_hint_redirect.sh'
       - '.github/workflows/ci-keycloak-init.yml'
   workflow_dispatch:
     inputs:
@@ -119,15 +126,215 @@ jobs:
           provenance: false
           sbom: false
 
+  reconcile-test:
+    # End-to-end functional test of init-idp.sh against a real Keycloak 26.3.
+    # Catches regressions in the caipe-platform / caipe-ui client_secret
+    # reconciliation path that helm template + unit tests cannot see (JSON
+    # round-trip of the secret, idempotency, real Admin API response codes,
+    # security regression of the dev placeholder remaining accepted).
+    #
+    # Independent of build-and-push so forks without `packages: write` can
+    # still run it on PRs.
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    permissions:
+      contents: read
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build keycloak-init image locally (amd64, no provenance for local test)
+        # Provenance attestations confuse the legacy docker engine that the
+        # integration script invokes via `docker run`. Plain `--load` build
+        # produces an image the script can use immediately.
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: build/Dockerfile.keycloak-init
+          load: true
+          tags: caipe/keycloak-init:reconcile-ci
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Install jq
+        run: sudo apt-get update -y && sudo apt-get install -y --no-install-recommends jq
+
+      - name: Run platform-client reconcile end-to-end test
+        env:
+          INIT_IMAGE: caipe/keycloak-init:reconcile-ci
+          # GitHub-hosted runners have no other service on 18080, so the
+          # default port is fine. Bind to all interfaces explicitly to
+          # avoid Docker bridge-mode oddness.
+          KC_PORT: "18080"
+        run: |
+          chmod +x tests/integration/test_keycloak_platform_client_reconcile.sh
+          tests/integration/test_keycloak_platform_client_reconcile.sh
+
+      - name: Capture Keycloak container logs on failure
+        if: failure()
+        run: |
+          docker ps -a --filter "name=kc-platform-reconcile-test"
+          for c in $(docker ps -aq --filter "name=kc-platform-reconcile-test"); do
+            echo "===== logs: $c ====="
+            docker logs --tail 200 "$c" || true
+          done
+
+  strict-secrets-test:
+    # End-to-end functional test of the production-hardening flag
+    # `keycloak.strictClientSecrets`. Boots a throwaway Keycloak 26.3,
+    # confirms the four dev placeholder client_secrets are initially
+    # accepted, then exercises both the strict-mode failure path (no
+    # rotation env vars set → init-idp.sh exits non-zero with a loud
+    # error) and the success path (caipe-ui + caipe-platform rotated +
+    # bots rotated → strict guard passes, all four placeholders
+    # rejected).
+    #
+    # Independent of build-and-push so forks without `packages: write`
+    # can still run it on PRs. Uses cache from the build step so it
+    # piggybacks the image layers.
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    permissions:
+      contents: read
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build keycloak-init image locally (amd64, no provenance)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: build/Dockerfile.keycloak-init
+          load: true
+          tags: caipe/keycloak-init:strict-ci
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Install jq
+        run: sudo apt-get update -y && sudo apt-get install -y --no-install-recommends jq
+
+      - name: Run strict client-secret end-to-end test
+        env:
+          INIT_IMAGE: caipe/keycloak-init:strict-ci
+          # Distinct port so the job can run in parallel with reconcile-test
+          # if GitHub schedules them on the same runner (it currently doesn't,
+          # but be defensive).
+          KC_PORT: "19080"
+        run: |
+          chmod +x tests/integration/test_keycloak_strict_client_secrets.sh
+          tests/integration/test_keycloak_strict_client_secrets.sh
+
+      - name: Capture Keycloak container logs on failure
+        if: failure()
+        run: |
+          docker ps -a --filter "name=kc-strict-secret-test"
+          for c in $(docker ps -aq --filter "name=kc-strict-secret-test"); do
+            echo "===== logs: $c ====="
+            docker logs --tail 200 "$c" || true
+          done
+
+  idp-hint-test:
+    # End-to-end functional test of the SSO bootstrap path that
+    # init-idp.sh configures: the identity-provider-redirector default
+    # provider, the KEYCLOAK_FORCE_IDP_REDIRECT enforcement flag, and
+    # the OIDC_IDP_HINT (`kc_idp_hint`) forwarding that auth-config.ts
+    # injects into the NextAuth authorization params.
+    #
+    # Boots a throwaway Keycloak 26.3 + the chart's realm import,
+    # runs init-idp.sh against it, then verifies that hitting
+    # /realms/caipe/protocol/openid-connect/auth produces a 302/303 to
+    # /broker/<alias>/login both with and without an explicit
+    # kc_idp_hint, and that an unknown hint does not 5xx.
+    #
+    # Independent of build-and-push so forks without `packages: write`
+    # can still run it on PRs. Uses the cache from the build step so
+    # it piggybacks the image layers.
+    runs-on: ubuntu-latest
+    needs: determine-changes
+    permissions:
+      contents: read
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build keycloak-init image locally (amd64, no provenance)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        with:
+          context: .
+          file: build/Dockerfile.keycloak-init
+          load: true
+          tags: caipe/keycloak-init:idp-hint-ci
+          platforms: linux/amd64
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=min
+
+      - name: Install jq
+        run: sudo apt-get update -y && sudo apt-get install -y --no-install-recommends jq
+
+      - name: Run kc_idp_hint / IdP redirector end-to-end test
+        env:
+          INIT_IMAGE: caipe/keycloak-init:idp-hint-ci
+          # Distinct port so this job can run in parallel with the
+          # other Keycloak integration jobs if GitHub schedules them
+          # on the same runner.
+          KC_PORT: "21080"
+        run: |
+          chmod +x tests/integration/test_keycloak_idp_hint_redirect.sh
+          tests/integration/test_keycloak_idp_hint_redirect.sh
+
+      - name: Capture Keycloak container logs on failure
+        if: failure()
+        run: |
+          docker ps -a --filter "name=kc-idp-hint-test"
+          for c in $(docker ps -aq --filter "name=kc-idp-hint-test"); do
+            echo "===== logs: $c ====="
+            docker logs --tail 200 "$c" || true
+          done
+
   notify-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs: [determine-changes, build-and-push]
+    needs: [determine-changes, build-and-push, reconcile-test, strict-secrets-test, idp-hint-test]
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
-      !contains(needs.determine-changes.outputs.tag_version, '-')
+      !contains(needs.determine-changes.outputs.tag_version, '-') &&
+      needs.reconcile-test.result == 'success' &&
+      needs.strict-secrets-test.result == 'success' &&
+      needs.idp-hint-test.result == 'success'
     steps:
       - name: 🔔 Notify release finalize
         env:
