@@ -78,7 +78,7 @@ async function safeCreateIndex(
   db: Db,
   collectionName: string,
   keys: Record<string, 1 | -1>,
-  options?: { unique?: boolean },
+  options?: { unique?: boolean; expireAfterSeconds?: number },
 ): Promise<boolean> {
   try {
     await db.collection(collectionName).createIndex(keys, options ?? {});
@@ -179,6 +179,8 @@ async function createIndexes(db: Db) {
   await Promise.all([
     // Users collection
     safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
+    safeCreateIndex(db, 'users', { keycloak_sub: 1 }),
+    safeCreateIndex(db, 'users', { 'metadata.keycloak_sub': 1 }),
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 
@@ -262,6 +264,33 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
+
+    // 098 RBAC: Team/KB ownership assignments
+    safeCreateIndex(db, 'team_kb_ownership', { team_id: 1, tenant_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'team_kb_ownership', { tenant_id: 1 }),
+    safeCreateIndex(db, 'team_kb_ownership', { keycloak_role: 1 }),
+
+    // 098 RBAC: Team-scoped RAG tool configurations
+    safeCreateIndex(db, 'team_rag_tools', { tool_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'team_rag_tools', { team_id: 1, tenant_id: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { tenant_id: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { created_by: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { updated_at: -1 }),
+
+    // 098 RBAC: Authorization decision audit records (FR-005, data-model.md)
+    safeCreateIndex(db, 'authorization_decision_records', { tenant_id: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { subject_hash: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { capability: 1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { outcome: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { correlation_id: 1 }),
+
+    // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
+    safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
+    safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
+    safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

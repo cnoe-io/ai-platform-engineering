@@ -2,12 +2,12 @@
 const DEFAULT_GROUP_CLAIMS = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"];
 
 const duoProfile = {
-  "groups": "backstage-access",  // STRING
+  "groups": "caipe-users",  // STRING
   "members": [  // ARRAY
-    "eticloud-plg-root",
-    "eti-obs-ro",
-    "eti_sre_admin",
-    "eti-sre",
+    "caipe-admins",
+    "platform-observers",
+    "platform-operators",
+    "platform-sre",
     // ... more groups
   ]
 };
@@ -32,6 +32,6 @@ const extractedGroups = extractGroups(duoProfile);
 
 console.log("Extracted groups:", extractedGroups);
 console.log("\nChecking required groups:");
-console.log("  Has 'backstage-access'?", extractedGroups.includes("backstage-access"));
-console.log("  Has 'eti_sre_admin'?", extractedGroups.includes("eti_sre_admin"));
+console.log("  Has 'caipe-users'?", extractedGroups.includes("caipe-users"));
+console.log("  Has 'caipe-admins'?", extractedGroups.includes("caipe-admins"));
 console.log("\nTotal groups extracted:", extractedGroups.length);

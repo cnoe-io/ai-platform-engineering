@@ -59,6 +59,13 @@ function clearRedirectLoopCounter() {
   sessionStorage.removeItem(LOOP_TS_KEY);
 }
 
+function safeCallbackUrl(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+  return value.startsWith("/login") ? "/" : value;
+}
+
 function LoginContent() {
   const { status } = useSession();
   const router = useRouter();
@@ -71,13 +78,13 @@ function LoginContent() {
   const error = searchParams.get("error");
   const sessionExpired = searchParams.get("session_expired") === "true";
   const sessionReset = searchParams.get("session_reset");
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
 
-  // Redirect if already logged in — but NOT if:
-  // - session_expired/session_reset param is present (user intentionally came here)
-  // - a redirect loop was detected
+  // Redirect if already logged in. A stale session_expired URL can remain after
+  // a successful OIDC callback, so only explicit reset/loop recovery should hold
+  // the user on the login page.
   useEffect(() => {
-    if (loopBroken || sessionExpired || sessionReset) {
+    if (loopBroken || sessionReset) {
       // User is here intentionally or we broke a loop — show login form
       return;
     }
@@ -87,7 +94,7 @@ function LoginContent() {
       clearRedirectLoopCounter();
       router.push(callbackUrl);
     }
-  }, [status, router, callbackUrl, sessionExpired, sessionReset, loopBroken]);
+  }, [status, router, callbackUrl, sessionReset, loopBroken]);
 
   const handleSignIn = async () => {
     setIsLoading(true);

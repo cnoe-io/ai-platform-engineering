@@ -6,10 +6,21 @@ import { NextRequest } from 'next/server';
 import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
+const mockCheckPermission = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
 
 let mockNpsEnabled = true;
 jest.mock('@/lib/config', () => ({
@@ -61,13 +72,13 @@ function makeRequest(url: string): NextRequest {
 const adminSession = {
   user: { email: 'admin@example.com', name: 'Admin' },
   role: 'admin',
-  canViewAdmin: true,
+  accessToken: 'admin-token',
 };
 
 const userSession = {
   user: { email: 'user@example.com', name: 'User' },
   role: 'user',
-  canViewAdmin: false,
+  accessToken: 'user-token',
 };
 
 describe('GET /api/admin/nps', () => {
@@ -77,6 +88,8 @@ describe('GET /api/admin/nps', () => {
     jest.resetModules();
     Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
     mockGetCollection.mockClear();
+    mockCheckPermission.mockReset();
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
     mockNpsEnabled = true;
     mockIsMongoDBConfigured = true;
 
@@ -108,10 +121,16 @@ describe('GET /api/admin/nps', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view access', async () => {
+  it('returns 403 for authenticated users without admin_ui#view', async () => {
     mockGetServerSession.mockResolvedValue(userSession);
+    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     const res = await GET(makeRequest('/api/admin/nps'));
     expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.reason).toBe('pdp_denied');
+    expect(body.code).toBe('admin_ui#view');
+    expect(mockGetCollection).not.toHaveBeenCalledWith('nps_responses');
+    expect(mockGetCollection).not.toHaveBeenCalledWith('nps_campaigns');
   });
 
   it('returns correct NPS score and breakdown for mixed responses', async () => {

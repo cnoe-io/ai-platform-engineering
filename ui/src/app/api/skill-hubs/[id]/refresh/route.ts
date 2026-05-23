@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   ApiError,
+  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import { getHubSkills, resolveHubToken } from "@/lib/hub-crawl";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
+import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
 import {
   apiHostFromBaseUrl,
   buildCrawlStreamResponse,
@@ -33,14 +34,26 @@ import {
  *     ``hub.last_crawl_log`` (capped) so the admin can re-open the
  *     last run via "View last crawl" without re-running it.
  */
+function hubTeamRefs(hub: SkillHubDoc): string[] {
+  return Array.isArray(hub.shared_with_teams)
+    ? hub.shared_with_teams.map((team) => String(team).trim()).filter(Boolean)
+    : [];
+}
+
+async function grantRefreshedHubSkills(hub: SkillHubDoc, skillIds: string[]): Promise<void> {
+  const teamRefs = hubTeamRefs(hub);
+  if (teamRefs.length === 0 || skillIds.length === 0) return;
+  await grantSkillsToTeams({ teamRefs, skillIds });
+}
+
 export const POST = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {
     if (!isMongoDBConfigured) {
       throw new ApiError("Skill hubs require MongoDB to be configured", 503);
     }
 
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireAdminSurfaceManage(session, "skills");
 
       const { id } = await context.params;
 
@@ -50,9 +63,8 @@ export const POST = withErrorHandler(
         throw new ApiError(`Hub not found: ${id}`, 404);
       }
 
-      const { _id, ...rest } = hubDoc as Record<string, unknown> & {
-        _id?: unknown;
-      };
+      const rest = { ...(hubDoc as Record<string, unknown>) };
+      delete rest._id;
       const hub = rest as unknown as SkillHubDoc;
 
       if (wantsNdjsonStream(request)) {
@@ -79,6 +91,10 @@ export const POST = withErrorHandler(
               hub,
               /* forceFresh */ true,
               emitter,
+            );
+            await grantRefreshedHubSkills(
+              hub,
+              skills.map((skill) => skill.id),
             );
             // The crawl helpers already record ``last_truncation`` on
             // the hub doc; surface it through the ``done`` event so
@@ -110,8 +126,11 @@ export const POST = withErrorHandler(
       }
 
       const skills = await getHubSkills(hub, /* forceFresh */ true);
+      await grantRefreshedHubSkills(
+        hub,
+        skills.map((skill) => skill.id),
+      );
 
       return NextResponse.json({ hub_id: id, skills_count: skills.length });
-    });
   },
 );

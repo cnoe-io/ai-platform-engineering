@@ -10,6 +10,7 @@ import {
   successResponse,
   ApiError,
 } from '@/lib/api-middleware';
+import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 import type { Message, UpdateMessageRequest } from '@/types/mongodb';
 
 // PUT /api/chat/messages/[id]
@@ -17,7 +18,7 @@ export const PUT = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const messageId = params.id;
     const body: UpdateMessageRequest = await request.json();
@@ -38,6 +39,11 @@ export const PUT = withErrorHandler(async (
     if (!message) {
       throw new ApiError('Message not found', 404);
     }
+    await requireResourcePermission(session, {
+      type: 'conversation',
+      id: message.conversation_id,
+      action: 'write',
+    });
 
     // Build update
     const update: any = {};
