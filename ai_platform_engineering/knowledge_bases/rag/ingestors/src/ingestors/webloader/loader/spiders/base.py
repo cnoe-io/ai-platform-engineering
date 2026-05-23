@@ -48,7 +48,7 @@ class BaseWebSpider(scrapy.Spider):
     """
     super().__init__(*args, **kwargs)
 
-    self.origin_url = start_url
+    self.start_url = start_url
     self.scrape_settings = scrape_settings
     self.job_id = job_id
     self.client = client
@@ -59,18 +59,13 @@ class BaseWebSpider(scrapy.Spider):
     self.pages_crawled = 0
     self.max_pages = scrape_settings.max_pages
 
-  async def start(self):
-    """Generate initial requests (Scrapy 2.16+ entry point)."""
-    for request in self.start_requests():
-      yield request
-
   def start_requests(self) -> Iterator[Request]:
     """
     Generate initial requests.
 
     Override in subclasses for custom start behavior.
     """
-    yield self._make_request(self.origin_url, callback=self.parse)
+    yield self._make_request(self.start_url, callback=self.parse)
 
   def _make_request(self, url: str, callback: Any = None, meta: Optional[dict] = None, **kwargs) -> Request:
     """
@@ -165,7 +160,7 @@ class BaseWebSpider(scrapy.Spider):
 
     # Check external links
     if not self.scrape_settings.follow_external_links:
-      start_domain = urlparse(self.origin_url).netloc
+      start_domain = urlparse(self.start_url).netloc
       url_domain = urlparse(url).netloc
       if url_domain != start_domain:
         return False

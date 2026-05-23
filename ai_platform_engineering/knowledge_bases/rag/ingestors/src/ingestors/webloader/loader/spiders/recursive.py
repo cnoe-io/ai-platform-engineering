@@ -47,7 +47,7 @@ class RecursiveCrawlSpider(CrawlSpider):
         job_manager: Job status manager
         datasource_info: Datasource metadata
     """
-    self.origin_url = start_url
+    self.start_url = start_url
     self.scrape_settings = scrape_settings
     self.job_id = job_id
     self.client = client
@@ -118,11 +118,6 @@ class RecursiveCrawlSpider(CrawlSpider):
     )
 
     super().__init__(*args, **kwargs)
-
-  async def start(self):
-    """Generate initial requests (Scrapy 2.16+ entry point)."""
-    for request in self.start_requests():
-      yield request
 
   def start_requests(self) -> Iterator[Request]:
     """Generate initial requests with Playwright support."""
