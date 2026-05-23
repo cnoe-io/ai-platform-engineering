@@ -1,4 +1,5 @@
 # ---------- Stage 1: Build dependencies ----------
+# assisted-by Codex Codex-sonnet-4-6
 FROM python:3.13-slim AS builder
 
 ARG AGENT_NAME
@@ -65,6 +66,9 @@ RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
     if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         for i in 1 2 3; do apk add --no-cache curl unzip bash && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
     fi && \
+    if [ "$INSTALL_KUBECTL" = "true" ]; then \
+        for i in 1 2 3; do apk add --no-cache kubectl-1.36-default && break; [ $i -lt 3 ] && sleep $((i * 10)); done; \
+    fi && \
     apk upgrade --no-cache
 
 # Install AWS CLI v2 (opt-in: --build-arg INSTALL_AWS_CLI=true)
@@ -84,21 +88,6 @@ RUN if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         unzip -q awscliv2.zip && \
         ./aws/install && \
         rm -rf awscliv2.zip aws; \
-    fi
-
-# Install kubectl (opt-in: --build-arg INSTALL_KUBECTL=true)
-RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
-        ARCH=$(uname -m) && \
-        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-            KUBECTL_ARCH="arm64"; \
-        else \
-            KUBECTL_ARCH="amd64"; \
-        fi && \
-        KUBECTL_VERSION=$(curl -sfL --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 https://dl.k8s.io/release/stable.txt) && \
-        if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
-        curl -sfLO --http1.1 --retry 5 --retry-delay 3 --connect-timeout 30 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
-        chmod +x kubectl && \
-        mv kubectl /usr/local/bin/kubectl; \
     fi
 
 # The builder stage uses python:3.13-slim which places Python at
