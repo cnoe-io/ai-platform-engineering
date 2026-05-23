@@ -1,4 +1,5 @@
 import asyncio
+import os
 from fastmcp import Client
 from fastmcp.client.transports import SSETransport
 import pprint
@@ -6,7 +7,7 @@ import json
 
 async def list_tools():
   async with Client(
-    transport=SSETransport("http://127.0.0.1:8000/sse")
+    transport=SSETransport("os.environ.get('MCP_URL', 'http://127.0.0.1:8000/sse')")
   ) as client:
     # await client.ping()
     async with client:
