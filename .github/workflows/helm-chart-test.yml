@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   helm-chart-test:
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

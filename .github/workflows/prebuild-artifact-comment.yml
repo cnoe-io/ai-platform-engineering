@@ -22,12 +22,19 @@ jobs:
       github.event.client_payload.pr_number != '' &&
       github.event.client_payload.head_sha != ''
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Reconcile prebuild artifact comment
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           HEAD_SHA: ${{ github.event.client_payload.head_sha }}
         run: python3 .github/scripts/reconcile-prebuild-artifacts.py

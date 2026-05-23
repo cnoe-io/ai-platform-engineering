@@ -29,8 +29,8 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
 
       - name: Checkout repository (full history)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -80,7 +80,6 @@ jobs:
       - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ steps.versions.outputs.new_version }}
         run: |
           BRANCH="docs/snapshot-${NEW_VERSION}"
@@ -124,7 +123,7 @@ jobs:
             echo "- [ ] Helm docs look correct"
           } > /tmp/pr-body.md
 
-          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
+          gh pr create \
             --title "docs: snapshot ${NEW_VERSION}" \
             --base main \
             --head "$BRANCH" \
