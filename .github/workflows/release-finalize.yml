@@ -19,6 +19,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: 📥 Extract payload
         id: payload
         run: |
@@ -43,7 +50,7 @@ jobs:
         id: check-cis
         if: steps.payload.outputs.tag != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🔍 Checking CI statuses for tag: $TAG"
@@ -137,7 +144,7 @@ jobs:
       - name: 🚀 Publish release
         if: steps.check-cis.outputs.all_passed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🚀 Publishing release $TAG..."
@@ -160,7 +167,7 @@ jobs:
       - name: 🔍 Trigger post-release scans and tests
         if: steps.check-cis.outputs.all_passed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🔍 Triggering post-release Grype container scan..."
@@ -173,7 +180,7 @@ jobs:
       - name: 🧹 Clean up old RC tags
         if: steps.check-cis.outputs.all_passed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🧹 Cleaning up old RC tags..."
@@ -242,7 +249,7 @@ jobs:
       - name: ❌ Mark release as failed
         if: steps.check-cis.outputs.any_failed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "❌ CI builds failed for $TAG"

@@ -37,12 +37,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: Determine Tag
         id: version
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Detect changed paths
         id: filter
@@ -129,6 +136,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Docker Buildx
@@ -138,7 +152,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ steps.app-token.outputs.token }}
 
       - name: Extract metadata for Docker
         id: meta
@@ -186,6 +200,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: 📦 Install crane
         run: |
           VERSION="v0.20.2"
@@ -194,7 +215,7 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -257,7 +278,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ steps.app-token.outputs.token }}
 
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'
@@ -288,9 +309,16 @@ jobs:
       needs.determine-changes.outputs.tag_version != '' &&
       !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
         run: |
           # Determine overall conclusion

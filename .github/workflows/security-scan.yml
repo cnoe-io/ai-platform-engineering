@@ -55,6 +55,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_SECURITY_APP_ID }}
+          private-key: ${{ secrets.CI_SECURITY_APP_PRIVATE_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -85,6 +92,8 @@ jobs:
           # merge-ref analysis is not matched against the PR head check run.
           ref: ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
           sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
   scan-containers:
     name: Container scan (${{ matrix.image }})
@@ -144,6 +153,13 @@ jobs:
         with:
           egress-policy: audit
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_SECURITY_APP_ID }}
+          private-key: ${{ secrets.CI_SECURITY_APP_PRIVATE_KEY }}
+
       - name: Determine image tag
         id: tag
         run: |
@@ -168,3 +184,5 @@ jobs:
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           category: "grype-${{ matrix.image }}"
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
