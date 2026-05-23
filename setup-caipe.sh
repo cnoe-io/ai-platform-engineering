@@ -49,6 +49,18 @@ AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
 LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
+# Provider-specific embeddings credentials (only the active provider's vars are required).
+# These mirror the env vars the RAG server's EmbeddingsFactory reads at runtime.
+# See ai_platform_engineering/knowledge_bases/rag/common/src/common/embeddings_factory.py
+COHERE_API_KEY="${COHERE_API_KEY:-}"
+VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
+HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-}"
+EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}"
+# Source hint for the embeddings menu: distinguishes "voyage" and
+# "custom-litellm" (both materialise EMBEDDINGS_PROVIDER=litellm internally
+# but route through different model menus and credential prompts).
+EMBEDDINGS_PROVIDER_SOURCE="${EMBEDDINGS_PROVIDER_SOURCE:-}"
+# AWS embeddings reuse the LLM-side AWS creds (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION).
 ENABLE_GRAPH_RAG=false
 ENABLE_VLLM="${ENABLE_VLLM:-false}"
 ENABLE_OLLAMA="${ENABLE_OLLAMA:-false}"
@@ -1431,6 +1443,139 @@ _collect_openai_embeddings_key() {
   log "OpenAI API key received (for embeddings)"
 }
 
+_collect_cohere_embeddings_creds() {
+  if [[ -n "${COHERE_API_KEY:-}" ]]; then
+    log "Using COHERE_API_KEY for embeddings (from environment)"
+    return
+  fi
+  if [[ -f "${HOME}/.config/cohere.txt" ]]; then
+    COHERE_API_KEY=$(tr -d '[:space:]' < "${HOME}/.config/cohere.txt")
+    log "Using COHERE_API_KEY for embeddings (from ~/.config/cohere.txt)"
+    return
+  fi
+  if $NON_INTERACTIVE; then
+    err "RAG with Cohere embeddings requires COHERE_API_KEY (set env var or create ~/.config/cohere.txt)"
+    exit 1
+  fi
+  echo ""
+  echo -e "  ${DIM}Cohere embeddings credentials:${NC}"
+  prompt "Enter your Cohere API key: "
+  tty_read -rs COHERE_API_KEY
+  echo ""
+  if [[ -z "$COHERE_API_KEY" ]]; then
+    err "Cohere API key is required for embeddings"
+    exit 1
+  fi
+  log "Cohere API key received (for embeddings)"
+}
+
+_collect_voyage_embeddings_creds() {
+  # Voyage AI is Anthropic's recommended embeddings provider. The RAG server
+  # talks to Voyage through the LiteLLM-compatible code path (provider=litellm),
+  # so we materialise a litellm config that points at Voyage's public endpoint.
+  if [[ -n "${VOYAGE_API_KEY:-}" ]]; then
+    log "Using VOYAGE_API_KEY for embeddings (from environment)"
+  elif [[ -f "${HOME}/.config/voyage.txt" ]]; then
+    VOYAGE_API_KEY=$(tr -d '[:space:]' < "${HOME}/.config/voyage.txt")
+    log "Using VOYAGE_API_KEY for embeddings (from ~/.config/voyage.txt)"
+  else
+    if $NON_INTERACTIVE; then
+      err "RAG with Voyage AI embeddings requires VOYAGE_API_KEY (set env var or create ~/.config/voyage.txt)"
+      err "Get a key at https://www.voyageai.com/ (free tier available)"
+      exit 1
+    fi
+    echo ""
+    echo -e "  ${DIM}Voyage AI embeddings credentials:${NC}"
+    echo -e "  ${DIM}Get a free API key at ${BOLD}https://www.voyageai.com${NC}"
+    prompt "Enter your Voyage AI API key: "
+    tty_read -rs VOYAGE_API_KEY
+    echo ""
+    if [[ -z "$VOYAGE_API_KEY" ]]; then
+      err "Voyage AI API key is required for embeddings"
+      exit 1
+    fi
+  fi
+
+  # Materialise Voyage as a LiteLLM-compatible config (the RAG factory's
+  # litellm path is OpenAI-compatible and works against api.voyageai.com).
+  LITELLM_ENDPOINT="https://api.voyageai.com/v1"
+  LITELLM_API_KEY="$VOYAGE_API_KEY"
+  log "Voyage AI configured as LiteLLM-compatible embeddings endpoint"
+}
+
+_collect_aws_bedrock_embeddings_creds() {
+  # AWS Bedrock embeddings reuse the LLM-side AWS credentials. If the user
+  # already picked aws-bedrock as their LLM provider, those are already set.
+  # Otherwise, prompt for the same triple (access key, secret, region).
+  if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+    log "Using AWS credentials for Bedrock embeddings (from LLM provider config or environment)"
+    return
+  fi
+  if [[ -f "${HOME}/.config/bedrock.txt" ]]; then
+    _parse_bedrock_txt "${HOME}/.config/bedrock.txt"
+    if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+      return
+    fi
+  fi
+  if $NON_INTERACTIVE; then
+    err "RAG with AWS Bedrock embeddings requires AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY"
+    err "(or ~/.config/bedrock.txt with profile name or .env-style creds)"
+    exit 1
+  fi
+  echo ""
+  echo -e "  ${DIM}AWS Bedrock embeddings credentials:${NC}"
+  prompt "AWS_ACCESS_KEY_ID: "; tty_read -r AWS_ACCESS_KEY_ID
+  prompt "AWS_SECRET_ACCESS_KEY: "; tty_read -rs AWS_SECRET_ACCESS_KEY; echo ""
+  prompt "AWS_REGION ${CYAN}[${AWS_REGION:-us-east-1}]${NC}${BOLD}: "
+  tty_read -r _r
+  AWS_REGION="${_r:-${AWS_REGION:-us-east-1}}"
+  if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+    err "AWS Bedrock embeddings require both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+    exit 1
+  fi
+  log "AWS Bedrock credentials collected (region: ${AWS_REGION})"
+}
+
+_collect_huggingface_embeddings_creds() {
+  # HuggingFace embeddings run locally inside the rag-server pod and only
+  # need a token for gated models. The default model (all-MiniLM-L6-v2) is
+  # public and does not require a token, so the token is optional.
+  if [[ -n "${HUGGINGFACEHUB_API_TOKEN:-}" || -n "${HF_TOKEN:-}" ]]; then
+    HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-$HF_TOKEN}"
+    log "Using HUGGINGFACEHUB_API_TOKEN for embeddings (from environment)"
+    return
+  fi
+  if [[ -f "${HOME}/.config/huggingface.txt" ]]; then
+    HUGGINGFACEHUB_API_TOKEN=$(tr -d '[:space:]' < "${HOME}/.config/huggingface.txt")
+    log "Using HUGGINGFACEHUB_API_TOKEN for embeddings (from ~/.config/huggingface.txt)"
+    return
+  fi
+  if $NON_INTERACTIVE; then
+    warn "HuggingFace embeddings: HUGGINGFACEHUB_API_TOKEN not set"
+    warn "  Public models (all-MiniLM-L6-v2, all-mpnet-base-v2) will work without a token."
+    warn "  Gated models (e.g. BAAI/bge-*) require a token; set HUGGINGFACEHUB_API_TOKEN if needed."
+    return
+  fi
+  echo ""
+  echo -e "  ${DIM}HuggingFace embeddings token (OPTIONAL — only needed for gated models):${NC}"
+  echo -e "  ${DIM}Public models like all-MiniLM-L6-v2 work without a token. Press Enter to skip.${NC}"
+  prompt "HUGGINGFACEHUB_API_TOKEN (Enter to skip): "
+  tty_read -rs HUGGINGFACEHUB_API_TOKEN
+  echo ""
+  if [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
+    log "HuggingFace token skipped (only public models will work)"
+  else
+    log "HuggingFace token received"
+  fi
+
+  echo ""
+  echo -e "  ${DIM}HuggingFace device (cpu = portable, cuda/mps = GPU acceleration):${NC}"
+  prompt "Device ${CYAN}[cpu]${NC}${BOLD}: "
+  tty_read -r _dev
+  EMBEDDINGS_DEVICE="${_dev:-cpu}"
+  log "HuggingFace device: ${EMBEDDINGS_DEVICE}"
+}
+
 # ─── MetalLB / Ingress / TLS ──────────────────────────────────────────────────
 
 install_metallb() {
@@ -1899,6 +2044,65 @@ choose_features() {
             fi
           fi
           ;;
+        aws-bedrock)
+          # Reuses the LLM AWS creds when LLM_PROVIDER=aws-bedrock; otherwise
+          # rescue from the existing secret and re-prompt if still missing.
+          if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+            local _abs
+            _abs=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            if [[ -n "$_abs" ]]; then
+              [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(echo "$_abs" | jq -r '.data.AWS_ACCESS_KEY_ID // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(echo "$_abs" | jq -r '.data.AWS_SECRET_ACCESS_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(echo "$_abs" | jq -r '.data.AWS_REGION // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            fi
+            if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+              warn "AWS Bedrock embeddings credentials not found — please enter them now"
+              _collect_aws_bedrock_embeddings_creds
+            fi
+          fi
+          ;;
+        cohere)
+          if [[ -z "${COHERE_API_KEY:-}" ]]; then
+            local _cls
+            _cls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            [[ -n "$_cls" ]] && COHERE_API_KEY=$(echo "$_cls" | jq -r '.data.COHERE_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            if [[ -z "${COHERE_API_KEY:-}" ]]; then
+              warn "Cohere embeddings credentials not found — please enter them now"
+              _collect_cohere_embeddings_creds
+            fi
+          fi
+          ;;
+        litellm)
+          # Could be Voyage (api.voyageai.com) or a generic LiteLLM proxy.
+          # Both rescue the same way — endpoint + key from the live secret.
+          if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
+            local _vls
+            _vls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            if [[ -n "$_vls" ]]; then
+              [[ -z "${LITELLM_ENDPOINT:-}" ]] && LITELLM_ENDPOINT=$(echo "$_vls" | jq -r '.data.LITELLM_API_BASE // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+              [[ -z "${LITELLM_API_KEY:-}" ]]  && LITELLM_API_KEY=$(echo "$_vls" | jq -r '.data.LITELLM_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+            fi
+            if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
+              warn "LiteLLM/Voyage embeddings credentials not found — please enter them now"
+              if [[ "${EMBEDDINGS_MODEL:-}" =~ ^voyage- ]]; then
+                _collect_voyage_embeddings_creds
+              else
+                prompt "LiteLLM endpoint: "; tty_read -r LITELLM_ENDPOINT
+                prompt "LiteLLM API key (Enter for 'not-needed'): "; tty_read -rs LITELLM_API_KEY; echo ""
+                LITELLM_API_KEY="${LITELLM_API_KEY:-not-needed}"
+              fi
+            fi
+          fi
+          ;;
+        huggingface)
+          # HF token is OPTIONAL — public models don't need it. Just log
+          # whether we have one; never block the re-run.
+          if [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
+            local _hls
+            _hls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+            [[ -n "$_hls" ]] && HUGGINGFACEHUB_API_TOKEN=$(echo "$_hls" | jq -r '.data.HUGGINGFACEHUB_API_TOKEN // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
+          fi
+          ;;
       esac
       # Fall through — agent prompts still need to run below
     fi
@@ -1909,12 +2113,28 @@ choose_features() {
       ENABLE_RAG=true
       log "RAG enabled"
 
+      # Anthropic-aware note: Anthropic does not ship a native embeddings
+      # model. Their official recommendation is Voyage AI. We surface that
+      # here so a Claude user knows their options without forcing a choice.
+      # Source: https://platform.claude.com/docs/en/build-with-claude/embeddings
+      if [[ "${LLM_PROVIDER:-}" == "anthropic-claude" ]]; then
+        echo ""
+        echo -e "  ${YELLOW}${BOLD}Note:${NC} ${DIM}Anthropic does not ship its own embeddings model.${NC}"
+        echo -e "  ${DIM}Their official recommendation is ${BOLD}Voyage AI${NC}${DIM} (option 5 below).${NC}"
+        echo -e "  ${DIM}OpenAI, Azure OpenAI, AWS Bedrock, and Cohere all work too — pick whatever${NC}"
+        echo -e "  ${DIM}fits your existing account / latency / data-residency requirements.${NC}"
+      fi
+
       echo ""
       echo -e "  ${DIM}Embeddings provider:${NC}"
       echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
       echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
-      echo -e "    ${BOLD}3)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible embeddings endpoint)${NC}"
-      echo -e "    ${BOLD}4)${NC} Ollama             ${DIM}(local embeddings)${NC}"
+      echo -e "    ${BOLD}3)${NC} AWS Bedrock        ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
+      echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
+      echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
+      echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
+      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — runs in cluster, no API key needed)${NC}"
+      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r emb_provider_choice
@@ -1922,58 +2142,226 @@ choose_features() {
       case "$emb_provider_choice" in
         1) EMBEDDINGS_PROVIDER="openai" ;;
         2) EMBEDDINGS_PROVIDER="azure-openai" ;;
-        3) EMBEDDINGS_PROVIDER="litellm" ;;
-        4) EMBEDDINGS_PROVIDER="ollama" ;;
+        3) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
+        4) EMBEDDINGS_PROVIDER="cohere" ;;
+        5) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
+        6) EMBEDDINGS_PROVIDER="huggingface" ;;
+        7) EMBEDDINGS_PROVIDER="ollama" ;;
+        8) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="custom-litellm" ;;
         *) err "Invalid choice"; exit 1 ;;
       esac
 
+      # Model menu varies per provider. We keep the OpenAI / Azure / generic
+      # path identical to before; new providers get their canonical defaults.
       echo ""
       echo -e "  ${DIM}Embeddings model:${NC}"
-      echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
-      echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
-      echo -e "    ${BOLD}3)${NC} Custom"
-      echo ""
-      prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-      tty_read -r emb_choice
-      emb_choice="${emb_choice:-1}"
-      case "$emb_choice" in
-        1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
-        2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
-        3)
-          prompt "Enter custom embeddings model name: "
-          tty_read -r EMBEDDINGS_MODEL
-          if [[ -z "$EMBEDDINGS_MODEL" ]]; then
-            err "Model name is required"
-            exit 1
-          fi
+      case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
+        openai|azure-openai)
+          echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality, 3072 dims)${NC}"
+          echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost, 1536 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} Custom"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
+            2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
+            3)
+              prompt "Enter custom embeddings model name: "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
           ;;
-        *) err "Invalid choice"; exit 1 ;;
+        aws-bedrock)
+          echo -e "    ${BOLD}1)${NC} amazon.titan-embed-text-v2:0   ${DIM}(default, 1024 dims, lowest cost)${NC}"
+          echo -e "    ${BOLD}2)${NC} amazon.titan-embed-text-v1     ${DIM}(legacy, 1536 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} cohere.embed-english-v3        ${DIM}(English, 1024 dims)${NC}"
+          echo -e "    ${BOLD}4)${NC} cohere.embed-multilingual-v3   ${DIM}(100+ languages, 1024 dims)${NC}"
+          echo -e "    ${BOLD}5)${NC} Custom Bedrock model ID"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="amazon.titan-embed-text-v2:0" ;;
+            2) EMBEDDINGS_MODEL="amazon.titan-embed-text-v1" ;;
+            3) EMBEDDINGS_MODEL="cohere.embed-english-v3" ;;
+            4) EMBEDDINGS_MODEL="cohere.embed-multilingual-v3" ;;
+            5)
+              prompt "Enter Bedrock embeddings model ID: "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model ID is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
+          ;;
+        cohere)
+          echo -e "    ${BOLD}1)${NC} embed-english-v3.0             ${DIM}(default, 1024 dims)${NC}"
+          echo -e "    ${BOLD}2)${NC} embed-multilingual-v3.0        ${DIM}(100+ languages, 1024 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} embed-english-light-v3.0       ${DIM}(faster, 384 dims)${NC}"
+          echo -e "    ${BOLD}4)${NC} Custom"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="embed-english-v3.0" ;;
+            2) EMBEDDINGS_MODEL="embed-multilingual-v3.0" ;;
+            3) EMBEDDINGS_MODEL="embed-english-light-v3.0" ;;
+            4)
+              prompt "Enter custom Cohere model name: "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
+          ;;
+        voyage)
+          echo -e "    ${BOLD}1)${NC} voyage-4-large    ${DIM}(default, best quality, 1024 dims, 32K ctx)${NC}"
+          echo -e "    ${BOLD}2)${NC} voyage-4          ${DIM}(balanced cost/quality, 1024 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} voyage-4-lite     ${DIM}(lowest latency/cost, 1024 dims)${NC}"
+          echo -e "    ${BOLD}4)${NC} voyage-code-3     ${DIM}(code-optimised, 1024 dims)${NC}"
+          echo -e "    ${BOLD}5)${NC} Custom Voyage model"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="voyage-4-large" ;;
+            2) EMBEDDINGS_MODEL="voyage-4" ;;
+            3) EMBEDDINGS_MODEL="voyage-4-lite" ;;
+            4) EMBEDDINGS_MODEL="voyage-code-3" ;;
+            5)
+              prompt "Enter Voyage model name: "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
+          ;;
+        huggingface)
+          echo -e "    ${BOLD}1)${NC} sentence-transformers/all-MiniLM-L6-v2   ${DIM}(default, 384 dims, lightweight)${NC}"
+          echo -e "    ${BOLD}2)${NC} sentence-transformers/all-mpnet-base-v2  ${DIM}(higher quality, 768 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} sentence-transformers/all-MiniLM-L12-v2  ${DIM}(384 dims)${NC}"
+          echo -e "    ${BOLD}4)${NC} Custom HF model ID"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="sentence-transformers/all-MiniLM-L6-v2" ;;
+            2) EMBEDDINGS_MODEL="sentence-transformers/all-mpnet-base-v2" ;;
+            3) EMBEDDINGS_MODEL="sentence-transformers/all-MiniLM-L12-v2" ;;
+            4)
+              prompt "Enter HuggingFace model ID (org/model): "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model ID is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
+          warn "HuggingFace embeddings require the rag-server -hf image variant (~900MB larger)."
+          warn "  Ensure your chart sets rag-stack.rag-server.image.tag to a tag with the -hf suffix."
+          ;;
+        ollama)
+          echo -e "    ${BOLD}1)${NC} nomic-embed-text       ${DIM}(default, 768 dims)${NC}"
+          echo -e "    ${BOLD}2)${NC} mxbai-embed-large      ${DIM}(higher quality, 1024 dims)${NC}"
+          echo -e "    ${BOLD}3)${NC} Custom"
+          echo ""
+          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+          tty_read -r emb_choice
+          emb_choice="${emb_choice:-1}"
+          case "$emb_choice" in
+            1) EMBEDDINGS_MODEL="nomic-embed-text" ;;
+            2) EMBEDDINGS_MODEL="mxbai-embed-large" ;;
+            3)
+              prompt "Enter Ollama model name: "
+              tty_read -r EMBEDDINGS_MODEL
+              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+              ;;
+            *) err "Invalid choice"; exit 1 ;;
+          esac
+          ;;
+        custom-litellm|*)
+          echo -e "    ${DIM}Enter the model identifier your LiteLLM proxy expects.${NC}"
+          echo -e "    ${DIM}Examples: voyage/voyage-3, mistral/mistral-embed, gemini/text-embedding-004${NC}"
+          echo ""
+          prompt "Enter embeddings model name: "
+          tty_read -r EMBEDDINGS_MODEL
+          [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+          ;;
       esac
       log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
 
-      # Collect any extra credentials the chosen embeddings provider needs
-      if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
-        _collect_openai_embeddings_key
-      elif [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
-        echo ""
-        echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
-        if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
-          prompt "Azure OpenAI API key: "
-          tty_read -rs AZURE_OPENAI_API_KEY; echo ""
-          [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
-        fi
-        if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
-          prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
-          tty_read -r AZURE_OPENAI_ENDPOINT
-          [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
-        fi
-        if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
-          prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
-          tty_read -r input
-          AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
-        fi
-        log "Azure OpenAI embeddings credentials collected"
-      fi
+      # Collect any extra credentials the chosen embeddings provider needs.
+      case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
+        openai)
+          if [[ "$LLM_PROVIDER" != "openai" ]]; then
+            _collect_openai_embeddings_key
+          fi
+          ;;
+        azure-openai)
+          echo ""
+          echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
+          if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+            prompt "Azure OpenAI API key: "
+            tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+            [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
+          fi
+          if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+            prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
+            tty_read -r AZURE_OPENAI_ENDPOINT
+            [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
+          fi
+          if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
+            prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
+            tty_read -r input
+            AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
+          fi
+          log "Azure OpenAI embeddings credentials collected"
+          ;;
+        aws-bedrock)
+          _collect_aws_bedrock_embeddings_creds
+          ;;
+        cohere)
+          _collect_cohere_embeddings_creds
+          ;;
+        voyage)
+          _collect_voyage_embeddings_creds
+          ;;
+        huggingface)
+          _collect_huggingface_embeddings_creds
+          ;;
+        ollama)
+          # Ollama embeddings reach the same cluster-local ollama service the
+          # LLM path uses (option 5 on the LLM menu sets ENABLE_OLLAMA=true).
+          # Warn if the user picked Ollama embeddings without an Ollama LLM,
+          # because the chart doesn't yet stand up a standalone ollama pod
+          # purely for embeddings.
+          if ! $ENABLE_OLLAMA; then
+            warn "Ollama embeddings selected, but no Ollama LLM was configured."
+            warn "  The RAG server will reach OLLAMA_BASE_URL=http://localhost:${OLLAMA_PORT}."
+            warn "  You must run an Ollama server reachable from inside the cluster."
+          fi
+          ;;
+        custom-litellm)
+          if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
+            echo ""
+            echo -e "  ${DIM}LiteLLM proxy credentials:${NC}"
+            prompt "LiteLLM endpoint (e.g. http://litellm:4000): "
+            tty_read -r LITELLM_ENDPOINT
+            [[ -z "$LITELLM_ENDPOINT" ]] && { err "LITELLM endpoint is required"; exit 1; }
+            prompt "LiteLLM API key (Enter for 'not-needed'): "
+            tty_read -rs LITELLM_API_KEY; echo ""
+            LITELLM_API_KEY="${LITELLM_API_KEY:-not-needed}"
+            log "LiteLLM proxy credentials collected"
+          fi
+          ;;
+      esac
+      # Clear the source hint so re-runs don't leak it.
+      unset EMBEDDINGS_PROVIDER_SOURCE
 
       warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
       if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
@@ -2481,6 +2869,17 @@ create_namespace_and_secrets() {
           [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_elv AZURE_OPENAI_ENDPOINT)
           [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_elv AZURE_OPENAI_API_VERSION)
           ;;
+        aws-bedrock)
+          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_elv AWS_ACCESS_KEY_ID)
+          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_elv AWS_SECRET_ACCESS_KEY)
+          [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_elv AWS_REGION)
+          ;;
+        cohere)
+          [[ -z "${COHERE_API_KEY:-}" ]] && COHERE_API_KEY=$(_elv COHERE_API_KEY)
+          ;;
+        huggingface)
+          [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]] && HUGGINGFACEHUB_API_TOKEN=$(_elv HUGGINGFACEHUB_API_TOKEN)
+          ;;
         litellm)
           [[ -z "${LITELLM_ENDPOINT:-}" ]]  && LITELLM_ENDPOINT=$(_elv LITELLM_API_BASE)
           [[ -z "${LITELLM_API_KEY:-}" ]]   && LITELLM_API_KEY=$(_elv LITELLM_API_KEY)
@@ -2561,6 +2960,42 @@ create_namespace_and_secrets() {
       --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}"
     )
     log "Added AZURE_OPENAI_API_KEY/ENDPOINT/API_VERSION to llm-secret (needed for Azure OpenAI embeddings)"
+  fi
+
+  # AWS Bedrock embeddings — reuse the existing AWS_* trio. If the LLM is
+  # also aws-bedrock, the AWS_* keys are already in the secret_args bundle
+  # above and we don't duplicate them.
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "aws-bedrock" && "$LLM_PROVIDER" != "aws-bedrock" ]]; then
+    if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+      err "AWS Bedrock embeddings require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+      exit 1
+    fi
+    secret_args+=(
+      --from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+      --from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+      --from-literal=AWS_REGION="${AWS_REGION:-us-east-1}"
+    )
+    log "Added AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY/REGION to llm-secret (needed for Bedrock embeddings)"
+  fi
+
+  # Cohere embeddings — single API key.
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "cohere" ]]; then
+    if [[ -z "${COHERE_API_KEY:-}" ]]; then
+      err "Cohere embeddings require COHERE_API_KEY — re-run and select Cohere embeddings to be prompted for it"
+      exit 1
+    fi
+    secret_args+=(--from-literal=COHERE_API_KEY="${COHERE_API_KEY}")
+    log "Added COHERE_API_KEY to llm-secret (needed for Cohere embeddings)"
+  fi
+
+  # HuggingFace embeddings — token is optional (only required for gated models).
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "huggingface" ]]; then
+    if [[ -n "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
+      secret_args+=(--from-literal=HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN}")
+      log "Added HUGGINGFACEHUB_API_TOKEN to llm-secret (for gated HF models)"
+    fi
+    secret_args+=(--from-literal=EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}")
+    log "HuggingFace embeddings configured (device: ${EMBEDDINGS_DEVICE:-cpu})"
   fi
 
   kubectl create secret generic llm-secret -n caipe \
@@ -5137,11 +5572,15 @@ auto_heal_rag_server() {
     recent_logs=$(kubectl logs "$rag_pod" -n caipe -c rag-server \
       --tail=200 2>/dev/null || true)
 
-    # EMBEDDINGS_PROVIDER defaulting to azure-openai
-    if echo "$recent_logs" | grep -q "AZURE_OPENAI_ENDPOINT\|azure_endpoint"; then
-      warn "[auto-heal] RAG server has wrong embeddings provider; patching to openai"
+    # EMBEDDINGS_PROVIDER defaulting to azure-openai when the user picked
+    # a different provider. We only correct this when the user's chosen
+    # provider is NOT azure-openai — otherwise a real Azure pick would get
+    # clobbered the moment the rag-server logs a normal "endpoint=..." line.
+    if [[ "${EMBEDDINGS_PROVIDER:-}" != "azure-openai" ]] \
+       && echo "$recent_logs" | grep -q "AZURE_OPENAI_ENDPOINT\|azure_endpoint"; then
+      warn "[auto-heal] RAG server has wrong embeddings provider; patching to ${EMBEDDINGS_PROVIDER:-openai}"
       kubectl set env deployment/rag-server -n caipe \
-        EMBEDDINGS_PROVIDER=openai \
+        EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}" \
         EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL}" &>/dev/null || true
       log "[auto-heal] RAG server embeddings provider corrected"
       return 1
@@ -6066,7 +6505,10 @@ BANNER
       AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
       BEDROCK_TEMPERATURE
       AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION
-      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE)
+      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE
+      EMBEDDINGS_PROVIDER EMBEDDINGS_MODEL EMBEDDINGS_DEVICE
+      COHERE_API_KEY VOYAGE_API_KEY HUGGINGFACEHUB_API_TOKEN HF_TOKEN
+      LITELLM_ENDPOINT LITELLM_API_KEY)
     for _v in "${_llm_vars[@]}"; do
       local _val
       _val=$(_env_get "$ENV_FILE" "$_v")
@@ -6215,6 +6657,18 @@ Environment variables (all optional):
   CAIPE_CHART_VERSION     Pre-set chart version (skips version picker)
   EMBEDDINGS_MODEL        Embedding model (default: text-embedding-3-large)
   EMBEDDINGS_PROVIDER     Embedding provider (default: openai)
+                          Supported: openai, azure-openai, aws-bedrock, cohere,
+                                     huggingface, ollama, litellm
+                          Note: Anthropic does NOT ship a native embeddings model;
+                          their official recommendation is Voyage AI (use the
+                          interactive menu's "Voyage AI" option which routes via
+                          the litellm-compatible code path, or set
+                          EMBEDDINGS_PROVIDER=litellm + VOYAGE_API_KEY directly).
+                          See https://platform.claude.com/docs/en/build-with-claude/embeddings
+  COHERE_API_KEY          Cohere API key (for EMBEDDINGS_PROVIDER=cohere)
+  VOYAGE_API_KEY          Voyage AI API key (Anthropic-recommended embeddings)
+  HUGGINGFACEHUB_API_TOKEN HuggingFace API token (only needed for gated models)
+  EMBEDDINGS_DEVICE       HuggingFace device: cpu (default) | cuda | mps
   ENABLE_VLLM             Deploy vLLM + LiteLLM in-cluster (default: false, or select option 4)
   HF_TOKEN                HuggingFace token (for vLLM model download)
   VLLM_MODEL              vLLM model (default: openai/gpt-oss-20b)
@@ -6229,6 +6683,15 @@ LLM provider credentials are read from (in order):
   Bedrock:   1) AWS_ACCESS_KEY_ID env    2) ~/.config/bedrock.txt
              3) AWS_PROFILE env          4) ~/.aws/credentials [default]
              5) prompt
+
+Embeddings provider credentials are read from (in order):
+  OpenAI:    1) OPENAI_API_KEY env       2) ~/.config/openai.txt    3) prompt
+  Cohere:    1) COHERE_API_KEY env       2) ~/.config/cohere.txt    3) prompt
+  Voyage:    1) VOYAGE_API_KEY env       2) ~/.config/voyage.txt    3) prompt
+  HF:        1) HUGGINGFACEHUB_API_TOKEN env or HF_TOKEN env        3) prompt (optional)
+                2) ~/.config/huggingface.txt
+  Bedrock:   Same as LLM Bedrock credentials (reused if both = aws-bedrock)
+  Azure:     1) AZURE_OPENAI_API_KEY env + AZURE_OPENAI_ENDPOINT env  2) prompt
 
   ~/.config/bedrock.txt formats:
     .env style (KEY=VALUE per line, recommended):
