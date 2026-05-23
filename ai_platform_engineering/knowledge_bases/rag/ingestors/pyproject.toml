@@ -24,7 +24,6 @@ dependencies = [
     "redis==6.4.0",
     "requests==2.33.0",
     "scrapy==2.16.0",
-    "twisted==26.4.0",
     "slack-sdk==3.38.0",
 ]
 
