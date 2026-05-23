@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "slack-bot.name" -}}
+{{- define "webex-bot.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "slack-bot.fullname" -}}
+{{- define "webex-bot.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "slack-bot.chart" -}}
+{{- define "webex-bot.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "slack-bot.labels" -}}
-helm.sh/chart: {{ include "slack-bot.chart" . }}
-{{ include "slack-bot.selectorLabels" . }}
+{{- define "webex-bot.labels" -}}
+helm.sh/chart: {{ include "webex-bot.chart" . }}
+{{ include "webex-bot.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,23 +43,23 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "slack-bot.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "slack-bot.name" . }}
+{{- define "webex-bot.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "webex-bot.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "slack-bot.serviceAccountName" -}}
+{{- define "webex-bot.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "slack-bot.fullname" .) .Values.serviceAccount.name }}
+{{- default (include "webex-bot.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
 
-{{- define "slack-bot.appVersion" -}}
+{{- define "webex-bot.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
 
@@ -67,14 +67,14 @@ Create the name of the service account to use
 Resolve maintained CAIPE image repositories for release vs pre-release channels.
 
 Usage:
-  include "slack-bot.imageRepository" (dict "root" . "repository" .Values.image.repository)
+  include "webex-bot.imageRepository" (dict "root" . "repository" .Values.image.repository)
 
 The default channel is derived from .Chart.AppVersion: rc/hotfix/dev versions use
 `ghcr.io/cnoe-io/pre-release/*`, final versions use `ghcr.io/cnoe-io/*`.
 Operators may force either channel with global.image.channel=pre-release|release.
 Explicit non-CAIPE repositories are left unchanged.
 */}
-{{- define "slack-bot.imageRepository" -}}
+{{- define "webex-bot.imageRepository" -}}
 {{- $root := index . "root" -}}
 {{- $repository := index . "repository" | default "" -}}
 {{- $global := $root.Values.global | default dict -}}
