@@ -25,7 +25,7 @@ concurrency:
 
 jobs:
   test:
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
