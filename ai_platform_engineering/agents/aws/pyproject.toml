@@ -2,7 +2,7 @@
 name = "agent_aws"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An AWS EKS AI agent using Strands Agents SDK and AWS EKS MCP Server."
+description = "An AWS EKS AI agent using LangGraph and AWS native tools."
 readme = "README.md"
 authors = [
     { name = "Omar Sayed", email = "osayed@cisco.com" },
@@ -12,7 +12,7 @@ maintainers = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "strands-agents==1.19.0",
+    # assisted-by Codex Codex-sonnet-4-6
     "boto3==1.40.19",
     "pydantic==2.12.5",
     "click==8.3.1",

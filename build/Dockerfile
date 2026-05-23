@@ -1,7 +1,5 @@
-# ---------- Stage 0: Go toolchain (for github-mcp-server STDIO) ----------
-FROM golang:1.26.2-bookworm AS golang
-
 # ---------- Stage 1: Build dependencies ----------
+# assisted-by Codex Codex-sonnet-4-6
 FROM python:3.13-slim AS builder
 
 # Install system dependencies and uv in one layer
@@ -41,12 +39,15 @@ RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bed
 # Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.
 FROM cgr.dev/chainguard/wolfi-base
 
+ARG TERRAFORM_VERSION=1.15.4
+
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
 
-# Install runtime dependencies. shadow provides groupadd/useradd.
+# Install runtime dependencies. shadow provides groupadd/useradd. Go, kubectl,
+# and gh come from Wolfi packages so they are rebuilt with Wolfi's patched Go toolchain.
 RUN for i in 1 2 3; do \
-        apk add --no-cache python-3.13 git wget curl grep unzip bash shadow && break; \
+        apk add --no-cache python-3.13 git wget curl grep unzip bash shadow go-1.26 kubectl-1.36-default gh && break; \
         [ $i -lt 3 ] && sleep $((i * 10)); \
     done && \
     apk upgrade --no-cache
@@ -74,40 +75,13 @@ RUN ARCH=$(uname -m) && \
     ./aws/install && \
     rm -rf awscliv2.zip aws
 
-# kubectl — used by eks_kubectl_execute tool in single-node AWS subagent
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        KUBECTL_ARCH="arm64"; \
-    else \
-        KUBECTL_ARCH="amd64"; \
-    fi && \
-    KUBECTL_VERSION=$(curl -sfL --retry 5 --retry-delay 3 https://dl.k8s.io/release/stable.txt) && \
-    if [ -z "$KUBECTL_VERSION" ]; then echo "Failed to fetch kubectl version"; exit 1; fi && \
-    curl -sfLO --retry 5 --retry-delay 3 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" && \
-    chmod +x kubectl && \
-    mv kubectl /usr/local/bin/kubectl
-
 # Terraform CLI — used by terraform_fmt tool for HCL formatting in self-service tasks
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; else ARCH="amd64"; fi && \
-    wget -q "https://releases.hashicorp.com/terraform/1.14.8/terraform_1.14.8_linux_${ARCH}.zip" -O /tmp/terraform.zip \
+    wget -q "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" -O /tmp/terraform.zip \
     && unzip -o /tmp/terraform.zip -d /usr/local/bin/ \
     && rm /tmp/terraform.zip \
     && chmod +x /usr/local/bin/terraform
-
-# GitHub CLI — used by gh_cli_execute tool in single-node GitHub subagent
-RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then ARCH="arm64"; else ARCH="amd64"; fi && \
-    curl -sfL --retry 5 --retry-delay 3 \
-       "https://github.com/cli/cli/releases/download/v2.90.0/gh_2.90.0_linux_${ARCH}.tar.gz" \
-       -o /tmp/gh.tar.gz \
-    && tar -xzf /tmp/gh.tar.gz -C /tmp \
-    && mv /tmp/gh_2.90.0_linux_${ARCH}/bin/gh /usr/local/bin/gh \
-    && chmod +x /usr/local/bin/gh \
-    && rm -rf /tmp/gh.tar.gz /tmp/gh_*
-
-# Go toolchain — needed at runtime by github-mcp-server (go run via STDIO)
-COPY --from=golang /usr/local/go /usr/local/go
 
 # Create appuser in final image
 RUN groupadd -r appuser && useradd -r -g appuser -u 1001 -m appuser
@@ -121,7 +95,7 @@ WORKDIR /app
 # must be omitted to avoid shadowing PyPI packages with same-named subdirectories.
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     GOPATH="/home/appuser/go" \
-    PATH="/app/.venv/bin:/usr/local/go/bin:/home/appuser/go/bin:${PATH}" \
+    PATH="/app/.venv/bin:/home/appuser/go/bin:${PATH}" \
     PYTHONPATH="/app/ai_platform_engineering/agents/github:/app/ai_platform_engineering/agents/backstage:/app/ai_platform_engineering/agents/jira:/app/ai_platform_engineering/agents/webex:/app/ai_platform_engineering/agents/argocd:/app/ai_platform_engineering/agents/aigateway:/app/ai_platform_engineering/agents/pagerduty:/app/ai_platform_engineering/agents/slack:/app/ai_platform_engineering/agents/splunk:/app/ai_platform_engineering/agents/komodor:/app/ai_platform_engineering/agents/confluence:/app/ai_platform_engineering/agents/aws:/app/ai_platform_engineering/agents/gitlab:/app/ai_platform_engineering/agents/netutils:/app/ai_platform_engineering/agents/victorops:/app/ai_platform_engineering/agents/weather:${PYTHONPATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
