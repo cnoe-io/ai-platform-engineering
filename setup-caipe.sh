@@ -53,6 +53,7 @@ ENABLE_GRAPH_RAG=false
 ENABLE_VLLM="${ENABLE_VLLM:-false}"
 ENABLE_OLLAMA="${ENABLE_OLLAMA:-false}"
 ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-false}"
+ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-false}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -60,6 +61,8 @@ OLLAMA_PORT=11434
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
+KEYCLOAK_PORT=7080
+OPENFGA_PORT=18080
 INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
 SUPERVISOR_RAG_RESTARTED=false
@@ -108,6 +111,9 @@ cleanup_on_exit() {
   pkill -f "kubectl port-forward.*caipe-supervisor-agent.*${SUPERVISOR_PORT:-8000}:8000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*caipe-caipe-ui.*${UI_PORT:-3000}:3000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*langfuse-web.*${LANGFUSE_PORT:-3100}:3000" 2>/dev/null || true
+  pkill -f "kubectl port-forward.*caipe-keycloak.*${KEYCLOAK_PORT:-7080}:8080" 2>/dev/null || true
+  pkill -f "kubectl port-forward.*caipe-openfga.*${OPENFGA_PORT:-18080}:8080" 2>/dev/null || true
+  pkill -f "kubectl port-forward.*caipe-agentgateway.*${AGENTGATEWAY_PORT:-8080}:4000" 2>/dev/null || true
   rm -f /tmp/langfuse-cookies /tmp/caipe-validation-*.log
   exec 3<&- 2>/dev/null || true
 }
@@ -1803,6 +1809,7 @@ choose_features() {
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
+    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (--rbac-runtime)" || log "RBAC runtime skipped (pass --rbac-runtime to enable)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
     $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (--dynamic-agents)" || log "Dynamic agents skipped (pass --dynamic-agents to enable)"
     if $ENABLE_METALLB; then
@@ -2084,7 +2091,7 @@ choose_features() {
         fi ;;
       webex)
         prompt "Webex Bot Token (blank to skip): "
-        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_BOT_TOKEN="$_v" --from-literal=WEBEX_TOKEN="$_v")
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_INTEGRATION_BOT_ACCESS_TOKEN="$_v")
         if ! $_skip; then
           prompt "Webex Webhook Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=WEBEX_WEBHOOK_SECRET="$_v")
         fi ;;
@@ -2149,6 +2156,25 @@ choose_features() {
       log "AgentGateway enabled"
     else
       log "AgentGateway skipped"
+    fi
+  fi
+
+  echo ""
+  echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
+  echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
+  if $ENABLE_RBAC_RUNTIME; then
+    log "RBAC runtime already enabled (detected from cluster)"
+    ENABLE_AGENTGATEWAY=true
+    if ! ask_yn "Keep RBAC runtime?" "y"; then
+      ENABLE_RBAC_RUNTIME=false
+    fi
+  else
+    if ask_yn "Enable RBAC runtime services?" "n"; then
+      ENABLE_RBAC_RUNTIME=true
+      ENABLE_AGENTGATEWAY=true
+      log "RBAC runtime enabled"
+    else
+      log "RBAC runtime skipped"
     fi
   fi
 
@@ -2334,7 +2360,7 @@ _agent_secret_keys() {
     backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
     slack) echo "SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID" ;;
     pagerduty) echo "PAGERDUTY_API_KEY PAGERDUTY_API_URL" ;;
-    webex) echo "WEBEX_TOKEN" ;;
+    webex) echo "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN" ;;
     komodor) echo "KOMODOR_TOKEN KOMODOR_API_URL" ;;
     aws) echo "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE" ;;
     splunk) echo "SPLUNK_TOKEN SPLUNK_API_URL" ;;
@@ -3808,6 +3834,84 @@ LITELLM_EOF
   log "LiteLLM proxy deployed (endpoint: http://litellm-proxy.caipe.svc.cluster.local:4000)"
 }
 
+_write_rbac_runtime_values() {
+  local values_file
+  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX.yaml)
+
+  local keycloak_ssl_required="external"
+  if [[ -z "$CAIPE_DOMAIN" ]]; then
+    keycloak_ssl_required="none"
+  fi
+
+  cat > "$values_file" <<RBACEOF
+tags:
+  keycloak: true
+
+global:
+  openfga:
+    httpUrl: "http://caipe-openfga:8080"
+    storeName: "caipe-openfga"
+  agentgateway:
+    enabled: true
+    proxyPort: ${AGENTGATEWAY_PORT}
+    extAuth:
+      enabled: true
+      serviceName: "caipe-openfga-authz-bridge"
+      serviceNamespace: "caipe"
+      port: 9100
+
+keycloak:
+  realm:
+    sslRequired: "${keycloak_ssl_required}"
+
+openfga:
+  enabled: true
+  init:
+    enabled: true
+    storeName: "caipe-openfga"
+
+openfgaAuthzBridge:
+  enabled: true
+
+openfga-authz-bridge:
+  openfga:
+    httpUrl: "http://caipe-openfga:8080"
+    storeName: "caipe-openfga"
+  tokenValidation:
+    jwksUrl: "http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    algorithms:
+      - RS256
+
+agentgateway:
+  enabled: true
+
+caipe-ui:
+  config:
+    OPENFGA_HTTP: "http://caipe-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    OPENFGA_RECONCILE_ENABLED: "true"
+    KEYCLOAK_URL: "http://caipe-keycloak:8080"
+    KEYCLOAK_REALM: "caipe"
+    KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
+RBACEOF
+
+  if [[ -n "$UI_ENV_FILE" ]]; then
+    local oidc_issuer
+    oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
+    if [[ -n "$oidc_issuer" ]]; then
+      cat >> "$values_file" <<RBACEOF
+    SSO_ENABLED: "true"
+
+openfga-authz-bridge:
+  tokenValidation:
+    issuer: "${oidc_issuer}"
+RBACEOF
+    fi
+  fi
+
+  printf '%s' "$values_file"
+}
+
 deploy_agentgateway() {
   step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
 
@@ -4303,6 +4407,13 @@ DAEOF
     log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
   fi
 
+  if $ENABLE_RBAC_RUNTIME; then
+    local _rbac_values_file
+    _rbac_values_file=$(_write_rbac_runtime_values)
+    helm_args+=(--values "$_rbac_values_file")
+    log "RBAC runtime configured (Keycloak, OpenFGA, OpenFGA bridge, AgentGateway)"
+  fi
+
   if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
     # Kubernetes Ingress spec.rules[].host must be a DNS name, not an IP address.
     # When CAIPE_DOMAIN is an IP, omit the host field (nginx will match all requests).
@@ -4523,39 +4634,69 @@ run_validation() {
 
   # ── AgentGateway ──
   if $ENABLE_AGENTGATEWAY; then
-    local ag_ready
-    ag_ready=$(kubectl get pods -n agentgateway-system -l app.kubernetes.io/name=agentgateway \
-      --no-headers 2>/dev/null \
-      | awk '$3=="Running" {split($2,a,"/"); if(a[1]==a[2]) print "ready"}' | head -1)
-    if [[ "$ag_ready" == "ready" ]]; then
-      print_result "$(date '+%H:%M:%S') ✓ AgentGateway control plane is running"
-      pass=$((pass + 1))
+    if $ENABLE_RBAC_RUNTIME; then
+      local ag_proxy_ready
+      ag_proxy_ready=$(kubectl get deployment caipe-agentgateway -n caipe \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+      if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
+        print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
+        fail=$((fail + 1))
+      fi
     else
-      print_result "$(date '+%H:%M:%S') ✗ AgentGateway control plane is not ready"
-      fail=$((fail + 1))
-    fi
+      local ag_ready
+      ag_ready=$(kubectl get pods -n agentgateway-system -l app.kubernetes.io/name=agentgateway \
+        --no-headers 2>/dev/null \
+        | awk '$3=="Running" {split($2,a,"/"); if(a[1]==a[2]) print "ready"}' | head -1)
+      if [[ "$ag_ready" == "ready" ]]; then
+        print_result "$(date '+%H:%M:%S') ✓ AgentGateway control plane is running"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ AgentGateway control plane is not ready"
+        fail=$((fail + 1))
+      fi
 
-    local ag_proxy_ready
-    ag_proxy_ready=$(kubectl get deployment agentgateway-proxy -n agentgateway-system \
-      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
-      print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
-      pass=$((pass + 1))
-    else
-      print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
-      fail=$((fail + 1))
-    fi
+      local ag_proxy_ready
+      ag_proxy_ready=$(kubectl get deployment agentgateway-proxy -n agentgateway-system \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+      if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
+        print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
+        fail=$((fail + 1))
+      fi
 
-    local mcp_backend_count
-    mcp_backend_count=$(kubectl get agentgatewaybackend -n caipe \
-      -l app.kubernetes.io/managed-by=setup-caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    if [[ "$mcp_backend_count" -gt 0 ]]; then
-      print_result "$(date '+%H:%M:%S') ✓ ${mcp_backend_count} MCP backend(s) configured in AgentGateway"
-      pass=$((pass + 1))
-    else
-      print_result "$(date '+%H:%M:%S') ⚠ No MCP backends configured in AgentGateway"
-      warn_count=$((warn_count + 1))
+      local mcp_backend_count
+      mcp_backend_count=$(kubectl get agentgatewaybackend -n caipe \
+        -l app.kubernetes.io/managed-by=setup-caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+      if [[ "$mcp_backend_count" -gt 0 ]]; then
+        print_result "$(date '+%H:%M:%S') ✓ ${mcp_backend_count} MCP backend(s) configured in AgentGateway"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ⚠ No MCP backends configured in AgentGateway"
+        warn_count=$((warn_count + 1))
+      fi
     fi
+  fi
+
+  # ── RBAC runtime ──
+  if $ENABLE_RBAC_RUNTIME; then
+    local component deploy_name ready_replicas
+    for component in keycloak openfga openfga-authz-bridge; do
+      deploy_name="caipe-${component}"
+      ready_replicas=$(kubectl get deployment "$deploy_name" -n caipe \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+      if [[ "${ready_replicas:-0}" -ge 1 ]]; then
+        print_result "$(date '+%H:%M:%S') ✓ ${deploy_name} is running"
+        pass=$((pass + 1))
+      else
+        print_result "$(date '+%H:%M:%S') ✗ ${deploy_name} is not ready"
+        fail=$((fail + 1))
+      fi
+    done
   fi
 
   # ── Summary ──
@@ -5195,7 +5336,16 @@ monitor_port_forwards() {
   fi
 
   if $ENABLE_AGENTGATEWAY; then
-    start_pf agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
+    if $ENABLE_RBAC_RUNTIME; then
+      start_pf caipe-agentgateway caipe "$AGENTGATEWAY_PORT" 4000 "AgentGateway MCP"
+    else
+      start_pf agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
+    fi
+  fi
+
+  if $ENABLE_RBAC_RUNTIME; then
+    start_pf caipe-keycloak caipe "$KEYCLOAK_PORT" 8080 "Keycloak"
+    start_pf caipe-openfga caipe "$OPENFGA_PORT" 8080 "OpenFGA"
   fi
 
   # Wait for port-forwards to become responsive before running tests
@@ -5247,21 +5397,27 @@ monitor_port_forwards() {
     echo -e "    Langfuse UI     ${CYAN}http://localhost:${LANGFUSE_PORT}${NC}"
     echo -e "      Login: ${DIM}lab@lab.com / Lab12345!${NC}"
   fi
+  if $ENABLE_RBAC_RUNTIME; then
+    echo -e "    Keycloak        ${CYAN}http://localhost:${KEYCLOAK_PORT}${NC}"
+    echo -e "    OpenFGA         ${CYAN}http://localhost:${OPENFGA_PORT}${NC}"
+  fi
   if $ENABLE_AGENTGATEWAY; then
     echo -e "    AgentGateway    ${CYAN}http://localhost:${AGENTGATEWAY_PORT}${NC}"
-    echo ""
-    echo -e "  ${BOLD}MCP Client URLs (via AgentGateway):${NC}"
-    local ag_svcs
-    ag_svcs=$(kubectl get agentgatewaybackend -n caipe \
-      -l app.kubernetes.io/managed-by=setup-caipe \
-      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-    if [[ -n "$ag_svcs" ]]; then
-      while IFS= read -r backend_name; do
-        [[ -z "$backend_name" ]] && continue
-        local agent_short
-        agent_short=$(echo "$backend_name" | sed 's/^mcp-//' | sed 's/-backend$//')
-        echo -e "    ${DIM}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
-      done <<< "$ag_svcs"
+    if ! $ENABLE_RBAC_RUNTIME; then
+      echo ""
+      echo -e "  ${BOLD}MCP Client URLs (via AgentGateway):${NC}"
+      local ag_svcs
+      ag_svcs=$(kubectl get agentgatewaybackend -n caipe \
+        -l app.kubernetes.io/managed-by=setup-caipe \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+      if [[ -n "$ag_svcs" ]]; then
+        while IFS= read -r backend_name; do
+          [[ -z "$backend_name" ]] && continue
+          local agent_short
+          agent_short=$(echo "$backend_name" | sed 's/^mcp-//' | sed 's/-backend$//')
+          echo -e "    ${DIM}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
+        done <<< "$ag_svcs"
+      fi
     fi
   fi
   echo ""
@@ -5538,6 +5694,14 @@ detect_deployed_features() {
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
   fi
+  if kubectl get deployment caipe-agentgateway -n caipe &>/dev/null 2>&1; then
+    ENABLE_AGENTGATEWAY=true
+    ENABLE_RBAC_RUNTIME=true
+  fi
+  if kubectl get deployment caipe-openfga -n caipe &>/dev/null 2>&1 \
+       || kubectl get deployment caipe-keycloak -n caipe &>/dev/null 2>&1; then
+    ENABLE_RBAC_RUNTIME=true
+  fi
   if kubectl get deployment caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
     ENABLE_DYNAMIC_AGENTS=true
   fi
@@ -5758,7 +5922,8 @@ BANNER
     elif $NON_INTERACTIVE; then
       # Non-interactive: monitor only unless flags imply an upgrade
       if [[ -n "${CAIPE_CHART_VERSION:-}" ]] || $ENABLE_RAG || $ENABLE_GRAPH_RAG \
-           || $ENABLE_TRACING || $ENABLE_AGENTGATEWAY || $INJECT_CORPORATE_CA || [[ ${#INGEST_URLS[@]} -gt 0 ]]; then
+           || $ENABLE_TRACING || $ENABLE_AGENTGATEWAY || $ENABLE_RBAC_RUNTIME \
+           || $INJECT_CORPORATE_CA || [[ ${#INGEST_URLS[@]} -gt 0 ]]; then
         rerun_choice=2
       else
         rerun_choice=1
@@ -5862,8 +6027,10 @@ BANNER
   deploy_caipe
   post_deploy_patches
 
-  # AgentGateway runs after CAIPE so MCP services exist for auto-discovery
-  if $ENABLE_AGENTGATEWAY; then
+  # The legacy AgentGateway controller path runs after CAIPE so MCP services exist
+  # for auto-discovery. The RBAC runtime path installs the standalone proxy as
+  # part of the CAIPE Helm release.
+  if $ENABLE_AGENTGATEWAY && ! $ENABLE_RBAC_RUNTIME; then
     deploy_agentgateway
   fi
 
@@ -5902,6 +6069,8 @@ Options:
                      with TLS inspection, e.g. Cisco Secure Access, Zscaler)
   --tracing          Enable Langfuse tracing (with --non-interactive, or pre-selects in interactive)
   --agentgateway     Deploy AgentGateway to federate MCP servers behind a single endpoint
+  --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
+                     OpenFGA ext_authz bridge, and standalone AgentGateway
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
@@ -5954,6 +6123,7 @@ Environment variables (all optional):
   VLLM_MODEL              vLLM model (default: openai/gpt-oss-20b)
   VLLM_GPU_COUNT          GPUs per vLLM replica (default: 1)
   ENABLE_AGENTGATEWAY     Enable AgentGateway (default: false)
+  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services (default: false)
   AGENTGATEWAY_VERSION    AgentGateway Helm chart version (default: v2.2.1)
 
 LLM provider credentials are read from (in order):
@@ -5993,6 +6163,7 @@ Examples:
   LLM_PROVIDER=aws-bedrock $(basename "$0") --non-interactive       # AWS Bedrock (uses profile)
   ENABLE_VLLM=true $(basename "$0") --non-interactive                    # vLLM + LiteLLM (gpt-oss-20B in-cluster)
   $(basename "$0") --non-interactive --agentgateway                     # deploy with AgentGateway for MCP access
+  $(basename "$0") --non-interactive --rbac-runtime                     # deploy Keycloak + OpenFGA + bridge + AgentGateway
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
   $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
   $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
@@ -6016,6 +6187,7 @@ for arg in "$@"; do
     --corporate-ca)    INJECT_CORPORATE_CA=true ;;
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
+    --rbac-runtime)    ENABLE_RBAC_RUNTIME=true; ENABLE_AGENTGATEWAY=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
     --metallb)         ENABLE_METALLB=true ;;
     --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
@@ -6035,6 +6207,7 @@ for arg in "$@"; do
   esac
 done
 
+$ENABLE_RBAC_RUNTIME && ENABLE_AGENTGATEWAY=true
 $ENABLE_GRAPH_RAG && ENABLE_RAG=true
 [[ ${#INGEST_URLS[@]} -gt 0 ]] && ENABLE_RAG=true
 
