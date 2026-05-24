@@ -6,8 +6,9 @@ import pprint
 import json
 
 async def list_tools():
+  mcp_url = os.environ.get("MCP_URL", "http://127.0.0.1:8000/sse")
   async with Client(
-    transport=SSETransport("os.environ.get('MCP_URL', 'http://127.0.0.1:8000/sse')")
+    transport=SSETransport(mcp_url)
   ) as client:
     # await client.ping()
     async with client:
