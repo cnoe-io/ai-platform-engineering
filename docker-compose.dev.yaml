@@ -1409,6 +1409,20 @@ services:
       - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
       - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-caipe-platform-dev-secret}
       - RBAC_CACHE_TTL_SECONDS=${RBAC_CACHE_TTL_SECONDS:-60}
+      # Pin the realm-wide active-team default scope. Read by the BFF
+      # Keycloak RBAC reconciliation migration (`keycloak-rbac-reconciliation.ts`)
+      # and by the admin `Reconcile active-team scope` button. When set,
+      # `selectAgentGatewayActiveTeamScope(<slug>)` runs on every reconciliation
+      # cycle, unbinding any stray `team-*` default scopes from the OBO audience
+      # client (`caipe-platform`) and re-binding only `team-<slug>` as default —
+      # which guarantees `active_team` in OBO-exchanged tokens is deterministic
+      # even if an admin re-saves another team via `ensureTeamClientScope`.
+      # Unset means the reconciler picks the slug only if exactly one Mongo
+      # team exists; with ≥2 teams it logs a warning and skips, which is how
+      # the realm can drift to multiple team-* defaults on the audience.
+      # Aliases: `KEYCLOAK_DEFAULT_ACTIVE_TEAM_SLUG`, `ACTIVE_TEAM_SLUG`
+      # (lower-priority fallbacks; see `configuredActiveTeamSlug`).
+      - KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG=${KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG:-}
       # 098 Enterprise RBAC — Keycloak Admin API (US6: role/mapping CRUD from Admin UI)
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}

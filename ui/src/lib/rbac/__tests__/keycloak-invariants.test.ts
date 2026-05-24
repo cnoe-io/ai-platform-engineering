@@ -540,6 +540,109 @@ describe("evaluateKeycloakInvariants — hydration regression (real Keycloak sha
   });
 });
 
+describe("evaluateKeycloakInvariants — audience.<client>.single_team_default", () => {
+  // The drift this invariant catches: `ensureTeamClientScope(slug)` binds
+  // `team-<slug>` as default on the OBO audience client. If it runs for
+  // two different teams without a paired `selectAgentGatewayActiveTeamScope`
+  // call (which happens when `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is unset and
+  // Mongo has multiple teams), the audience ends up with TWO `team-*` default
+  // scopes. Both protocol mappers fire during RFC 8693 token exchange and
+  // the `active_team` claim becomes non-deterministic. This invariant
+  // surfaces the drift the moment it happens.
+
+  it("passes when audience has exactly one team-* default scope", () => {
+    const invariants = evaluate(happyPathValues());
+    const inv = findInv(invariants, `audience.${AUDIENCE}.single_team_default`);
+    expect(inv.status).toBe("pass");
+    expect(inv.remediation).toBe("none");
+  });
+
+  it("passes when audience has zero team-* default scopes", () => {
+    // A freshly-provisioned realm (no teams onboarded yet) is degenerate
+    // but legal — every team-scope optional-binding will fail, but the
+    // cardinality invariant must NOT itself fail since 0 ≤ 1.
+    const values = happyPathValues({
+      active_team_defaults: [
+        { audience_client_id: AUDIENCE, default_team_scopes: [] },
+      ],
+    });
+    const inv = findInv(evaluate(values), `audience.${AUDIENCE}.single_team_default`);
+    expect(inv.status).toBe("pass");
+  });
+
+  it("excludes team-personal from the cardinality count", () => {
+    // `team-personal` is intentionally NOT counted: it is never bound as
+    // default on the audience (the DM-mode known-limitation invariant
+    // covers that gap). If it somehow shows up here, it must not flip
+    // the single-default check to fail.
+    const values = happyPathValues({
+      active_team_defaults: [
+        {
+          audience_client_id: AUDIENCE,
+          // Hypothetical drift: team-platform (real) + team-personal (would
+          // never happen via the normal code path but defends against
+          // operator hand-binding).
+          default_team_scopes: ["team-platform", "team-personal"],
+        },
+      ],
+    });
+    const inv = findInv(evaluate(values), `audience.${AUDIENCE}.single_team_default`);
+    expect(inv.status).toBe("pass");
+  });
+
+  it("fails when audience has two real team-* default scopes (the actual drift)", () => {
+    const values = happyPathValues({
+      active_team_defaults: [
+        {
+          audience_client_id: AUDIENCE,
+          default_team_scopes: ["team-platform", "team-eti-sre-admin"],
+        },
+      ],
+    });
+    const inv = findInv(evaluate(values), `audience.${AUDIENCE}.single_team_default`);
+    expect(inv.status).toBe("fail");
+    expect(inv.remediation).toBe("reconcile_now");
+    expect(inv.detail).toContain("team-platform");
+    expect(inv.detail).toContain("team-eti-sre-admin");
+    expect(inv.detail).toContain("non-deterministic");
+    expect(summarizeKeycloakInvariants(evaluate(values)).reconcile_now_recommended).toBe(true);
+  });
+
+  it("fails with all offending scopes named in the detail (three or more)", () => {
+    const values = happyPathValues({
+      active_team_defaults: [
+        {
+          audience_client_id: AUDIENCE,
+          default_team_scopes: ["team-a", "team-b", "team-c"],
+        },
+      ],
+    });
+    const inv = findInv(evaluate(values), `audience.${AUDIENCE}.single_team_default`);
+    expect(inv.status).toBe("fail");
+    expect(inv.detail).toContain("team-a");
+    expect(inv.detail).toContain("team-b");
+    expect(inv.detail).toContain("team-c");
+  });
+
+  it("emits one invariant per audience row (supports multi-audience realms)", () => {
+    // Defensive: today the inspector only reports the single OBO audience,
+    // but if a future realm grows a second audience client the invariant
+    // must emit one row per audience so the panel can show them
+    // independently.
+    const values = happyPathValues({
+      active_team_defaults: [
+        { audience_client_id: AUDIENCE, default_team_scopes: ["team-platform"] },
+        { audience_client_id: "caipe-platform-dm", default_team_scopes: ["team-a", "team-b"] },
+      ],
+    });
+    const invariants = evaluate(values);
+    expect(findInv(invariants, `audience.${AUDIENCE}.single_team_default`).status).toBe("pass");
+    expect(
+      findInv(invariants, "audience.caipe-platform-dm.single_team_default").status,
+    ).toBe("fail");
+  });
+});
+
 describe("summarizeKeycloakInvariants", () => {
   it("counts pass/fail/unknown and flags reconcile when reconcile_now failures exist", () => {
     const summary = summarizeKeycloakInvariants([

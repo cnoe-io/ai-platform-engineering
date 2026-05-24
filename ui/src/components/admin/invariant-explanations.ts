@@ -459,6 +459,32 @@ export function explainInvariant(id: string): InvariantExplanation {
         `something \`Reconcile all\` can fix automatically.`,
     };
   }
+  const audienceSingleDefault = id.match(/^audience\.(.+)\.single_team_default$/);
+  if (audienceSingleDefault) {
+    const audience = audienceSingleDefault[1];
+    return {
+      title: `${audience} has at most one real team-* default scope`,
+      body:
+        `This row checks the single most important invariant for OBO ` +
+        `token exchange: the audience client \`${audience}\` must have ` +
+        `*at most one* real \`team-*\` ${CLIENT_SCOPE_GLOSS} bound as a ` +
+        `default scope. Under ${TOKEN_EXCHANGE_GLOSS}, Keycloak silently ` +
+        `drops the \`scope=\` request parameter and only injects mappers ` +
+        `from scopes that are *default* on the audience. If two or more ` +
+        `\`team-*\` scopes are default, each one's ${PROTOCOL_MAPPER_GLOSS} ` +
+        `fires and writes the ${ACTIVE_TEAM_CLAIM_GLOSS} — mapper order ` +
+        `is undefined, so the bot receives whichever team's mapper happened ` +
+        `to win the race. The bot's mismatch check (\`obo_exchange.py\`) ` +
+        `then rejects every DM whose token came back with the wrong team. ` +
+        `If this row is red, click \`Reconcile active-team scope\` below ` +
+        `or set \`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` and re-run the Keycloak ` +
+        `RBAC reconciliation migration — both call ` +
+        `\`selectAgentGatewayActiveTeamScope(<${SLUG_GLOSS}>)\` which ` +
+        `unbinds every stray \`team-*\` default and re-binds only the ` +
+        `selected one. \`team-personal\` is excluded from the count (the ` +
+        `DM-mode known-limitation row covers it separately).`,
+    };
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Fallback — keeps the UI working if a new ID lands without a

@@ -611,6 +611,29 @@ guessing, and the warning fires until you set
     triage long lists without losing context. The button becomes available
     whenever any failing invariant has `remediation: reconcile_now`, even if the
     schema and migration manifest are already current.
+- **Reconcile active-team scope (targeted heal)** — there is one specific
+  invariant the migration can drift back on: `audience.<client>.single_team_default`.
+  If `caipe-platform` has two or more real `team-*` default scopes, every
+  OBO-exchanged token gets a non-deterministic `active_team` claim (multiple
+  protocol mappers fire and the last one wins; mapper-order is undefined). This
+  intermittently breaks Slack/Webex bot DMs and channel routing in a way that
+  looks random — sometimes works, sometimes "team session unavailable".
+  - The migration heals this drift only when `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is
+    set on the `caipe-ui` deployment to a real slug (e.g. `=platform`). With
+    that env var set, every reconciliation pass calls
+    `selectAgentGatewayActiveTeamScope(<slug>)`, which unbinds every other
+    `team-*` default and re-binds only `team-<slug>` — so even if a future
+    `ensureTeamClientScope` call binds another team's scope as default, the
+    next cycle cleans it up.
+  - With that env var unset and ≥2 teams in Mongo, the migration emits a
+    warning and skips the call. The panel then renders a dedicated
+    **Reconcile active-team scope** picker on the card: it lists the current
+    `team-*` defaults on each audience client (so an admin can see what
+    they're choosing between without leaving the page), accepts a slug, and
+    posts to `POST /api/admin/keycloak/active-team-scope`. The backend runs
+    the same `selectAgentGatewayActiveTeamScope(slug)` call as the migration
+    and refreshes the panel. The action surface only shows when the invariant
+    is failing — it's not a permanent fixture.
 - **Manual** — the invariant requires a direct edit in the Keycloak Admin
   Console. Today this only fires for *strict policy shape* checks: every
   attached policy on the shared `users.impersonate` and `token-exchange`

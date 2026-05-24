@@ -743,7 +743,7 @@ const SLACK_BOT_CLIENT_ID =
 const WEBEX_BOT_CLIENT_ID =
   process.env.KEYCLOAK_WEBEX_BOT_CLIENT_ID?.trim() || "caipe-webex-bot";
 
-const BOT_OBO_AUDIENCE_CLIENT_ID =
+export const BOT_OBO_AUDIENCE_CLIENT_ID =
   process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 
 // ─────────────────────────────────────────────────────────────────────────────
