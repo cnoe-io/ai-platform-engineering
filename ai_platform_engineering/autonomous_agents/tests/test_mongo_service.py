@@ -646,3 +646,84 @@ class TestTwoDbOneClient:
         svc.connect_with_client(AsyncMongoMockClient())
         assert svc._primary_db.name == "primary"
         assert svc._chat_db.name == "primary"
+
+
+class TestChatHistoryPublisherOwnership:
+    """Verify conversation ownership is scoped to the task owner via TaskRun.owner_id."""
+
+    async def test_publish_run_sets_owner_id_to_task_owner(self, service: MongoService):
+        """When run has owner_id (copied from task), the conversation is created with that email."""
+        run = TaskRun(
+            run_id="run-1",
+            task_id="task-with-owner",
+            task_name="Owned Task",
+            status=TaskStatus.SUCCESS,
+            owner_id="alice@example.com",
+        )
+
+        await service.publish_run(
+            run,
+            prompt="do something",
+            response="done",
+            error=None,
+            agent=None,
+        )
+
+        conv = await service._conversations().find_one(
+            {"_id": conversation_id_for_task("task-with-owner")}
+        )
+        assert conv is not None
+        assert conv["owner_id"] == "alice@example.com"
+        assert conv["owner_id"] != "autonomous@system"
+
+    async def test_publish_run_falls_back_to_system_email_when_no_owner(
+        self, service: MongoService
+    ):
+        """When run has no owner_id (legacy task), falls back to chat_history_owner_email."""
+        run = TaskRun(
+            run_id="run-2",
+            task_id="legacy-task",
+            task_name="Legacy Task",
+            status=TaskStatus.SUCCESS,
+            # owner_id intentionally absent (legacy run)
+        )
+
+        await service.publish_run(
+            run,
+            prompt="do something",
+            response="done",
+            error=None,
+            agent=None,
+        )
+
+        conv = await service._conversations().find_one(
+            {"_id": conversation_id_for_task("legacy-task")}
+        )
+        assert conv is not None
+        assert conv["owner_id"] == "autonomous@system"  # fallback sentinel
+
+    async def test_participants_use_task_owner_email(self, service: MongoService):
+        """The user participant in a conversation uses the task owner's email, not the system sentinel."""
+        run = TaskRun(
+            run_id="run-3",
+            task_id="owned-task",
+            task_name="Owned Task",
+            status=TaskStatus.SUCCESS,
+            owner_id="bob@example.com",
+        )
+
+        await service.publish_run(
+            run,
+            prompt="do something",
+            response="done",
+            error=None,
+            agent="github",
+        )
+
+        conv = await service._conversations().find_one(
+            {"_id": conversation_id_for_task("owned-task")}
+        )
+        assert conv is not None
+        user_participants = [p for p in conv["participants"] if p["type"] == "user"]
+        assert len(user_participants) == 1
+        assert user_participants[0]["id"] == "bob@example.com"

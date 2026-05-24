@@ -307,6 +307,13 @@ async def execute_task(
         if follow_up is not None
         else task
     )
+    # Use the task owner's email as the identity for this invocation so the
+    # dynamic-agents service creates the conversation under the correct user.
+    # Fall back to the configured system email for tasks created before the
+    # owner_id field was introduced (backward compat).
+    from autonomous_agents.config import get_settings as _get_settings
+    _owner_email = task.owner_id or _get_settings().dynamic_agents_system_email
+
     run = TaskRun(
         run_id=run_id,
         task_id=task.id,
@@ -316,6 +323,7 @@ async def execute_task(
         parent_run_id=follow_up.parent_run_id if follow_up else None,
         request_prompt=effective_task.prompt,
         trigger_instance_id=trigger_instance_id,
+        owner_id=_owner_email,
     )
 
     store = get_run_store()
@@ -350,6 +358,7 @@ async def execute_task(
                 prompt=effective_task.prompt,
                 task_id=effective_task.id,
                 agent_id=effective_task.dynamic_agent_id,
+                owner_email=_owner_email,
                 conversation_id=conversation_id,
                 context=context,
                 timeout=effective_task.timeout_seconds,

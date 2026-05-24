@@ -20,7 +20,8 @@ from autonomous_agents.config import get_settings
 from autonomous_agents.services.dynamic_agents_client import (
     DynamicAgentsClientError,
     DynamicAgentsNotConfiguredError,
-    _build_system_user_context_header,
+    _build_preflight_context_header,
+    _build_user_context_header,
     invoke_dynamic_agent,
     invoke_dynamic_agent_streaming,
     preflight_dynamic_agent,
@@ -76,15 +77,23 @@ def _resp(status: int, body: Any) -> httpx.Response:
     )
 
 
-class TestSystemUserContextHeader:
-    """The forged system user context header carries autonomous-system credentials."""
+class TestUserContextHeaders:
+    """User context headers use the task owner's identity, not a shared system account."""
 
-    def test_is_decodable(self, configured):
-        """Header is base64(JSON) of the autonomous@system principal."""
-        raw = _build_system_user_context_header()
+    def test_user_context_header_uses_owner_email(self, configured):
+        """_build_user_context_header encodes the owner's email with is_admin=False."""
+        raw = _build_user_context_header("alice@example.com")
+        decoded = json.loads(base64.b64decode(raw))
+        assert decoded["email"] == "alice@example.com"
+        assert decoded["is_admin"] is False
+        assert decoded["is_authorized"] is True
+
+    def test_preflight_context_header_uses_system_email_not_admin(self, configured):
+        """_build_preflight_context_header uses the system email with is_admin=False."""
+        raw = _build_preflight_context_header()
         decoded = json.loads(base64.b64decode(raw))
         assert decoded["email"] == "autonomous@system"
-        assert decoded["is_admin"] is True
+        assert decoded["is_admin"] is False
         assert decoded["is_authorized"] is True
 
 
@@ -449,3 +458,85 @@ class TestInvokeDynamicAgentStreaming:
         assert body["message"].startswith("inspect event\n\nContext:\n")
         assert '"event": "message.created"' in body["message"]
         assert "Routing directive" not in body["message"]
+
+
+class TestOwnerEmailInRequests:
+    """invoke_* functions send the task owner's email in X-User-Context, not autonomous@system."""
+
+    @pytest.mark.asyncio
+    async def test_invoke_streaming_uses_owner_email(self, configured):
+        """invoke_dynamic_agent_streaming sends owner email in X-User-Context, not autonomous@system."""
+        sse = [*_sse("content", {"text": "done"}), *_sse("done", {})]
+        response = _stream_response(200, sse)
+        factory, client = _mock_streaming_client(response)
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="alice@example.com",
+            )
+
+        call_headers = client.stream.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert context["email"] == "alice@example.com"
+        assert context["email"] != "autonomous@system"
+
+    @pytest.mark.asyncio
+    async def test_invoke_streaming_sets_is_admin_false(self, configured):
+        """invoke_dynamic_agent_streaming sets is_admin=False in X-User-Context."""
+        sse = [*_sse("content", {"text": "done"}), *_sse("done", {})]
+        response = _stream_response(200, sse)
+        factory, client = _mock_streaming_client(response)
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="alice@example.com",
+            )
+
+        call_headers = client.stream.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert context["is_admin"] is False
+
+    @pytest.mark.asyncio
+    async def test_invoke_sync_uses_owner_email(self, configured):
+        """invoke_dynamic_agent (sync) also uses owner email."""
+        factory, client = _mock_async_client(
+            _resp(200, {"success": True, "content": "result"})
+        )
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                owner_email="bob@example.com",
+            )
+
+        call_headers = client.post.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert context["email"] == "bob@example.com"
+        assert context["is_admin"] is False
+
+    @pytest.mark.asyncio
+    async def test_invoke_streaming_falls_back_to_system_email_when_no_owner(self, configured):
+        """When owner_email is None, falls back to dynamic_agents_system_email."""
+        sse = [*_sse("content", {"text": "done"}), *_sse("done", {})]
+        response = _stream_response(200, sse)
+        factory, client = _mock_streaming_client(response)
+
+        with patch("autonomous_agents.services.dynamic_agents_client.httpx.AsyncClient", factory):
+            await invoke_dynamic_agent_streaming(
+                prompt="hi",
+                task_id="t1",
+                agent_id="agent-x",
+                # owner_email intentionally absent (legacy task)
+            )
+
+        call_headers = client.stream.call_args.kwargs["headers"]
+        context = json.loads(base64.b64decode(call_headers["X-User-Context"]))
+        assert context["email"] == "autonomous@system"  # fallback

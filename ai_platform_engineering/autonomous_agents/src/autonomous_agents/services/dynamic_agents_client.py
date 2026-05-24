@@ -69,28 +69,57 @@ class DynamicAgentsNotConfiguredError(DynamicAgentsClientError):
 
 
 # ----------------------------------------------------------------------
-# Synthetic system user context.
+# User context header construction
 # ----------------------------------------------------------------------
-# The dynamic-agents auth layer (``dynamic_agents/auth/auth.py``) trusts
-# whatever the gateway puts in the ``X-User-Context`` header. For
-# autonomous tasks there is no real user, so we mint a stable system
-# identity here. The ``email`` is configurable via
-# ``Settings.dynamic_agents_system_email`` so operators can audit which
-# traffic came from the autonomous service.
-def _build_system_user_context_header() -> str:
-    settings = get_settings()
+# The dynamic-agents auth layer trusts whatever the gateway puts in the
+# X-User-Context header. For autonomous tasks, we use the task owner's
+# email (not a shared system sentinel) so conversations are attributed
+# correctly and access control in can_access_conversation() works per-user.
+#
+# is_admin is explicitly False: the task owner is a real user, not a
+# privileged system account. The blanket is_admin=True that this
+# replaces caused every autonomous conversation to bypass all access
+# checks (IDOR fix).
+
+def _build_user_context_header(owner_email: str) -> str:
+    """Build X-User-Context for an autonomous task run using the task owner's email."""
     payload = {
-        "email": settings.dynamic_agents_system_email,
+        "email": owner_email,
         "name": "Autonomous Agent",
-        "is_admin": True,
+        "is_admin": False,
         "is_authorized": True,
     }
     return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
 
 
-def _system_headers() -> dict[str, str]:
+def _task_headers(owner_email: str) -> dict[str, str]:
+    """Return HTTP headers for an autonomous task invocation."""
     return {
-        "X-User-Context": _build_system_user_context_header(),
+        "X-User-Context": _build_user_context_header(owner_email),
+        "Content-Type": "application/json",
+    }
+
+
+def _build_preflight_context_header() -> str:
+    """Build X-User-Context for preflight probe calls (agent existence check only).
+
+    Preflight calls do not create or read conversations — they only call
+    GET /agents/{id}/probe to check the agent is registered. We use the
+    system email here with is_admin=False to avoid any privilege escalation.
+    """
+    settings = get_settings()
+    payload = {
+        "email": settings.dynamic_agents_system_email,
+        "name": "Autonomous Agent Preflight",
+        "is_admin": False,
+        "is_authorized": True,
+    }
+    return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+
+
+def _preflight_headers() -> dict[str, str]:
+    return {
+        "X-User-Context": _build_preflight_context_header(),
         "Content-Type": "application/json",
     }
 
@@ -105,6 +134,7 @@ async def invoke_dynamic_agent(
     prompt: str,
     task_id: str,
     agent_id: str,
+    owner_email: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
     timeout: float | None = None,
@@ -182,9 +212,10 @@ async def invoke_dynamic_agent(
         effective_timeout,
     )
 
+    _effective_email = owner_email or get_settings().dynamic_agents_system_email
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
-            resp = await client.post(url, json=body, headers=_system_headers())
+            resp = await client.post(url, json=body, headers=_task_headers(_effective_email))
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         # Transport failure -- the dynamic-agents service didn't answer.
         # Re-raise as a typed error so the scheduler records the run as
@@ -412,6 +443,7 @@ async def invoke_dynamic_agent_streaming(
     prompt: str,
     task_id: str,
     agent_id: str,
+    owner_email: str | None = None,
     conversation_id: str | None = None,
     context: dict[str, Any] | None = None,
     timeout: float | None = None,
@@ -477,7 +509,8 @@ async def invoke_dynamic_agent_streaming(
     tool_name_by_call_id: dict[str, str] = {}
     sse_error: str | None = None
 
-    headers = {**_system_headers(), "Accept": "text/event-stream"}
+    _effective_email = owner_email or get_settings().dynamic_agents_system_email
+    headers = {**_task_headers(_effective_email), "Accept": "text/event-stream"}
 
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
@@ -612,7 +645,7 @@ async def preflight_dynamic_agent(
 
     try:
         async with httpx.AsyncClient(timeout=effective_timeout) as client:
-            resp = await client.get(url, headers=_system_headers())
+            resp = await client.get(url, headers=_preflight_headers())
     except (httpx.TimeoutException, httpx.TransportError) as exc:
         logger.warning(
             "dynamic_agents_client.preflight: transport failure for agent=%s: %s",

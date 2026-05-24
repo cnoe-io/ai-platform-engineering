@@ -189,6 +189,15 @@ class TaskDefinition(BaseModel):
         gt=0,
         description="Override A2A_TIMEOUT_SECONDS for this task (seconds, > 0).",
     )
+    owner_id: str | None = Field(
+        default=None,
+        description=(
+            "Email of the user who created this task. "
+            "Stamped by the Next.js gateway at creation time and used to scope "
+            "conversation ownership and task-list filtering. "
+            "None for tasks created before this field was introduced."
+        ),
+    )
 
     @field_validator("timeout_seconds")
     @classmethod
@@ -318,6 +327,12 @@ class TaskRun(BaseModel):
     # logs) that don't want to walk the events list.
     response_full: str | None = None
     events: list[dict[str, Any]] = Field(default_factory=list)
+    # Email of the user who owns the parent task, copied from
+    # TaskDefinition.owner_id at run creation time. Allows direct run
+    # filtering without joining through tasks, and is used by the chat
+    # history publisher to set conversation owner_id. None for runs
+    # created before per-user ownership was introduced.
+    owner_id: str | None = None
 
 
 # =============================================================================

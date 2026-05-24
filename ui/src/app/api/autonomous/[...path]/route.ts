@@ -133,12 +133,19 @@ async function forward(
     throw new ApiError('Autonomous agents are disabled', 404);
   }
 
-  return await withAuth(request, async (_req, _user, session) => {
+  return await withAuth(request, async (_req, user, session) => {
     enforceRole(method, session);
 
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      // Inject caller identity so the autonomous-agents service can stamp
+      // owner_id on task creation and filter the task list per-user.
+      // The proxy has already enforced the NextAuth session above — the
+      // FastAPI service trusts these headers because it is not publicly
+      // reachable (internal service, no direct browser access).
+      'X-Authenticated-User-Email': user.email,
+      'X-Authenticated-User-Is-Admin': String(session.role === 'admin'),
     };
 
     const fetchOptions: RequestInit = { method, headers };

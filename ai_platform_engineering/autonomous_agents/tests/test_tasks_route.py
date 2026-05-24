@@ -56,6 +56,9 @@ class _DictTaskStore:
     async def list_all(self) -> list[TaskDefinition]:
         return list(self._tasks.values())
 
+    async def list_by_owner(self, owner_id: str) -> list[TaskDefinition]:
+        return [t for t in self._tasks.values() if t.owner_id == owner_id]
+
     async def get(self, task_id: str) -> TaskDefinition | None:
         return self._tasks.get(task_id)
 
@@ -685,3 +688,77 @@ def test_task_route_uses_lifecycle_task_store() -> None:
         assert task_lifecycle.get_task_store() is sentinel
     finally:
         task_lifecycle._task_store = prior
+
+
+def _admin_headers() -> dict:
+    return {
+        "X-Authenticated-User-Email": "alice@example.com",
+        "X-Authenticated-User-Is-Admin": "true",
+    }
+
+
+def _user_headers(email: str = "bob@example.com") -> dict:
+    return {
+        "X-Authenticated-User-Email": email,
+        "X-Authenticated-User-Is-Admin": "false",
+    }
+
+
+class TestTaskOwnership:
+    """Test per-user task ownership stamping and access control."""
+
+    def test_create_stamps_owner_id_from_header(self, client: TestClient):
+        """POST /tasks stamps owner_id from X-Authenticated-User-Email header."""
+        resp = client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("alice@example.com"),
+        )
+        assert resp.status_code == 201
+        listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
+        assert listed[0]["owner_id"] == "alice@example.com"
+
+    def test_create_without_header_leaves_owner_id_none(self, client: TestClient):
+        """POST /tasks without header does not set owner_id (backward compat)."""
+        resp = client.post("/api/v1/tasks", json=_cron_task("t1"))
+        assert resp.status_code == 201
+        listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
+        assert listed[0]["owner_id"] is None
+
+    def test_admin_sees_all_tasks(self, client: TestClient):
+        """Admin users see tasks owned by any user."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        client.post("/api/v1/tasks", json=_cron_task("t2"), headers=_user_headers("bob@example.com"))
+        resp = client.get("/api/v1/tasks", headers=_admin_headers())
+        assert resp.status_code == 200
+        ids = [t["id"] for t in resp.json()]
+        assert "t1" in ids
+        assert "t2" in ids
+
+    def test_non_admin_sees_only_own_tasks(self, client: TestClient):
+        """Non-admin users only see their own tasks."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        client.post("/api/v1/tasks", json=_cron_task("t2"), headers=_user_headers("bob@example.com"))
+        resp = client.get("/api/v1/tasks", headers=_user_headers("alice@example.com"))
+        assert resp.status_code == 200
+        ids = [t["id"] for t in resp.json()]
+        assert "t1" in ids
+        assert "t2" not in ids
+
+    def test_non_admin_cannot_get_another_users_task(self, client: TestClient):
+        """GET /tasks/{id} returns 403 when task belongs to a different user."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.get("/api/v1/tasks/t1", headers=_user_headers("bob@example.com"))
+        assert resp.status_code == 403
+
+    def test_non_admin_cannot_delete_another_users_task(self, client: TestClient):
+        """DELETE /tasks/{id} returns 403 when task belongs to a different user."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.delete("/api/v1/tasks/t1", headers=_user_headers("bob@example.com"))
+        assert resp.status_code == 403
+
+    def test_owner_can_delete_own_task(self, client: TestClient):
+        """The task owner can delete their own task."""
+        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.delete("/api/v1/tasks/t1", headers=_user_headers("alice@example.com"))
+        assert resp.status_code == 204

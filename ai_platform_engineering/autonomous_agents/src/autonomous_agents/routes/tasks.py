@@ -9,7 +9,7 @@ changes take effect without a service restart.
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 
 from autonomous_agents.models import Acknowledgement, TaskDefinition, TaskRun, WebhookTrigger
 from autonomous_agents.services.chat_history import conversation_id_for_task
@@ -34,6 +34,39 @@ from autonomous_agents.services.task_runner import (
 logger = logging.getLogger("autonomous_agents")
 
 router = APIRouter(tags=["tasks"])
+
+
+def _get_caller(request: Request) -> tuple[str | None, bool]:
+    """Extract caller identity from gateway-injected headers.
+
+    Returns (owner_email, is_admin). Both are None/False when headers are
+    absent (e.g. unit tests hitting the service directly without a gateway).
+    """
+    email = request.headers.get("X-Authenticated-User-Email") or None
+    is_admin = request.headers.get("X-Authenticated-User-Is-Admin", "false").lower() == "true"
+    return email, is_admin
+
+
+def _assert_task_access(task: TaskDefinition, caller_email: str | None, is_admin: bool) -> None:
+    """Raise 403 if caller does not own the task and is not an admin.
+
+    Tasks without an owner_id (created before this feature) are treated as
+    admin-only to prevent accidental cross-user exposure.
+    """
+    if is_admin:
+        return
+    if caller_email is None:
+        # No header present (direct service call without gateway) — allow for compat.
+        return
+    if task.owner_id is None:
+        # Orphaned task (pre-feature) — only admins should access.
+        raise HTTPException(
+            status_code=403,
+            detail="This task was created before per-user ownership was introduced. "
+                   "Admin access required.",
+        )
+    if task.owner_id != caller_email:
+        raise HTTPException(status_code=403, detail="Access denied")
 
 # Maximum runs returned by /tasks/{id}/runs.
 _MAX_TASK_RUNS = 500
@@ -75,27 +108,38 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "next_run": next_run_iso,
         "last_ack": ack_dump,
         "chat_conversation_id": conversation_id_for_task(task.id),
+        "owner_id": task.owner_id,
     }
 
 
 @router.get("/tasks", response_model=list[dict])
-async def list_tasks() -> list[dict]:
-    """List all configured tasks plus their next scheduled run time."""
-    tasks = await get_task_store().list_all()
+async def list_tasks(request: Request) -> list[dict]:
+    """List configured tasks plus their next scheduled run time.
+
+    Admins see all tasks. Non-admin users see only tasks they own.
+    """
+    caller_email, is_admin = _get_caller(request)
+    store = get_task_store()
+    if is_admin or caller_email is None:
+        tasks = await store.list_all()
+    else:
+        tasks = await store.list_by_owner(caller_email)
     return [_serialize_task(t, next_run_iso_for(t.id)) for t in tasks]
 
 
 @router.get("/tasks/{task_id}", response_model=dict)
-async def get_task(task_id: str) -> dict:
+async def get_task(task_id: str, request: Request) -> dict:
     """Return a single task definition plus its next scheduled run time."""
     task = await get_task_store().get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    caller_email, is_admin = _get_caller(request)
+    _assert_task_access(task, caller_email, is_admin)
     return _serialize_task(task, next_run_iso_for(task_id))
 
 
 @router.post("/tasks", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def create_task(task: TaskDefinition) -> dict:
+async def create_task(task: TaskDefinition, request: Request) -> dict:
     """Create a new task definition.
 
     On success the task is immediately wired into the scheduler /
@@ -114,6 +158,14 @@ async def create_task(task: TaskDefinition) -> dict:
     # a green "Ack OK" badge for a task the supervisor has not seen.
     if task.last_ack is not None:
         task = task.model_copy(update={"last_ack": None})
+
+    # Stamp owner_id from the gateway-injected header if the client didn't
+    # set one. The proxy always injects this header for authenticated
+    # callers; the field stays None only for legacy direct calls (e.g.
+    # seeding scripts running against the service without the Next.js proxy).
+    caller_email, _ = _get_caller(request)
+    if caller_email and task.owner_id is None:
+        task = task.model_copy(update={"owner_id": caller_email})
 
     store = get_task_store()
     try:
@@ -159,7 +211,7 @@ async def create_task(task: TaskDefinition) -> dict:
 
 
 @router.put("/tasks/{task_id}", response_model=dict)
-async def update_task(task_id: str, task: TaskDefinition) -> dict:
+async def update_task(task_id: str, task: TaskDefinition, request: Request) -> dict:
     """Replace an existing task definition.
 
     The path id wins on conflict -- a body that disagrees gets coerced
@@ -186,6 +238,13 @@ async def update_task(task_id: str, task: TaskDefinition) -> dict:
     # ``None`` for unknown ids -- the store update call below will
     # then raise TaskNotFoundError and we 404 cleanly.
     existing = await store.get(task_id)
+
+    # Ownership check: non-admin callers can only update their own tasks.
+    if existing is not None:
+        caller_email, is_admin = _get_caller(request)
+        _assert_task_access(existing, caller_email, is_admin)
+        # Preserve owner_id from the original task — callers cannot reassign ownership.
+        task = task.model_copy(update={"owner_id": existing.owner_id})
 
     # Webhook secret preservation: GET responses redact the secret to
     # ``has_secret: bool``, so when the UI submits an unchanged form
@@ -237,7 +296,7 @@ async def update_task(task_id: str, task: TaskDefinition) -> dict:
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_task(task_id: str) -> None:
+async def delete_task(task_id: str, request: Request) -> None:
     """Delete a task definition and detach it from the scheduler / webhook runtime.
 
     Returns 204 on success, 404 if the task was already gone -- POSIX
@@ -245,8 +304,14 @@ async def delete_task(task_id: str) -> None:
     needs to be able to surface "this task no longer exists" if two
     operators are deleting concurrently.
     """
+    store = get_task_store()
+    task = await store.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    caller_email, is_admin = _get_caller(request)
+    _assert_task_access(task, caller_email, is_admin)
     try:
-        await get_task_store().delete(task_id)
+        await store.delete(task_id)
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -268,11 +333,13 @@ async def get_task_runs(task_id: str) -> list[TaskRun]:
 
 
 @router.post("/tasks/{task_id}/run", response_model=dict)
-async def trigger_task_manually(task_id: str) -> dict:
+async def trigger_task_manually(task_id: str, request: Request) -> dict:
     """Manually trigger a task to run immediately (for testing)."""
     task = await get_task_store().get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+    caller_email, is_admin = _get_caller(request)
+    _assert_task_access(task, caller_email, is_admin)
 
     # Fire-and-forget -- the run is recorded in the store as it
     # progresses so the UI can poll /tasks/{id}/runs to see the result.

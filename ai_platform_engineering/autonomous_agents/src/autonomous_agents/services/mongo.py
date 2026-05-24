@@ -73,6 +73,7 @@ class TaskStore(Protocol):
     """
 
     async def list_all(self) -> list[TaskDefinition]: ...
+    async def list_by_owner(self, owner_id: str) -> list[TaskDefinition]: ...
     async def get(self, task_id: str) -> TaskDefinition | None: ...
     async def create(self, task: TaskDefinition) -> TaskDefinition: ...
     async def update(self, task_id: str, task: TaskDefinition) -> TaskDefinition: ...
@@ -352,6 +353,8 @@ class MongoService:
             await self._trigger_instances().create_index(
                 [("task_id", 1), ("received_at", -1)]
             )
+            # ---- Tasks: owner_id index for per-user task list filtering
+            await self._tasks().create_index([("owner_id", 1)])
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "MongoService.ensure_indexes swallowed: %s -- queries will "
@@ -365,6 +368,16 @@ class MongoService:
 
     async def list_tasks(self) -> list[TaskDefinition]:
         cursor = self._tasks().find({}, sort=[("_id", 1)])
+        return [self._doc_to_task(doc) async for doc in cursor]
+
+    async def list_tasks_by_owner(self, owner_id: str) -> list[TaskDefinition]:
+        """Return tasks owned by ``owner_id`` only.
+
+        Tasks without an owner_id field (created before the per-user ownership
+        feature) are intentionally excluded — they are only returned by
+        ``list_tasks()`` (admin path).
+        """
+        cursor = self._tasks().find({"owner_id": owner_id}, sort=[("_id", 1)])
         return [self._doc_to_task(doc) async for doc in cursor]
 
     async def get_task(self, task_id: str) -> TaskDefinition | None:
@@ -593,6 +606,7 @@ class MongoService:
             agent=agent,
             title=f"[Autonomous] {run.task_name}",
             now=now,
+            run=run,
         )
 
         # -- user: the prompt the selected execution backend actually saw
@@ -723,6 +737,7 @@ class MongoService:
         agent: str | None = None,
         title: str | None = None,
         now: datetime | None = None,
+        run: TaskRun | None = None,
     ) -> None:
         now = now or datetime.now(timezone.utc)
         effective_task_id = task.id if task else task_id
@@ -743,6 +758,19 @@ class MongoService:
             else f"[Autonomous] {effective_task_id}"
         )
 
+        # Resolve the conversation owner from the most-specific source available:
+        #   1. run.owner_id — stamped at run creation from TaskDefinition.owner_id
+        #      (present for all runs after the per-user ownership feature landed)
+        #   2. task.owner_id — used by publish_creation_intent / publish_preflight_ack
+        #      which don't have a run object
+        #   3. chat_history_owner_email — system sentinel, fallback for legacy
+        #      tasks and runs created before the ownership field was introduced
+        effective_owner = (
+            (run.owner_id if run is not None else None)
+            or (task.owner_id if task is not None else None)
+            or self.settings.chat_history_owner_email
+        )
+
         # The UI's routing helpers (``getAgentId`` /
         # ``isDynamicAgentConversation`` in ui/src/types/a2a.ts) read
         # the agent target exclusively from ``participants``. Mirror
@@ -750,7 +778,7 @@ class MongoService:
         # autonomous thread routes follow-up messages back to the same
         # supervisor or dynamic agent that produced the run.
         participants: list[dict[str, str]] = [
-            {"type": "user", "id": self.settings.chat_history_owner_email},
+            {"type": "user", "id": effective_owner},
         ]
         if effective_agent:
             participants.append({"type": "agent", "id": effective_agent})
@@ -773,7 +801,7 @@ class MongoService:
                 },
                 "$setOnInsert": {
                     "_id": conv_id,
-                    "owner_id": self.settings.chat_history_owner_email,
+                    "owner_id": effective_owner,
                     "created_at": now,
                     "sharing": {
                         "is_public": False,
@@ -904,6 +932,9 @@ class MongoTaskStoreAdapter:
 
     async def list_all(self) -> list[TaskDefinition]:
         return await self._mongo.list_tasks()
+
+    async def list_by_owner(self, owner_id: str) -> list[TaskDefinition]:
+        return await self._mongo.list_tasks_by_owner(owner_id)
 
     async def get(self, task_id: str) -> TaskDefinition | None:
         return await self._mongo.get_task(task_id)

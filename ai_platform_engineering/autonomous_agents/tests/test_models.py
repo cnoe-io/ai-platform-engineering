@@ -145,3 +145,102 @@ class TestPerTaskA2AOverrides:
                     trigger=CronTrigger(schedule="* * * * *"),
                     timeout_seconds=bad,
                 )
+
+
+from autonomous_agents.models import TaskRun
+
+
+class TestTaskDefinitionOwnerField:
+    def test_owner_id_defaults_to_none(self):
+        """TaskDefinition.owner_id is optional and defaults to None."""
+        task = TaskDefinition(
+            id="t1",
+            name="Test Task",
+            prompt="do something",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+        )
+        assert task.owner_id is None
+
+    def test_owner_id_accepts_email(self):
+        """TaskDefinition.owner_id stores an email string."""
+        task = TaskDefinition(
+            id="t1",
+            name="Test Task",
+            prompt="do something",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+            owner_id="alice@example.com",
+        )
+        assert task.owner_id == "alice@example.com"
+
+    def test_owner_id_round_trips_through_json(self):
+        """owner_id survives model_dump / model_validate round-trip."""
+        task = TaskDefinition(
+            id="t1",
+            name="Test Task",
+            prompt="do something",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+            owner_id="bob@example.com",
+        )
+        dumped = task.model_dump(mode="json")
+        restored = TaskDefinition.model_validate(dumped)
+        assert restored.owner_id == "bob@example.com"
+
+    def test_owner_id_absent_from_json_parses_as_none(self):
+        """Existing persisted docs without owner_id parse cleanly (backward compat)."""
+        raw = {
+            "id": "t1",
+            "name": "Legacy Task",
+            "prompt": "do something",
+            "trigger": {"type": "cron", "schedule": "0 9 * * *"},
+        }
+        task = TaskDefinition.model_validate(raw)
+        assert task.owner_id is None
+
+
+class TestTaskRunOwnerField:
+    def test_owner_id_defaults_to_none(self):
+        """TaskRun.owner_id is optional and defaults to None."""
+        from autonomous_agents.models import TaskStatus
+        run = TaskRun(
+            run_id="r1",
+            task_id="t1",
+            task_name="My Task",
+            status=TaskStatus.SUCCESS,
+        )
+        assert run.owner_id is None
+
+    def test_owner_id_accepts_email(self):
+        """TaskRun.owner_id stores the owning user's email."""
+        from autonomous_agents.models import TaskStatus
+        run = TaskRun(
+            run_id="r1",
+            task_id="t1",
+            task_name="My Task",
+            status=TaskStatus.SUCCESS,
+            owner_id="alice@example.com",
+        )
+        assert run.owner_id == "alice@example.com"
+
+    def test_owner_id_round_trips_through_json(self):
+        """owner_id survives model_dump / model_validate."""
+        from autonomous_agents.models import TaskStatus
+        run = TaskRun(
+            run_id="r1",
+            task_id="t1",
+            task_name="My Task",
+            status=TaskStatus.SUCCESS,
+            owner_id="bob@example.com",
+        )
+        restored = TaskRun.model_validate(run.model_dump(mode="json"))
+        assert restored.owner_id == "bob@example.com"
+
+    def test_owner_id_absent_parses_as_none(self):
+        """Legacy run docs without owner_id parse cleanly."""
+        raw = {
+            "run_id": "r1",
+            "task_id": "t1",
+            "task_name": "Legacy",
+            "status": "success",
+        }
+        run = TaskRun.model_validate(raw)
+        assert run.owner_id is None

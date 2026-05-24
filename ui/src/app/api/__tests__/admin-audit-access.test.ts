@@ -164,7 +164,9 @@ describe('requireConversationAccess — admin audit', () => {
     expect(result.conversation).toEqual(conv);
   });
 
-  it('admin viewing autonomous-source conversation returns shared (interactive — Inv-D revised)', async () => {
+  it('admin viewing autonomous-source conversation they do not own returns admin_audit', async () => {
+    // After removing the source==='autonomous' bypass, admins now receive
+    // admin_audit rather than 'shared' for autonomous conversations they don't own.
     const conv = {
       _id: CONV_ID,
       owner_id: 'owner@example.com',
@@ -187,18 +189,16 @@ describe('requireConversationAccess — admin audit', () => {
       { role: 'admin' }
     );
 
-    // Autonomous chats are interactive for every authenticated user, so
-    // the access level must NOT be a read-only variant — write-side
-    // routes (messages/route.ts, turns/route.ts) explicitly 403 on
-    // 'shared_readonly' and 'admin_audit'.
-    expect(result.access_level).toBe('shared');
-    expect(['shared_readonly', 'admin_audit']).not.toContain(
-      result.access_level,
-    );
+    // The autonomous bypass (Inv-D) has been removed. Admins get audit access,
+    // not broad 'shared' access. Autonomous conversations now follow standard
+    // per-user ownership — only the task owner gets full interactive access.
+    expect(result.access_level).toBe('admin_audit');
     expect(result.conversation).toEqual(conv);
   });
 
-  it('non-admin viewing autonomous-source conversation also returns shared (any authenticated user can write)', async () => {
+  it('non-admin viewing autonomous-source conversation owned by another user returns 403', async () => {
+    // After removing the source==='autonomous' bypass, non-owners of autonomous
+    // conversations receive 403, just like any other conversation type.
     const conv = {
       _id: CONV_ID,
       owner_id: 'autonomous@system',
@@ -214,14 +214,9 @@ describe('requireConversationAccess — admin audit', () => {
     sharingAccessCol.findOne.mockResolvedValue(null);
     mockCollections['sharing_access'] = sharingAccessCol;
 
-    const result = await requireConversationAccess(
-      CONV_ID,
-      'user@example.com',
-      mockGetCollection,
-      { role: 'user' }
-    );
-
-    expect(result.access_level).toBe('shared');
+    await expect(
+      requireConversationAccess(CONV_ID, 'user@example.com', mockGetCollection, { role: 'user' })
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it('admin viewing non-autonomous non-owned conversation still returns admin_audit (regression guard)', async () => {

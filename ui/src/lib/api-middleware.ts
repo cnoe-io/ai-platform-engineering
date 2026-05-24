@@ -511,20 +511,6 @@ export async function requireConversationAccess(
     };
   }
 
-  // Inv-D (revised): autonomous-agent conversations are owned by a
-  // synthetic `autonomous@system` sentinel and are interactive for every
-  // authenticated user — operators add manual follow-ups to the task
-  // thread (sender_email is captured per message in the messages POST
-  // route, so authorship is auditable even though access is broad).
-  // Returning `shared` here unblocks the write-path checks in
-  // messages/route.ts and turns/route.ts which both 403 on
-  // `shared_readonly` / `admin_audit`. Runs BEFORE the admin fallback so
-  // admins viewing an autonomous chat do not get audit-mode treatment
-  // either.
-  if (conversation.source === 'autonomous') {
-    return { conversation, access_level: 'shared' };
-  }
-
   // Admins get read-only audit access to any conversation
   if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
