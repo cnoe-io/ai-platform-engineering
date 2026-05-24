@@ -153,10 +153,38 @@ async function walkSlackConversations(
     url.searchParams.set("types", "public_channel,private_channel");
     if (cursor) url.searchParams.set("cursor", cursor);
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
+    // Wrap the network call so we can surface the underlying reason (DNS,
+    // TLS, ECONNREFUSED, proxy refusal, …) instead of Node's opaque
+    // top-level "fetch failed". undici stashes the real error on `cause`,
+    // and without this the admin UI just shows {"error":"fetch failed"}
+    // and operators have no way to tell whether Slack is down, egress is
+    // blocked, or the token is malformed.
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+    } catch (err) {
+      const cause = (err as { cause?: unknown }).cause;
+      const causeMessage =
+        cause instanceof Error
+          ? `${cause.name}: ${cause.message}`
+          : cause != null
+            ? String(cause)
+            : (err instanceof Error ? err.message : String(err));
+      // The Slack token is sensitive, so don't include the URL's
+      // Authorization header in any log/response. The path + endpoint
+      // identifier is enough to triage the failure.
+      console.error(
+        `[Admin SlackChannels] network failure calling ${endpoint} (page=${page}): ${causeMessage}`,
+        cause
+      );
+      throw new ApiError(
+        `Slack discovery network failure (${endpoint}): ${causeMessage}`,
+        502
+      );
+    }
 
     // Honor Slack rate-limit responses. Even on Tier 3 this can happen if
     // multiple admins click Refresh simultaneously across UI replicas.
@@ -170,7 +198,22 @@ async function walkSlackConversations(
       continue; // retry same cursor
     }
 
-    const data = (await res.json()) as SlackListResponse;
+    // During Slack incidents the gateway sometimes returns HTML (Cloudflare
+    // 5xx page) with a JSON content-type lie. Catching the parse error
+    // gives operators a clearer signal than a generic 500.
+    let data: SlackListResponse;
+    try {
+      data = (await res.json()) as SlackListResponse;
+    } catch (err) {
+      const parseMessage = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Admin SlackChannels] failed to parse Slack response from ${endpoint} (status=${res.status}, page=${page}): ${parseMessage}`
+      );
+      throw new ApiError(
+        `Slack discovery returned a non-JSON response from ${endpoint} (status ${res.status}): ${parseMessage}`,
+        502
+      );
+    }
     if (!data.ok) {
       throw new ApiError(
         `Slack API error: ${data.error ?? "unknown"} (status ${res.status})`,

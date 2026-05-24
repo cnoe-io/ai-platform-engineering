@@ -746,6 +746,37 @@ const WEBEX_BOT_CLIENT_ID =
 const BOT_OBO_AUDIENCE_CLIENT_ID =
   process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Special-case "personal" team scope
+//
+// Spec 104 reserves `team-personal` as the DM-mode marker scope. Unlike real
+// team scopes its slug is fixed (`personal`), its `active_team` mapper value
+// is the sentinel `__personal__`, and it has no matching Mongo team row — it
+// is provisioned exclusively by `init-token-exchange.sh` and re-asserted by
+// the reconciliation migration.
+//
+// Architectural note: real `team-<slug>` scopes contribute `active_team` via
+// the **default-on-audience** binding because Keycloak's RFC 8693
+// token-exchange silently drops the `scope=` request parameter. Only one
+// `team-*` scope can be default on a given audience at a time
+// (`selectAgentGatewayActiveTeamScope` enforces this). For that reason
+// `team-personal` is NOT bound on the audience — DMs currently land on
+// whatever real team is default. Surfacing that as an explicit follow-up
+// invariant is intentional; we don't silently "fix" it via an ambiguous
+// binding here.
+// ─────────────────────────────────────────────────────────────────────────────
+export const PERSONAL_TEAM_SLUG = "personal";
+export const PERSONAL_TEAM_SCOPE_NAME = `team-${PERSONAL_TEAM_SLUG}`;
+export const PERSONAL_TEAM_ACTIVE_VALUE = "__personal__";
+export const PERSONAL_TEAM_MAPPER_NAME = `active-team-${PERSONAL_TEAM_SLUG}`;
+
+export function isPersonalTeamSlug(slug: string): boolean {
+  return slug === PERSONAL_TEAM_SLUG;
+}
+export function isPersonalTeamScopeName(scopeName: string): boolean {
+  return scopeName === PERSONAL_TEAM_SCOPE_NAME;
+}
+
 function canonicalBotPolicyName(policyName: string): string {
   if (policyName === "caipe-webex-bot-token-exchange-policy") {
     return "caipe-webex-bot-token-exchange";
@@ -792,7 +823,43 @@ interface KeycloakScopePermissionDetails {
   id?: string;
   name?: string;
   decisionStrategy?: string;
-  policies: Array<{ id: string; name: string }>;
+  policies: Array<KeycloakAttachedPolicy>;
+}
+
+// We enrich the attached-policy view with `type` and the resolved
+// `client_ids` (NOT raw UUIDs) so the invariant evaluator can verify
+// that every policy is a strict client allow-list (type === "client" +
+// non-empty client_ids naming known bot clients) rather than a
+// permissive js/role/regex policy. Required for the AFFIRMATIVE
+// decision-strategy threat model: under AFFIRMATIVE a single permissive
+// policy is sufficient to grant access, so we audit shape, not just
+// presence.
+//
+// IMPORTANT — why `client_ids`, not `clients`:
+//
+// Keycloak's `/permission/scope/<id>/associatedPolicies` endpoint
+// returns policies with `config: {}` — the allow-list is NOT included
+// on that path. To get it, we have to call the type-specific endpoint
+// `/policy/client/<id>` which returns `clients: ["<uuid>", ...]`.
+// We then resolve each UUID to its `clientId` string via the live
+// `/clients` registry so the audit shows operator-meaningful names
+// (`caipe-slack-bot`) rather than UUIDs the human cannot recognise.
+// The previous version of this type stored UUIDs in `clients[]` and
+// the evaluator was unable to detect policy attachment because the
+// associatedPolicies path returned an empty config — see the
+// regression test for the exact ground-truth payloads.
+export interface KeycloakAttachedPolicy {
+  id: string;
+  name: string;
+  type?: string;
+  /**
+   * Resolved client IDs the policy authorises (e.g. `["caipe-slack-bot"]`).
+   * Empty array means the policy is `type=client` but Keycloak returned
+   * no allow-list (genuinely permissive). `undefined` means we either
+   * didn't try to hydrate (non-client policy type) or the hydration call
+   * failed; treat undefined as "unknown", not "empty".
+   */
+  client_ids?: string[];
 }
 
 export interface KeycloakRbacDiagnosticValues {
@@ -825,7 +892,31 @@ export interface KeycloakRbacDiagnosticValues {
     token_exchange_permission_id: string;
     decision_strategy: string;
     policy_names: string[];
+    /**
+     * Full attached-policy view used by the invariant evaluator. Each
+     * entry should be `type=client` with a non-empty `clients`
+     * allow-list naming a known bot client. Anything else is a sign
+     * that someone added a permissive policy via the Keycloak admin
+     * console; under AFFIRMATIVE strategy that grants access without
+     * the other policies needing to agree.
+     */
+    attached_policies: KeycloakAttachedPolicy[];
   }>;
+  /**
+   * Realm-level `users.impersonate` scope-permission. This is the
+   * single permission that gates *all* OBO (token-exchange with
+   * requested_subject) flows in this realm — every bot client must
+   * have its allow-list policy attached here, and the strategy must
+   * be AFFIRMATIVE so any one bot policy can vote PERMIT. Under the
+   * default UNANIMOUS strategy, the second bot's per-client policy
+   * starts voting DENY for the first bot and OBO fails with
+   * `client not allowed to impersonate`.
+   */
+  users_impersonate_permission?: {
+    permission_id: string;
+    decision_strategy: string;
+    attached_policies: KeycloakAttachedPolicy[];
+  };
   active_team_defaults: Array<{
     audience_client_id: string;
     default_team_scopes: string[];
@@ -991,9 +1082,116 @@ async function setScopePermissionDecisionStrategy(
   await assertOk(updateResponse, `setScopePermissionDecisionStrategy(${permissionId})`);
 }
 
+/**
+ * Resolver from Keycloak client UUID → clientId string.
+ *
+ * We hand a single resolver instance down through one batched
+ * `getKeycloakRbacDiagnosticValues` inspection so every per-policy
+ * hydration shares the same UUID→clientId map (one `/clients` call
+ * instead of N).
+ */
+type ClientUuidResolver = (uuid: string) => Promise<string | null>;
+
+function createClientUuidResolver(): ClientUuidResolver {
+  const cache = new Map<string, string | null>();
+  let registryPromise: Promise<void> | null = null;
+  // Lazy: only fetch the full client registry the first time we're
+  // asked to resolve a UUID. If you only ever call this with UUIDs we
+  // already know about (e.g. from a small fixture), we skip the call
+  // entirely.
+  const loadRegistry = async () => {
+    if (registryPromise) return registryPromise;
+    registryPromise = (async () => {
+      // The default `max` on /clients is 100 in modern Keycloak; bump
+      // it to 500 so a realm with many service-account clients still
+      // returns the whole set in one go. (Pagination is a future
+      // concern; we'd switch to a chunked iterator if a realm exceeds
+      // 500 clients.)
+      const response = await adminFetch(`/clients?max=500`, { method: "GET" });
+      await assertOk(response, "listClientsForUuidResolver");
+      const raw = await parseJsonArray<Record<string, unknown>>(response);
+      for (const c of raw) {
+        const id = typeof c.id === "string" ? c.id : "";
+        const cid = typeof c.clientId === "string" ? c.clientId : "";
+        if (id) cache.set(id, cid || null);
+      }
+    })();
+    return registryPromise;
+  };
+  return async (uuid: string): Promise<string | null> => {
+    if (cache.has(uuid)) return cache.get(uuid) ?? null;
+    await loadRegistry();
+    return cache.get(uuid) ?? null;
+  };
+}
+
+/**
+ * Hydrate a `type=client` Keycloak policy's allow-list by calling the
+ * type-specific `/policy/client/<id>` endpoint. The `associatedPolicies`
+ * endpoint that drives `readScopePermissionDetails` returns `config: {}`
+ * on these policies, so we must round-trip per policy to get the real
+ * `clients[]`. The trade-off is N extra HTTP calls per inspection where
+ * N is the number of `type=client` policies attached across all probed
+ * perms — in practice ≤6 across a healthy realm.
+ *
+ * Returns `null` if the policy is not `type=client` or if Keycloak
+ * returns a 404 (e.g. orphaned policy). Returns `[]` when Keycloak
+ * confirms the policy exists but has no clients in its allow-list —
+ * that's a real "permissive policy" finding the invariant evaluator
+ * surfaces.
+ */
+async function readClientPolicyClients(
+  realmManagementUuid: string,
+  policyId: string,
+  resolveClientId: ClientUuidResolver
+): Promise<string[] | null> {
+  const path =
+    `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/policy/client/` +
+    encodeURIComponent(policyId);
+  const response = await adminFetch(path, { method: "GET" });
+  if (response.status === 404) return null;
+  await assertOk(response, `readClientPolicyClients(${policyId})`);
+  const payload = (await response.json()) as Record<string, unknown>;
+  // Keycloak returns `clients` either as a real array on /policy/client/<id>
+  // or as a stringified array under `config.clients` on /policy/<id>;
+  // we handle both shapes so the helper is robust if Keycloak versions
+  // diverge on this endpoint.
+  let uuids: string[] = [];
+  if (Array.isArray(payload.clients)) {
+    uuids = payload.clients.filter((v): v is string => typeof v === "string");
+  } else if (payload.config && typeof payload.config === "object") {
+    const raw = (payload.config as Record<string, unknown>).clients;
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          uuids = parsed.filter((v): v is string => typeof v === "string");
+        }
+      } catch {
+        uuids = [];
+      }
+    } else if (Array.isArray(raw)) {
+      uuids = raw.filter((v): v is string => typeof v === "string");
+    }
+  }
+  const resolved: string[] = [];
+  for (const uuid of uuids) {
+    const cid = await resolveClientId(uuid);
+    // If we couldn't resolve a UUID (e.g. the client was deleted but
+    // the policy still references it) we still want to surface
+    // *something* in the audit — render the literal UUID so an admin
+    // can find it in the Keycloak Admin Console. The invariant
+    // evaluator treats unresolved UUIDs as not matching any known bot
+    // (so they cannot satisfy "<bot> policy attached" checks).
+    resolved.push(cid || uuid);
+  }
+  return resolved;
+}
+
 async function readScopePermissionDetails(
   realmManagementUuid: string,
-  permissionId: string
+  permissionId: string,
+  resolveClientId?: ClientUuidResolver
 ): Promise<KeycloakScopePermissionDetails> {
   const permissionPath = `/clients/${encodeURIComponent(realmManagementUuid)}/authz/resource-server/permission/scope/${encodeURIComponent(permissionId)}`;
   const [response, associatedResponse] = await Promise.all([
@@ -1006,18 +1204,42 @@ async function readScopePermissionDetails(
     decisionStrategy?: string;
   };
   const associatedPolicies = await parseJsonArray<Record<string, unknown>>(associatedResponse);
+
+  // Project the associated-policy summary first. Then, in a second
+  // pass, hydrate any `type=client` policies' `client_ids` via the
+  // type-specific endpoint. Order is intentional so that the cheap
+  // projection still works in tests / fixtures that mock only the
+  // associated-policies call.
+  const policies: KeycloakAttachedPolicy[] = associatedPolicies
+    .map((policy): KeycloakAttachedPolicy | null => {
+      const id = typeof policy.id === "string" ? policy.id : "";
+      const name = typeof policy.name === "string" ? policy.name : id;
+      if (!id) return null;
+      const type = typeof policy.type === "string" ? policy.type : undefined;
+      return { id, name, type };
+    })
+    .filter((policy): policy is KeycloakAttachedPolicy => policy !== null);
+
+  if (resolveClientId) {
+    await Promise.all(
+      policies.map(async (policy) => {
+        if (policy.type !== "client") return;
+        const clientIds = await readClientPolicyClients(
+          realmManagementUuid,
+          policy.id,
+          resolveClientId
+        ).catch(() => null);
+        if (clientIds !== null) policy.client_ids = clientIds;
+      })
+    );
+  }
+
   return {
     id: typeof permission.id === "string" ? permission.id : permissionId,
     name: typeof permission.name === "string" ? permission.name : undefined,
     decisionStrategy:
       typeof permission.decisionStrategy === "string" ? permission.decisionStrategy : undefined,
-    policies: associatedPolicies
-      .map((policy) => {
-        const id = typeof policy.id === "string" ? policy.id : "";
-        const name = typeof policy.name === "string" ? policy.name : id;
-        return id ? { id, name } : null;
-      })
-      .filter((policy): policy is { id: string; name: string } => policy !== null),
+    policies,
   };
 }
 
@@ -1327,6 +1549,109 @@ export async function ensureTeamClientScope(slug: string): Promise<void> {
 }
 
 /**
+ * Idempotently ensure the special `team-personal` client scope exists, has a
+ * hardcoded `active_team=__personal__` mapper, and is bound as an *optional*
+ * scope on both bot clients (`caipe-slack-bot` and `caipe-webex-bot`).
+ *
+ * This deliberately does **not** bind on the OBO audience client. Real team
+ * scopes need default-on-audience because token-exchange drops `scope=`; we
+ * intentionally do not "fix" that for `team-personal` because making it
+ * default-on-audience would clobber whichever real team is currently default,
+ * and making it optional-on-audience has no effect (verified live: KC still
+ * drops `scope=team-personal` during token-exchange). The structural DM
+ * limitation is surfaced as a separate advisory invariant; this function only
+ * keeps the bot-side bindings symmetric and the mapper sane.
+ */
+export async function ensurePersonalTeamClientScope(): Promise<void> {
+  const description = `Spec 104: marks the user as acting in personal (DM) mode`;
+
+  const [slackBotClient, webexBotClient] = await Promise.all([
+    getClientByClientId(SLACK_BOT_CLIENT_ID),
+    getClientByClientId(WEBEX_BOT_CLIENT_ID),
+  ]);
+  if (!slackBotClient) {
+    throw new Error(
+      `Keycloak bot client "${SLACK_BOT_CLIENT_ID}" not found; cannot bind ${PERSONAL_TEAM_SCOPE_NAME} scope`
+    );
+  }
+
+  let scope = await getClientScopeByName(PERSONAL_TEAM_SCOPE_NAME);
+  if (!scope) {
+    scope = await createClientScope(PERSONAL_TEAM_SCOPE_NAME, description);
+  }
+
+  await ensureHardcodedActiveTeamMapper(
+    scope.id,
+    PERSONAL_TEAM_MAPPER_NAME,
+    PERSONAL_TEAM_ACTIVE_VALUE
+  );
+  await bindScopeAsOptional(slackBotClient.id, scope.id);
+  if (webexBotClient) {
+    await bindScopeAsOptional(webexBotClient.id, scope.id);
+  } else {
+    console.warn(
+      `[keycloak-admin] Webex bot client "${WEBEX_BOT_CLIENT_ID}" not found; ` +
+        `${PERSONAL_TEAM_SCOPE_NAME} will not be bound on Webex.`
+    );
+  }
+}
+
+/**
+ * Delete any `team-<slug>` Keycloak client scopes whose slug is not in the
+ * provided `keepSlugs` allow-list AND is not the special `personal` slug.
+ *
+ * Returns the list of deleted scope names so the caller can record the count
+ * in migration metadata. Each delete unbinds the scope from the Slack bot,
+ * Webex bot, and OBO audience client first (so we don't leave dangling
+ * client-scope mappings), then removes the scope itself.
+ *
+ * Safe to call repeatedly: no-op when there's nothing to delete.
+ */
+export async function deleteOrphanTeamClientScopes(
+  keepSlugs: Iterable<string>
+): Promise<string[]> {
+  const allowed = new Set<string>(keepSlugs);
+  // `team-personal` is always allowed — it's a structural special-case scope
+  // owned by `init-token-exchange.sh` / `ensurePersonalTeamClientScope`.
+  allowed.add(PERSONAL_TEAM_SLUG);
+
+  const [slackBotClient, webexBotClient, oboAudienceClient, allScopes] =
+    await Promise.all([
+      getClientByClientId(SLACK_BOT_CLIENT_ID),
+      getClientByClientId(WEBEX_BOT_CLIENT_ID),
+      getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
+      listClientScopes(),
+    ]);
+
+  const orphans = allScopes.filter((scope) => {
+    if (!scope.name.startsWith("team-")) return false;
+    const slug = scope.name.slice("team-".length);
+    return !allowed.has(slug);
+  });
+
+  const deletedNames: string[] = [];
+  for (const scope of orphans) {
+    if (slackBotClient) {
+      await unbindOptionalScope(slackBotClient.id, scope.id);
+    }
+    if (webexBotClient) {
+      await unbindOptionalScope(webexBotClient.id, scope.id);
+    }
+    if (oboAudienceClient) {
+      await unbindDefaultScope(oboAudienceClient.id, scope.id);
+      await unbindOptionalScope(oboAudienceClient.id, scope.id);
+    }
+    await deleteClientScope(scope.id);
+    deletedNames.push(scope.name);
+    console.log(
+      `[keycloak-admin] deleteOrphanTeamClientScopes deleted "${scope.name}" ` +
+        `(no matching Mongo team and not a structural special-case scope)`
+    );
+  }
+  return deletedNames;
+}
+
+/**
  * Select the single bot OBO audience `team-*` default scope that should contribute
  * `active_team` to token-exchange results.
  *
@@ -1352,7 +1677,17 @@ export async function selectAgentGatewayActiveTeamScope(slug: string): Promise<v
   const defaultScopes = await listDefaultClientScopes(oboAudienceClient.id);
   await Promise.all(
     defaultScopes
-      .filter((scope) => scope.name.startsWith("team-") && scope.id !== targetScope.id)
+      .filter(
+        (scope) =>
+          scope.name.startsWith("team-") &&
+          scope.id !== targetScope.id &&
+          // Defensive: `team-personal` should never be default on the audience
+          // (see `ensurePersonalTeamClientScope` for the rationale), but if a
+          // previous run accidentally bound it we don't want this function to
+          // be the one that strips it — keep that as an explicit operator
+          // action via the dedicated orphan-cleanup / invariant flow.
+          !isPersonalTeamScopeName(scope.name)
+      )
       .map((scope) => unbindDefaultScope(oboAudienceClient.id, scope.id))
   );
   await bindScopeAsDefault(oboAudienceClient.id, targetScope.id);
@@ -1566,6 +1901,43 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
       getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
       getClientByClientId("realm-management"),
     ]);
+  // One resolver instance per inspection — every `readScopePermissionDetails`
+  // call below shares the same UUID→clientId map, so we only touch the
+  // /clients registry once per probe even when N policies need hydrating.
+  const resolveClientId = createClientUuidResolver();
+  // Per-bot client `token-exchange` scope-permissions live on each
+  // bot's *own* client (not on the audience). We inspect both so the
+  // invariant evaluator can flag UNANIMOUS-with-multiple-policies on
+  // either one — that's the exact failure mode that caused the
+  // "client not allowed to exchange" outage we surfaced via this UI.
+  const slackBotTokenExchangePerm =
+    slackBotClient
+      ? (await readClientManagementPermissions(slackBotClient.id, slackBotClient.clientId).catch(
+          () => null
+        ))?.scopePermissions?.["token-exchange"]
+      : undefined;
+  const webexBotTokenExchangePerm =
+    webexBotClient
+      ? (await readClientManagementPermissions(webexBotClient.id, webexBotClient.clientId).catch(
+          () => null
+        ))?.scopePermissions?.["token-exchange"]
+      : undefined;
+  const slackBotTokenExchangeDetails =
+    realmManagementClient && slackBotTokenExchangePerm
+      ? await readScopePermissionDetails(
+          realmManagementClient.id,
+          slackBotTokenExchangePerm,
+          resolveClientId
+        ).catch(() => null)
+      : null;
+  const webexBotTokenExchangeDetails =
+    realmManagementClient && webexBotTokenExchangePerm
+      ? await readScopePermissionDetails(
+          realmManagementClient.id,
+          webexBotTokenExchangePerm,
+          resolveClientId
+        ).catch(() => null)
+      : null;
   const teamScopes = (await listClientScopes())
     .filter((scope) => scope.name.startsWith("team-"))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -1607,11 +1979,19 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
   const usersImpersonatePermissionId = await getUsersImpersonatePermissionId().catch(() => null);
   const tokenExchangeDetails =
     realmManagementClient && tokenExchangePermissionId
-      ? await readScopePermissionDetails(realmManagementClient.id, tokenExchangePermissionId)
+      ? await readScopePermissionDetails(
+          realmManagementClient.id,
+          tokenExchangePermissionId,
+          resolveClientId
+        )
       : null;
   const usersImpersonateDetails =
     realmManagementClient && usersImpersonatePermissionId
-      ? await readScopePermissionDetails(realmManagementClient.id, usersImpersonatePermissionId)
+      ? await readScopePermissionDetails(
+          realmManagementClient.id,
+          usersImpersonatePermissionId,
+          resolveClientId
+        )
       : null;
 
   const oboPermissionRows = await Promise.all(
@@ -1646,21 +2026,61 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
       )
     : [];
 
+  const tokenExchangePermissionRows: KeycloakRbacDiagnosticValues["token_exchange_permissions"] = [];
+  if (oboAudienceClient) {
+    tokenExchangePermissionRows.push({
+      client_id: oboAudienceClient.clientId,
+      token_exchange_permission_id: tokenExchangePermissionId ?? "missing",
+      decision_strategy: tokenExchangeDetails?.decisionStrategy ?? "missing",
+      policy_names:
+        tokenExchangeDetails?.policies.map((policy) => canonicalBotPolicyName(policy.name)) ?? [],
+      attached_policies: tokenExchangeDetails?.policies ?? [],
+    });
+  }
+  if (slackBotClient) {
+    tokenExchangePermissionRows.push({
+      client_id: slackBotClient.clientId,
+      token_exchange_permission_id: slackBotTokenExchangePerm ?? "missing",
+      decision_strategy: slackBotTokenExchangeDetails?.decisionStrategy ?? "missing",
+      policy_names:
+        slackBotTokenExchangeDetails?.policies.map((policy) =>
+          canonicalBotPolicyName(policy.name)
+        ) ?? [],
+      attached_policies: slackBotTokenExchangeDetails?.policies ?? [],
+    });
+  }
+  if (webexBotClient) {
+    tokenExchangePermissionRows.push({
+      client_id: webexBotClient.clientId,
+      token_exchange_permission_id: webexBotTokenExchangePerm ?? "missing",
+      decision_strategy: webexBotTokenExchangeDetails?.decisionStrategy ?? "missing",
+      policy_names:
+        webexBotTokenExchangeDetails?.policies.map((policy) =>
+          canonicalBotPolicyName(policy.name)
+        ) ?? [],
+      attached_policies: webexBotTokenExchangeDetails?.policies ?? [],
+    });
+  }
+
   return {
     team_scopes: teamScopeValues,
     obo_permissions: oboPermissionRows,
     bot_service_accounts: serviceAccountRows,
-    token_exchange_permissions: oboAudienceClient
-      ? [
-          {
-            client_id: oboAudienceClient.clientId,
-            token_exchange_permission_id: tokenExchangePermissionId ?? "missing",
-            decision_strategy: tokenExchangeDetails?.decisionStrategy ?? "missing",
-            policy_names:
-              tokenExchangeDetails?.policies.map((policy) => canonicalBotPolicyName(policy.name)) ?? [],
-          },
-        ]
-      : [],
+    token_exchange_permissions: tokenExchangePermissionRows,
+    users_impersonate_permission:
+      usersImpersonatePermissionId && usersImpersonateDetails
+        ? {
+            permission_id: usersImpersonatePermissionId,
+            decision_strategy: usersImpersonateDetails.decisionStrategy ?? "missing",
+            attached_policies: usersImpersonateDetails.policies,
+          }
+        : usersImpersonatePermissionId
+          ? {
+              permission_id: usersImpersonatePermissionId,
+              decision_strategy: "missing",
+              attached_policies: [],
+            }
+          : undefined,
     active_team_defaults: oboAudienceClient
       ? [
           {
@@ -1684,15 +2104,34 @@ export async function deleteTeamClientScope(slug: string): Promise<void> {
     // If the slug is invalid we can't have created a scope for it; nothing to do.
     return;
   }
+  // Guard rail: never let team deletion remove the structural `team-personal`
+  // scope (the DM-mode marker is provisioned at realm bootstrap, not by team
+  // CRUD). If a maintainer renames a team to `personal` we want this to be a
+  // visible no-op, not a quiet wipe of personal-mode wiring.
+  if (isPersonalTeamSlug(slug)) {
+    console.warn(
+      `[keycloak-admin] Refusing to delete reserved scope "${PERSONAL_TEAM_SCOPE_NAME}" via deleteTeamClientScope`
+    );
+    return;
+  }
   const scopeName = `team-${slug}`;
   const scope = await getClientScopeByName(scopeName);
   if (!scope) return;
 
-  const botClient = await getClientByClientId(SLACK_BOT_CLIENT_ID);
-  if (botClient) {
-    await unbindOptionalScope(botClient.id, scope.id);
+  const [slackBotClient, webexBotClient, oboAudienceClient] = await Promise.all([
+    getClientByClientId(SLACK_BOT_CLIENT_ID),
+    getClientByClientId(WEBEX_BOT_CLIENT_ID),
+    getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
+  ]);
+  if (slackBotClient) {
+    await unbindOptionalScope(slackBotClient.id, scope.id);
   }
-  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
+  if (webexBotClient) {
+    // Slack/Webex symmetry: previous implementations only unbound from Slack,
+    // leaving an orphan optional binding on the Webex bot that the next
+    // reconcile pass had to clean up. Unbind both sides as part of the delete.
+    await unbindOptionalScope(webexBotClient.id, scope.id);
+  }
   if (oboAudienceClient) {
     await unbindDefaultScope(oboAudienceClient.id, scope.id);
   }

@@ -85,13 +85,23 @@ for policy in associated:
 if os.environ["POLICY_ID"] not in policies:
     policies.append(os.environ["POLICY_ID"])
 permission["policies"] = policies
+# Force AFFIRMATIVE decision strategy so that adding additional
+# per-client policies to a SHARED scope-permission (e.g. the realm-level
+# users.impersonate permission, which both caipe-slack-bot and
+# caipe-webex-bot attach client policies to) does not cause cross-DENY
+# under Keycloak'\''s default UNANIMOUS strategy. Without this, attaching
+# the Webex bot policy after the Slack bot policy makes the Slack bot
+# fail OBO with "Client not allowed to exchange/impersonate" because
+# the Webex policy votes DENY for the Slack bot. See the matching
+# helper in charts/.../init-idp.sh for the long-form rationale.
+permission["decisionStrategy"] = "AFFIRMATIVE"
 print(json.dumps(permission))
 ' 2>/dev/null)
   if [ -n "${UPDATED_PERMISSION_JSON}" ]; then
     curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/clients/${REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" \
       -d "${UPDATED_PERMISSION_JSON}" 2>/dev/null && \
-      echo "${TAG}   ${LABEL} updated."
+      echo "${TAG}   ${LABEL} updated (AFFIRMATIVE)."
   fi
 }
 

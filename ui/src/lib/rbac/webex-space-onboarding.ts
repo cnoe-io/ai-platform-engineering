@@ -11,7 +11,10 @@ import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
-import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
+import {
+  webexSpaceGrantRelationship,
+  webexSpaceTeamVisibilityRelationships,
+} from "@/lib/rbac/webex-space-rebac";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type { WebexRouteListenMode } from "@/types/webex-rebac";
@@ -323,6 +326,11 @@ export async function onboardWebexSpace(
       action: "use",
       resource: { type: "agent", id: agentId },
     },
+    // Inbound team→space visibility. Without these, the admin
+    // /api/admin/webex/spaces listing route filters this space out because
+    // no user can `can_read` the space object in OpenFGA. Mirrors the Slack
+    // channel onboarding fix in defaults/route.ts.
+    ...webexSpaceTeamVisibilityRelationships(workspaceId, canonicalSpaceId, teamSlug),
   ];
   const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] }));
   if (!openfga.enabled) {

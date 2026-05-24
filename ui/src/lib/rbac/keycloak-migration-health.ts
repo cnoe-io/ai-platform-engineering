@@ -9,6 +9,12 @@ import {
   type KeycloakRbacDiagnosticValues,
 } from "@/lib/rbac/keycloak-admin";
 import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
+import {
+  evaluateKeycloakInvariants,
+  summarizeKeycloakInvariants,
+  type KeycloakInvariant,
+  type KeycloakInvariantSummary,
+} from "@/lib/rbac/keycloak-invariants";
 import { getMigrationBlockingStatus, listReleaseMigrations } from "@/lib/rbac/migrations/registry";
 import type { MigrationStatus } from "@/lib/rbac/migrations/types";
 
@@ -63,6 +69,19 @@ export interface KeycloakMigrationHealth {
   };
   keycloak_values?: KeycloakRbacDiagnosticValues;
   keycloak_values_error?: string;
+  /**
+   * Evaluated invariants over the live Keycloak realm (e.g. "OBO
+   * permissions use AFFIRMATIVE strategy", "each bot policy is a
+   * strict client allow-list"). Always emitted when keycloak_values
+   * is populated. Omitted when Keycloak is unreachable (keycloak.
+   * reachable === false) or when the inspector errored — in those
+   * cases the panel shows the existing "Keycloak unreachable"
+   * indicator rather than a misleading all-unknown invariant list.
+   */
+  keycloak_invariants?: {
+    summary: KeycloakInvariantSummary;
+    items: KeycloakInvariant[];
+  };
 }
 
 function keycloakRealm(): string {
@@ -71,6 +90,19 @@ function keycloakRealm(): string {
 
 function keycloakConfigured(): boolean {
   return Boolean(process.env.KEYCLOAK_URL?.trim());
+}
+
+// Mirrors the constants in keycloak-admin.ts so the invariant
+// evaluator can name the bots/audience without re-reading process.env
+// in tests. Tests inject these explicitly; runtime defers to env.
+function slackBotClientId(): string {
+  return process.env.KEYCLOAK_BOT_CLIENT_ID?.trim() || "caipe-slack-bot";
+}
+function webexBotClientId(): string {
+  return process.env.KEYCLOAK_WEBEX_BOT_CLIENT_ID?.trim() || "caipe-webex-bot";
+}
+function oboAudienceClientId(): string {
+  return process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 }
 
 function inferReachability(run: SchemaMigrationRunDoc | null): Pick<KeycloakReachability, "reachable" | "probe_error"> {
@@ -109,6 +141,19 @@ export async function getKeycloakMigrationHealth(input: {
           error: err instanceof Error ? err.message : "Failed to inspect Keycloak values",
         }))
     : undefined;
+
+  const invariants =
+    keycloakValuesResult && "values" in keycloakValuesResult
+      ? (() => {
+          const items = evaluateKeycloakInvariants({
+            values: keycloakValuesResult.values,
+            slackBotClientId: slackBotClientId(),
+            webexBotClientId: webexBotClientId(),
+            oboAudienceClientId: oboAudienceClientId(),
+          });
+          return { summary: summarizeKeycloakInvariants(items), items };
+        })()
+      : undefined;
 
   return {
     keycloak: {
@@ -152,5 +197,6 @@ export async function getKeycloakMigrationHealth(input: {
     ...(keycloakValuesResult && "error" in keycloakValuesResult
       ? { keycloak_values_error: keycloakValuesResult.error }
       : {}),
+    ...(invariants ? { keycloak_invariants: invariants } : {}),
   };
 }

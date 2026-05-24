@@ -4,6 +4,8 @@
 
 const mockGetCollection = jest.fn();
 const mockEnsureTeamClientScope = jest.fn();
+const mockEnsurePersonalTeamClientScope = jest.fn();
+const mockDeleteOrphanTeamClientScopes = jest.fn();
 const mockEnsureSlackBotOboPermissions = jest.fn();
 const mockEnsureWebexBotOboPermissions = jest.fn();
 const mockEnsureBotServiceAccountImersonationRoles = jest.fn();
@@ -18,6 +20,8 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
+  ensurePersonalTeamClientScope: (...args: unknown[]) => mockEnsurePersonalTeamClientScope(...args),
+  deleteOrphanTeamClientScopes: (...args: unknown[]) => mockDeleteOrphanTeamClientScopes(...args),
   ensureSlackBotOboPermissions: (...args: unknown[]) => mockEnsureSlackBotOboPermissions(...args),
   ensureWebexBotOboPermissions: (...args: unknown[]) => mockEnsureWebexBotOboPermissions(...args),
   ensureBotServiceAccountImpersonationRoles: (...args: unknown[]) =>
@@ -64,6 +68,8 @@ describe("keycloak RBAC startup reconciliation migration", () => {
     };
     mockGetCollection.mockImplementation(async (name: string) => collections[name]);
     mockEnsureTeamClientScope.mockResolvedValue(undefined);
+    mockEnsurePersonalTeamClientScope.mockResolvedValue(undefined);
+    mockDeleteOrphanTeamClientScopes.mockResolvedValue([]);
     mockEnsureSlackBotOboPermissions.mockResolvedValue(undefined);
     mockEnsureWebexBotOboPermissions.mockResolvedValue(undefined);
     mockEnsureBotServiceAccountImersonationRoles.mockResolvedValue(undefined);
@@ -215,5 +221,54 @@ describe("keycloak RBAC startup reconciliation migration", () => {
       { upsert: true }
     );
     expect(collections.data_schema_versions.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("reconciles the team-personal scope and reports the count in applied_counts", async () => {
+    const { runKeycloakRbacStartupMigration } =
+      await import("../keycloak-rbac-reconciliation");
+
+    const result = await runKeycloakRbacStartupMigration({ actor: "startup-test" });
+
+    expect(result.status).toBe("completed");
+    expect(mockEnsurePersonalTeamClientScope).toHaveBeenCalledTimes(1);
+    expect(result.counts.personal_team_scope_reconciled).toBe(1);
+  });
+
+  it("deletes orphan team-* scopes and records both the count and a warning summary", async () => {
+    mockDeleteOrphanTeamClientScopes.mockResolvedValue(["team-stale-one", "team-stale-two"]);
+    const { runKeycloakRbacStartupMigration } =
+      await import("../keycloak-rbac-reconciliation");
+
+    const result = await runKeycloakRbacStartupMigration({ actor: "startup-test" });
+
+    expect(result.status).toBe("completed");
+    // The Mongo team slugs `platform` and `eti-sre-admins` are the allow-list;
+    // `team-personal` is always preserved by deleteOrphanTeamClientScopes itself.
+    expect(mockDeleteOrphanTeamClientScopes).toHaveBeenCalledWith([
+      "eti-sre-admins",
+      "platform",
+    ]);
+    expect(result.counts.orphan_team_scopes_deleted).toBe(2);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Removed 2 orphan team scope(s)"),
+      ]),
+    );
+  });
+
+  it("does not emit an orphan-removed warning when there is nothing to delete", async () => {
+    mockDeleteOrphanTeamClientScopes.mockResolvedValue([]);
+    const { runKeycloakRbacStartupMigration } =
+      await import("../keycloak-rbac-reconciliation");
+
+    const result = await runKeycloakRbacStartupMigration({ actor: "startup-test" });
+
+    expect(result.status).toBe("completed");
+    expect(result.counts.orphan_team_scopes_deleted).toBe(0);
+    expect(result.warnings).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("orphan team scope(s)"),
+      ]),
+    );
   });
 });

@@ -342,7 +342,7 @@ Slack channel and Webex space setup use the same guided admin path:
 **Discover → Configure → Apply → Verify**. The discovery step lists bot-visible
 channels/spaces with row-level readiness labels:
 
-- **Already managed** means the channel/space is already known to CAIPE; selecting
+- **Setup completed** means the channel/space is already known to CAIPE; selecting
   it refreshes grants and routes.
 - **Needs setup** means the bot can see the channel/space, but CAIPE still needs
   to import it, bind a team, grant the selected Dynamic Agent, and create route
@@ -352,7 +352,7 @@ channels/spaces with row-level readiness labels:
 
 Use the outcome button (`Set up selected Slack channels` or `Set up selected
 Webex spaces`) after every selected row has a team and Dynamic Agent. The apply
-step flips successfully applied discovery rows back to **Already managed** in the
+step flips successfully applied discovery rows back to **Setup completed** in the
 table, so admins can see the setup state change without opening a separate result
 dialog. Use **Refresh setup status** to re-run discovery and reconcile the row
 colors against the latest bot-visible state. The operation is intentionally
@@ -509,6 +509,278 @@ previous revision. Admins can optionally show an **Open Migration Assistant**
 action that deep-links to the Migrations tab; non-admins see feature notes only
 and can permanently dismiss the active announcement.
 
+### Keycloak Invariants Panel
+
+**Admin → Security & Policy → Keycloak** renders both the runtime reconciliation
+state and a **Keycloak Invariants** section that validates the realm against the
+specific provisioning steps owned by `init-idp.sh`,
+`init-token-exchange.sh`, and the BFF startup migration. Each invariant is a
+named pass / fail / unknown check with a remediation hint:
+
+**Plain-English explainer tooltip.** The machine IDs are accurate but
+cryptic to a human (e.g. `obo.token_exchange.shared_audience.affirmative`,
+`team_scope.team-platform.default_on_obo_audience`). Every row renders a
+small `HelpCircle` affordance next to its description; hovering it (or
+focusing it via the keyboard) opens a tooltip with a decoded title and a
+two- to four-sentence body explaining **what the check verifies**, **why
+it matters**, and **what breaks if it fails**. The decoder lives at
+`ui/src/components/admin/invariant-explanations.ts` and is unit-tested
+against every ID family emitted by `keycloak-invariants.ts` so a
+generic "no explanation registered" fallback should never reach
+production. The decoded title is also embedded in the affordance's
+`aria-label`, so screen reader and keyboard users get the same context
+without needing to fire the hover.
+
+The wording style policy is **"keep both technical and plain-English"**.
+Every tooltip body keeps the technical names — `OBO`, `token exchange`,
+`scope-permission`, `policy` / `type=client`, `AFFIRMATIVE` /
+`UNANIMOUS`, `service account`, `client scope`, team `slug`, `protocol
+mapper`, `active_team` claim, `caipe-platform`, `RFC 8693` — so
+engineers can grep them and so the prose matches the raw invariant ID
+already rendered in monospace right below the description. But each
+unavoidable term is given a one-shot plain-English gloss on first
+mention in the same body, in the shape `term (plain-English
+definition)` — for example "OBO (on-behalf-of, i.e. the bot acting as
+a real user)", "slug (a short, URL-safe team name like `platform` or
+`eti-sre-admin`)", "protocol mapper (a small Keycloak rule that
+injects an extra claim — a labeled field — into the issued token)".
+Each body opens with a plain-English "This row checks that…" / "This
+is an *advisory* row…" / "Same as…" lead sentence and closes with a
+plain-English "what breaks if it's red" sentence. The
+`technical-term + plain-English gloss pairings` block in
+`invariant-explanations.test.ts` pins ~15 of these pairings as
+regression tests, so a future copy edit that strips the plain-English
+half (e.g. just leaves "OBO" without "(on-behalf-of, …)") fails CI
+before it ships.
+
+**Plain-English explainer tooltips also cover migration warnings.**
+The Keycloak panel has two warning surfaces underneath the invariant
+list: the amber "Bootstrap admin reconciliation failed for N email(s)"
+bar (when one or more entries in `BOOTSTRAP_ADMIN_EMAILS` couldn't be
+seeded as realm admins), and the general "Warnings" bar (e.g.
+"Skipped active\_team default selection because
+`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is unset and there is not exactly
+one Mongo team."). Both surfaces follow the same explainer pattern as
+the invariant rows:
+
+- Each individual warning row carries a `?` HelpCircle next to the
+  raw text; hovering it shows a 2- to 4-sentence body explaining
+  what the warning means, why it fires, and **what the system did
+  instead** (e.g. "left every other admin alone", "fell back to
+  personal mode for every channel that maps to a team"). The body
+  is followed by a "How to fix:" line with a concrete action,
+  including example env-var values.
+- The "Bootstrap admin reconciliation failed" header has its own
+  `?` HelpCircle that explains the *concept* — what
+  `BOOTSTRAP_ADMIN_EMAILS` is for, why a brand-new deployment with
+  an empty Keycloak realm depends on it to avoid being locked out,
+  and that failed rows are non-blocking — independent of any
+  specific failed email.
+
+The decoder lives at `ui/src/components/admin/warning-explanations.ts`
+and is pattern-matched (not exact-match) so the captured fields
+(email, error text) get interpolated into the explanation. New
+warning families added to `keycloak-rbac-reconciliation.ts` or
+`keycloak-bootstrap-admins.ts` must also add a matching
+`WarningPattern` entry, and the unit tests in
+`warning-explanations.test.ts` pin every pattern; otherwise admins
+get a safe generic fallback that points the next engineer at the
+file to extend.
+
+The single most common warning admins hit is the
+`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG`-unset one: that env var on the
+`caipe-ui` deployment names the team slug whose `team-*` client
+scope should sit as the single audience-default scope on
+`caipe-platform`. Because Keycloak's RFC 8693 token-exchange flow
+ignores the requested `scope=` and only injects mappers from
+*default* audience scopes, that one scope is what stamps the
+`active_team` claim into every OBO token the Slack and Webex bots
+issue. The migration auto-picks the lone team when only one team
+exists in MongoDB; otherwise it skips selection rather than
+guessing, and the warning fires until you set
+`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG=<slug>` (e.g. `=platform`,
+`=eti-sre-admin`).
+
+- **Reconcile now** — the BFF migration `keycloak_rbac_mapping_reconciliation_v1`
+  knows how to repair the invariant. Two affordances drive the same migration:
+  - **Reconcile all** at the top of the card fixes every failing
+    `remediation: reconcile_now` invariant in one transaction. It also retries
+    bootstrap admin email resolution and OpenFGA tuple seeding in the same pass.
+  - **Fix** next to a specific failing row runs the identical migration but
+    surfaces an inline "Fixing…" indicator on the originating row so admins can
+    triage long lists without losing context. The button becomes available
+    whenever any failing invariant has `remediation: reconcile_now`, even if the
+    schema and migration manifest are already current.
+- **Manual** — the invariant requires a direct edit in the Keycloak Admin
+  Console. Today this only fires for *strict policy shape* checks: every
+  attached policy on the shared `users.impersonate` and `token-exchange`
+  scope-permissions must be `type=client` with a non-empty `clients` allow-list.
+  A `js` / `role` / empty-`clients` policy gives an admin a permissive single
+  PERMIT under the AFFIRMATIVE decision strategy, so the panel asks an operator
+  to remove it explicitly rather than auto-rewriting.
+
+**Admin-only header alert.** Admins do not have to be on the Keycloak tab
+to notice a regression. The right-hand cluster of the global `AppHeader`
+renders a single admin-only `Alerts: <N>` pill whenever one or more
+admin-side conditions are active. Today those conditions are:
+
+- **Keycloak unreachable** — Keycloak is configured but its admin API is
+  unreachable (red severity).
+- **Migrations required** — one or more blocking migrations are pending
+  (red severity).
+- **Keycloak invariants failing** — at least one realm invariant is
+  failing (amber severity).
+- **Version metadata needed** — collections need v1 initialization
+  (amber severity).
+- **Migration override active** — non-blocking override is in effect
+  (amber severity).
+
+The pill collapses what used to be four separate chips so the right-hand
+cluster stays compact even when several subsystems flag issues
+simultaneously. Specifically:
+
+- It renders **only for admin users** (`useAdminRole` short-circuits both
+  the client polling hook and the pill itself; non-admin sessions never
+  call the summary endpoint).
+- The Keycloak health hook polls
+  `/api/admin/keycloak/migration-health/summary` every 60 s. The endpoint
+  shares an in-process 60 s TTL cache, so repeated polls do not trigger a
+  Keycloak Admin API round-trip and the existing full-fat panel is
+  unaffected.
+- **Color follows severity:** if any active source is red the whole pill
+  is red, otherwise it is amber. The icon is a single `AlertTriangle`
+  regardless of source.
+- **Total count** is the sum of each source's count
+  (`blocking_required_count`, `invariants.failing`,
+  `version_bootstrap_required_count`, and `1` for sourceless conditions
+  like "Keycloak unreachable" or "override active").
+- **Hover / aria-label** shows a per-source breakdown
+  (`Migrations required: 2 · Keycloak invariants failing: 4 · …`) so a
+  screen reader or hover user can see the individual contributions before
+  even opening the popover.
+- **Click opens a popover** listing every active alert as its own row,
+  each with a severity dot (red / amber), the source label, the source's
+  count, and a chevron. Each row is a **`<button>` that navigates
+  programmatically** via `useRouter().push()` and then closes the
+  popover (`setAlertsPopoverOpen(false)`) — *not* an `<a>` element.
+  This is a deliberate fix for the "clicking the alert doesn't do
+  anything" regression: when the rows were anchors inside the popover,
+  Radix Popover's outside-click listener would unmount the floating
+  layer on `mousedown`, taking the `<a>` with it before the browser
+  could dispatch the click and follow the href, so the user saw the
+  popover dismiss but the route never changed. Programmatic navigation
+  side-steps that race entirely. The unsaved-changes guard is preserved
+  manually: if `hasUnsavedChanges` is true we route through
+  `requestNavigation(href)` (which raises the discard dialog) instead
+  of pushing directly. Destinations are source-specific —
+  Keycloak sources → `?cat=security&tab=keycloak`, migration sources →
+  `?cat=security&tab=migrations`. The earlier "single deep-link to the
+  highest-severity source" behavior was removed: it silently hid the
+  lower-severity alerts and produced confusing no-ops when the user
+  was already on the destination tab.
+
+The summary endpoint returns only the booleans and counts the pill
+needs; it does not leak the full `keycloak_values` payload to anything
+that polls the header. Admins still navigate into the Keycloak tab for a
+fresh, uncached, fully-detailed read.
+
+**Copy buttons for filing tickets.** Every error surface in the panel is
+copyable rather than screenshot-only, so admins can paste exact diagnostic
+strings into a Jira / Slack / on-call ticket without retyping:
+
+- **Copy diagnostics** (top of the card) copies the full
+  `keycloak_invariants` + `bootstrap_admins` + migration health payload as
+  pretty-printed JSON.
+- Each failing invariant row has a Copy icon that copies a stable, plain-text
+  block (`description`, `id`, `status`, `group`, `source`, `remediation`,
+  `detail`) suitable for pasting into a bug report.
+- The error, warning, bootstrap admin failure, and "Reconcile applied" banners
+  each have a Copy icon that copies just that banner's text or JSON payload.
+- All Copy buttons work over plain HTTP / non-secure contexts via a
+  `document.execCommand("copy")` fallback in addition to
+  `navigator.clipboard.writeText`.
+
+The invariant set currently covers:
+
+| Group | Examples |
+| --- | --- |
+| OBO | `obo.token_exchange.*.affirmative`, `obo.token_exchange.shared_audience.{slack,webex}_policy_attached`, `obo.users_impersonate.affirmative`, `obo.users_impersonate.policies_strict`, `obo.users_impersonate.<bot>_policy_attached`, `obo.bot.<bot>.token_exchange_policy_attached`, `obo.bot.<bot>.users_impersonate_policy_attached` |
+| Bot service accounts | `service_account.<bot>.impersonation_role` |
+| Team client scopes | `team_scope.<scope>.active_team_mapper`, `team_scope.<scope>.optional_on_{slack,webex}_bot`, `team_scope.<scope>.default_on_obo_audience` (omitted for `team-personal` — see special-case below) |
+| Personal / DM mode | `team_personal.dm_mode_known_limitation` (advisory only) |
+
+The `team-personal` scope is a structural special-case. It is the DM-mode
+marker scope (`active_team=__personal__`) and is bound *optional* on both
+bots, but it is intentionally NOT default on the OBO audience client because
+Keycloak's RFC 8693 token-exchange drops the `scope=` request parameter and
+only one `team-*` default-on-audience binding can contribute `active_team`
+to the issued token at a time. Consequently:
+
+- The evaluator does **not** emit a `team_scope.team-personal.default_on_obo_audience` invariant — it would be a perpetually red row with no automatic remediation.
+- It does emit the advisory invariant `team_personal.dm_mode_known_limitation` (status `unknown`, remediation `manual_keycloak`) so the structural DM-mode gap is visible without being conflated with real failures. Tracked as a follow-up; see `docs/docs/security/rbac/architecture.md` for the design options.
+- Orphan `team-<slug>` scopes whose slug is not in the Mongo `teams`
+  collection (and is not `personal`) are auto-deleted during reconciliation
+  to keep the panel from flagging eternally-failing rows for scopes nobody
+  owns. The migration emits a warning summary listing the deleted scope
+  names so admins can recreate the corresponding team if the deletion was
+  unintended.
+
+**Team-scope matrix view.** Each team emits four (or three, for
+`team-personal`) team-scope invariants, so a 100-team realm would render
+~400 visually identical flat rows. To make the panel scale, the team-scope
+group is rendered as a `slug × wiring-kind` matrix instead of a flat list,
+at every realm size (one code path, no threshold switching). The layout is:
+
+- A status-strip header (`N teams · X pass · Y fail · Z unknown`) that
+  always reflects the *unfiltered* counts so admins can spot the
+  delta-from-clean state at a glance.
+- The `team_personal.dm_mode_known_limitation` advisory hoisted to its
+  own top-level amber row above the table (it does not fit the `slug ×
+  kind` grid — the kind doesn't exist for it).
+- A filter bar: slug substring search, a "failing only" toggle, and one
+  chip per wiring kind annotated with that kind's failing+unknown count.
+  Chips for kinds with no issues are disabled so the affordance is
+  honest about what's actionable. Filters AND together (search + toggle
+  + chip multi-select).
+- The matrix table itself: one row per team, four columns of compact
+  status dots (one per wiring kind), a per-team Fix button on the
+  right, and a chevron that expands the row into the four full
+  invariant cards (each with its plain-English explainer tooltip and
+  the existing per-cell Fix affordance).
+- A per-kind Fix button on each column header next to the chip count —
+  e.g. "Slack bot · Fix 12".
+
+The honest semantics admins should understand (and the panel surfaces
+this in a small note under the matrix): **per-team and per-kind Fix
+buttons all run the same global Keycloak reconcile migration**, the
+same one as `Reconcile all`. The difference is purely UX — clicking a
+narrower Fix button pins the `Fixing…` spinner to that row/column so
+admins see where their attention should be, not what scope of work
+the migration is actually doing. (The migration itself is idempotent
+and converges every team-scope invariant in one shot.) Sort order is:
+failing rows first (more fails sort earlier), then unknown-bearing
+rows, then passing rows; within each tier the rows sort
+alphabetically by slug, with `team-personal` pushed to the end of its
+tier so the structural row never visually dominates.
+
+Filters are local UI state — they do not change the underlying matrix
+counts, the `Copy diagnostics` JSON, or the migration's behaviour, so
+narrowing the table for triage never gives admins a partial view of
+the realm's health. The matrix code lives in
+`ui/src/components/admin/KeycloakTeamScopeMatrix.tsx` (rendering) and
+`ui/src/components/admin/team-scope-matrix.ts` (the pure pivot from
+invariant list → `slug × kind` grid), both unit-tested against
+fixtures up to 100 teams (`team-scope-matrix.test.ts`) and exercised
+end-to-end through the panel suite (`KeycloakMigrationHealthPanel.test.tsx`).
+
+The evaluator is a pure function over the read-only inspection in
+`ui/src/lib/rbac/keycloak-admin.ts#getKeycloakRbacDiagnosticValues`, so it
+never adds round-trips to Keycloak beyond what the existing health probe
+already does, and the same checks run identically in unit tests (see
+`ui/src/lib/rbac/__tests__/keycloak-invariants.test.ts`). If you add a new
+invariant, register it in `ui/src/lib/rbac/keycloak-invariants.ts` and add a
+case to the unit tests; the panel will pick it up automatically.
+
 The messaging additions add four cards:
 
 - **Slack channel ReBAC grants** backfills active `slack_channel_grants` and
@@ -613,7 +885,7 @@ grant, repairs the Slack bot's OBO/active-team Keycloak wiring, reloads the
 running Slack bot route cache when the admin API is reachable, and creates
 missing default routes when route creation is enabled.
 
-The discovery table marks a channel **Already managed** only when CAIPE has both
+The discovery table marks a channel **Setup completed** only when CAIPE has both
 a team assignment and an active grant for it. A channel that merely exists in
 MongoDB but is missing setup still shows **Needs setup** and remains selected so
 the onboarding action can finish the missing pieces.

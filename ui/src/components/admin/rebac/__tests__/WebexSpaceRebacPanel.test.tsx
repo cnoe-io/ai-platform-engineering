@@ -329,7 +329,7 @@ it("discovers Webex bot spaces and imports selected spaces with per-space defaul
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
   expect(screen.getByText("Onboarding path")).toBeInTheDocument();
   expect(screen.getByText("Needs setup")).toBeInTheDocument();
-  expect(screen.getByText("Already managed")).toBeInTheDocument();
+  expect(screen.getByText("Setup completed")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Set up selected Webex spaces" })).toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: /Import Platform Alerts/i })).not.toBeChecked();
@@ -364,7 +364,7 @@ it("discovers Webex bot spaces and imports selected spaces with per-space defaul
   expect(screen.queryByRole("dialog", { name: "Webex setup complete" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh setup status" })).toBeInTheDocument();
   expect(screen.queryByText("Needs setup")).not.toBeInTheDocument();
-  expect(screen.getAllByText("Already managed").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("Setup completed").length).toBeGreaterThanOrEqual(2);
 });
 
 it("shows discovered Webex space setup feedback as a toast without shifting the action row", async () => {

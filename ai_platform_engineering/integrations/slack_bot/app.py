@@ -141,7 +141,7 @@ if RBAC_ENABLED:
                     team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
                 elif auto_assign.reason not in {"disabled", "existing_mapping"}:
                     logger.warning(
-                        "Slack channel auto-assignment skipped channel=%s reason=%s",
+                        "Slack channel auto-assignment skipped channel={} reason={}",
                         channel_id,
                         auto_assign.reason,
                     )
@@ -157,7 +157,7 @@ if RBAC_ENABLED:
             context["team_id"] = team_resolution.team_id
             context["team_name"] = team_resolution.team_name
             logger.info(
-                "Channel=%s mapped to team=%s (slug=%s) for user=%s",
+                "Channel={} mapped to team={} (slug={}) for user={}",
                 channel_id, team_resolution.team_name, active_team, keycloak_user_id,
             )
 
@@ -165,7 +165,7 @@ if RBAC_ENABLED:
             obo = await impersonate_user(keycloak_user_id, active_team=active_team)
             context["obo_token"] = obo.access_token
             logger.info(
-                "OBO impersonation succeeded for user=%s active_team=%s",
+                "OBO impersonation succeeded for user={} active_team={}",
                 keycloak_user_id, active_team,
             )
         except OboExchangeError as e:
@@ -174,7 +174,7 @@ if RBAC_ENABLED:
             # OpenFGA relationships, so we reject the request rather than
             # silently downgrading to bot identity.
             logger.error(
-                "OBO impersonation failed for user=%s active_team=%s: %s",
+                "OBO impersonation failed for user={} active_team={}: {}",
                 keycloak_user_id, active_team, e,
             )
             return ("deny", TEAM_SESSION_UNAVAILABLE_MESSAGE)
@@ -458,7 +458,7 @@ def _post_route_miss_notice(
     else:
       client.chat_postMessage(channel=channel_id, text=text)
   except Exception as exc:
-    logger.warning("Slack route miss notice failed for channel=%s user=%s: %s", channel_id, user_id, exc)
+    logger.warning("Slack route miss notice failed for channel={} user={}: {}", channel_id, user_id, exc)
 
 
 def _resolve_escalation(channel_config, agent_id: str | None = None):
@@ -628,7 +628,7 @@ def rbac_global_middleware(body, context, next, logger):
         for k in stale:
             _seen_events.pop(k, None)
         if event_id in _seen_events:
-            logger.debug("Ignoring duplicate event_id=%s", event_id)
+            logger.debug("Ignoring duplicate event_id={}", event_id)
             return
         _seen_events[event_id] = now
     if _slack_responses_suppressed():
@@ -682,7 +682,7 @@ def rbac_global_middleware(body, context, next, logger):
             _rbac_enrich_context(body, slack_user_id, context, require_mapping=not is_mention)
         )
     except Exception as exc:
-        logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
+        logger.error("Failed to resolve Slack user {} — denying request: {}", slack_user_id, exc)
         channel = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
@@ -695,7 +695,7 @@ def rbac_global_middleware(body, context, next, logger):
                     text="Identity verification is temporarily unavailable. Please try again later.",
                 )
             except Exception:
-                logger.warning("Could not send RBAC error message to %s", slack_user_id)
+                logger.warning("Could not send RBAC error message to {}", slack_user_id)
         return
     finally:
         loop.close()
@@ -710,7 +710,7 @@ def rbac_global_middleware(body, context, next, logger):
         now = _time.time()
         last_sent = _linking_prompt_sent.get(slack_user_id, 0)
         if now - last_sent < _LINKING_PROMPT_COOLDOWN:
-            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
+            logger.debug("Suppressing linking prompt for {} (cooldown)", slack_user_id)
             return
         if channel:
             try:
@@ -748,7 +748,7 @@ def rbac_global_middleware(body, context, next, logger):
                 )
                 _linking_prompt_sent[slack_user_id] = now
             except Exception:
-                logger.warning("Could not send linking prompt to %s", slack_user_id)
+                logger.warning("Could not send linking prompt to {}", slack_user_id)
         return
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
@@ -763,7 +763,7 @@ def rbac_global_middleware(body, context, next, logger):
                     text=msg,
                 )
             except Exception:
-                logger.warning("Could not send RBAC denial to %s in %s", slack_user_id, channel)
+                logger.warning("Could not send RBAC denial to {} in {}", slack_user_id, channel)
         return
 
     next()

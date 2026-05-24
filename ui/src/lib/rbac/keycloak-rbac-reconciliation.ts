@@ -1,7 +1,9 @@
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
+  deleteOrphanTeamClientScopes,
   ensureBotServiceAccountImpersonationRoles,
   ensureCaipePlatformTokenExchangeDecisionStrategy,
+  ensurePersonalTeamClientScope,
   ensureSlackBotOboPermissions,
   ensureTeamClientScope,
   ensureWebexBotOboPermissions,
@@ -282,6 +284,8 @@ export async function runKeycloakRbacStartupMigration(input: {
   const counts: Record<string, number> = {
     mongo_teams_seen: 0,
     team_scopes_reconciled: 0,
+    personal_team_scope_reconciled: 0,
+    orphan_team_scopes_deleted: 0,
     obo_permission_sets_reconciled: 0,
     bot_service_accounts_reconciled: 0,
     token_exchange_permissions_reconciled: 0,
@@ -311,6 +315,29 @@ export async function runKeycloakRbacStartupMigration(input: {
     for (const slug of teamSlugs) {
       await ensureTeamClientScope(slug);
       counts.team_scopes_reconciled += 1;
+    }
+
+    // Spec 104 DM-mode marker scope. Provisioned by `init-token-exchange.sh`
+    // at realm bootstrap; re-asserted here so it survives drift (e.g. someone
+    // deleted the optional binding from the Webex bot in the Admin Console).
+    // See `ensurePersonalTeamClientScope` for why this is not bound on the
+    // OBO audience client.
+    await ensurePersonalTeamClientScope();
+    counts.personal_team_scope_reconciled = 1;
+
+    // Orphan cleanup — any `team-<slug>` scope without a matching Mongo team
+    // (and that isn't the special `team-personal`) is a stale artifact from a
+    // deleted team, a renamed team, or an aborted reconciliation. Delete them
+    // so the invariant panel doesn't show eternally-failing rows for scopes
+    // that nobody owns. `deleteOrphanTeamClientScopes` unbinds from both bots
+    // and the audience first, then removes the scope itself.
+    const deletedOrphans = await deleteOrphanTeamClientScopes(teamSlugs);
+    counts.orphan_team_scopes_deleted = deletedOrphans.length;
+    if (deletedOrphans.length > 0) {
+      warnings.push(
+        `Removed ${deletedOrphans.length} orphan team scope(s): ${deletedOrphans.join(", ")}. ` +
+          `If any of these belonged to a still-active CAIPE team, recreate the team in the Admin → Teams tab.`
+      );
     }
 
     await ensureSlackBotOboPermissions();

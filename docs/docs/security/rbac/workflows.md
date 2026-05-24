@@ -675,12 +675,20 @@ and leaves a blocking migration status if the Keycloak repair fails. The header 
 users see the same "migrations required" indicator. Admins can inspect persisted
 Keycloak run details, counts, warnings, and errors from `GET
 /api/admin/keycloak/migration-health` in Admin → Security & Policy → Keycloak.
-The metric tiles open read-only Keycloak value tables rather than raw migration
-JSON, so operators can see the live `team-*` scope, `active_team` mapper,
-client-scope binding, OBO permission, and service-account role values that the
-reconciler is checking. The same panel now shows bootstrap-admin diagnostics:
-configured emails, resolved Keycloak subjects, placeholder creations, tuple writes,
-and per-email warnings.
+The panel surfaces five high-signal tiles at the top (Schema area / Version /
+Migration status / Last actor / Bootstrap admins) and the Keycloak Invariants
+section below them with per-row **Fix** buttons as the actionable source of
+truth for live `team-*` scopes, `active_team` mappers, client-scope bindings,
+OBO permissions, and service-account roles. The raw `applied_counts` tile grid
+that previously sat between them (Mongo teams seen / Team scopes reconciled /
+OBO permission sets reconciled / etc.) was removed on 2026-05-24 — those
+counters were bookkeeping noise from the last reconciliation run rather than a
+view of current Keycloak state. Raw counts remain on the migration record and
+are queryable via `GET /api/admin/keycloak/migration-health` for anyone
+debugging the migration itself. Bootstrap-admin diagnostics (configured emails,
+resolved Keycloak subjects, placeholder creations, tuple writes, per-email
+warnings) are still inspectable through the Bootstrap admins tile at the top of
+the panel.
 If the stored run is failed or the `keycloak_rbac_mappings` schema area is behind,
 the **Reconcile now** button posts to the existing migration apply route for
 `keycloak_rbac_mapping_reconciliation_v1` and then reloads the health panel from
@@ -708,7 +716,7 @@ sequenceDiagram
     UI->>BFF: GET /api/admin/keycloak/migration-health
     BFF->>MDB: Read keycloak_rbac_mapping_reconciliation_v1 run details
     BFF->>KC: Read team scopes, mapper values, OBO permissions, service-account roles
-    BFF-->>UI: Keycloak health, counts, warnings, errors, live Keycloak values, bootstrap admin status
+    BFF-->>UI: Keycloak health, invariants, warnings, errors, bootstrap admin status
     Admin->>UI: Click Reconcile now when failed/behind
     UI->>BFF: POST /api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply
     BFF->>KC: Reconcile team scopes, OBO permissions, bootstrap admin users

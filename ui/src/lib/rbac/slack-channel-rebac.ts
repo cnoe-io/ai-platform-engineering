@@ -42,6 +42,38 @@ export function slackChannelGrantRelationship(
   };
 }
 
+// Team→channel visibility tuples. Without these, the channel exists in Mongo
+// but no one can `can_read` it in OpenFGA, so the admin /api/admin/slack/channels
+// listing endpoint silently filters it out. Pair of tuples:
+//   team:<slug>#admin  -> manage (relation `manager`) -> slack_channel
+//   team:<slug>#member -> use    (relation `user`)    -> slack_channel
+// `manager` covers can_read/can_manage/can_audit; `user` covers can_use which
+// resolves through to can_read. Matches the shape already written by
+// `ui/src/app/api/admin/teams/[id]/slack-channels/route.ts` so admin-PUT and
+// onboarding-defaults converge on the same OpenFGA tuple set.
+export function slackChannelTeamVisibilityRelationships(
+  workspaceId: string,
+  channelId: string,
+  teamSlug: string
+): UniversalRebacRelationship[] {
+  const channelResource: UniversalRebacResourceRef = {
+    type: "slack_channel",
+    id: slackChannelSubjectId(workspaceId, channelId),
+  };
+  return [
+    {
+      subject: { type: "team", id: teamSlug, relation: "admin" },
+      action: "manage",
+      resource: channelResource,
+    },
+    {
+      subject: { type: "team", id: teamSlug, relation: "member" },
+      action: "use",
+      resource: channelResource,
+    },
+  ];
+}
+
 export function parseSlackChannelGrantSubject(
   userSubject: string | undefined
 ): UniversalRebacSubjectRef | null {

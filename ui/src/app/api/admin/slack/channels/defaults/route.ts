@@ -10,7 +10,10 @@ import {
 } from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
-import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
+import {
+  slackChannelGrantRelationship,
+  slackChannelTeamVisibilityRelationships,
+} from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
@@ -512,18 +515,28 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     }
 
     const writes: UniversalRebacRelationship[] = [
-      ...channels.map((channel) =>
-        {
-          const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
-          const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
-          return slackChannelGrantRelationship(
-            workspaceId,
-            channel.slack_channel_id,
-            { type: "agent", id: scopedDefault?.agent_id ?? agentId },
-            "use"
-          );
-        }
-      ),
+      ...channels.flatMap((channel): UniversalRebacRelationship[] => {
+        const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+        const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
+        const channelToAgent = slackChannelGrantRelationship(
+          workspaceId,
+          channel.slack_channel_id,
+          { type: "agent", id: scopedDefault?.agent_id ?? agentId },
+          "use"
+        );
+        // Inbound team→channel visibility. Without these, the admin
+        // /api/admin/slack/channels listing route filters this channel out
+        // because no user can `can_read` the channel object in OpenFGA.
+        const targetTeamSlug = scopedDefault?.team_slug ?? channel.team_slug;
+        const teamVisibility = targetTeamSlug
+          ? slackChannelTeamVisibilityRelationships(
+              workspaceId,
+              channel.slack_channel_id,
+              String(targetTeamSlug)
+            )
+          : [];
+        return [channelToAgent, ...teamVisibility];
+      }),
       ...Array.from(teamAgentPairs.values()).map(
         ({ team: targetTeam, agent_id: targetAgentId }): UniversalRebacRelationship => ({
           subject: { type: "team", id: String(targetTeam.slug), relation: "member" },

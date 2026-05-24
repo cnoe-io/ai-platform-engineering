@@ -15,7 +15,7 @@ COPY --chown=root:root . /app/
 
 # Reproducible install from the committed lockfile, no dev deps.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+    UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev
 
 # ---------- Stage 2: Final runtime image ----------
 # Wolfi (Chainguard) base: 0 CVEs, continuously patched packages.

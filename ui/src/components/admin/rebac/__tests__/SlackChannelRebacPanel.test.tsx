@@ -392,7 +392,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   expect(screen.getByText(/Select channels to import, then choose team and Dynamic Agent per channel/i)).toBeInTheDocument();
   expect(screen.getByText("Onboarding path")).toBeInTheDocument();
   expect(screen.getAllByText("Needs setup").length).toBeGreaterThanOrEqual(2);
-  expect(screen.queryByText("Already managed")).not.toBeInTheDocument();
+  expect(screen.queryByText("Setup completed")).not.toBeInTheDocument();
   expect(
     screen.getByRole("status", {
       name: /2 bot-visible found .* 1 new .* 1 in CAIPE .* 1 missing team/i,
@@ -477,7 +477,7 @@ it("prefills discovered Slack channels from legacy Slackbot config by default", 
   expect(screen.getByLabelText("Dynamic Agent for #new-alerts")).toHaveValue("test-april-2025");
   expect(screen.getByLabelText("Dynamic Agent for #incidents")).toHaveValue("incident-agent");
   expect(screen.getAllByText("Needs setup").length).toBeGreaterThanOrEqual(2);
-  expect(screen.queryByText("Already managed")).not.toBeInTheDocument();
+  expect(screen.queryByText("Setup completed")).not.toBeInTheDocument();
 });
 
 it("falls back to onboarding default and then alphabetical agent when legacy config is ignored or unavailable", async () => {
@@ -716,7 +716,7 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
   expect(screen.queryByRole("dialog", { name: "Slack setup complete" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh setup status" })).toBeInTheDocument();
   expect(screen.queryByText("Needs setup")).not.toBeInTheDocument();
-  expect(screen.getAllByText("Already managed").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getAllByText("Setup completed").length).toBeGreaterThanOrEqual(2);
   expect(applyButton.parentElement).not.toHaveTextContent(/Channel setup applied/i);
 });
 
