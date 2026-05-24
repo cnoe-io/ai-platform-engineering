@@ -283,6 +283,54 @@ export async function readOpenFgaTuples(options: OpenFgaReadOptions = {}): Promi
   };
 }
 
+export interface OpenFgaListObjectsInput {
+  user: string;
+  relation: string;
+  type: string;
+}
+
+export interface OpenFgaListObjectsResult {
+  objects: string[];
+}
+
+export async function listOpenFgaObjects(
+  input: OpenFgaListObjectsInput,
+): Promise<OpenFgaListObjectsResult> {
+  return withAuthzSpan(
+    "openfga.list_objects",
+    {
+      "authz.relation": input.relation,
+      "authz.type": input.type,
+      "authz.user_ref": input.user.replace(/user:[^#]+/, "user:<redacted>"),
+    },
+    async () => {
+      const baseUrl = openFgaHttpUrl();
+      if (!baseUrl) {
+        throw new Error("OPENFGA_HTTP is not set");
+      }
+      const storeId = await getOpenFgaStoreId();
+      const response = await fetch(`${baseUrl}/stores/${storeId}/list-objects`, {
+        method: "POST",
+        headers: openFgaHeaders(),
+        body: JSON.stringify({
+          user: input.user,
+          relation: input.relation,
+          type: input.type,
+        }),
+      });
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        throw new Error(
+          `OpenFGA list-objects failed: ${response.status} ${errorBody.slice(0, 200)}`,
+        );
+      }
+      const payload = (await response.json()) as { objects?: string[] };
+      return { objects: payload.objects ?? [] };
+    },
+    getCurrentTraceparent(),
+  );
+}
+
 export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<OpenFgaReconcileResult> {
   assertWritableRelations(diff);
   if (!isOpenFgaConfigured()) {
