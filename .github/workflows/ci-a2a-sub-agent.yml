@@ -77,6 +77,7 @@ jobs:
           app-id: ${{ secrets.CI_A2A_APP_ID }}
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -214,6 +215,7 @@ jobs:
           app-id: ${{ secrets.CI_A2A_APP_ID }}
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -324,6 +326,7 @@ jobs:
           app-id: ${{ secrets.CI_A2A_APP_ID }}
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: 📦 Install crane
         run: |
@@ -467,6 +470,7 @@ jobs:
           app-id: ${{ secrets.CI_A2A_APP_ID }}
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: 🔔 Notify release finalize
         env:
