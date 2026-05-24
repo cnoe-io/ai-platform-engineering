@@ -31,6 +31,7 @@ from utils import ai
 from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
+from utils.chat_envelope import augment_slack_client_context  # noqa: E402
 
 from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
@@ -889,6 +890,15 @@ def handle_mention(event, say, client, context=None):
     }
     if user_email:
       client_context["user_email"] = user_email
+    # Phase 1: propagate originating channel context so RAG/PDP can derive
+    # team_id from channel_id (spec FR-016/FR-017).
+    client_context = augment_slack_client_context(
+      client_context,
+      channel_id=channel_id,
+      workspace_id=team_id,
+      thread_ts=thread_ts,
+      surface_kind="channel",
+    )
 
     esc_config = get_escalation_config(agent_match) if agent_match else None
 
@@ -1080,6 +1090,14 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         client_context["blocks"] = event["blocks"]
       if event.get("attachments"):
         client_context["attachments"] = event["attachments"]
+    # Phase 1: propagate originating channel context (spec FR-016/FR-017).
+    client_context = augment_slack_client_context(
+      client_context,
+      channel_id=channel_id,
+      workspace_id=team_id,
+      thread_ts=thread_ts,
+      surface_kind="channel",
+    )
 
     esc_config = get_escalation_config(agent_match)
 
@@ -1248,10 +1266,21 @@ def handle_dm_message(event, say, client, context=None):
       client_context["user_email"] = user_email
 
     team_id = event.get("team")
+    dm_channel_id = event.get("channel")
+    # Phase 1: propagate originating DM context. For DMs there's no
+    # channel_team_mappings row — that absence is the DM signal (spec
+    # FR-018), so RAG falls back to user-team-union evaluation.
+    client_context = augment_slack_client_context(
+      client_context,
+      channel_id=dm_channel_id,
+      workspace_id=team_id,
+      thread_ts=thread_ts,
+      surface_kind="dm",
+    )
 
     result = _call_ai(
       client=client,
-      channel_id=event.get("channel"),
+      channel_id=dm_channel_id,
       thread_ts=thread_ts,
       message_text=context_message,
       user_id=user_id,

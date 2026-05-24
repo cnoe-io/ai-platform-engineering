@@ -287,6 +287,9 @@ def test_threaded_stream_dispatcher_updates_reply_from_sse_events() -> None:
         "surface": "webex",
         "webex_space_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
         "webex_message_id": "message-public-id",
+        # Phase 1 channel-derived team binding (spec FR-016/FR-017):
+        "channel_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
+        "surface_kind": "channel",
     }
 
 
@@ -331,6 +334,10 @@ def test_threaded_stream_dispatcher_reuses_root_parent_for_thread_replies() -> N
         "webex_space_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
         "webex_message_id": "reply-message-public-id",
         "webex_thread_parent_id": "root-message-public-id",
+        # Phase 1 channel-derived team binding (spec FR-016/FR-017):
+        "channel_id": "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
+        "surface_kind": "channel",
+        "thread_ts": "root-message-public-id",
     }
 
 

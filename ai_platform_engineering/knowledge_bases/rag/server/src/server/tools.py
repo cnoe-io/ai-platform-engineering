@@ -14,7 +14,7 @@ from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOG
 from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch, StructuredEntity, StructuredEntityId
 import traceback
 from server.query_service import VectorDBQueryService
-from server.rbac import get_accessible_kb_ids, RBAC_TEAM_SCOPE_ENABLED
+from server.rbac import derive_team_for_request, get_accessible_kb_ids, RBAC_TEAM_SCOPE_ENABLED
 from fastmcp import FastMCP
 from common.utils import json_encode
 from server.snippet_utils import format_search_result
@@ -75,9 +75,16 @@ class AgentTools:
     if user.email.startswith("client:"):
       return None
 
-    team_id = user.active_team or self._extract_team_id(user)
-    if team_id == "__personal__":
-      team_id = None
+    # Phase 1 (spec 2026-05-24): use centralised derivation. The MCP tool
+    # path doesn't have a Request, so `derive_team_for_request(None, ...)`
+    # only consults the claim. Fall back to the legacy realm-role
+    # extraction for SA tokens that don't carry an active_team claim — we
+    # keep that path until Phase 3 demolition.
+    team_id = await derive_team_for_request(None, user)
+    if team_id is None:
+      legacy = self._extract_team_id(user)
+      if legacy and legacy != "__personal__":
+        team_id = legacy
     accessible = await get_accessible_kb_ids(
       user, scope, "default", team_id=team_id,
     )
