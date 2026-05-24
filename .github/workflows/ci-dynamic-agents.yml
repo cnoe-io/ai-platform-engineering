@@ -43,6 +43,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Determine Tag
         id: version
@@ -142,6 +143,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -206,6 +208,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: 📦 Install crane
         run: |
@@ -315,6 +318,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: 🔔 Notify release finalize
         env:

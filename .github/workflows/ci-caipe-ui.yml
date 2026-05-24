@@ -44,6 +44,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Determine Tag
         id: version
@@ -144,6 +145,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Free disk space
         run: |
@@ -236,6 +238,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: 📦 Install crane
         run: |
@@ -369,6 +372,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: 🔔 Notify release finalize
         env:
