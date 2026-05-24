@@ -111,14 +111,17 @@ class JwtAuthMiddleware(BaseHTTPMiddleware):
                         media_type="application/json",
                     )
                 token = raw
-                # Spec 104: surface `active_team` + `aud` in middleware
-                # logs so production triage of "no tools" / "wrong team"
-                # incidents doesn't require decoding the JWT by hand.
+                # Spec 104 used to log `active_team` here; spec
+                # 2026-05-24-derive-team-from-channel Phase 2.8
+                # removes that field because team is no longer
+                # carried on the JWT. Triage of "wrong team" now
+                # uses the channel→team mapping audit on the BFF
+                # side. We keep `sub` + `aud` because both still
+                # answer real operator questions.
                 logger.info(
-                    "Bearer token validated: sub=%s aud=%s active_team=%s",
+                    "Bearer token validated: sub=%s aud=%s",
                     claims.get("sub"),
                     claims.get("aud"),
-                    claims.get("active_team"),
                 )
         elif DA_REQUIRE_BEARER:
             body = json.dumps(

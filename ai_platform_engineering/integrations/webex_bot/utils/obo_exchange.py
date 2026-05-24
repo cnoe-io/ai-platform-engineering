@@ -1,4 +1,11 @@
-"""On-Behalf-Of (OBO) token exchange for the Webex bot."""
+"""On-Behalf-Of (OBO) token exchange for the Webex bot.
+
+Phase 2 of spec 2026-05-24-derive-team-from-channel makes OBO **team-
+agnostic**: the bot no longer requests a per-team client scope and no
+longer expects an ``active_team`` claim. Team scope is derived
+downstream from space/channel context. Phase 3 deletes the legacy
+``_apply_active_team`` helper and ``PERSONAL_ACTIVE_TEAM`` constant.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +21,8 @@ import httpx
 
 logger = logging.getLogger("caipe.webex_bot.obo_exchange")
 
+# Legacy constants — kept inert for Phase 2 so existing log lines and
+# error messages keep importing. Phase 3 deletes them.
 PERSONAL_ACTIVE_TEAM = "__personal__"
 PERSONAL_SCOPE_NAME = "team-personal"
 
@@ -25,7 +34,11 @@ def _is_valid_slug(slug: str) -> bool:
 
 
 def is_valid_team_slug(slug: str) -> bool:
-    """Return True when *slug* is safe to request as a Keycloak team client scope."""
+    """Return True when *slug* is a syntactically valid team slug.
+
+    Used by `space_team_resolver` and other modules to validate slugs
+    before persisting / logging — independent of OBO.
+    """
     return _is_valid_slug(slug.strip()) if slug else False
 
 
@@ -35,6 +48,7 @@ class OboToken:
     token_type: str
     expires_in: int
     scope: Optional[str] = None
+    # Phase 3 deletes this field.
     active_team: Optional[str] = None
 
 
@@ -70,15 +84,13 @@ _default_config = OboExchangeConfig()
 async def impersonate_user(
     keycloak_user_id: str,
     config: OboExchangeConfig | None = None,
-    *,
-    active_team: str,
 ) -> OboToken:
-    """Mint an OBO token for ``keycloak_user_id`` scoped to ``active_team``."""
-    if not active_team:
-        raise ValueError(
-            "impersonate_user requires active_team; pass PERSONAL_ACTIVE_TEAM for DMs"
-        )
+    """Mint an OBO token for ``keycloak_user_id``.
 
+    Phase 2: team-agnostic. Team scope is derived downstream from space
+    context. The returned token contains ``sub=<user>`` and
+    ``aud=caipe-platform`` by default — no ``active_team`` claim.
+    """
     cfg = config or _default_config
     endpoint = f"{cfg.server_url}/realms/{cfg.realm}/protocol/openid-connect/token"
     data: dict[str, str] = {
@@ -88,13 +100,17 @@ async def impersonate_user(
         "client_id": cfg.bot_client_id,
         "audience": cfg.caipe_platform_audience,
     }
-    _apply_active_team(data, active_team)
     if cfg.bot_client_secret:
         data["client_secret"] = cfg.bot_client_secret
-    return await _do_exchange(endpoint, data, expected_active_team=active_team)
+    return await _do_exchange(endpoint, data)
 
 
 def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None:
+    """LEGACY helper, kept inert until Phase 3 deletion.
+
+    Phase 2 removed all production call sites. The body is preserved so
+    any legacy module importing the symbol keeps loading.
+    """
     if active_team is None:
         return
     if active_team == PERSONAL_ACTIVE_TEAM:
@@ -109,9 +125,13 @@ def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None
 async def _do_exchange(
     endpoint: str,
     data: dict[str, str],
-    *,
-    expected_active_team: Optional[str] = None,
 ) -> OboToken:
+    """Shared token exchange request logic.
+
+    Phase 2 deleted the active_team mismatch check — OBO is now
+    team-agnostic, so there's nothing to compare against. ``active_team``
+    extraction is kept for backward-compatible log lines.
+    """
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(endpoint, data=data)
         if resp.status_code != 200:
@@ -123,16 +143,6 @@ async def _do_exchange(
 
     access_token = payload["access_token"]
     active_team = _extract_active_team_claim(access_token)
-    if expected_active_team is not None and active_team != expected_active_team:
-        logger.error(
-            "Webex OBO active_team mismatch: requested=%s got=%s",
-            expected_active_team,
-            active_team,
-        )
-        raise OboExchangeError(
-            f"Token exchange returned active_team={active_team!r}, "
-            f"expected {expected_active_team!r}"
-        )
 
     return OboToken(
         access_token=access_token,
@@ -163,4 +173,5 @@ class OboExchangeError(Exception):
 
 
 def downstream_auth_headers(access_token: str) -> dict[str, str]:
+    """Outbound headers. The legacy X-Team-Id header is gone."""
     return {"Authorization": f"Bearer {access_token}"}

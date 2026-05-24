@@ -1,29 +1,31 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Spec 104 — OBO token exchange with `active_team` Keycloak client scope.
+"""Phase 2 OBO contract (spec 2026-05-24-derive-team-from-channel).
 
-Verifies the load-bearing invariants of
-:func:`ai_platform_engineering.integrations.slack_bot.utils.obo_exchange`:
+After Phase 2, the bot's OBO exchange is **team-agnostic**:
 
-1. ``impersonate_user`` rejects empty / invalid team slugs as a programmer
-   error before any HTTP call (no token leak, no weird audit trail).
-2. The OBO request body is built with ``scope=openid team-<slug>`` for a
-   real team and ``scope=openid team-personal`` for the ``__personal__``
-   sentinel.
-3. ``aud=<caipe-platform audience>`` is always pinned in the request because
-   Slack bot OBO tokens are sent to the CAIPE UI BFF access-check routes.
-4. The returned JWT's ``active_team`` claim is verified against what was
-   requested. A mismatch (Keycloak misconfiguration / scope spoofing)
-   raises ``OboExchangeError`` instead of silently issuing a token with
-   the wrong team scope.
-5. ``downstream_auth_headers`` no longer attaches the legacy
-   ``X-Team-Id`` header — team scope MUST come from the JWT now.
+1. ``impersonate_user`` takes only the Keycloak ``sub`` — no
+   ``active_team`` parameter. The bot does not select a Keycloak client
+   scope per team anymore.
+2. The OBO request body has ``scope=openid`` and **does not** include any
+   ``team-<slug>`` / ``team-personal`` scope.
+3. ``_do_exchange`` does **not** compare any "expected active team"
+   against the returned token. That mismatch check existed only to
+   defend the Phase 1 team-scope contract; Phase 2 deletes that contract.
+4. ``downstream_auth_headers`` keeps emitting just ``Authorization`` —
+   the legacy ``X-Team-Id`` header has been gone since Spec 104.
+
+Phase 3 will delete the now-unused ``_apply_active_team`` helper,
+``PERSONAL_ACTIVE_TEAM`` constant, and the ``OboToken.active_team``
+field. Until then this file proves the helper is unreachable from the
+production code path.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 from typing import Any
 from unittest.mock import patch
@@ -33,23 +35,14 @@ import pytest
 from ai_platform_engineering.integrations.slack_bot.utils import obo_exchange
 from ai_platform_engineering.integrations.slack_bot.utils.obo_exchange import (
     OboExchangeConfig,
-    OboExchangeError,
-    PERSONAL_ACTIVE_TEAM,
-    PERSONAL_SCOPE_NAME,
-    _apply_active_team,
-    _is_valid_slug,
     downstream_auth_headers,
+    exchange_token,
     impersonate_user,
 )
 
 
 def _make_jwt(claims: dict[str, Any]) -> str:
-    """Build an unsigned JWT-shaped string with the given payload claims.
-
-    The OBO verifier only base64-decodes the payload — it never validates
-    signatures (Keycloak already did that on the wire). So a header.payload.
-    blob is enough to exercise the `_extract_active_team_claim` branch.
-    """
+    """Build an unsigned JWT-shaped string with the given payload claims."""
     header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
     payload = (
         base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
@@ -95,140 +88,134 @@ def test_caipe_platform_audience_env_overrides_default(
     assert OboExchangeConfig().caipe_platform_audience == "custom-platform"
 
 
-@pytest.mark.parametrize("slug", ["", " ", None, "Has Space", "_leading", "x" * 64, "-bad"])
-def test_is_valid_slug_rejects_bad_inputs(slug: str | None) -> None:
-    assert not _is_valid_slug(slug or "")
+class TestPhase2Signatures:
+    """The public OBO functions must not accept an `active_team` parameter."""
 
-
-@pytest.mark.parametrize("slug", ["a", "platform-eng", "team1", "x" * 63])
-def test_is_valid_slug_accepts_good_inputs(slug: str) -> None:
-    assert _is_valid_slug(slug)
-
-
-def test_apply_active_team_personal_marker() -> None:
-    data: dict[str, str] = {"scope": "openid"}
-    _apply_active_team(data, PERSONAL_ACTIVE_TEAM)
-    assert PERSONAL_SCOPE_NAME in data["scope"].split()
-
-
-def test_apply_active_team_team_slug() -> None:
-    data: dict[str, str] = {"scope": "openid"}
-    _apply_active_team(data, "platform-eng")
-    assert "team-platform-eng" in data["scope"].split()
-
-
-def test_apply_active_team_invalid_slug_raises() -> None:
-    """An invalid slug at the OBO call site is a programmer error — we
-    never want to silently mint a token with no team scope when the
-    caller asked for a specific one."""
-    with pytest.raises(ValueError):
-        _apply_active_team({}, "Bad Slug!")
-
-
-def test_apply_active_team_none_is_noop() -> None:
-    data: dict[str, str] = {"scope": "openid"}
-    _apply_active_team(data, None)
-    assert data["scope"] == "openid"
-
-
-def test_impersonate_user_requires_active_team() -> None:
-    with pytest.raises(ValueError):
-        asyncio.run(impersonate_user("kc-user-id", _config(), active_team=""))
-
-
-def test_impersonate_user_pins_audience_and_scope_for_personal() -> None:
-    """For DMs the bot calls with active_team=__personal__ → the request
-    body must include `audience=caipe-platform` and `scope` containing
-    `team-personal`."""
-    captured: dict[str, Any] = {}
-
-    minted = _make_jwt({"sub": "u1", "active_team": PERSONAL_ACTIVE_TEAM})
-    fake_resp = FakeResponse(
-        200,
-        {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
-    )
-
-    class FakeClient:
-        async def __aenter__(self) -> "FakeClient":
-            return self
-
-        async def __aexit__(self, *exc: object) -> None:
-            return None
-
-        async def post(self, url: str, *, data: dict[str, str], **_: object) -> FakeResponse:
-            captured["url"] = url
-            captured["data"] = data
-            return fake_resp
-
-    with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
-        token = asyncio.run(
-            impersonate_user("u1", _config(), active_team=PERSONAL_ACTIVE_TEAM)
+    def test_impersonate_user_has_no_active_team_param(self) -> None:
+        sig = inspect.signature(impersonate_user)
+        assert "active_team" not in sig.parameters, (
+            "Phase 2 removed active_team from impersonate_user; OBO is now "
+            "team-agnostic. Found: " + ", ".join(sig.parameters)
         )
 
-    assert token.access_token == minted
-    assert token.active_team == PERSONAL_ACTIVE_TEAM
-    data = captured["data"]
-    assert data.get("audience") == "caipe-platform"
-    assert PERSONAL_SCOPE_NAME in data.get("scope", "").split()
+    def test_exchange_token_has_no_active_team_param(self) -> None:
+        sig = inspect.signature(exchange_token)
+        assert "active_team" not in sig.parameters, (
+            "Phase 2 removed active_team from exchange_token; OBO is now "
+            "team-agnostic. Found: " + ", ".join(sig.parameters)
+        )
 
 
-def test_impersonate_user_pins_team_slug_scope() -> None:
-    captured: dict[str, Any] = {}
-    slug = "platform-eng"
-    minted = _make_jwt({"sub": "u1", "active_team": slug})
-    fake_resp = FakeResponse(
-        200,
-        {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
-    )
+class TestPhase2RequestBody:
+    """The OBO POST body MUST NOT include any team-<slug> / team-personal scope."""
 
-    class FakeClient:
-        async def __aenter__(self) -> "FakeClient":
-            return self
+    def _run_impersonate(self, captured: dict[str, Any]) -> None:
+        minted = _make_jwt({"sub": "u1"})
+        fake_resp = FakeResponse(
+            200,
+            {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
+        )
 
-        async def __aexit__(self, *exc: object) -> None:
-            return None
+        class FakeClient:
+            async def __aenter__(self) -> "FakeClient":
+                return self
 
-        async def post(self, url: str, *, data: dict[str, str], **_: object) -> FakeResponse:
-            captured["data"] = data
-            return fake_resp
+            async def __aexit__(self, *exc: object) -> None:
+                return None
 
-    with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
-        token = asyncio.run(impersonate_user("u1", _config(), active_team=slug))
+            async def post(
+                self, url: str, *, data: dict[str, str], **_: object
+            ) -> FakeResponse:
+                captured["url"] = url
+                captured["data"] = data
+                return fake_resp
 
-    assert token.active_team == slug
-    assert f"team-{slug}" in captured["data"].get("scope", "").split()
+        with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
+            asyncio.run(impersonate_user("u1", _config()))
+
+    def test_impersonate_user_does_not_request_team_scope(self) -> None:
+        captured: dict[str, Any] = {}
+        self._run_impersonate(captured)
+
+        data = captured["data"]
+        scope_tokens = data.get("scope", "").split() if data.get("scope") else []
+        assert all(not t.startswith("team-") for t in scope_tokens), (
+            f"Phase 2 OBO request body must not include a team-<slug> scope; "
+            f"got scope={data.get('scope')!r}"
+        )
+        # Audience pin remains — that's the platform-token contract.
+        assert data.get("audience") == "caipe-platform"
+
+    def test_exchange_token_does_not_request_team_scope(self) -> None:
+        captured: dict[str, Any] = {}
+        minted = _make_jwt({"sub": "u1"})
+        fake_resp = FakeResponse(
+            200,
+            {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
+        )
+
+        class FakeClient:
+            async def __aenter__(self) -> "FakeClient":
+                return self
+
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+            async def post(
+                self, url: str, *, data: dict[str, str], **_: object
+            ) -> FakeResponse:
+                captured["data"] = data
+                return fake_resp
+
+        with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
+            asyncio.run(exchange_token("user-token", _config()))
+
+        data = captured["data"]
+        scope_tokens = data.get("scope", "").split() if data.get("scope") else []
+        assert all(not t.startswith("team-") for t in scope_tokens)
 
 
-def test_impersonate_user_rejects_active_team_mismatch() -> None:
-    """If Keycloak returns a token whose `active_team` claim doesn't
-    match what we asked for (misconfigured scope, scope spoofing, ...)
-    the OBO module MUST raise — silently issuing the wrong-team token
-    would defeat the entire spec 104 refactor."""
-    requested = "platform-eng"
-    minted = _make_jwt({"sub": "u1", "active_team": "OTHER-TEAM"})
-    fake_resp = FakeResponse(
-        200,
-        {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
-    )
+class TestPhase2NoMismatchCheck:
+    """Phase 2 deletes the active_team-mismatch defense in _do_exchange.
 
-    class FakeClient:
-        async def __aenter__(self) -> "FakeClient":
-            return self
+    The defense existed solely to protect the per-team-scope contract.
+    With OBO team-agnostic the check is meaningless — the returned token
+    has no active_team to compare against, and a stray active_team claim
+    in the response (from a stale Keycloak mapper) MUST NOT block the
+    exchange.
+    """
 
-        async def __aexit__(self, *exc: object) -> None:
-            return None
+    def test_response_with_stale_active_team_claim_is_accepted(self) -> None:
+        # Token comes back carrying an unexpected `active_team` claim
+        # (e.g. a legacy Keycloak mapper that survived the migration).
+        # Phase 2 says: we don't care.
+        minted = _make_jwt({"sub": "u1", "active_team": "leftover-from-old-mapper"})
+        fake_resp = FakeResponse(
+            200,
+            {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
+        )
 
-        async def post(self, *a: object, **kw: object) -> FakeResponse:
-            return fake_resp
+        class FakeClient:
+            async def __aenter__(self) -> "FakeClient":
+                return self
 
-    with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
-        with pytest.raises(OboExchangeError, match="active_team"):
-            asyncio.run(impersonate_user("u1", _config(), active_team=requested))
+            async def __aexit__(self, *exc: object) -> None:
+                return None
+
+            async def post(self, *a: object, **kw: object) -> FakeResponse:
+                return fake_resp
+
+        with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
+            token = asyncio.run(impersonate_user("u1", _config()))
+
+        # The OboToken.active_team field still surfaces whatever the
+        # token contains (Phase 3 will remove the field entirely), but
+        # the exchange itself must succeed.
+        assert token.access_token == minted
 
 
 def test_downstream_auth_headers_drops_x_team_id() -> None:
-    """Spec 104: the legacy X-Team-Id header is gone — team scope MUST
-    travel inside the JWT now."""
+    """The legacy X-Team-Id header is gone."""
     headers = downstream_auth_headers("any-token")
     assert headers == {"Authorization": "Bearer any-token"}
     assert "X-Team-Id" not in headers

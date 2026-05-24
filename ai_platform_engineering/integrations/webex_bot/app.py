@@ -84,10 +84,12 @@ class TeamResolverProtocol(Protocol):
 
 
 class OboExchangerProtocol(Protocol):
-    async def impersonate(
-        self, keycloak_user_id: str, *, active_team: str
-    ) -> OboToken:
-        """Mint an on-behalf-of token for the given Keycloak user / team."""
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
+        """Mint an on-behalf-of token for the given Keycloak user.
+
+        Phase 2 (spec 2026-05-24): OBO is team-agnostic. Team scope is
+        derived downstream from space context.
+        """
         raise NotImplementedError
 
 
@@ -277,8 +279,8 @@ def _ignore(reason_code: str) -> WebexMessageResult:
 
 
 class _DefaultOboExchanger:
-    async def impersonate(self, keycloak_user_id: str, *, active_team: str) -> OboToken:
-        return await impersonate_user(keycloak_user_id, active_team=active_team)
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
+        return await impersonate_user(keycloak_user_id)
 
 
 class _WebexAgentRouteResolver:
@@ -464,12 +466,14 @@ async def handle_webex_message(
     active_team = team_resolution.team_slug
 
     try:
-        obo_token = await obo.impersonate(keycloak_user_id, active_team=active_team)
+        # Phase 2 (spec 2026-05-24): OBO is team-agnostic. We still pass
+        # `active_team` into the ReBAC checker below to enforce the
+        # channel-team binding, but the token itself doesn't carry it.
+        obo_token = await obo.impersonate(keycloak_user_id)
     except (OboExchangeError, ValueError) as exc:
         logger.error(
-            "Webex OBO impersonation failed for user=%s active_team=%s (type=%s)",
+            "Webex OBO impersonation failed for user=%s (type=%s)",
             keycloak_user_id,
-            active_team,
             type(exc).__name__,
         )
         log_webex_authz_decision(

@@ -74,18 +74,22 @@ class FakeTeamResolver:
 class FakeOboExchanger:
     fail: bool = False
 
-    async def impersonate(self, keycloak_user_id: str, *, active_team: str) -> OboToken:
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
         if self.fail:
             from ai_platform_engineering.integrations.webex_bot.utils.obo_exchange import (
                 OboExchangeError,
             )
 
             raise OboExchangeError("exchange failed")
+        # Phase 2 (spec 2026-05-24): the OBO token is team-agnostic. Tests
+        # that assert team binding now look at the dispatch payload's
+        # `active_team` (set by the runtime gate from the space resolver),
+        # not the token itself.
         return OboToken(
             access_token="obo-access",
             token_type="Bearer",
             expires_in=300,
-            active_team=active_team,
+            active_team=None,
         )
 
 

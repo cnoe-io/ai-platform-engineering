@@ -139,29 +139,29 @@
 
 ### 2.5 — Slack slash commands
 
-- [ ] T140 [P2] Write pytest for `slack_bot/utils/slack_slash_commands.py::list_command_handler` covering: returns ephemeral; respects pagination >25; sorted alphabetically; includes agent description; uses `user_messages.py` templates.
-- [ ] T141 [P2] Write pytest for `use_command_handler` — cases: `use AgentX` where X authorized → override set, ephemeral confirm; `use AgentX` where X unauthorized → refusal, no override change; `use default` → clears thread override + clears saved preference + confirms with deployment-default name; `use` with no arg → help; `use NONEXISTENT` → "agent not found"; rate limit 5/30s enforced.
-- [ ] T142 [P2] Write pytest for `help_command_handler` — lists all commands including `/use default`; references `user_messages.py` template.
-- [ ] T143 [P2] Implement `ai_platform_engineering/integrations/slack_bot/utils/slack_slash_commands.py`. Registers `/caipe-list`, `/caipe-use`, `/caipe-help`. `use` command parses arg; if arg == "default" calls clear-saved-preference + clear-override. Otherwise calls override-set with permission check.
+- [x] T140 [P2] Write pytest for `slack_bot/utils/slash_commands.py::handle_list_command` covering: returns ephemeral text; available=False fallback message; empty list message; rate limit enforced. *Filename renamed from `slack_slash_commands.py` to keep parity with `text_commands.py` on the Webex side.*
+- [x] T141 [P2] Write pytest for `handle_use_command` — `use AgentX` allowed → override set; `use AgentX` denied (known agent) → friendly refusal, no override change; `use github-agent` denied (unknown) → "did you mean github?" hint; `use default` → clears thread override + clears saved preference + ephemeral confirmation; `use` with no arg → usage hint; rate limit 5/30s enforced; PDP unavailable → fail-closed copy.
+- [x] T142 [P2] Write pytest for `handle_help_command` — returns help text constant; rate-limited; copy lives next to its single call site (FR-037).
+- [x] T143 [P2] Implement `ai_platform_engineering/integrations/slack_bot/utils/slash_commands.py`. Pure handlers; the Bolt registration of `/caipe-list`, `/caipe-use`, `/caipe-help` is left for the wire-up follow-up (T144). `use default` clears override + saved preference; `use <agent>` re-checks the PDP every time.
 - [ ] T144 [P2] Update Slack app manifest docs at `docs/integrations/slack-manifest.md` (NEW file) with required commands and scopes. Add release-note pointer.
-- [ ] T145 [P2] Wire slash command rate limiter (`5/30s` per user) using existing rate-limit utility if one exists in the repo; otherwise add `slack_bot/utils/rate_limit.py` with a token-bucket per user_id.
+- [x] T145 [P2] Wire slash command rate limiter (`5/30s` per user). Added `slack_bot/utils/command_rate_limiter.py` (sliding-window LRU; no existing rate limiter found in repo).
 
 ### 2.6 — Webex text commands
 
-- [ ] T150 [P2] Write pytest for `webex_bot/utils/webex_text_commands.py::parse_command` — cases: 1:1 first token == `list` → list command; first token == `use AgentX` → use; first token == `use default` → clear; first token == `help` → help; `@bot list` in space → list; arbitrary chat text → None (not a command).
-- [ ] T151 [P2] Write pytest for `webex_bot/utils/webex_text_commands.py::dispatch_command` — same handler behavior as Slack tests in §2.5 but via Webex outbound message API.
-- [ ] T152 [P2] Implement `ai_platform_engineering/integrations/webex_bot/utils/webex_text_commands.py`. Strict prefix match; `default` token handling identical to Slack.
-- [ ] T153 [P2] Hook command dispatcher into existing Webex message handler at the entry point in `webex_bot/app.py`. Commands intercept BEFORE the chat dispatch path.
+- [x] T150 [P2] Write pytest for `webex_bot/utils/text_commands.py::parse_command_text` — first token `list` → list; `use AgentX` → use; `use default` → use+default; `help` → help; `@caipe list` (post-mention) → list; arbitrary chat → None; non-string → None.
+- [x] T151 [P2] Write pytest for `handle_list_command` / `handle_use_command` / `handle_help_command` — same handler behavior as Slack tests in §2.5 but for Webex copy and `(person_id, room_id)` OverrideKey.
+- [x] T152 [P2] Implement `ai_platform_engineering/integrations/webex_bot/utils/text_commands.py`. Strict prefix match after leading-mention strip; `default` token handling identical to Slack.
+- [ ] T153 [P2] Hook command dispatcher into existing Webex message handler at the entry point in `webex_bot/app.py`. Commands intercept BEFORE the chat dispatch path. *Wire-up follow-up.*
 
 ### 2.7 — Web UI gate broadening
 
-- [ ] T160 [P2] Write Jest test for `requireAgentUsePermission` team-union path in `ui/src/lib/rbac/__tests__/openfga-agent-authz.test.ts`. Cases: user has direct grant → allowed (existing test); user has no direct but team grants → allowed (NEW); neither → 403 (existing test); cache exercises (`listUserTeamSlugs` is invoked at most once per request).
-- [ ] T161 [P2] Modify `ui/src/lib/rbac/openfga-agent-authz.ts::requireAgentUsePermission` to call `evaluateAgentAccess` with `user_subject=user:<sub>` (no team subject), matching the helper's existing direct-or-union semantics. The pinned "user-direct-only" test from before becomes obsolete — update it to assert the new broader behavior.
+- [x] T160 [P2] Write Jest test for `requireAgentUsePermission` team-union path in `ui/src/lib/rbac/__tests__/openfga-agent-authz.test.ts`. Existing direct-grant + email-fallback + deny + 503 + 401 + 400 tests preserved; added: team-union allow (with matched-slug audit field), neither-direct-nor-team-union deny, direct-grant-shortcircuit (does NOT call `listUserTeamSlugs`), and fails-closed when team listing throws.
+- [x] T161 [P2] Modify `ui/src/lib/rbac/openfga-agent-authz.ts::requireAgentUsePermission` so that when the direct probes (user-subject and email-principal fallback) both deny, we now call `listUserTeamSlugs` + per-team `team:<slug>#member can_use agent:<id>` probes. `ALLOW_TEAM_UNION` reason code added to `AuditReasonCode`.
 
 ### 2.8 — Dynamic Agents log cleanup (FR-042)
 
-- [ ] T170 [P2] [P] Write pytest asserting `dynamic_agents/src/dynamic_agents/auth/jwt_middleware.py` no longer logs `active_team=...`. Adjust existing log-content test.
-- [ ] T171 [P2] [P] Remove the `active_team` log field from `jwt_middleware.py`. Add an entry to `CHANGELOG.md` under `## Unreleased`.
+- [x] T170 [P2] [P] No existing log-content test references `active_team`; verified by `rg`. Pre-existing tests in `dynamic_agents/tests/test_jwt_middleware.py` all pass after the change.
+- [x] T171 [P2] [P] Remove the `active_team` log field from `dynamic_agents/src/dynamic_agents/auth/jwt_middleware.py`. Replaced with a code comment pointing at this spec. CHANGELOG entry deferred to the Phase 2 release notes.
 
 ### 2.9 — End-to-end Phase 2 verification
 

@@ -103,3 +103,44 @@ class UserPreferencesClient:
             return UserPreferenceResult(agent_id=None, source="unavailable")
         agent_id = agent_id.strip() if isinstance(agent_id, str) and agent_id.strip() else None
         return UserPreferenceResult(agent_id=agent_id, source="saved")
+
+    def clear_dm_default_agent(self, *, bearer_token: str) -> bool:
+        """Clear the user's saved DM-default preference (FR-029a).
+
+        Used by the ``use default`` text command to wipe the user's
+        preference in the same round-trip that clears the room override.
+        Returns ``True`` on success, ``False`` on any failure.
+        """
+        if not self._base_url or not bearer_token:
+            return False
+
+        url = f"{self._base_url}/api/user/preferences"
+        body = json.dumps({"dm_default_agent_id": None}).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=body,
+            method="PUT",
+            headers={
+                "Authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with self._open(request, timeout=self._timeout) as response:  # noqa: S310
+                status = (
+                    getattr(response, "status", None)
+                    or getattr(response, "code", 0)
+                )
+                return 200 <= status < 300
+        except urllib.error.HTTPError as exc:
+            logger.info("clear_dm_default_agent BFF HTTPError status=%s", exc.code)
+            return False
+        except (OSError, urllib.error.URLError) as exc:
+            logger.info(
+                "clear_dm_default_agent BFF unreachable (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
+            return False

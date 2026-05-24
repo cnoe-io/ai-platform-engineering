@@ -74,7 +74,7 @@ if RBAC_ENABLED:
     from utils.channel_team_resolver import (
         resolve_channel_team,
         is_dm_channel,
-        PERSONAL_ACTIVE_TEAM,
+        PERSONAL_ACTIVE_TEAM,  # noqa: F401 — kept for Phase 3 legacy log lines
     )
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
     from utils.obo_exchange import impersonate_user, OboExchangeError
@@ -115,16 +115,16 @@ if RBAC_ENABLED:
             context["slack_team_id"] = str(slack_team_id)
         context["slack_workspace_id"] = slack_workspace_ref(str(slack_team_id) if slack_team_id else None)
 
-        # Spec 104: every OBO token now carries a signed `active_team` claim.
-        # Resolve which team the channel belongs to (or use the personal
-        # sentinel for DMs), verify the user is allowed to act in that team,
-        # then mint the token with the matching Keycloak client scope.
+        # Phase 2 (spec 2026-05-24): OBO is team-agnostic. Channel→team
+        # resolution still runs because we want a clear reject when a
+        # group channel has no mapping, but the slug is no longer fed
+        # into the OBO request. The RAG server / PDP derive team
+        # downstream from the channel_id in the chat envelope (FR-016).
         if is_dm_channel(channel_id):
-            active_team = PERSONAL_ACTIVE_TEAM
-            context["active_team"] = active_team
+            context["surface_kind"] = "dm"
             logger.info(
-                "DM channel=%s for user=%s → active_team=%s",
-                channel_id, keycloak_user_id, active_team,
+                "DM channel=%s for user=%s (OBO team-agnostic)",
+                channel_id, keycloak_user_id,
             )
         else:
             team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
@@ -148,35 +148,35 @@ if RBAC_ENABLED:
                     )
             if not team_resolution.team_slug:
                 # Group channel without a team mapping (or user isn't in the
-                # mapped team). Hard reject — we never want to silently fall
-                # back to "personal" for a group channel because that would
-                # bypass the channel's intended team RBAC.
+                # mapped team). Hard reject — we never want to silently
+                # accept a group channel that has no team RBAC binding.
                 return ("deny", team_resolution.deny_message or
                         "This channel isn't assigned to a CAIPE team yet.")
-            active_team = team_resolution.team_slug
-            context["active_team"] = active_team
+            # We still surface team metadata in context for legacy log
+            # lines / metrics and for the channel-ReBAC PDP call below;
+            # the OBO token itself does not carry it.
+            context["active_team"] = team_resolution.team_slug
             context["team_id"] = team_resolution.team_id
             context["team_name"] = team_resolution.team_name
+            context["surface_kind"] = "channel"
             logger.info(
                 "Channel={} mapped to team={} (slug={}) for user={}",
-                channel_id, team_resolution.team_name, active_team, keycloak_user_id,
+                channel_id, team_resolution.team_name, team_resolution.team_slug, keycloak_user_id,
             )
 
         try:
-            obo = await impersonate_user(keycloak_user_id, active_team=active_team)
+            obo = await impersonate_user(keycloak_user_id)
             context["obo_token"] = obo.access_token
             logger.info(
-                "OBO impersonation succeeded for user={} active_team={}",
-                keycloak_user_id, active_team,
+                "OBO impersonation succeeded for user={}", keycloak_user_id,
             )
         except OboExchangeError as e:
-            # Spec 104: failing the OBO exchange is a HARD failure now —
-            # there is no SA fallback that would preserve the user's team and
-            # OpenFGA relationships, so we reject the request rather than
-            # silently downgrading to bot identity.
+            # Phase 2: failing the OBO exchange is still a HARD failure —
+            # there is no SA fallback that would preserve the user's
+            # identity and OpenFGA relationships, so we reject the
+            # request rather than silently downgrading.
             logger.error(
-                "OBO impersonation failed for user={} active_team={}: {}",
-                keycloak_user_id, active_team, e,
+                "OBO impersonation failed for user={}: {}", keycloak_user_id, e,
             )
             return ("deny", TEAM_SESSION_UNAVAILABLE_MESSAGE)
 
