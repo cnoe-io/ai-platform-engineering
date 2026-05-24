@@ -189,6 +189,8 @@ export function SlackChannelRebacPanel({
   const [routePendingDelete, setRoutePendingDelete] = useState<SlackChannelAgentRoute | null>(null);
   const [defaultTeamSlug, setDefaultTeamSlug] = useState("");
   const [defaultAgentId, setDefaultAgentId] = useState("");
+  const [invalidDefaultTeamSlug, setInvalidDefaultTeamSlug] = useState<string | null>(null);
+  const [invalidDefaultAgentId, setInvalidDefaultAgentId] = useState<string | null>(null);
   const [configuredDefaults, setConfiguredDefaults] = useState<SlackChannelAssociationDefaults | null>(null);
   const [useSlackbotConfigDefaults, setUseSlackbotConfigDefaults] = useState(true);
   const [slackRuntimeStatus, setSlackRuntimeStatus] = useState<SlackBotRuntimeStatus | null>(null);
@@ -231,6 +233,10 @@ export function SlackChannelRebacPanel({
   const dynamicAgentIds = useMemo(
     () => new Set(dynamicAgents.map((agent) => agent._id)),
     [dynamicAgents]
+  );
+  const teamSlugSet = useMemo(
+    () => new Set(teams.map((team) => team.slug).filter(Boolean) as string[]),
+    [teams]
   );
   const fallbackAgentId = useMemo(() => {
     if (defaultAgentId && dynamicAgentIds.has(defaultAgentId)) return defaultAgentId;
@@ -343,6 +349,40 @@ export function SlackChannelRebacPanel({
       setMessage(error instanceof Error ? error.message : "Failed to load Slack channel association defaults")
     );
   }, [loadAssociationDefaults, selfService]);
+
+  // Drop env-provided default Dynamic Agent / team if it no longer resolves to a
+  // real, enabled record. Otherwise the dropdown silently submits a stale id
+  // (e.g. SLACK_DEFAULT_AGENT_ID points at a deleted agent) and the API
+  // rejects with "Dynamic Agent <id> was not found or is disabled".
+  useEffect(() => {
+    if (selfService) return;
+    if (dynamicAgents.length === 0) return;
+    if (!defaultAgentId) {
+      if (invalidDefaultAgentId) setInvalidDefaultAgentId(null);
+      return;
+    }
+    if (!dynamicAgentIds.has(defaultAgentId)) {
+      setInvalidDefaultAgentId(defaultAgentId);
+      setDefaultAgentId("");
+    } else if (invalidDefaultAgentId) {
+      setInvalidDefaultAgentId(null);
+    }
+  }, [selfService, dynamicAgents.length, dynamicAgentIds, defaultAgentId, invalidDefaultAgentId]);
+
+  useEffect(() => {
+    if (selfService) return;
+    if (teams.length === 0) return;
+    if (!defaultTeamSlug) {
+      if (invalidDefaultTeamSlug) setInvalidDefaultTeamSlug(null);
+      return;
+    }
+    if (!teamSlugSet.has(defaultTeamSlug)) {
+      setInvalidDefaultTeamSlug(defaultTeamSlug);
+      setDefaultTeamSlug("");
+    } else if (invalidDefaultTeamSlug) {
+      setInvalidDefaultTeamSlug(null);
+    }
+  }, [selfService, teams.length, teamSlugSet, defaultTeamSlug, invalidDefaultTeamSlug]);
 
   useEffect(() => {
     if (selfService) return;
@@ -518,15 +558,19 @@ export function SlackChannelRebacPanel({
   };
 
   const fetchBotMemberChannels = async (): Promise<DiscoveredSlackChannel[]> => {
+    // Issue #1506: previously this set `refresh=1` on the first page of every
+    // Discover click, which defeated the server-side cache entirely and
+    // tripped Slack's per-tenant rate limits on workspaces with thousands of
+    // channels. The cache TTL (10 min, server-side) is short enough for human
+    // admin workflows; a hard refresh button can be added separately if/when
+    // operators actually need it.
     const discovered: DiscoveredSlackChannel[] = [];
     let cursor: string | null | undefined;
-    let firstPage = true;
     do {
       const params = new URLSearchParams({
         member_only: "1",
         limit: "500",
       });
-      if (firstPage) params.set("refresh", "1");
       if (cursor) params.set("cursor", cursor);
       const response = await fetch(`/api/admin/slack/available-channels?${params.toString()}`, {
         cache: "no-store",
@@ -535,7 +579,6 @@ export function SlackChannelRebacPanel({
       const data = apiData<SlackChannelDiscoveryPayload>(await response.json());
       discovered.push(...(data.channels ?? []));
       cursor = data.has_more ? data.next_cursor : null;
-      firstPage = false;
     } while (cursor);
     return discovered.filter((channel) => channel.is_member !== false);
   };
@@ -608,7 +651,15 @@ export function SlackChannelRebacPanel({
   };
 
   const confirmMigrationDefaults = async (channelImportRows: SlackChannelImportRow[] = []) => {
-    if (!defaultTeamSlug || !defaultAgentId) return;
+    if (!defaultTeamSlug || !defaultAgentId) {
+      const missing: string[] = [];
+      if (!defaultTeamSlug) missing.push("Preselected Team");
+      if (!defaultAgentId) missing.push("Preselected Dynamic Agent");
+      const reason = `Select ${missing.join(" and ")} in the Onboarding Default Selection section before running setup.`;
+      setMessage(reason);
+      toast(reason, "error");
+      return;
+    }
     setLoading(true);
     setMessage(null);
     try {
@@ -969,6 +1020,13 @@ export function SlackChannelRebacPanel({
                   </option>
                 ))}
               </select>
+              {invalidDefaultTeamSlug && (
+                <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
+                  The saved default team <code>team:{invalidDefaultTeamSlug}</code> doesn&apos;t match any
+                  current team. Pick one above. Update <code>SLACK_DEFAULT_TEAM_SLUG</code> in the
+                  environment to make the new choice the default for next time.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="slack-default-agent">Preselected Dynamic Agent</Label>
@@ -988,6 +1046,13 @@ export function SlackChannelRebacPanel({
                   </option>
                 ))}
               </select>
+              {invalidDefaultAgentId && (
+                <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
+                  The saved default Dynamic Agent <code>agent:{invalidDefaultAgentId}</code> wasn&apos;t
+                  found (or is disabled). Pick one above. Update <code>SLACK_DEFAULT_AGENT_ID</code> in
+                  the environment to make the new choice the default for next time.
+                </p>
+              )}
             </div>
           </div>
           <label className="flex items-start gap-2 rounded-md border border-teal-500/15 bg-background/60 p-3 text-sm">

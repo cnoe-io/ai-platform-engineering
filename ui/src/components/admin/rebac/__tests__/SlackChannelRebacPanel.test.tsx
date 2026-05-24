@@ -888,3 +888,113 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
   expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
 });
+
+function mockMinimalSlackPanel(defaults: { team_slug?: string; agent_id?: string }) {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/slack/channels") {
+      return response({ data: { channels: [] } });
+    }
+    if (url === "/api/dynamic-agents?enabled_only=true") {
+      return response({
+        data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
+      });
+    }
+    if (url === "/api/admin/teams") {
+      return response({
+        data: {
+          teams: [{ _id: "team-1", slug: "platform-engineering", name: "Platform Engineering" }],
+        },
+      });
+    }
+    if (url === "/api/admin/slack/channels/defaults") {
+      return response({ data: { defaults } });
+    }
+    if (url === "/api/admin/slack/runtime/status") {
+      return response({
+        data: {
+          route_mode: "db_prefer",
+          static_config: { channels: 0, routes: 0 },
+          route_cache: { ttl_seconds: 60, cache_size: 0, cached_channels: [] },
+          last_sync: null,
+        },
+      });
+    }
+    if (url === "/api/admin/slack/runtime/config-defaults") {
+      return response({
+        data: { workspace_id: "T123456789", channels_seen: 0, routes_seen: 0, channels: {} },
+      });
+    }
+    if (url.startsWith("/api/admin/slack/available-channels")) {
+      return response({
+        data: { channels: [], next_cursor: null, has_more: false },
+      });
+    }
+    if (url.endsWith("/resources")) {
+      return response({ data: { grants: [] } });
+    }
+    if (url.endsWith("/routes")) {
+      return response({ data: { routes: [] } });
+    }
+    if (url.endsWith("/diagnostics")) {
+      return response({
+        data: {
+          openfga: { reachable: true, tuple_count: 0 },
+          warnings: [],
+          routes: [],
+          last_runtime_error: null,
+        },
+      });
+    }
+    return response({});
+  });
+}
+
+// Regression for the silent-no-op stale-env-default bug: a SLACK_DEFAULT_AGENT_ID
+// or SLACK_DEFAULT_TEAM_SLUG that no longer matches a real, enabled record used
+// to be silently submitted by the apply button, causing the API to 404 with
+// "Default Dynamic Agent <id> was not found or is disabled". The fix drops the
+// stale value back to "" once dynamicAgents/teams load and shows a visible
+// amber warning telling the admin which env value was rejected.
+it("clears stale env-provided default Dynamic Agent and warns the admin", async () => {
+  mockMinimalSlackPanel({ team_slug: "platform-engineering", agent_id: "ghost-agent" });
+
+  render(<SlackChannelRebacPanel />);
+
+  const agentSelect = (await screen.findByRole("combobox", {
+    name: "Preselected Dynamic Agent",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(agentSelect.value).toBe(""));
+
+  await waitFor(() => {
+    const alerts = screen.queryAllByRole("alert");
+    const warning = alerts.find(
+      (alert) =>
+        (alert.textContent ?? "").includes("saved default Dynamic Agent") &&
+        (alert.textContent ?? "").includes("ghost-agent")
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.textContent).toMatch(/SLACK_DEFAULT_AGENT_ID/);
+  });
+});
+
+it("clears stale env-provided default Team and warns the admin", async () => {
+  mockMinimalSlackPanel({ team_slug: "deleted-team", agent_id: "incident-agent" });
+
+  render(<SlackChannelRebacPanel />);
+
+  const teamSelect = (await screen.findByRole("combobox", {
+    name: "Preselected Team",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(teamSelect.value).toBe(""));
+
+  await waitFor(() => {
+    const alerts = screen.queryAllByRole("alert");
+    const warning = alerts.find(
+      (alert) =>
+        (alert.textContent ?? "").includes("saved default team") &&
+        (alert.textContent ?? "").includes("deleted-team")
+    );
+    expect(warning).toBeDefined();
+    expect(warning!.textContent).toMatch(/SLACK_DEFAULT_TEAM_SLUG/);
+  });
+});
