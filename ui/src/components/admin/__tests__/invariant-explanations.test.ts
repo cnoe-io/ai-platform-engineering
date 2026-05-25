@@ -29,7 +29,8 @@ describe("explainInvariant", () => {
       "obo.users_impersonate.exists",
       "obo.users_impersonate.affirmative",
       "obo.users_impersonate.policies_strict",
-      "team_personal.dm_mode_known_limitation",
+      // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+      // `team_personal.dm_mode_known_limitation`.
     ];
 
     it.each(fixedIds)(
@@ -59,14 +60,9 @@ describe("explainInvariant", () => {
       expect(result.body).toMatch(/impersonat/);
     });
 
-    it("marks team_personal.dm_mode_known_limitation as advisory / unknown, not auto-fixable", () => {
-      const result = explainInvariant("team_personal.dm_mode_known_limitation");
-      expect(result.title).toMatch(/team-personal/);
-      expect(result.body).toMatch(/DM/);
-      expect(result.body).toMatch(/RFC 8693/);
-      // Must not promise that Reconcile all can fix it.
-      expect(result.body).toMatch(/advisory|not something `Reconcile all` can fix/);
-    });
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+    // `team_personal.dm_mode_known_limitation` advisory invariant and its
+    // explanation entry.
   });
 
   describe("per-bot OBO families", () => {
@@ -164,33 +160,10 @@ describe("explainInvariant", () => {
       expect(result.body).toMatch(/active_team/);
     });
 
-    it("explains audience.<client>.single_team_default with mapper-order + remediation copy", () => {
-      const result = explainInvariant("audience.caipe-platform.single_team_default");
-      // Title carries the audience name so two audiences (if present)
-      // are distinguishable in the panel without expanding the tooltip.
-      expect(result.title).toContain("caipe-platform");
-      // Body must carry the mechanism-of-failure explanation: RFC 8693
-      // drops scope=, only default mappers fire, mapper order is undefined.
-      expect(result.body).toMatch(/RFC 8693|token exchange/i);
-      expect(result.body).toMatch(/active_team/);
-      expect(result.body).toMatch(/mapper/i);
-      // And it must point operators at the two heal paths: the button
-      // (immediate) and the env var (persistent).
-      expect(result.body).toMatch(/Reconcile active-team scope|active-team scope/i);
-      expect(result.body).toMatch(/KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG/);
-      // team-personal is excluded from the count — must be called out
-      // so admins don't fight the DM-mode advisory.
-      expect(result.body).toMatch(/team-personal/);
-    });
-
-    it("explains audience.<other>.single_team_default for a future multi-audience setup", () => {
-      // The decoder must work for any audience clientId, not just the
-      // hardcoded caipe-platform — defends against the planned dedicated
-      // DM audience (caipe-platform-dm) landing later.
-      const result = explainInvariant("audience.caipe-platform-dm.single_team_default");
-      expect(result.title).toContain("caipe-platform-dm");
-      expect(result.body).not.toMatch(/No plain-English explanation is registered/);
-    });
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+    // `audience.<client>.single_team_default` family — both the invariant
+    // and the explanation entry are gone now that nothing consumes the
+    // `active_team` claim.
   });
 
   describe("fallback", () => {
@@ -313,18 +286,11 @@ describe("explainInvariant", () => {
         term: /BFF/,
         gloss: /UI server/i,
       },
-      {
-        label: "DM is glossed as direct messages",
-        id: "team_personal.dm_mode_known_limitation",
-        term: /DM/,
-        gloss: /direct messages|one-on-one|DM-mode marker/i,
-      },
-      {
-        label: "Personal team's __personal__ value is glossed as DM / personal mode",
-        id: "team_scope.team-personal.active_team_mapper",
-        term: /__personal__/,
-        gloss: /DM \/ personal mode|personal mode|one-on-one/i,
-      },
+      // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+      // `team_personal.dm_mode_known_limitation` advisory invariant and its
+      // gloss row. The `__personal__` value lives on as a legacy mapper value
+      // surfaced by the per-scope invariants only; we no longer test for
+      // its gloss because the special-case explanation block is gone.
     ];
 
     it.each(cases)(
@@ -355,7 +321,8 @@ describe("explainInvariant", () => {
         "team_scope.team-platform.optional_on_slack_bot",
         "team_scope.team-platform.optional_on_webex_bot",
         "team_scope.team-platform.default_on_obo_audience",
-        "team_personal.dm_mode_known_limitation",
+        // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+        // `team_personal.dm_mode_known_limitation` from the sample set.
       ];
       for (const id of samples) {
         const result = explainInvariant(id);

@@ -438,53 +438,10 @@ export function explainInvariant(id: string): InvariantExplanation {
         `claim and the bot will reject it.`,
     };
   }
-  if (id === "team_personal.dm_mode_known_limitation") {
-    return {
-      title: "team-personal has a known DM-mode token-exchange limitation",
-      body:
-        `This is an *advisory* row, not a configuration error you can fix ` +
-        `from this panel — it documents a known architectural limitation in ` +
-        `how direct messages (DMs, one-on-one chats with no team context) ` +
-        `are authenticated. \`team-personal\` is the DM-mode marker ` +
-        `${CLIENT_SCOPE_GLOSS}; it carries \`active_team=__personal__\` so ` +
-        `the bot knows to enter personal mode. But Keycloak's OAuth2 / ` +
-        `RFC 8693 token exchange drops the \`scope=\` parameter and only ` +
-        `injects mappers from scopes that are *default* on the audience, ` +
-        `and we cannot bind \`team-personal\` as default on ` +
-        `\`caipe-platform\` without clobbering the real-team default that ` +
-        `the BFF (the UI server) migration picks per-request. The result is ` +
-        `that direct messages to the bot are currently rejected. Tracked as ` +
-        `a follow-up — see \`docs/docs/security/rbac/architecture.md\` for ` +
-        `the design options. This row's status is \`unknown\`; it is not ` +
-        `something \`Reconcile all\` can fix automatically.`,
-    };
-  }
-  const audienceSingleDefault = id.match(/^audience\.(.+)\.single_team_default$/);
-  if (audienceSingleDefault) {
-    const audience = audienceSingleDefault[1];
-    return {
-      title: `${audience} has at most one real team-* default scope`,
-      body:
-        `This row checks the single most important invariant for OBO ` +
-        `token exchange: the audience client \`${audience}\` must have ` +
-        `*at most one* real \`team-*\` ${CLIENT_SCOPE_GLOSS} bound as a ` +
-        `default scope. Under ${TOKEN_EXCHANGE_GLOSS}, Keycloak silently ` +
-        `drops the \`scope=\` request parameter and only injects mappers ` +
-        `from scopes that are *default* on the audience. If two or more ` +
-        `\`team-*\` scopes are default, each one's ${PROTOCOL_MAPPER_GLOSS} ` +
-        `fires and writes the ${ACTIVE_TEAM_CLAIM_GLOSS} — mapper order ` +
-        `is undefined, so the bot receives whichever team's mapper happened ` +
-        `to win the race. The bot's mismatch check (\`obo_exchange.py\`) ` +
-        `then rejects every DM whose token came back with the wrong team. ` +
-        `If this row is red, click \`Reconcile active-team scope\` below ` +
-        `or set \`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` and re-run the Keycloak ` +
-        `RBAC reconciliation migration — both call ` +
-        `\`selectAgentGatewayActiveTeamScope(<${SLUG_GLOSS}>)\` which ` +
-        `unbinds every stray \`team-*\` default and re-binds only the ` +
-        `selected one. \`team-personal\` is excluded from the count (the ` +
-        `DM-mode known-limitation row covers it separately).`,
-    };
-  }
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // `team_personal.dm_mode_known_limitation` and `audience.<client>.single_team_default`
+  // explanation entries. The underlying invariants are gone — see the
+  // matching comment in `ui/src/lib/rbac/keycloak-invariants.ts`.
 
   // ─────────────────────────────────────────────────────────────
   // Fallback — keeps the UI working if a new ID lands without a

@@ -471,84 +471,19 @@ export function evaluateKeycloakInvariants(
             `on the audience contributing the team scope as a default — Reconcile now will bind it.`,
         remediation: audienceBound ? "none" : "reconcile_now",
       });
-    } else {
-      // Structural advisory: surface the DM-mode limitation as a separate,
-      // first-class invariant rather than letting `default_on_obo_audience`
-      // fail forever. Emit `unknown` (not `fail`) because there is no
-      // remediation we can apply automatically without changing the bot
-      // audience model — admins should see this as informational, not red.
-      invariants.push({
-        id: "team_personal.dm_mode_known_limitation",
-        description: `team-personal DM mode has a known token-exchange limitation`,
-        group: "team-scope",
-        source: "init-token-exchange.sh",
-        status: "unknown",
-        detail:
-          `Keycloak's RFC 8693 token-exchange drops the \`scope=\` request parameter, so a ` +
-          `bot's request for \`scope=openid team-personal\` does not actually inject the ` +
-          `\`active_team=__personal__\` claim — the returned token instead carries whichever ` +
-          `real team scope is currently default on \`${oboAudienceClientId}\`. This means ` +
-          `DMs to the Slack / Webex bot will currently be rejected with "team session ` +
-          `unavailable" because the mismatch check in obo_exchange.py fires. Tracked as a ` +
-          `follow-up: route DM token-exchange to a separate audience whose default scope is ` +
-          `team-personal, or remove DM personal-mode handling from the bots.`,
-        remediation: "manual_keycloak",
-      });
     }
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+    // `team_personal.dm_mode_known_limitation` invariant: DM-mode no longer
+    // relies on a token-exchange-injected `active_team` claim, so the
+    // structural limitation it described no longer applies.
   }
 
-  // ────────────────────────────────────────────────────────────────
-  // Audience-cardinality invariant: at most ONE `team-*` default
-  // scope may be bound on the OBO audience client.
-  //
-  // Why this matters: Keycloak's RFC 8693 token-exchange silently
-  // drops the `scope=` request parameter and only injects mappers
-  // from scopes that are *default* on the audience. If two `team-*`
-  // scopes are both default, both protocol mappers fire and write
-  // the `active_team` claim — mapper order is undefined, so the bot
-  // receives whichever team's mapper happens to fire last. The
-  // `obo_exchange.py` mismatch check then rejects every DM where
-  // the wrong team won the race, and the failure is non-
-  // deterministic (sometimes succeeds, sometimes fails).
-  //
-  // `selectAgentGatewayActiveTeamScope(slug)` is supposed to keep
-  // this invariant true on every team change, but the realm can
-  // drift if `ensureTeamClientScope` is called without a paired
-  // selector call (which happens when `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG`
-  // is unset and Mongo has ≥2 teams). This invariant surfaces the
-  // drift the moment it happens; the `Reconcile active-team scope`
-  // button heals it by re-running the selector.
-  //
-  // `team-personal` is intentionally excluded from the count: it is
-  // never bound as default on the audience (the DM-mode known
-  // limitation invariant covers that gap separately).
-  // ────────────────────────────────────────────────────────────────
-  for (const row of values.active_team_defaults) {
-    const realTeamDefaults = row.default_team_scopes.filter(
-      (name) => name.startsWith("team-") && name !== PERSONAL_SCOPE_NAME
-    );
-    const ok = realTeamDefaults.length <= 1;
-    invariants.push({
-      id: `audience.${row.audience_client_id}.single_team_default`,
-      description: `${row.audience_client_id} has at most one real team-* default scope`,
-      group: "team-scope",
-      source: "bff-migration",
-      status: ok ? "pass" : "fail",
-      detail: ok
-        ? undefined
-        : `Audience client \`${row.audience_client_id}\` currently has multiple real ` +
-          `\`team-*\` scopes bound as default: ${realTeamDefaults
-            .map((n) => `\`${n}\``)
-            .join(", ")}. Each scope's \`active_team\` protocol mapper fires during ` +
-          `token exchange (RFC 8693), so the issued token's \`active_team\` claim is ` +
-          `non-deterministic — bot DMs and channel routing will succeed or fail at ` +
-          `random depending on mapper firing order. Reconcile the active-team scope ` +
-          `(click the Reconcile active-team scope button below, or set ` +
-          `\`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` and re-run the Keycloak RBAC reconciliation ` +
-          `migration) to leave exactly one \`team-*\` scope default on this audience.`,
-      remediation: ok ? "none" : "reconcile_now",
-    });
-  }
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // `audience.<client>.single_team_default` audience-cardinality invariant.
+  // The OBO audience client no longer needs at-most-one `team-*` default
+  // scope because no service consumes the `active_team` claim. Operators
+  // who still have legacy `team-*` scopes bound on the audience can clean
+  // them up with `scripts/cleanup-team-keycloak-scopes.sh`.
 
   return invariants;
 }

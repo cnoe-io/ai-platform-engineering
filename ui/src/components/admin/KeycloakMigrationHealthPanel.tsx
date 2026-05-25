@@ -338,15 +338,12 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
   const [error, setError] = useState<string | null>(null);
   const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<MetricDetails | null>(null);
-  // Targeted heal for the `audience.<client>.single_team_default` invariant.
-  // The Keycloak RBAC reconciliation migration heals the same drift IF
-  // `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is set in the BFF environment, but
-  // when it isn't (the actual drift cause in our case) the migration
-  // skips the call with a warning. This action surface lets an admin
-  // pick the slug interactively and call the dedicated route.
-  const [healActiveTeamSlug, setHealActiveTeamSlug] = useState("");
-  const [healingActiveTeam, setHealingActiveTeam] = useState(false);
-  const [healActiveTeamMessage, setHealActiveTeamMessage] = useState<string | null>(null);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // targeted "Reconcile active-team scope" heal surface. The
+  // `audience.<client>.single_team_default` invariant is gone, the
+  // POST /api/admin/keycloak/active-team-scope route is deleted, and
+  // operators clean up any legacy `team-*` scopes via
+  // `scripts/cleanup-team-keycloak-scopes.sh`.
 
   const loadHealth = useCallback(async () => {
     setLoading(true);
@@ -405,33 +402,9 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
 
   const reconcileAll = useCallback(() => runReconcile(null), [runReconcile]);
 
-  const healActiveTeamScope = useCallback(async () => {
-    const slug = healActiveTeamSlug.trim().toLowerCase();
-    if (!slug) return;
-    setHealingActiveTeam(true);
-    setError(null);
-    setHealActiveTeamMessage(null);
-    try {
-      const result = await readJson<{ active_team_slug: string; audience_client_id: string }>(
-        await fetch("/api/admin/keycloak/active-team-scope", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ team_slug: slug }),
-        }),
-      );
-      setHealActiveTeamMessage(
-        `Active-team default on ${result.audience_client_id} pinned to ${result.active_team_slug}.`,
-      );
-      setHealActiveTeamSlug("");
-      await loadHealth();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to reconcile Keycloak active-team scope",
-      );
-    } finally {
-      setHealingActiveTeam(false);
-    }
-  }, [healActiveTeamSlug, loadHealth]);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // healActiveTeamScope callback — see the matching comment above the
+  // removed state hooks at the top of the component.
 
   const lastRun = health?.migration.last_run;
   const bootstrapHasFailures = Boolean(health?.bootstrap_admins && health.bootstrap_admins.failed_count > 0);
@@ -441,31 +414,11 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
   const invariantsRecommendReconcile = Boolean(
     health?.keycloak_invariants?.summary.reconcile_now_recommended,
   );
-  // True iff the new `audience.<client>.single_team_default` invariant is
-  // currently failing — gates the dedicated "Reconcile active-team scope"
-  // action below.
-  const audienceSingleTeamDefaultFailing = Boolean(
-    health?.keycloak_invariants?.items.some(
-      (item) =>
-        /^audience\..+\.single_team_default$/.test(item.id) && item.status === "fail",
-    ),
-  );
-  // Surfaces the current `team-*` defaults on each audience so the
-  // "pick a slug to pin" UI can hint at the legal answers without
-  // needing a separate teams-list API call.
-  const currentRealTeamDefaultsByAudience = useMemo(() => {
-    const out: Array<{ audience: string; defaults: string[] }> = [];
-    const rows = health?.keycloak_values?.active_team_defaults ?? [];
-    for (const row of rows) {
-      const audience = typeof row.audience_client_id === "string" ? row.audience_client_id : "";
-      const defaultsRaw = Array.isArray(row.default_team_scopes) ? row.default_team_scopes : [];
-      const defaults = defaultsRaw.filter(
-        (s): s is string => typeof s === "string" && s.startsWith("team-") && s !== "team-personal",
-      );
-      if (audience) out.push({ audience, defaults });
-    }
-    return out;
-  }, [health?.keycloak_values?.active_team_defaults]);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+  // `audienceSingleTeamDefaultFailing` and `currentRealTeamDefaultsByAudience`
+  // because the audience-cardinality invariant and its targeted heal UI are
+  // both gone. The `Reconcile all` button still drives the generic Keycloak
+  // RBAC reconciliation migration for the OBO permission wiring that remains.
   const degraded = Boolean(
     error ||
       health?.blocking.is_blocking ||
@@ -567,111 +520,14 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
             />
           </div>
         )}
-        {healActiveTeamMessage && (
-          <div
-            className="flex items-start justify-between gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-900"
-            data-testid="active-team-scope-success"
-          >
-            <span className="min-w-0 whitespace-pre-wrap break-words">{healActiveTeamMessage}</span>
-            <CopyButton
-              value={healActiveTeamMessage}
-              label="Copy message"
-              className="shrink-0 text-emerald-900 hover:text-emerald-900"
-            />
-          </div>
-        )}
         {/*
-          Targeted heal surface for the `audience.<client>.single_team_default`
-          invariant. The full reconcile-all migration auto-picks the slug from
-          `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` / Mongo, but if neither is set with a
-          single match the migration skips the call and the drift persists. This
-          UI lets an admin pin the slug interactively. Only shows when the
-          invariant is actually failing — otherwise it's noise.
+          Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+          targeted "Reconcile active-team scope" heal UI together with the
+          POST /api/admin/keycloak/active-team-scope route, the
+          `audience.<client>.single_team_default` invariant, and the
+          `healActiveTeamScope` callback. Operators clean up any lingering
+          legacy `team-*` scopes via scripts/cleanup-team-keycloak-scopes.sh.
         */}
-        {audienceSingleTeamDefaultFailing && (
-          <div
-            className="space-y-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm"
-            data-testid="active-team-scope-action"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-              <span className="font-medium text-amber-900">Reconcile active-team scope</span>
-              <ExplainerTooltip
-                explanation={{
-                  title: "Pin the realm-wide active-team default",
-                  body:
-                    `Calls \`selectAgentGatewayActiveTeamScope(<slug>)\` against ` +
-                    `Keycloak, which unbinds every stray \`team-*\` default scope ` +
-                    `from the OBO audience client and re-binds only the team you ` +
-                    `pick. Heals the audience-cardinality drift that causes ` +
-                    `non-deterministic \`active_team\` claims in OBO-exchanged tokens.`,
-                  fix:
-                    `To prevent this drift from coming back, set the ` +
-                    `\`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` environment variable on ` +
-                    `the BFF so the Keycloak RBAC reconciliation migration ` +
-                    `re-applies the same pin on every cycle.`,
-                }}
-                testId="active-team-scope-explain"
-                ariaLabel="What does Reconcile active-team scope do?"
-              />
-            </div>
-            {currentRealTeamDefaultsByAudience.length > 0 && (
-              <p className="text-xs text-amber-900/80">
-                {currentRealTeamDefaultsByAudience.map((row) => (
-                  <span key={row.audience} className="block">
-                    <span className="font-mono">{row.audience}</span>:{" "}
-                    {row.defaults.length === 0 ? (
-                      <em>no team-* defaults</em>
-                    ) : (
-                      row.defaults.map((d) => (
-                        <span
-                          key={d}
-                          className="ml-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[11px]"
-                        >
-                          {d}
-                        </span>
-                      ))
-                    )}
-                  </span>
-                ))}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="active-team-scope-slug" className="sr-only">
-                Team slug to pin as active-team default
-              </label>
-              <input
-                id="active-team-scope-slug"
-                type="text"
-                value={healActiveTeamSlug}
-                onChange={(event) => setHealActiveTeamSlug(event.target.value)}
-                placeholder="Team slug, e.g. platform"
-                className="h-8 min-w-0 flex-1 rounded border border-amber-300 bg-white px-2 text-sm font-mono"
-                disabled={healingActiveTeam}
-                data-testid="active-team-scope-slug-input"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                onClick={healActiveTeamScope}
-                disabled={healingActiveTeam || healActiveTeamSlug.trim().length === 0}
-                data-testid="active-team-scope-apply"
-              >
-                {healingActiveTeam ? (
-                  <>
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    Reconciling…
-                  </>
-                ) : (
-                  "Pin active-team scope"
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
         {!health && !error && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
