@@ -35,6 +35,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -52,6 +54,10 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: false }),
 }));
 
 jest.mock('uuid', () => ({
@@ -126,6 +132,7 @@ import { GET as GET_CONVERSATIONS } from '../chat/conversations/route';
 describe('Archive API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.OPENFGA_HTTP;
     // Reset mock collections
     Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
     // Default authenticated
@@ -201,6 +208,8 @@ describe('Archive API', () => {
     });
 
     it('returns 403 for non-owner', async () => {
+      process.env.OPENFGA_HTTP = 'http://openfga.test';
+      mockGetServerSession.mockResolvedValue({ ...authenticatedSession(), sub: 'user-sub' });
       const conv = makeConversation({ owner_id: 'other@example.com' });
       const convCollection = createMockCollection();
       convCollection.findOne.mockResolvedValue(conv);

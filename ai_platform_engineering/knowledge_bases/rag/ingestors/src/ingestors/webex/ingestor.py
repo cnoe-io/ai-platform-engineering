@@ -435,6 +435,7 @@ async def sync_webex_spaces(client: Client):
     # Create datasource
     datasource = DataSourceInfo(
       datasource_id=datasource_id,
+      name=f"Webex: {space_name}",
       ingestor_id=client.ingestor_id or "",
       description=f"Webex messages from space '{space_name}'",
       source_type="webex",

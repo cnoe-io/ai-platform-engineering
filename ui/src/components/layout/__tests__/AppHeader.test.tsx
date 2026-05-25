@@ -36,11 +36,30 @@ jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))
 
+function setHeaderNavConstrained(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: jest.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    })),
+  })
+}
+
 // Mock admin role hook
 let mockIsAdmin = false
-let mockCanViewAdmin = false
+let mockCanAccessDynamicAgents = false
 jest.mock('@/hooks/use-admin-role', () => ({
-  useAdminRole: () => ({ isAdmin: mockIsAdmin, canViewAdmin: mockCanViewAdmin }),
+  useAdminRole: () => ({
+    isAdmin: mockIsAdmin,
+    canAccessDynamicAgents: mockCanAccessDynamicAgents,
+  }),
 }))
 
 // Mock chat store
@@ -91,8 +110,50 @@ jest.mock('@/hooks/use-version', () => ({
   }),
 }))
 
+const mockReleasePrompt = {
+  open: false,
+  isAdmin: false,
+  releaseVersion: null as string | null,
+  announcementId: null as string | null,
+  release: null as any,
+  showMigrationCta: true,
+  toastNotification: null as any,
+  markToastShown: jest.fn(),
+  openMigrationAssistant: jest.fn(),
+  skipUntilNextLogin: jest.fn(),
+  dismissPermanently: jest.fn(),
+  isLoading: false,
+  isDismissing: false,
+}
+jest.mock('@/hooks/use-release-upgrade-prompt', () => ({
+  useReleaseUpgradePrompt: () => mockReleasePrompt,
+}))
+
+let mockMigrationStatus = {
+  status: null as any,
+  isLoading: false,
+}
+jest.mock('@/hooks/use-migration-status', () => ({
+  useMigrationStatus: () => mockMigrationStatus,
+}))
+
+jest.mock('@/components/release/ReleaseUpgradeDialog', () => ({
+  ReleaseUpgradeDialog: ({ open, isAdmin, releaseVersion }: any) =>
+    open ? (
+      <div data-testid="release-upgrade-dialog">
+        ReleaseUpgradeDialog {releaseVersion} {isAdmin ? 'admin' : 'user'}
+      </div>
+    ) : null,
+}))
+
+const mockToast = jest.fn()
+jest.mock('@/components/ui/toast', () => ({
+  useToast: () => ({ toast: mockToast }),
+}))
+
 // Mock config
 let mockReportProblemEnabled = false
+let mockDynamicAgentsEnabled = true
 jest.mock('@/lib/config', () => ({
   config: {
     appName: 'Test App',
@@ -104,6 +165,7 @@ jest.mock('@/lib/config', () => ({
     ssoEnabled: true,
     envBadge: '',
     autonomousAgentsEnabled: true,
+    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
   },
@@ -113,6 +175,7 @@ jest.mock('@/lib/config', () => ({
       ssoEnabled: true,
       envBadge: '',
       autonomousAgentsEnabled: true,
+      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
     }
@@ -128,47 +191,67 @@ jest.mock('@/components/ticket/ReportProblemDialog', () => ({
 
 // Mock Link component
 jest.mock('next/link', () => {
-  return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  const MockLink = React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
     <a ref={ref} href={href} className={className} data-testid={`link-${href}`} {...props}>{children}</a>
   ))
+  MockLink.displayName = 'MockLink'
+  return MockLink
 })
 
 // Mock UI components
-jest.mock('@/components/ui/tooltip', () => ({
-  Tooltip: ({ children }: any) => <>{children}</>,
-  TooltipContent: ({ children }: any) => <div>{children}</div>,
-  TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
+jest.mock('@/components/ui/tooltip', () => {
+  const TooltipTrigger = React.forwardRef(function MockTooltipTrigger(
+    { children, asChild, ...props }: any,
+    ref: any,
+  ) {
     if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
+      return children
     }
     return <div ref={ref} {...props}>{children}</div>
-  }),
-}))
+  })
+  return {
+    Tooltip: ({ children }: any) => <>{children}</>,
+    TooltipContent: ({ children }: any) => <div>{children}</div>,
+    TooltipProvider: ({ children }: any) => <>{children}</>,
+    TooltipTrigger,
+  }
+})
 
-jest.mock('@/components/ui/popover', () => ({
-  Popover: ({ children }: any) => <>{children}</>,
-  PopoverContent: ({ children }: any) => <div>{children}</div>,
-  PopoverTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
+jest.mock('@/components/ui/popover', () => {
+  const PopoverTrigger = React.forwardRef(function MockPopoverTrigger(
+    { children, asChild, ...props }: any,
+    ref: any,
+  ) {
     if (asChild && React.isValidElement(children)) {
-      return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
+      return children
     }
     return <div ref={ref} {...props}>{children}</div>
-  }),
-}))
+  })
+  return {
+    Popover: ({ children }: any) => <>{children}</>,
+    PopoverContent: ({ children }: any) => <div>{children}</div>,
+    PopoverTrigger,
+  }
+})
 
 jest.mock('@/components/user-menu', () => ({
-  UserMenu: () => <div data-testid="user-menu" />,
+  UserMenu: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="user-menu" data-compact={compact ? 'true' : 'false'} />
+  ),
 }))
 
 jest.mock('@/components/settings-panel', () => ({
-  SettingsPanel: () => <div data-testid="settings-panel" />,
+  SettingsPanel: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="settings-panel" data-compact={compact ? 'true' : 'false'} />
+  ),
 }))
 
 jest.mock('@/components/ui/button', () => ({
-  Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
+  Button: React.forwardRef(function MockButton({ children, ...props }: any, ref: any) {
+    return (
     <button ref={ref} {...props}>{children}</button>
-  )),
+    )
+  }),
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -185,22 +268,39 @@ import { AppHeader } from '../AppHeader'
 // Tests
 // ============================================================================
 
+beforeEach(() => {
+  mockMigrationStatus = {
+    status: null,
+    isLoading: false,
+  }
+})
+
 describe('AppHeader — nav tabs', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
-    mockCanViewAdmin = false
+    mockCanAccessDynamicAgents = false
     mockRagEnabled = false
+    mockDynamicAgentsEnabled = true
     mockReportProblemEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
+    setHeaderNavConstrained(false)
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
     mockSession.status = 'authenticated' as const
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as any
+    mockReleasePrompt.open = false
+    mockReleasePrompt.isAdmin = false
+    mockReleasePrompt.releaseVersion = null
+    mockReleasePrompt.announcementId = null
+    mockReleasePrompt.release = null
+    mockReleasePrompt.showMigrationCta = true
+    mockReleasePrompt.toastNotification = null
+    mockReleasePrompt.markToastShown.mockClear()
   })
 
   describe('Insights tab removed from nav', () => {
@@ -260,6 +360,35 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
     })
 
+    it('collapses secondary top navigation into More on constrained widths', () => {
+      setHeaderNavConstrained(true)
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = true
+      mockIsAdmin = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByRole('button', { name: /more navigation/i })).toHaveClass('w-8')
+      expect(screen.getByText('Home')).toBeInTheDocument()
+      expect(screen.getByText(/Chat/)).toBeInTheDocument()
+      expect(screen.getByText('Skills')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+    })
+
+    it('collapses header status and account actions on constrained widths', () => {
+      setHeaderNavConstrained(true)
+      mockReportProblemEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
+      expect(screen.getByRole('button', { name: /report a problem/i })).toHaveClass('w-8')
+      expect(screen.queryByText('Report a Problem')).not.toBeInTheDocument()
+      expect(screen.getByTestId('settings-panel')).toHaveAttribute('data-compact', 'true')
+      expect(screen.getByTestId('user-menu')).toHaveAttribute('data-compact', 'true')
+    })
+
     it('shows Skills as active on /skills', () => {
       mockPathname = '/skills'
       render(<AppHeader />)
@@ -286,33 +415,42 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
     })
+
+    it('shows Agents when Dynamic Agents are enabled even without legacy AD group access', () => {
+      mockCanAccessDynamicAgents = false
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByText('Agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+    })
   })
 
   describe('admin tab', () => {
     it('shows Admin tab for admin users', () => {
       mockIsAdmin = true
-      mockCanViewAdmin = true
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
     })
 
     it('shows Admin tab for non-admin authenticated users (readonly)', () => {
       mockIsAdmin = false
-      mockCanViewAdmin = true
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
     })
 
     it('does NOT show Admin tab for unauthenticated users', () => {
       mockIsAdmin = false
-      mockCanViewAdmin = false
+      mockSession.status = 'unauthenticated'
+      mockSession.data = null
       render(<AppHeader />)
       expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
     })
 
     it('Admin tab is clickable when MongoDB is configured (admin user)', () => {
       mockIsAdmin = true
-      mockCanViewAdmin = true
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
@@ -320,7 +458,6 @@ describe('AppHeader — nav tabs', () => {
 
     it('Admin tab is clickable when MongoDB is configured (non-admin user)', () => {
       mockIsAdmin = false
-      mockCanViewAdmin = true
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
@@ -328,7 +465,6 @@ describe('AppHeader — nav tabs', () => {
 
     it('Admin tab is disabled when MongoDB is not configured', () => {
       mockIsAdmin = true
-      mockCanViewAdmin = true
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
@@ -337,7 +473,6 @@ describe('AppHeader — nav tabs', () => {
 
     it('Admin tab shows red styling when active for admin user', () => {
       mockIsAdmin = true
-      mockCanViewAdmin = true
       mockPathname = '/admin'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
@@ -347,7 +482,6 @@ describe('AppHeader — nav tabs', () => {
 
     it('Admin tab shows primary styling when active for non-admin user', () => {
       mockIsAdmin = false
-      mockCanViewAdmin = true
       mockPathname = '/admin'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
@@ -389,7 +523,6 @@ describe('AppHeader — connection status badge', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
-    mockCanViewAdmin = false
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
@@ -639,7 +772,6 @@ describe('AppHeader — Chat tab notification dots', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/skills'
     mockIsAdmin = false
-    mockCanViewAdmin = false
     mockRagEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
@@ -772,6 +904,99 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(amberBadge).not.toBeInTheDocument()
     expect(blueBadge).not.toBeInTheDocument()
   })
+
+  it('mounts the release upgrade dialog for authenticated sessions', () => {
+    mockReleasePrompt.open = true
+    mockReleasePrompt.isAdmin = true
+    mockReleasePrompt.releaseVersion = '0.5.1'
+
+    render(<AppHeader />)
+
+    expect(screen.getByTestId('release-upgrade-dialog')).toHaveTextContent('0.5.1 admin')
+  })
+
+  it('shows the managed release notes toast once when configured', () => {
+    mockReleasePrompt.releaseVersion = '0.6.0'
+    mockReleasePrompt.toastNotification = {
+      id: '0.6.0:revision-2',
+      message: 'Release notes for 0.6.0 are available.',
+      duration: 12000,
+    }
+
+    render(<AppHeader />)
+
+    expect(mockToast).toHaveBeenCalledWith(
+      'Release notes for 0.6.0 are available.',
+      'info',
+      12000,
+    )
+    expect(mockReleasePrompt.markToastShown).toHaveBeenCalled()
+  })
+
+  it('hides persistent migrations-required alerts from non-admin users', () => {
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 3,
+        blocking_required_count: 2,
+        is_blocking: true,
+        override_active: false,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Migrations required: 2/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a persistent migrations-required alert next to connection status for admins', () => {
+    mockIsAdmin = true
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 3,
+        blocking_required_count: 2,
+        is_blocking: true,
+        override_active: false,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Migrations required: 2/i })).toHaveAttribute(
+      'href',
+      '/admin?cat=security&tab=migrations',
+    )
+  })
+
+  it('shows a persistent version-metadata alert for admins when collections need v1 initialization', () => {
+    mockIsAdmin = true
+    mockMigrationStatus = {
+      isLoading: false,
+      status: {
+        release: '0.5.1',
+        pending_required_count: 0,
+        blocking_required_count: 0,
+        is_blocking: false,
+        override_active: false,
+        needs_version_bootstrap: true,
+        version_bootstrap_required_count: 2,
+        requires_attention: true,
+      },
+    }
+
+    render(<AppHeader />)
+
+    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Version metadata needed: 2/i })).toHaveAttribute(
+      'href',
+      '/admin?cat=security&tab=migrations',
+    )
+  })
 })
 
 // ============================================================================
@@ -784,7 +1009,6 @@ describe('AppHeader — Report a Problem button', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
-    mockCanViewAdmin = false
     mockRagEnabled = false
     mockReportProblemEnabled = false
     mockCaipeStatus = 'connected'

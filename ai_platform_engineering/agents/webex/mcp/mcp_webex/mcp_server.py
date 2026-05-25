@@ -4,12 +4,13 @@
 import functools
 import logging
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Optional
 
 import httpx
 from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData, TextContent
 from pydantic import BaseModel, Field, model_validator
+from mcp_agent_auth.token import get_request_token
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
 
@@ -157,11 +158,15 @@ class WebexTools(str, Enum):
 
 
 # FastMCP tool registration
-def register_tools(server, auth_token):
+def register_tools(server, auth_token: Optional[str] = None) -> None:
     logger = logging.getLogger(__name__)
     logger.info("🔧 Initializing Webex MCP tools registration")
     logger.info(f"🌐 Webex API Base URL: {WEBEX_API_BASE}")
     http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
+
+    def _get_token() -> str:
+        """Resolve bearer token: per-request header takes priority over startup env token."""
+        return get_request_token("WEBEX_TOKEN") or auth_token or ""
 
     def handle_mcp_errors(func):
         @functools.wraps(func)
@@ -215,7 +220,7 @@ def register_tools(server, auth_token):
         }
         response = await http_client.post(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             json={k: v for k, v in payload.items() if v is not None},
         )
         response.raise_for_status()
@@ -254,7 +259,7 @@ def register_tools(server, auth_token):
         payload = {"title": args.title}
         response = await http_client.post(
             "/rooms",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             json=payload,
         )
         response.raise_for_status()
@@ -285,7 +290,7 @@ def register_tools(server, auth_token):
             try:
                 response = await http_client.post(
                     "/memberships",
-                    headers={"Authorization": f"Bearer {auth_token}"},
+                    headers={"Authorization": f"Bearer {_get_token()}"},
                     json=membership_payload,
                 )
                 response.raise_for_status()
@@ -311,7 +316,7 @@ def register_tools(server, auth_token):
         query_params = {"personEmail": args.person_email, "max": args.max_results}
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             params=query_params,
         )
         response.raise_for_status()
@@ -346,7 +351,7 @@ def register_tools(server, auth_token):
             params["parentId"] = args.parent_id
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             params=params,
         )
         response.raise_for_status()
@@ -370,7 +375,7 @@ def register_tools(server, auth_token):
             params["teamId"] = args.team_id
         response = await http_client.get(
             "/rooms",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             params=params,
         )
         response.raise_for_status()
@@ -389,7 +394,7 @@ def register_tools(server, auth_token):
             params["max"] = str(args.max)
         response = await http_client.get(
             "/memberships",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             params=params,
         )
         response.raise_for_status()
@@ -415,7 +420,7 @@ def register_tools(server, auth_token):
             params["max"] = str(args.max)
         response = await http_client.get(
             "/messages",
-            headers={"Authorization": f"Bearer {auth_token}"},
+            headers={"Authorization": f"Bearer {_get_token()}"},
             params=params,
         )
         response.raise_for_status()

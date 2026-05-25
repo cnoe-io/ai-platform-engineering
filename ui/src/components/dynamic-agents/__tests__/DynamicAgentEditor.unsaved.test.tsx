@@ -110,7 +110,9 @@ const fixtureAgent: DynamicAgentConfig = {
   allowed_tools: {},
   builtin_tools: undefined,
   model: { id: "gpt-4o", provider: "openai" },
-  visibility: "private",
+  visibility: "team",
+  owner_team_slug: "platform",
+  owner_team_id: "team-1",
   shared_with_teams: [],
   subagents: [],
   skills: [],
@@ -369,5 +371,55 @@ describe("DynamicAgentEditor — unsaved-changes back-button guard", () => {
     fireEvent.click(screen.getAllByRole("button")[0]);
     expect(screen.getByText("Keep editing")).toBeInTheDocument();
     expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("requires and sends owner-team metadata when creating an agent", async () => {
+    const onCancel = jest.fn();
+    const onSave = jest.fn();
+    const fetchMock = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = typeof url === "string" ? url : url.toString();
+      if (u.includes("/api/dynamic-agents/models")) {
+        return jsonResponse({
+          success: true,
+          data: [{ model_id: "gpt-4o", name: "GPT-4o", provider: "openai", description: "" }],
+        });
+      }
+      if (u.includes("/api/dynamic-agents/teams")) {
+        return jsonResponse({
+          success: true,
+          data: [{ _id: "team-id", name: "Platform", slug: "platform", user_role: "admin", can_own_agents: true }],
+        });
+      }
+      if (init?.method === "POST") {
+        return jsonResponse({ success: true, data: {} });
+      }
+      if (u.includes("/api/dynamic-agents")) {
+        return jsonResponse({ success: true, data: { items: [] } });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+    // @ts-expect-error - global fetch override for tests
+    global.fetch = fetchMock;
+
+    render(<DynamicAgentEditor agent={null} onCancel={onCancel} onSave={onSave} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), { target: { value: "Ops Helper" } });
+    fireEvent.change(screen.getByLabelText(/Owner Team/i), { target: { value: "platform" } });
+    fireEvent.click(screen.getByText("Next"));
+    fireEvent.change(await screen.findByTestId("codemirror-mock"), { target: { value: "Help ops." } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(postCall).toBeDefined();
+    expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+      name: "Ops Helper",
+      owner_team_slug: "platform",
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

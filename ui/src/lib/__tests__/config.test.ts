@@ -72,6 +72,7 @@ describe('getServerConfig', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'ACTION_AUDIT_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
         'AUTONOMOUS_AGENTS_ENABLED', 'ENABLE_AUTONOMOUS_AGENTS',
@@ -93,6 +94,7 @@ describe('getServerConfig', () => {
       expect(cfg.feedbackEnabled).toBe(true); // default true
       expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
+      expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
         'Where Humans and AI agents collaborate to deliver high quality outcomes.',
@@ -109,6 +111,7 @@ describe('getServerConfig', () => {
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.autonomousAgentsEnabled).toBe(false);
+      expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -138,14 +141,15 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
         'npsEnabled', 'auditLogsEnabled',
+        'actionAuditEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl',
         'autonomousAgentsEnabled',
@@ -153,6 +157,7 @@ describe('getServerConfig', () => {
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
+        'userInfoToolEnabled',
         'oidcRequiredGroup',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
@@ -181,6 +186,11 @@ describe('getServerConfig', () => {
       process.env.ENABLE_AUTONOMOUS_AGENTS = 'false';
       process.env.AUTONOMOUS_AGENTS_ENABLED = 'true';
       expect(getServerConfig().autonomousAgentsEnabled).toBe(false);
+    });
+
+    it('should read CAIPE_CREDENTIALS_ENABLED=true', () => {
+      process.env.CAIPE_CREDENTIALS_ENABLED = 'true';
+      expect(getServerConfig().credentialsEnabled).toBe(true);
     });
 
     it('should treat SSO_ENABLED=false as false', () => {
@@ -692,10 +702,10 @@ describe('getServerConfig', () => {
   // ---------- Production defaults ----------
 
   describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
+    it('should use the same-origin A2A proxy when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+      expect(getServerConfig().caipeUrl).toBe('/api/a2a');
     });
 
     it('should use k8s service URLs for ragUrl in production', () => {
@@ -753,19 +763,23 @@ describe('getServerConfig', () => {
       delete process.env.OIDC_REQUIRED_GROUP;
     });
 
-    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    it('defaults to no required group when OIDC_REQUIRED_GROUP is not set', () => {
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
 
     it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
-      process.env.OIDC_REQUIRED_GROUP = 'my-org-platform-users';
-      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
+      process.env.OIDC_REQUIRED_GROUP = 'my-org-caipe-users';
+      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-caipe-users');
     });
 
-    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
-      // config.ts uses || so an empty string is treated as absent
+    it('preserves whitespace exactly so invalid deployment config is visible', () => {
+      process.env.OIDC_REQUIRED_GROUP = '  caipe-users  ';
+      expect(getServerConfig().oidcRequiredGroup).toBe('  caipe-users  ');
+    });
+
+    it('keeps OIDC_REQUIRED_GROUP disabled when the env var is an empty string', () => {
       process.env.OIDC_REQUIRED_GROUP = '';
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
   });
 });
@@ -828,10 +842,11 @@ describe('getInternalA2AUrl', () => {
   });
 
   it('getServerConfig().caipeUrl does NOT use A2A_BASE_URL', () => {
+    process.env.NODE_ENV = 'production';
     process.env.A2A_BASE_URL = 'http://docker-internal:8000';
     delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    // caipeUrl should fall back to its own default, not pick up A2A_BASE_URL
-    expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+    // caipeUrl should fall back to the browser-safe proxy, not pick up A2A_BASE_URL
+    expect(getServerConfig().caipeUrl).toBe('/api/a2a');
   });
 });
 
@@ -929,14 +944,15 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
       'npsEnabled', 'auditLogsEnabled',
+      'actionAuditEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       'autonomousAgentsEnabled',
@@ -944,6 +960,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+      'userInfoToolEnabled',
       'oidcRequiredGroup',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
@@ -1380,7 +1397,7 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
+    expect(getConfig('caipeUrl')).toBe('/api/a2a');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

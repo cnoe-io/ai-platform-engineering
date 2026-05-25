@@ -61,11 +61,28 @@ class Settings(BaseSettings):
     # Maximum allowed TTL (0 = no cap, infinite allowed)
     max_fs_ttl_seconds: int = 0
 
+    # /invoke endpoint persistence
+    # When False (default), each /invoke call uses an ephemeral in-memory runtime that is
+    # discarded after the request — no MongoDB writes, no conversation history across calls.
+    # Set to True to use the shared MongoDB-backed runtime cache, enabling multi-turn
+    # conversation history via /invoke at the cost of additional MongoDB load.
+    invoke_persist_history: bool = False
+
     # Runtime
     agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
+
+    # Seed configuration path (for MCP servers and agents loaded at startup)
+    seed_config_path: str | None = None
+
+    # When set, MCP HTTP/SSE clients use this base URL (e.g. http://agentgateway:4000/mcp/{server_id})
+    agent_gateway_url: str | None = None
+
+    # CAIPE credential service API used when USE_IMPERSONATION_TOKENS=true.
+    credential_api_url: str | None = None
+    credential_service_audience: str = "caipe-credential-service"
 
 
 @lru_cache

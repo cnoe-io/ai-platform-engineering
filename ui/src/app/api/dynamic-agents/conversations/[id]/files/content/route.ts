@@ -1,11 +1,10 @@
 /**
- * Proxy route for dynamic agent file operations.
+ * Conversation-scoped Dynamic Agents file content proxy.
  *
- * GET /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=Y
- * DELETE /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=Y
+ * GET    /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=file.txt
+ * DELETE /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=file.txt
  *
- * This proxies to the Dynamic Agents service which retrieves/deletes file content
- * from the LangGraph checkpointer state.
+ * Proxies to Dynamic Agents service: /api/v1/files/content
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -15,13 +14,15 @@ import {
   proxyRequest,
 } from "@/lib/da-proxy";
 
-/**
- * Validate common params and return backend URL, or a NextResponse error.
- */
-async function resolveBackendUrl(
+function buildFileNamespace(agentId: string, conversationId: string): string {
+  return JSON.stringify([agentId, conversationId, "filesystem"]);
+}
+
+async function proxyFileContent(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
-): Promise<{ backendUrl: string; authResult: Exclude<Awaited<ReturnType<typeof authenticateRequest>>, NextResponse> } | NextResponse> {
+  method: "GET" | "DELETE",
+): Promise<Response> {
   const { id: conversationId } = await context.params;
 
   if (!conversationId) {
@@ -33,7 +34,7 @@ async function resolveBackendUrl(
 
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
-  const path = searchParams.get("path");
+  const filePath = searchParams.get("path");
 
   if (!agentId) {
     return NextResponse.json(
@@ -42,56 +43,44 @@ async function resolveBackendUrl(
     );
   }
 
-  if (!path) {
+  if (!filePath) {
     return NextResponse.json(
       { success: false, error: "path query parameter is required" },
       { status: 400 },
     );
   }
 
-  // Authenticate
-  const authResult = await authenticateRequest(request);
+  const authResult = await authenticateRequest(request, {
+    resource: "dynamic_agent",
+    scope: "invoke",
+  });
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check DA config
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
-  // Build backend URL
-  const backendUrl = new URL(
-    `/api/v1/conversations/${conversationId}/files/content`,
-    daConfig.dynamicAgentsUrl,
-  );
-  backendUrl.searchParams.set("agent_id", agentId);
-  backendUrl.searchParams.set("path", path);
+  const backendUrl = new URL("/api/v1/files/content", daConfig.dynamicAgentsUrl);
+  backendUrl.searchParams.set("fs_namespace", buildFileNamespace(agentId, conversationId));
+  backendUrl.searchParams.set("path", filePath);
 
-  return { backendUrl: backendUrl.toString(), authResult };
+  return proxyRequest(
+    backendUrl.toString(),
+    method,
+    authResult,
+    `[conversation-files/content:${method}]`,
+  );
 }
 
-/**
- * GET /api/dynamic-agents/conversations/[id]/files/content
- * Proxy to Dynamic Agents service to get file content from checkpointer.
- */
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const resolved = await resolveBackendUrl(request, context);
-  if (resolved instanceof NextResponse) return resolved;
-
-  return proxyRequest(resolved.backendUrl, "GET", resolved.authResult, "[files/content]");
+  return proxyFileContent(request, context, "GET");
 }
 
-/**
- * DELETE /api/dynamic-agents/conversations/[id]/files/content
- * Proxy to Dynamic Agents service to delete a file from checkpointer.
- */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const resolved = await resolveBackendUrl(request, context);
-  if (resolved instanceof NextResponse) return resolved;
-
-  return proxyRequest(resolved.backendUrl, "DELETE", resolved.authResult, "[files/content]");
+  return proxyFileContent(request, context, "DELETE");
 }

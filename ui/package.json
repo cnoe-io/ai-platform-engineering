@@ -6,15 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "init-credential-indexes": "ts-node --project tsconfig.json ../scripts/init-credential-mongo-indexes.ts",
+    "test:e2e:rbac": "playwright test --config=playwright.rbac.config.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",
     "@ag-ui/client": "0.0.51",
     "@ag-ui/core": "0.0.51",
+    "@aws-sdk/client-kms": "^3.1051.0",
     "@codemirror/autocomplete": "6.20.1",
     "@codemirror/commands": "6.10.3",
     "@codemirror/lang-json": "6.0.2",
@@ -60,9 +63,10 @@
     "marked-shiki": "1.2.1",
     "mongodb": "7.1.1",
     "morphdom": "2.7.8",
-    "next": "16.2.3",
+    "next": "16.2.6",
     "next-auth": "4.24.13",
     "next-themes": "0.4.6",
+    "nunjucks": "3.2.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
@@ -82,6 +86,7 @@
     "zustand": "5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "1.59.1",
     "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
@@ -91,6 +96,7 @@
     "@types/js-yaml": "4.0.9",
     "@types/lodash": "4.17.24",
     "@types/node": "25.5.0",
+    "@types/nunjucks": "3.2.6",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@types/react-syntax-highlighter": "15.5.13",
@@ -100,12 +106,24 @@
     "eslint-config-next": "16.2.3",
     "jest": "30.3.0",
     "jest-environment-jsdom": "30.3.0",
-    "postcss": "8.5.11",
+    "jest-junit": "16.0.0",
+    "postcss": "8.5.14",
     "tailwindcss": "4.2.2",
     "ts-node": "10.9.2",
     "typescript": "6.0.2"
   },
   "overrides": {
-    "prismjs": "1.30.0"
+    "minimatch@3.1.5": {
+      "brace-expansion": "1.1.13"
+    },
+    "minimatch@9.0.9": {
+      "brace-expansion": "2.0.3"
+    },
+    "minimatch@10.2.5": {
+      "brace-expansion": "5.0.6"
+    },
+    "postcss": "8.5.14",
+    "prismjs": "1.30.0",
+    "ws": "8.20.1"
   }
 }

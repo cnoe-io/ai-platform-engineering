@@ -4,11 +4,11 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  requireAdmin,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { TaskConfig } from "@/types/task-config";
 import { parseTaskConfigYaml } from "@/types/task-config";
@@ -112,7 +112,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Task Builder requires MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async () => {
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     const loaded = loadYamlContent();
     if (!loaded) {
       return successResponse({
@@ -154,7 +156,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       total: configs.length,
       hash: contentHash,
     });
-  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -166,8 +167,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const action = searchParams.get("action");
 
   if (action === "reset") {
-    return await withAuth(request, async (_req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, "admin_ui", "admin");
 
       const loaded = loadYamlContent();
       if (!loaded) {
@@ -197,10 +198,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         removed,
         total: configs.length,
       });
-    });
   }
 
-  return await withAuth(request, async () => {
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
+
     const body = await request.json();
 
     if (!body.yaml_content && !body.configs) {
@@ -237,5 +239,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       count: inserted,
       total: configs.length,
     });
-  });
 });

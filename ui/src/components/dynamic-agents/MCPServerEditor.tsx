@@ -12,6 +12,7 @@ import type {
   MCPServerConfig,
   MCPServerConfigCreate,
   MCPServerConfigUpdate,
+  MCPCredentialSource,
   TransportType,
 } from "@/types/dynamic-agent";
 
@@ -42,12 +43,57 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [envVars, setEnvVars] = React.useState<{ key: string; value: string }[]>(
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
+  const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
+    server?.credential_sources || []
+  );
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
+
+  // AgentGateway target picker. Discovery is best-effort: when the
+  // backend isn't reachable or AgentGateway isn't configured we just
+  // hide the helper UI. Failing closed here would force the admin back
+  // to typing endpoints by hand, which is what got us into the bare
+  // `http://agentgateway:4000/mcp` (no `/<id>` suffix) → 404 mess.
+  type AgentGatewayTarget = {
+    id: string;
+    name?: string;
+    endpoint: string;
+    target_endpoint?: string;
+  };
+  const [agentGatewayTargets, setAgentGatewayTargets] = React.useState<AgentGatewayTarget[]>([]);
+  const [gatewayDiscoveryLoaded, setGatewayDiscoveryLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadDiscovery() {
+      try {
+        const res = await fetch("/api/mcp-servers/agentgateway/discover");
+        if (!res.ok) {
+          if (!cancelled) setGatewayDiscoveryLoaded(true);
+          return;
+        }
+        const payload = (await res.json()) as {
+          success?: boolean;
+          data?: { targets?: AgentGatewayTarget[] };
+        };
+        if (!cancelled && payload?.success && Array.isArray(payload.data?.targets)) {
+          setAgentGatewayTargets(payload.data.targets);
+        }
+      } catch {
+        // best-effort; the dropdown just won't appear
+      } finally {
+        if (!cancelled) setGatewayDiscoveryLoaded(true);
+      }
+    }
+    void loadDiscovery();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAddArg = () => {
     if (newArg.trim()) {
@@ -74,6 +120,27 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     setEnvVars(envVars.filter((_, i) => i !== index));
   };
 
+  const handleAddCredentialSource = () => {
+    setCredentialSources([
+      ...credentialSources,
+      { kind: "secret_ref", target: transport === "stdio" ? "env" : "header", name: "", secret_ref: "" },
+    ]);
+  };
+
+  const handleUpdateCredentialSource = (
+    index: number,
+    field: keyof MCPCredentialSource,
+    value: string,
+  ) => {
+    const updated = [...credentialSources];
+    updated[index] = { ...updated[index], [field]: value };
+    setCredentialSources(updated);
+  };
+
+  const handleRemoveCredentialSource = (index: number) => {
+    setCredentialSources(credentialSources.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -98,6 +165,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
+          credential_sources: credentialSources.length > 0 ? credentialSources : undefined,
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -121,6 +189,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
+          credential_sources: credentialSources.length > 0 ? credentialSources : undefined,
         };
 
         const response = await fetch("/api/mcp-servers", {
@@ -136,8 +205,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       }
 
       onSave();
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setLoading(false);
     }
@@ -363,6 +432,109 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   disabled={loading}
                   className="font-mono"
                 />
+                {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Or pick an AgentGateway target — this fills the endpoint with the
+                      target-qualified URL (<code className="font-mono">/mcp/&lt;target&gt;</code>) so the
+                      gateway can route this server correctly.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {agentGatewayTargets.map((target) => (
+                        <Button
+                          key={target.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={loading || readOnly}
+                          onClick={() => setEndpoint(target.endpoint)}
+                          title={
+                            target.target_endpoint
+                              ? `${target.endpoint} → ${target.target_endpoint}`
+                              : target.endpoint
+                          }
+                          className="font-mono"
+                        >
+                          {target.id}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium">Credential Sources</h3>
+                <p className="text-xs text-muted-foreground">
+                  Resolve Connections &amp; Secrets refs server-side when impersonation tokens are enabled.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleAddCredentialSource}
+                disabled={loading}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Credential
+              </Button>
+            </div>
+            {credentialSources.length > 0 && (
+              <div className="space-y-2">
+                {credentialSources.map((source, i) => (
+                  <div key={i} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_2fr_auto]">
+                    <select
+                      aria-label="Credential kind"
+                      className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={source.kind}
+                      onChange={(event) => handleUpdateCredentialSource(i, "kind", event.target.value)}
+                    >
+                      <option value="secret_ref">Secret ref</option>
+                      <option value="provider_connection">Provider connection</option>
+                    </select>
+                    <select
+                      aria-label="Credential target"
+                      className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={source.target}
+                      onChange={(event) => handleUpdateCredentialSource(i, "target", event.target.value)}
+                    >
+                      <option value="env">Environment</option>
+                      <option value="header">Header</option>
+                    </select>
+                    <Input
+                      aria-label="Credential name"
+                      placeholder={source.target === "env" ? "GITHUB_TOKEN" : "Authorization"}
+                      value={source.name}
+                      onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
+                    />
+                    <Input
+                      aria-label="Credential reference"
+                      placeholder={source.kind === "secret_ref" ? "secret_ref id" : "provider_connection id"}
+                      value={source.kind === "secret_ref" ? source.secret_ref ?? "" : source.provider_connection_id ?? ""}
+                      onChange={(event) =>
+                        handleUpdateCredentialSource(
+                          i,
+                          source.kind === "secret_ref" ? "secret_ref" : "provider_connection_id",
+                          event.target.value,
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveCredentialSource(i)}
+                      disabled={loading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

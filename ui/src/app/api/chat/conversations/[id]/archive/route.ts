@@ -7,9 +7,9 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  requireOwnership,
   validateUUID,
 } from '@/lib/api-middleware';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 // POST /api/chat/conversations/[id]/archive
@@ -17,7 +17,7 @@ export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -32,7 +32,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Toggle archive status
     const newStatus = !conversation.is_archived;

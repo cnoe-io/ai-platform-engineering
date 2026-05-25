@@ -13,25 +13,29 @@ import { apiClient } from "@/lib/api-client";
 import { config } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
+import { getAgentId } from "@/types/a2a";
 import type { Conversation as MongoConversation } from "@/types/mongodb";
 import type { UserStats } from "@/types/mongodb";
+
+type HomeConversation = {
+  id: string;
+  title: string;
+  updatedAt: Date | string;
+  totalMessages?: number;
+  agentName?: string;
+  isShared?: boolean;
+  sharedBy?: string;
+  teamName?: string;
+};
 
 export default function HomePage() {
   const { data: session, status } = useSession();
   const { conversations: localConversations, loadConversationsFromServer } = useChatStore();
 
-  const [recentChats, setRecentChats] = useState<
-    Array<{ id: string; title: string; updatedAt: Date | string; totalMessages?: number; isShared?: boolean }>
-  >([]);
-  const [sharedWithMe, setSharedWithMe] = useState<
-    Array<{ id: string; title: string; updatedAt: Date | string; totalMessages?: number; sharedBy?: string }>
-  >([]);
-  const [sharedWithTeam, setSharedWithTeam] = useState<
-    Array<{ id: string; title: string; updatedAt: Date | string; totalMessages?: number; teamName?: string }>
-  >([]);
-  const [sharedWithEveryone, setSharedWithEveryone] = useState<
-    Array<{ id: string; title: string; updatedAt: Date | string; totalMessages?: number }>
-  >([]);
+  const [recentChats, setRecentChats] = useState<HomeConversation[]>([]);
+  const [sharedWithMe, setSharedWithMe] = useState<HomeConversation[]>([]);
+  const [sharedWithTeam, setSharedWithTeam] = useState<HomeConversation[]>([]);
+  const [sharedWithEveryone, setSharedWithEveryone] = useState<HomeConversation[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loadingChats, setLoadingChats] = useState(true);
   const [loadingShared, setLoadingShared] = useState(true);
@@ -41,21 +45,27 @@ export default function HomePage() {
   const isMongoMode = storageMode === "mongodb";
   const isAuthenticated = status === "authenticated";
 
-  const mapMongoConversation = useCallback(
-    (conv: MongoConversation) => ({
+  const mapMongoConversation = useCallback((conv: MongoConversation): HomeConversation => {
+    const enriched = conv as MongoConversation & {
+      agent_id?: string;
+      agent_name?: string;
+      metadata?: MongoConversation["metadata"] & { agent_name?: string };
+    };
+    const agentId = enriched.agent_id ?? getAgentId(conv);
+
+    return {
       id: conv._id,
       title: conv.title,
       updatedAt: conv.updated_at,
       totalMessages: conv.metadata?.total_messages,
+      agentName: enriched.agent_name ?? enriched.metadata?.agent_name ?? agentId,
       isShared:
         conv.sharing?.is_public ||
         (conv.sharing?.shared_with?.length ?? 0) > 0 ||
         (conv.sharing?.shared_with_teams?.length ?? 0) > 0,
       sharedBy: conv.owner_id,
-      isPublic: conv.sharing?.is_public,
-    }),
-    []
-  );
+    };
+  }, []);
 
   // Load recent chats
   useEffect(() => {
@@ -81,6 +91,7 @@ export default function HomePage() {
               title: c.title,
               updatedAt: c.updatedAt,
               totalMessages: c.messages.length,
+              agentName: getAgentId(c),
             }))
           );
         }

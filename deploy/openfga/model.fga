@@ -1,0 +1,298 @@
+# CAIPE ReBAC model for AgentGateway + OpenFGA.
+#
+# Coarse AGW gate:
+#   user:<keycloak_sub> can_call mcp_gateway:list
+#
+# Team Resources and universal ReBAC admin surfaces reconcile:
+#   user:<keycloak_sub> member team:<slug>
+#   team:<slug>#member can_use agent:<agent_id>
+#   team:<slug>#member can_manage agent:<agent_id>
+#   team:<slug>#member can_call tool:<tool_prefix>
+#   slack_channel:<workspace_id>--<channel_id> can_call tool:<tool_prefix>
+#   webex_space:<workspace_id>--<space_id> can_call tool:<tool_prefix>
+#   team:<slug>#member can_read knowledge_base:<kb_id>
+
+model
+  schema 1.1
+
+type user
+type service_account
+type anonymous
+
+type user_profile
+  relations
+    define owner: [user]
+    define reader: [user, service_account, team#admin, organization#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define can_discover: can_read
+    define can_read: owner or reader or can_manage
+    define can_manage: manager
+
+type external_group
+  relations
+    define member: [user]
+
+type team
+  relations
+    define member: [user, external_group#member]
+    define admin: [user, external_group#member]
+    define can_read: member or admin
+    define can_use: member or admin
+    define can_manage: admin
+
+type organization
+  relations
+    define member: [user, service_account, team#member, team#admin, external_group#member]
+    define admin: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#member, team#admin, external_group#member]
+    define can_use: member or admin
+    define can_manage: admin
+    define can_audit: auditor or admin
+
+type slack_workspace
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type slack_channel
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type webex_workspace
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type webex_space
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type agent
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type mcp_server
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define invoker: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_invoke or can_manage or owner
+    define can_invoke: invoker or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type llm_model
+  relations
+    define owner: [user, service_account]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member, organization#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage or owner
+    define can_write: can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type mcp_gateway
+  relations
+    define caller: [user]
+    define can_call: caller
+
+type tool
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, agent]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage
+    define can_use: user or can_call or can_manage
+    define can_call: caller or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type knowledge_base
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define ingestor: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_ingest or can_manage or owner
+    define can_use: can_read
+    define can_write: can_ingest
+    define can_ingest: ingestor or can_manage or owner
+    define can_admin: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type document
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define sharer: [user, service_account, team#member, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_delete or owner
+    define can_write: writer or can_delete or owner
+    define can_delete: manager or owner
+    define can_share: sharer or can_delete or owner
+    define can_audit: auditor or can_delete
+
+type skill
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type task
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type conversation
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin]
+    define writer: [user, service_account, team#member, team#admin]
+    define sharer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_delete or owner
+    define can_write: writer or can_delete or owner
+    define can_share: sharer or can_delete or owner
+    define can_delete: manager or owner
+    define can_audit: auditor or can_delete
+
+type admin_surface
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define manager: [user, service_account, team#member, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type policy
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define approver: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_approve: approver or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type audit_log
+  relations
+    define reader: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_audit
+    define can_audit: auditor
+
+type secret_ref
+  relations
+    define metadata_reader: [user, service_account, team#admin]
+    define user: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read_metadata
+    define can_read_metadata: metadata_reader or can_manage
+    define can_use: user or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type system_config
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage

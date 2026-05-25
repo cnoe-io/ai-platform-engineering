@@ -9,7 +9,11 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
+jest.mock('@/lib/auth-config', () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
+}));
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
@@ -292,7 +296,7 @@ describe('requireConversationAccess — admin audit', () => {
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it('throws 403 when non-admin user even with session (role=user, canViewAdmin=false)', async () => {
+  it('throws 403 when non-admin user with session (role=user)', async () => {
     const conv = {
       _id: CONV_ID,
       owner_id: 'owner@example.com',
@@ -309,7 +313,6 @@ describe('requireConversationAccess — admin audit', () => {
 
     const err = requireConversationAccess(CONV_ID, 'other@example.com', mockGetCollection, {
       role: 'user',
-      canViewAdmin: false,
     });
     await expect(err).rejects.toThrow(ApiError);
     await expect(err).rejects.toMatchObject({ statusCode: 403 });
@@ -415,7 +418,6 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
-      canViewAdmin: true,
     });
 
     const convsCol = createMockCollection();
@@ -474,6 +476,6 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.success).toBe(false);
-    expect(body.error).toContain('Forbidden');
+    expect(body.error).toContain('You do not have access to this conversation.');
   });
 });

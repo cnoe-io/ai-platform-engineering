@@ -1,34 +1,67 @@
 ---
-name: "[Lint] Super Linter"
+name: "[Lint] Secret Scan"
+
+# assisted-by Codex Codex-sonnet-4-6
 
 on:
   push:
-    # Run superlinter on pushes to default branch
     branches:
       - main
-  # Run superlinter on pull request events
   pull_request:
 
 # Declare default permissions as read-only
 permissions: read-all
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  linter:
+  gitleaks:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
-      statuses: write
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-      - name: 🧹 run superlinter
-        uses: super-linter/super-linter@9e863354e3ff62e0727d37183162c4a88873df41  # v8.6.0
+      - name: Install gitleaks
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_GITLEAKS: true
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" -o "${archive}"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: 🔍 scan for secrets
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="HEAD"
+          else
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          fi
+
+          zero_sha="0000000000000000000000000000000000000000"
+          if [[ -n "${base_sha}" && "${base_sha}" != "${zero_sha}" ]] && git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+            log_opts="${base_sha}..${head_sha}"
+          elif git rev-parse "${head_sha}^" >/dev/null 2>&1; then
+            log_opts="${head_sha}^..${head_sha}"
+          else
+            log_opts="${head_sha}"
+          fi
+
+          echo "Scanning git range: ${log_opts}"
+          gitleaks git --log-opts="${log_opts}" --redact --no-banner --verbose .

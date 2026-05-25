@@ -32,20 +32,9 @@ def mock_mcp_client():
 
 
 @pytest.fixture
-def mock_strands_agent():
-    """Create a mock Strands agent."""
-    agent = Mock()
-    agent.stream_async = Mock(return_value=[
-        {"data": "Hello "},
-        {"data": "world!"}
-    ])
-    agent.__call__ = Mock(return_value="Hello world!")
-    return agent
-
-
-@pytest.fixture
 def mock_agent_config():
     """Create a mock agent configuration."""
+    # assisted-by Codex Codex-sonnet-4-6
     config = Mock()
     config.log_level = "INFO"
     config.model_provider = "openai"
@@ -88,4 +77,3 @@ def sample_tools():
     tool3.tool_name = "delete_cluster"
 
     return [tool1, tool2, tool3]
-

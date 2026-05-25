@@ -107,10 +107,11 @@ caipe-ui:
     # Environment badge (e.g. "Dev", "Preview", "Staging", "Prod"; empty = hidden)
     NEXT_PUBLIC_ENV_BADGE: ""
 
-    # OIDC configuration (non-sensitive)
-    OIDC_REQUIRED_GROUP: "app-users"
-    OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-    OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+    # OIDC configuration (non-sensitive). Set OIDC_REQUIRED_GROUP to your deployment's
+    # basic access group; admin access is granted through Identity Group Sync + OpenFGA.
+    OIDC_REQUIRED_GROUP: ""
+    OIDC_REQUIRED_ADMIN_GROUP: ""
+    # BOOTSTRAP_ADMIN_EMAILS: "admin@example.com"
     OIDC_ENABLE_REFRESH_TOKEN: "true"
 
     # Support email

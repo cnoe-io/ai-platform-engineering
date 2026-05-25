@@ -12,10 +12,30 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
+import { Trash2, Loader2, AlertCircle, Bot, Globe, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
-import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";
+import { AgentAvatar } from "./AgentAvatar";
+import type {
+  SubAgentRef,
+  AvailableSubagent,
+  CustomThemeConfig,
+  VisibilityType,
+  LegacyVisibilityType,
+} from "@/types/dynamic-agent";
+
+// Loose shape for items returned by /api/dynamic-agents (the BFF list endpoint).
+// We accept LegacyVisibilityType so docs that still carry visibility:"private"
+// (until the migration script rewrites them) can be normalized on read.
+interface RawAgentListItem {
+  _id: string;
+  name: string;
+  description?: string;
+  visibility?: LegacyVisibilityType;
+  ui?: {
+    gradient_theme?: string;
+    custom_theme_config?: CustomThemeConfig;
+  };
+}
 
 interface SubagentPickerProps {
   agentId: string | null; // null when creating new agent
@@ -27,15 +47,18 @@ interface SubagentPickerProps {
 
 /**
  * Get visibility compatibility status for a subagent.
- * 
- * Rules:
- * - Private agent → can use private, team, or global subagents
+ *
+ * Rules (post `private` retirement, 2026-05-22):
  * - Team agent → can use team or global subagents
  * - Global agent → can only use global subagents
+ *
+ * Accepts LegacyVisibilityType for the subagent so docs that still carry
+ * `visibility: "private"` (until the migration runs) are handled gracefully
+ * rather than being treated as compatible.
  */
 function getSubagentCompatibility(
   parentVisibility: VisibilityType,
-  subagentVisibility: VisibilityType
+  subagentVisibility: LegacyVisibilityType
 ): { compatible: boolean; reason?: string } {
   // Global parent can only use global subagents
   if (parentVisibility === "global" && subagentVisibility !== "global") {
@@ -46,19 +69,21 @@ function getSubagentCompatibility(
   }
 
   // Team parent can use team or global subagents
-  if (parentVisibility === "team" && subagentVisibility === "private") {
+  if (
+    parentVisibility === "team" &&
+    subagentVisibility !== "team" &&
+    subagentVisibility !== "global"
+  ) {
     return {
       compatible: false,
       reason: "Team agents can only use team or global subagents",
     };
   }
 
-  // Private parent can use any visibility
   return { compatible: true };
 }
 
 const VISIBILITY_ICONS: Record<VisibilityType, React.ReactNode> = {
-  private: <Lock className="h-3 w-3" />,
   team: <Users className="h-3 w-3" />,
   global: <Globe className="h-3 w-3" />,
 };
@@ -88,11 +113,13 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
       const data = await response.json();
       if (data.success && data.data?.items) {
         setAvailableAgents(
-          data.data.items.map((agent: any) => ({
+          data.data.items.map((agent: RawAgentListItem) => ({
             id: agent._id,
             name: agent.name,
             description: agent.description,
-            visibility: agent.visibility || "private",
+            // Coerce any legacy 'private' read from the DB to 'team' so the
+            // picker can still render. Missing visibility defaults to 'team'.
+            visibility: agent.visibility === "global" ? "global" : "team",
             gradient_theme: agent.ui?.gradient_theme,
             custom_theme_config: agent.ui?.custom_theme_config,
           }))
@@ -155,11 +182,18 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
   };
 
   // Get agent info by ID for display
-  const getAgentInfo = (agentId: string): { name: string; visibility: VisibilityType; gradient_theme?: string; custom_theme_config?: any } => {
+  const getAgentInfo = (
+    agentId: string,
+  ): {
+    name: string;
+    visibility: VisibilityType;
+    gradient_theme?: string;
+    custom_theme_config?: CustomThemeConfig;
+  } => {
     const agent = availableAgents.find((a) => a.id === agentId);
     return {
       name: agent?.name || agentId,
-      visibility: agent?.visibility || "private",
+      visibility: agent?.visibility || "team",
       gradient_theme: agent?.gradient_theme,
       custom_theme_config: agent?.custom_theme_config,
     };
@@ -223,12 +257,12 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <div className="flex-shrink-0 mt-1">
-                      <div
-                        className="h-7 w-7 rounded-md flex items-center justify-center"
-                        style={getGradientStyle(agentInfo.gradient_theme, agentInfo.custom_theme_config)}
-                      >
-                        <Bot className="h-4 w-4" style={{ color: getAccentColor(agentInfo.gradient_theme, agentInfo.custom_theme_config) || "white" }} />
-                      </div>
+                      <AgentAvatar
+                        agent={agentInfo}
+                        rounded="rounded-md"
+                        size="h-7 w-7"
+                        iconSize="h-4 w-4"
+                      />
                     </div>
                     <div className="flex-grow space-y-3">
                       <div className="flex items-center justify-between">
@@ -345,12 +379,12 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                             : "opacity-50 cursor-not-allowed"
                         )}
                       >
-                        <div
-                          className="h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0"
-                          style={getGradientStyle(agent.gradient_theme, agent.custom_theme_config)}
-                        >
-                          <Bot className="h-3.5 w-3.5" style={{ color: getAccentColor(agent.gradient_theme, agent.custom_theme_config) || "white" }} />
-                        </div>
+                        <AgentAvatar
+                          agent={agent}
+                          rounded="rounded-md"
+                          size="h-6 w-6"
+                          iconSize="h-3.5 w-3.5"
+                        />
                         <div className="flex-grow min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-medium text-sm truncate">{agent.name}</span>

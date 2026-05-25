@@ -11,8 +11,7 @@ Command-line tools (available to all agents):
   from ai_platform_engineering.utils.agent_tools import git, curl, wget, grep, glob_find, fetch_url
 
 Base classes:
-  from ai_platform_engineering.utils.a2a_common.base_agent import BaseLangGraphAgent
-  from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent
+  from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
 """
 
 # Re-export agent_tools for convenience

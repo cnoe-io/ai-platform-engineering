@@ -73,7 +73,7 @@ jobs:
           echo "Registry path: $REGISTRY_PATH"
 
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
         with:
           egress-policy: audit
 
@@ -127,10 +127,103 @@ jobs:
         with:
           version: v3.14.0
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ steps.app-token.outputs.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Write local chart version normalizer
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          cat > /tmp/normalize-local-chart-tree-versions.py <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          chart_version = sys.argv[2]
+          app_version = sys.argv[3]
+
+
+          def replace_scalar(line: str, key: str, value: str) -> str:
+              match = re.match(rf"^(\s*{re.escape(key)}:\s*)(.*?)(\s*#.*)?$", line)
+              if not match:
+                  return line
+              return f"{match.group(1)}{value}{match.group(3) or ''}"
+
+
+          def repository_value(line: str) -> str:
+              value = line.split(":", 1)[1].strip()
+              return value.strip("\"'")
+
+
+          def update_chart(path: Path) -> None:
+              original = path.read_text()
+              lines = original.splitlines()
+
+              for index, line in enumerate(lines):
+                  if line.startswith("version:"):
+                      lines[index] = replace_scalar(line, "version", chart_version)
+                      break
+
+              for index, line in enumerate(lines):
+                  if line.startswith("appVersion:"):
+                      lines[index] = replace_scalar(line, "appVersion", app_version)
+                      break
+
+              try:
+                  deps_index = next(index for index, line in enumerate(lines) if line == "dependencies:")
+              except StopIteration:
+                  path.write_text("\n".join(lines) + ("\n" if original.endswith("\n") else ""))
+                  return
+
+              index = deps_index + 1
+              while index < len(lines):
+                  if lines[index] and not lines[index].startswith((" ", "\t", "-")):
+                      break
+                  if not re.match(r"^\s*-\s+name:\s*", lines[index]):
+                      index += 1
+                      continue
+
+                  start = index
+                  index += 1
+                  while index < len(lines):
+                      if re.match(r"^\s*-\s+name:\s*", lines[index]):
+                          break
+                      if lines[index] and not lines[index].startswith((" ", "\t")):
+                          break
+                      index += 1
+
+                  block = lines[start:index]
+                  repository = next(
+                      (repository_value(line) for line in block if re.match(r"^\s*repository:\s*", line)),
+                      "",
+                  )
+                  is_local_dependency = repository == "" or repository.startswith("file://")
+                  if not is_local_dependency:
+                      continue
+
+                  for dep_index in range(start, index):
+                      if re.match(r"^\s*version:\s*", lines[dep_index]):
+                          lines[dep_index] = replace_scalar(lines[dep_index], "version", chart_version)
+                          break
+
+              path.write_text("\n".join(lines) + ("\n" if original.endswith("\n") else ""))
+
+
+          for chart in sorted(root.rglob("Chart.yaml")):
+              update_chart(chart)
+              print(f"normalized {chart}")
+          PY
 
       - name: Package rag-stack chart
         if: steps.detect.outputs.rag-stack-changed == 'true'
@@ -151,6 +244,8 @@ jobs:
             echo "rag-stack appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
             exit 1
           fi
+
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/rag-stack" "$TAG_VERSION" "$APP_VERSION"
 
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
@@ -175,6 +270,9 @@ jobs:
             echo "ai-platform-engineering appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
             exit 1
           fi
+
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/rag-stack" "$TAG_VERSION" "$APP_VERSION"
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/ai-platform-engineering" "$TAG_VERSION" "$APP_VERSION"
 
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
@@ -253,9 +351,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Notify release finalize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.publish-release-helm.outputs.tag_version }}
         run: |
           RESULT="${{ needs.publish-release-helm.result }}"
@@ -267,7 +374,7 @@ jobs:
 
           echo "Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {

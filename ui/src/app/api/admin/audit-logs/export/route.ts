@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
@@ -41,10 +41,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'audit.view');
 
-    const url = new URL(req.url);
+    const url = new URL(request.url);
     const ownerEmail = url.searchParams.get('owner_email')?.trim();
     const search = url.searchParams.get('search')?.trim();
     const dateFrom = url.searchParams.get('date_from');
@@ -173,5 +173,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         'Cache-Control': 'no-store',
       },
     });
-  });
 });

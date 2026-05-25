@@ -19,6 +19,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# assisted-by Codex Codex-sonnet-4-6
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
 
@@ -78,13 +79,13 @@ def run_scan_all_on_directory(target_dir: Path) -> dict[str, Any]:
             "duration_sec": time.time() - t0,
             "max_severity": "high",
         }
-    except Exception as e:
-        logger.warning("skill-scanner execution failed: %s", e)
+    except Exception as exc:
+        logger.warning("skill-scanner execution failed: %s", type(exc).__name__)
         return {
             "skipped": False,
             "exit_code": -2,
             "stdout": "",
-            "stderr": str(e)[:2000],
+            "stderr": "skill-scanner execution failed",
             "duration_sec": time.time() - t0,
             "max_severity": None,
         }
@@ -117,15 +118,9 @@ def severity_meets_threshold(max_severity: str | None, threshold: str) -> bool:
 
 
 def write_single_skill_to_temp_tree(name: str, content: str) -> Path:
-    """Materialize one skill body as ``<tmp>/<name>/SKILL.md`` for scanning."""
-    import os
-    import re
-
+    """Materialize one skill body under a fixed temp path for scanning."""
     root = Path(tempfile.mkdtemp(prefix="config-scan-")).resolve()
-    safe = re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-") or "skill"
-    # os.path.basename strips any residual path separators (CodeQL path sanitizer)
-    safe = os.path.basename(safe) or "skill"
-    d = root / safe
+    d = root / "skill"
     d.mkdir(parents=True, exist_ok=True)
     (d / "SKILL.md").write_text(content, encoding="utf-8")
     return root

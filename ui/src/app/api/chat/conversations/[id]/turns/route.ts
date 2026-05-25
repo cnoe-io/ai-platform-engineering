@@ -26,6 +26,7 @@ import {
   validateRequired,
   getPaginationParams,
 } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Turn, UpsertTurnRequest, Conversation } from "@/types/mongodb";
 
 // ─── GET /api/chat/conversations/[id]/turns ──────────────────────────────────
@@ -49,6 +50,11 @@ export const GET = withErrorHandler(
         getCollection,
         session,
       );
+      await requireResourcePermission(session, {
+        type: "conversation",
+        id: conversationId,
+        action: "read",
+      });
 
       const { searchParams } = new URL(request.url);
       const clientType = searchParams.get("client_type") || "ui";
@@ -95,6 +101,11 @@ export const POST = withErrorHandler(
         getCollection,
         session,
       );
+      await requireResourcePermission(session, {
+        type: "conversation",
+        id: conversationId,
+        action: "write",
+      });
 
       if (access_level === "admin_audit" || access_level === "shared_readonly") {
         throw new ApiError(

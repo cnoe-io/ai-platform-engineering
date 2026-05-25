@@ -8,17 +8,46 @@ on:
       - 'ai_platform_engineering/agents/**'
       - '.github/**'
       - 'build/agents/Dockerfile.mcp'
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to publish prebuild for'
+        required: true
+        type: number
+      head_ref:
+        description: 'PR head branch ref'
+        required: true
+        type: string
+      head_sha:
+        description: 'PR head commit SHA'
+        required: true
+        type: string
+      base_ref:
+        description: 'PR base branch ref'
+        required: true
+        type: string
+      base_sha:
+        description: 'PR base commit SHA'
+        required: false
+        type: string
+        default: ''
 permissions:
   contents: write
   packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   load-config:
     runs-on: ubuntu-latest
     if: |
-      github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
-      github.event.action != 'closed'
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
+      (
+        startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+        github.event.action != 'closed'
+      )
     outputs:
       all_agents: ${{ steps.read-config.outputs.all_agents }}
       mcp_build_args: ${{ steps.read-config.outputs.mcp_build_args }}
@@ -26,6 +55,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.head_sha || github.ref }}
           sparse-checkout: .github/agents.json
           sparse-checkout-cone-mode: false
 
@@ -41,8 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: load-config
     if: |
-      github.event_name == 'pull_request' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       github.event.action != 'closed'
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
@@ -54,6 +83,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Generate path filters
@@ -75,6 +105,8 @@ jobs:
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         with:
+          base: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          ref: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
           filters: ${{ steps.generate-filters.outputs.filters }}
 
       - name: Set matrix based on changes (MCP)
@@ -102,10 +134,10 @@ jobs:
     needs: determine-agents
     if: |
       needs.determine-agents.outputs.should_build == 'true' &&
-      startsWith(github.head_ref, 'prebuild/') &&
+      startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       github.event.action != 'closed'
     permissions:
-      contents: read
+      contents: write
       packages: write
       pull-requests: write
 
@@ -121,13 +153,23 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_MCP_APP_ID }}
+          private-key: ${{ secrets.CI_MCP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -137,19 +179,43 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ steps.app-token.outputs.token }}
 
       - name: Compute prebuild tag
         id: compute_tag
         shell: bash
         run: |
-          BRANCH="${{ github.head_ref || github.ref_name }}"
+          BRANCH="${{ inputs.head_ref || github.head_ref }}"
+          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
+          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_COMMIT="$BASE_SHA"
+          else
+            BASE_COMMIT="origin/${BASE_REF}"
+          fi
+          COMMIT_COUNT=$(git rev-list --count "${BASE_COMMIT}..HEAD")
+          PREBUILD_TAG="${BRANCH_SANITIZED}-${COMMIT_COUNT}"
           echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
-          echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
+          echo "PREBUILD_TAG=${PREBUILD_TAG}" >> $GITHUB_ENV
+          echo "prebuild_tag=${PREBUILD_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Upload building prebuild status
+        uses: ./.github/actions/prebuild-status
+        with:
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
+          source: mcp-agent
+          type: docker
+          name: mcp-${{ matrix.agent }}
+          repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
+          ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
+          status: building
+          artifact_suffix: start
 
       - name: Extract metadata for Docker
         id: meta
@@ -184,6 +250,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and Push MCP Docker image
+        id: build
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
@@ -198,35 +265,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: 💬 Comment on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          AGENT: ${{ matrix.agent }}
-          IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
-          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
+      - name: Upload final prebuild status
+        if: ${{ always() && steps.compute_tag.outputs.prebuild_tag != '' }}
+        uses: ./.github/actions/prebuild-status
         with:
-          script: |
-            const body = `## 🐳 Prebuild Docker Image Published
-
-            **Agent:** \`${process.env.AGENT}\`
-            **Repository:** \`${process.env.IMAGE_REPO}\`
-            **Tag:** \`${process.env.PREBUILD_TAG}\`
-
-            ### Usage
-            \`\`\`bash
-            docker pull ${process.env.IMAGE_REF}
-            \`\`\`
-
-            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
+          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
+          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          head_ref: ${{ inputs.head_ref || github.head_ref }}
+          source: mcp-agent
+          type: docker
+          name: mcp-${{ matrix.agent }}
+          repository: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
+          ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
+          status: ${{ steps.build.outcome == 'success' && 'published' || 'failed' }}
+          artifact_suffix: final
 
   load-config-cleanup:
     runs-on: ubuntu-latest
