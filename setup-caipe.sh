@@ -459,22 +459,6 @@ _install_kind_macos() {
   fi
 }
 
-_install_ollama_linux() {
-  log "Installing Ollama..."
-  curl -fsSL https://ollama.ai/install.sh | sh
-  log "Ollama installed"
-}
-
-_install_ollama_macos() {
-  log "Installing Ollama..."
-  if command -v brew &>/dev/null; then
-    brew install ollama
-  else
-    log "Please install Ollama manually: https://ollama.ai/download"
-    log "Or install Homebrew and run: brew install ollama"
-  fi
-  log "Ollama installed"
-}
 
 _install_docker_linux() {
   log "Installing Docker..."
@@ -1081,10 +1065,16 @@ collect_credentials() {
     # ── Collect credentials per provider — return 1 loops back to provider menu
     local _cred_status=0
     case "$LLM_PROVIDER" in
-      anthropic-claude) _collect_anthropic_credentials  || _cred_status=$? ;;
-      aws-bedrock)      _collect_bedrock_credentials    || _cred_status=$? ;;
+      anthropic-claude) _collect_anthropic_credentials    || _cred_status=$? ;;
+      aws-bedrock)      _collect_bedrock_credentials      || _cred_status=$? ;;
       azure-openai)     _collect_azure_openai_credentials || _cred_status=$? ;;
-      *)                _collect_openai_credentials     || _cred_status=$? ;;
+      *)
+        # Ollama and vLLM set their own endpoint and credentials before reaching
+        # here — prompting again would be redundant and misleading.
+        if ! $ENABLE_OLLAMA && ! $ENABLE_VLLM; then
+          _collect_openai_credentials || _cred_status=$?
+        fi
+        ;;
     esac
 
     [[ $_cred_status -eq 0 ]] && break
@@ -1485,18 +1475,6 @@ _collect_vllm_credentials() {
 }
 
 _collect_ollama_config() {
-  if ! command -v ollama &>/dev/null; then
-    step "Installing Ollama"
-    if [[ "$(uname -s)" == "Linux" ]]; then
-      _install_ollama_linux
-    elif [[ "$(uname -s)" == "Darwin" ]]; then
-      _install_ollama_macos
-    else
-      err "Unsupported OS for automatic Ollama installation"
-      exit 1
-    fi
-  fi
-
   if ! $NON_INTERACTIVE; then
     echo ""
     echo -e "  ${DIM}Available Ollama models: llama2, mistral, neural-chat, dolphin-mixtral, vicuna${NC}"
@@ -1505,44 +1483,16 @@ _collect_ollama_config() {
     OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
   fi
 
-  step "Starting Ollama service"
-  # Start ollama in background if not already running
-  if ! curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Starting Ollama service..."
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-      # macOS: start via launchctl if installed via brew
-      launchctl start com.ollama.ollama 2>/dev/null || {
-        log "Starting ollama serve in background..."
-        nohup ollama serve &>/dev/null &
-      }
-    else
-      # Linux: start ollama serve
-      log "Starting ollama serve in background..."
-      nohup ollama serve &>/dev/null &
-    fi
-    sleep 2
-  fi
-
-  log "Pulling Ollama model: ${OLLAMA_MODEL}"
-  ollama pull "$OLLAMA_MODEL" || warn "Failed to pull model — you may need to run 'ollama pull ${OLLAMA_MODEL}' manually"
-
-  # Verify Ollama is responding
-  if curl -s "http://localhost:${OLLAMA_PORT}/api/tags" &>/dev/null; then
-    log "Ollama service is running"
-  else
-    warn "Ollama service may not be running. Verify with: curl http://localhost:${OLLAMA_PORT}/api/tags"
-  fi
-
-  # Ollama exposes an OpenAI-compatible API under /v1.
+  # Ollama runs in-cluster in the same namespace; agents reach it via the Service name.
   # The OpenAI SDK appends /chat/completions to the base URL, so the base URL
   # must include the /v1 prefix or requests will 404.
-  OPENAI_ENDPOINT="http://localhost:${OLLAMA_PORT}/v1"
+  OPENAI_ENDPOINT="http://ollama:${OLLAMA_PORT}/v1"
   OPENAI_API_KEY="ollama"
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
   EMBEDDINGS_PROVIDER="ollama"
 
-  log "Provider: openai (via Ollama local)  Model: ${OLLAMA_MODEL}  Port: ${OLLAMA_PORT}"
+  log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}"
 }
 
 _collect_openai_embeddings_key() {
@@ -2513,15 +2463,12 @@ choose_features() {
           # purely for embeddings.
           if ! $ENABLE_OLLAMA; then
             warn "Ollama embeddings selected, but no Ollama LLM was configured."
-            warn "  The RAG server will reach OLLAMA_BASE_URL=http://localhost:${OLLAMA_PORT}."
-            warn "  You must run an Ollama server reachable from inside the cluster."
+            warn "  You must deploy an Ollama server reachable from inside the cluster."
           else
-            # Pull the embedding model. This is typically a different model from
-            # the LLM model (e.g. nomic-embed-text vs llama2), so it must be
-            # pulled separately even though _collect_ollama_config already pulled
-            # the LLM model.
-            log "Pulling Ollama embedding model: ${EMBEDDINGS_MODEL}"
-            ollama pull "${EMBEDDINGS_MODEL}" || warn "Failed to pull embedding model — run 'ollama pull ${EMBEDDINGS_MODEL}' manually"
+            # The in-cluster Ollama init container pulls EMBEDDINGS_MODEL at pod
+            # startup when it differs from OPENAI_MODEL_NAME (via the optional
+            # secretKeyRef in deploy/kind/ollama.yaml). No host-side pull needed.
+            log "Embedding model '${EMBEDDINGS_MODEL}' will be pulled by the Ollama init container."
           fi
           ;;
         custom-litellm)
@@ -3401,10 +3348,18 @@ create_namespace_and_secrets() {
   # reach Ollama. Wire it explicitly into llm-secret, defaulting to the
   # in-cluster Ollama Service (deploy/kind/ollama.yaml); override with the
   # OLLAMA_BASE_URL env var for an external/host Ollama.
+  # EMBEDDINGS_MODEL is also written so the Ollama init container (which reads
+  # it via an optional secretKeyRef) can pull the embedding model on first run.
   if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "ollama" ]]; then
-    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama.caipe.svc.cluster.local:11434}"
+    if [[ -z "${EMBEDDINGS_MODEL:-}" ]]; then
+      err "EMBEDDINGS_MODEL is required when using Ollama embeddings — re-run and select an embedding model"
+      exit 1
+    fi
+    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama:${OLLAMA_PORT}}"
     secret_args+=(--from-literal=OLLAMA_BASE_URL="${_ollama_base}")
+    secret_args+=(--from-literal=EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL}")
     log "Added OLLAMA_BASE_URL=${_ollama_base} to llm-secret (Ollama embeddings)"
+    log "Added EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL} to llm-secret (Ollama init container pull)"
   fi
 
   kubectl create secret generic llm-secret -n caipe \
@@ -7348,6 +7303,14 @@ cmd_cleanup() {
     fi
   fi
 
+  # Ollama (deployed via kubectl, not Helm)
+  if kubectl get deployment ollama -n caipe &>/dev/null; then
+    if ask_yn "Delete Ollama resources?" "y"; then
+      kubectl delete -f "${SCRIPT_DIR}/deploy/kind/ollama.yaml" 2>/dev/null || true
+      log "Ollama deleted"
+    fi
+  fi
+
   # AgentGateway
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     if ask_yn "Uninstall AgentGateway?" "y"; then
@@ -7479,6 +7442,9 @@ detect_deployed_features() {
   fi
   if helm status vllm -n caipe &>/dev/null; then
     ENABLE_VLLM=true
+  fi
+  if kubectl get deployment ollama -n caipe &>/dev/null 2>&1; then
+    ENABLE_OLLAMA=true
   fi
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
@@ -7896,6 +7862,31 @@ BANNER
     deploy_litellm
   elif $LLM_VIA_LITELLM; then
     deploy_litellm
+  fi
+
+  if $ENABLE_OLLAMA; then
+    # The caipe namespace is already created by create_namespace_and_secrets,
+    # and llm-secret (referenced by the Ollama pod) is provisioned there too.
+    # Ollama must be fully ready before deploy_caipe so agents never start
+    # against a missing LLM endpoint. The init container pulls the model
+    # (potentially several GB), so allow up to 10 minutes on first run.
+    step "Deploying in-cluster Ollama"
+    kubectl apply -f "${SCRIPT_DIR}/deploy/kind/ollama.yaml" 2>&1 \
+      | grep -v "^$" | while IFS= read -r line; do log "$line"; done
+    log "Waiting for Ollama to be ready (model pull may take several minutes on first run)..."
+    kubectl rollout status deployment/ollama -n caipe --timeout=10m 2>&1 \
+      | while IFS= read -r line; do log "$line"; done
+
+    # On re-runs that add RAG with Ollama embeddings, the Deployment spec is
+    # unchanged so no new pod is created and the init container never re-runs.
+    # Pull the embedding model directly on the running pod instead (idempotent —
+    # Ollama skips models that are already cached).
+    if $ENABLE_RAG && [[ "${EMBEDDINGS_PROVIDER:-}" == "ollama" && -n "${EMBEDDINGS_MODEL:-}" ]]; then
+      log "Pulling Ollama embedding model '${EMBEDDINGS_MODEL}' on running pod (skips if already cached)..."
+      kubectl exec deploy/ollama -n caipe -- ollama pull "${EMBEDDINGS_MODEL}" 2>&1 \
+        | while IFS= read -r line; do log "$line"; done \
+        || warn "Ollama embedding model pull failed — RAG may not work until '${EMBEDDINGS_MODEL}' is available"
+    fi
   fi
 
   # MetalLB and nginx-ingress must be ready before CAIPE Helm deploy
