@@ -143,7 +143,7 @@
 - [x] T141 [P2] Write pytest for `handle_use_command` — `use AgentX` allowed → override set; `use AgentX` denied (known agent) → friendly refusal, no override change; `use github-agent` denied (unknown) → "did you mean github?" hint; `use default` → clears thread override + clears saved preference + ephemeral confirmation; `use` with no arg → usage hint; rate limit 5/30s enforced; PDP unavailable → fail-closed copy.
 - [x] T142 [P2] Write pytest for `handle_help_command` — returns help text constant; rate-limited; copy lives next to its single call site (FR-037).
 - [x] T143 [P2] Implement `ai_platform_engineering/integrations/slack_bot/utils/slash_commands.py`. Pure handlers; the Bolt registration of `/caipe-list`, `/caipe-use`, `/caipe-help` is left for the wire-up follow-up (T144). `use default` clears override + saved preference; `use <agent>` re-checks the PDP every time.
-- [ ] T144 [P2] Update Slack app manifest docs at `docs/integrations/slack-manifest.md` (NEW file) with required commands and scopes. Add release-note pointer.
+- [x] T144 [P2] Update Slack app manifest docs at `docs/integrations/slack-manifest.md` (NEW file) with required commands and scopes. Add release-note pointer.
 - [x] T145 [P2] Wire slash command rate limiter (`5/30s` per user). Added `slack_bot/utils/command_rate_limiter.py` (sliding-window LRU; no existing rate limiter found in repo).
 
 ### 2.6 — Webex text commands
@@ -151,7 +151,7 @@
 - [x] T150 [P2] Write pytest for `webex_bot/utils/text_commands.py::parse_command_text` — first token `list` → list; `use AgentX` → use; `use default` → use+default; `help` → help; `@caipe list` (post-mention) → list; arbitrary chat → None; non-string → None.
 - [x] T151 [P2] Write pytest for `handle_list_command` / `handle_use_command` / `handle_help_command` — same handler behavior as Slack tests in §2.5 but for Webex copy and `(person_id, room_id)` OverrideKey.
 - [x] T152 [P2] Implement `ai_platform_engineering/integrations/webex_bot/utils/text_commands.py`. Strict prefix match after leading-mention strip; `default` token handling identical to Slack.
-- [ ] T153 [P2] Hook command dispatcher into existing Webex message handler at the entry point in `webex_bot/app.py`. Commands intercept BEFORE the chat dispatch path. *Wire-up follow-up.*
+- [x] T153 [P2] Hook command dispatcher into existing Webex message handler at the entry point in `webex_bot/app.py`. Commands intercept BEFORE the chat dispatch path. *Wire-up follow-up.*
 
 ### 2.7 — Web UI gate broadening
 
@@ -165,9 +165,9 @@
 
 ### 2.9 — End-to-end Phase 2 verification
 
-- [ ] T180 [P2] Write `tests/rbac/end_to_end/test_slack_dm.sh` — full DM chain. Sets up: team-platform with channel mapping, agent grant via team-platform; user is team-platform member. Sends DM, expects deployment default; saves preference via API; DMs again, expects preferred agent; runs `/caipe-use AgentX`; sends DM, expects X; runs `/caipe-use default`; sends DM, expects deployment default + asserts Mongo preference is null.
-- [ ] T181 [P2] [P] Write `tests/rbac/end_to_end/test_webex_1to1.sh` — Webex equivalent.
-- [ ] T182 [P2] [P] Write `tests/rbac/end_to_end/test_webui_team_grant.sh` — user with team-only grant successfully sends chat to a team-granted agent via Web UI.
+- [x] T180 [P2] Write `tests/rbac/end_to_end/test_slack_dm.sh` — full DM chain. Sets up: team-platform with channel mapping, agent grant via team-platform; user is team-platform member. Sends DM, expects deployment default; saves preference via API; DMs again, expects preferred agent; runs `/caipe-use AgentX`; sends DM, expects X; runs `/caipe-use default`; sends DM, expects deployment default + asserts Mongo preference is null.
+- [x] T181 [P2] [P] Write `tests/rbac/end_to_end/test_webex_1to1.sh` — Webex equivalent.
+- [x] T182 [P2] [P] Write `tests/rbac/end_to_end/test_webui_team_grant.sh` — user with team-only grant successfully sends chat to a team-granted agent via Web UI.
 - [ ] T183 [P2] Manual smoke: deploy Phase 2 to dev stack. Exercise all three end-to-end scripts plus a Slack channel message (regression). Observe one full integration test run; no `active_team` rejections in logs.
 
 **Checkpoint Phase 2**: All Phase 2 tasks complete. CI green. Manual smoke passes. **DM personalization is live. Bots no longer request `team-*` scopes.** Ready to commit Phase 2.

@@ -327,6 +327,50 @@ decision into the same `audit_events` collection with `source=openfga_authz_brid
 so gateway-level OpenFGA allow/deny/error decisions appear without a trace
 backend. MongoDB is the durable audit record and the Admin UI reads it directly.
 
+### Personal DM Experience — Phase 2 (spec 2026-05-24)
+
+Slack DMs and Webex 1:1 spaces dispatch through a personal chain instead
+of the legacy `active_team` JWT claim. The BFF owns three new routes,
+the Web UI broadens its agent-use check to honor team-union grants, and
+both bots intercept text/slash commands before route resolution.
+
+| Surface | Endpoint | Purpose |
+|---------|----------|---------|
+| Bot → BFF | `POST /api/user/check_agent_access` | Pure PDP probe for the DM dispatch chain. Wraps `evaluateAgentAccess(subject, agent_id)` (direct grant → team-union fallback) and returns `{allowed, reason, path, matched_team_slug}`. No team scope needed on the token. |
+| Bot → BFF | `GET /api/user/accessible-agents` | Pagination-friendly list of agents the calling user can `can_use`. Drives `/caipe-list` (Slack) and `list` (Webex). |
+| Bot → BFF | `GET/PUT /api/user/preferences` | Per-user saved `dm_default_agent_id`. `PUT {"dm_default_agent_id": null}` clears the preference (FR-029a, invoked by `/caipe-use default`). |
+| Web UI | `requireAgentUsePermission` | New `ALLOW_TEAM_UNION` audit reason code. When direct user→agent grants miss, the helper probes the caller's team slugs (`listUserTeamSlugs`) and accepts `team:<slug>#member can_use agent:<id>`. This aligns the Web UI with the bots, which already honored team-mediated grants. |
+
+The bots' DM dispatch chain is:
+
+1. **Thread/space override** (`dm_thread_overrides.OverrideStore` — LRU
+   capped at 1000 entries, no TTL, cleared on bot restart or explicit
+   `/caipe-use default`).
+2. **Saved preference** (`user_preferences.dm_default_agent_id` via the
+   BFF).
+3. **Deployment `dm_agent_id`** (`SLACK_INTEGRATION_DM_AGENT_ID` /
+   `WEBEX_INTEGRATION_DM_AGENT_ID`).
+4. **Deployment `default_agent_id`** (fallback).
+
+Every candidate is re-checked via `POST /api/user/check_agent_access`
+before being returned. A stale override that fails the PDP is auto-cleared
+with a user-visible notice. A stale saved preference emits a notice but
+is NOT auto-cleared (the user may be temporarily off-team). Deployment
+defaults fall through silently on deny — org defaults failing is an ops
+issue, not something to spam users about. PDP unavailability returns a
+clean "try again later" response.
+
+Slack registers `/caipe-help`, `/caipe-list`, and `/caipe-use` Bolt
+commands (see `docs/integrations/slack-manifest.md`). Webex parses
+plain-text `help` / `list` / `use <agent>` / `use default` via
+`text_commands.parse_command_text` and intercepts them in
+`handle_webex_message` BEFORE route resolution so an unmapped 1:1 space
+still gets a useful response. Both surfaces are rate-limited per user
+(default 5 commands per 30s; `SLACK_COMMAND_RATE_LIMIT` /
+`WEBEX_COMMAND_RATE_LIMIT`) and reply ephemerally (Slack
+`response_type=ephemeral`; Webex DMs the issuer in group spaces, replies
+inline in 1:1).
+
 ### Credential Exchange Authorization
 
 Connections & Secrets OAuth tokens are never returned to the browser. Browser

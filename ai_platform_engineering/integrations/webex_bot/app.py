@@ -32,6 +32,12 @@ REASON_WORKSPACE_UNCONFIGURED = "WEBEX_WORKSPACE_UNCONFIGURED"
 REASON_SPACE_TEAM_NOT_FOUND = "WEBEX_SPACE_TEAM_NOT_FOUND"
 REASON_OBO_FAILED = "WEBEX_OBO_FAILED"
 REASON_DISPATCH_ALLOWED = "WEBEX_DISPATCH_ALLOWED"
+# Phase 2 (spec 2026-05-24): the text was a personal bot command
+# (``list`` / ``use`` / ``help`` / ``use default``). The command
+# handler has already replied; we short-circuit BEFORE route +
+# ReBAC so a non-mapped space still gets a useful response and
+# doesn't trip the "space not mapped" deny.
+REASON_COMMAND_HANDLED = "WEBEX_COMMAND_HANDLED"
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,12 @@ class ParsedWebexEvent:
     message_id: Optional[str] = None
     thread_parent_id: Optional[str] = None
     webex_room_id: Optional[str] = None
+    # Phase 2 (spec 2026-05-24): True when the originating Webex room is
+    # a 1:1 direct conversation (``roomType == "direct"``). The DM
+    # dispatch resolver and the ``use <agent>`` command require this
+    # signal because they're personal surfaces — they MUST refuse to
+    # change behavior in a shared group space.
+    is_direct: bool = False
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,36 @@ class RouteResolverProtocol(Protocol):
         text: str,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class WebexCommandHandled:
+    """Sentinel result returned by a :class:`CommandHandlerProtocol` when a
+    user's message was intercepted as a bot command and already replied to.
+    The runtime gate short-circuits dispatch when this is returned.
+    """
+
+    code: str
+    """Stable machine-readable code (``help``, ``list_ok``, ``use_ok`` …)."""
+
+
+class CommandHandlerProtocol(Protocol):
+    """Protocol for the personal-DM command handler.
+
+    Implementations parse ``parsed.text``, post any reply directly via the
+    Webex API, and return :class:`WebexCommandHandled` when the message
+    was treated as a command. Returning ``None`` means "not a command,
+    fall through to normal route + dispatch".
+    """
+
+    async def maybe_handle(
+        self,
+        *,
+        parsed: ParsedWebexEvent,
+        keycloak_user_id: str,
+        bearer_token: str,
+    ) -> Optional[WebexCommandHandled]:
         raise NotImplementedError
 
 
@@ -217,6 +259,18 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
         event.get("isSelf"),
     )
 
+    # Webex tells us the room type via ``roomType`` on the webhook
+    # payload. ``direct`` means a 1:1 conversation with the bot;
+    # anything else (``group``) means a shared space.
+    raw_room_type = (
+        data.get("roomType")
+        or data.get("room_type")
+        or event.get("roomType")
+        or event.get("room_type")
+        or ""
+    )
+    is_direct = isinstance(raw_room_type, str) and raw_room_type.strip().lower() == "direct"
+
     if not isinstance(person_id, str) or not person_id.strip():
         return None
     if not isinstance(raw_space_id, str) or not raw_space_id.strip():
@@ -244,6 +298,7 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
             str(thread_parent_id).strip() if isinstance(thread_parent_id, str) else None
         ),
         webex_room_id=public_room_id,
+        is_direct=is_direct,
     )
 
 
@@ -313,6 +368,7 @@ async def handle_webex_message(
     obo_exchanger: OboExchangerProtocol | None = None,
     rebac_checker: RebacCheckerProtocol | None = None,
     route_resolver: RouteResolverProtocol | None = None,
+    command_handler: CommandHandlerProtocol | None = None,
     dispatcher: Optional[DispatchFn] = None,
     bot_person_id: Optional[str] = None,
     tenant_id: str = "default",
@@ -491,6 +547,43 @@ async def handle_webex_message(
             keycloak_user_id=keycloak_user_id,
             active_team=active_team,
         )
+
+    # Phase 2 (spec 2026-05-24): personal-DM commands intercept BEFORE
+    # route resolution so a user in an unmapped 1:1 space can still run
+    # ``help`` / ``list`` / ``use``. The handler posts the ephemeral
+    # reply itself (Webex has no native ephemeral, so it DMs the user
+    # back); we just short-circuit dispatch on the truthy sentinel.
+    if command_handler is not None:
+        try:
+            command_outcome = await command_handler.maybe_handle(
+                parsed=parsed,
+                keycloak_user_id=keycloak_user_id,
+                bearer_token=obo_token.access_token,
+            )
+        except Exception as exc:  # noqa: BLE001 — never fail the gate on cmd errors
+            logger.warning(
+                "Webex command handler raised (type=%s); ignoring and falling through",
+                type(exc).__name__,
+            )
+            command_outcome = None
+        if command_outcome is not None:
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=keycloak_user_id,
+                outcome="allow",
+                reason_code=REASON_COMMAND_HANDLED,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+            )
+            return WebexMessageResult(
+                allowed=True,
+                dispatched=False,
+                ignored=False,
+                reason_code=REASON_COMMAND_HANDLED,
+                keycloak_user_id=keycloak_user_id,
+                active_team=active_team,
+                agent_id=None,
+            )
 
     route = await routes.resolve_route(
         workspace_id=parsed.workspace_id,

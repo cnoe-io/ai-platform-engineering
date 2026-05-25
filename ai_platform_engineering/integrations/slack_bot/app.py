@@ -102,6 +102,7 @@ if RBAC_ENABLED:
         channel_id = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
+            or body.get("channel_id")  # slash command bodies
         )
         if channel_id:
             context["slack_channel_id"] = channel_id
@@ -147,22 +148,38 @@ if RBAC_ENABLED:
                         auto_assign.reason,
                     )
             if not team_resolution.team_slug:
-                # Group channel without a team mapping (or user isn't in the
-                # mapped team). Hard reject — we never want to silently
-                # accept a group channel that has no team RBAC binding.
-                return ("deny", team_resolution.deny_message or
-                        "This channel isn't assigned to a CAIPE team yet.")
-            # We still surface team metadata in context for legacy log
-            # lines / metrics and for the channel-ReBAC PDP call below;
-            # the OBO token itself does not carry it.
-            context["active_team"] = team_resolution.team_slug
-            context["team_id"] = team_resolution.team_id
-            context["team_name"] = team_resolution.team_name
-            context["surface_kind"] = "channel"
-            logger.info(
-                "Channel={} mapped to team={} (slug={}) for user={}",
-                channel_id, team_resolution.team_name, team_resolution.team_slug, keycloak_user_id,
-            )
+                if not require_mapping:
+                    # Slash commands (FR-036) and @mentions in unmapped
+                    # channels still need to run — they're personal
+                    # surfaces (commands return ephemeral replies). We
+                    # mark the surface so downstream handlers can
+                    # decide whether the body of the command requires
+                    # a channel mapping (it never does for /caipe-help
+                    # or /caipe-list).
+                    context["surface_kind"] = "dm"
+                    logger.info(
+                        "Channel={} has no team mapping; allowing surface_kind=dm "
+                        "(require_mapping=False) for user={}",
+                        channel_id, keycloak_user_id,
+                    )
+                else:
+                    # Group channel without a team mapping (or user isn't in the
+                    # mapped team). Hard reject — we never want to silently
+                    # accept a group channel that has no team RBAC binding.
+                    return ("deny", team_resolution.deny_message or
+                            "This channel isn't assigned to a CAIPE team yet.")
+            else:
+                # We still surface team metadata in context for legacy log
+                # lines / metrics and for the channel-ReBAC PDP call below;
+                # the OBO token itself does not carry it.
+                context["active_team"] = team_resolution.team_slug
+                context["team_id"] = team_resolution.team_id
+                context["team_name"] = team_resolution.team_name
+                context["surface_kind"] = "channel"
+                logger.info(
+                    "Channel={} mapped to team={} (slug={}) for user={}",
+                    channel_id, team_resolution.team_name, team_resolution.team_slug, keycloak_user_id,
+                )
 
         try:
             obo = await impersonate_user(keycloak_user_id)
@@ -473,13 +490,224 @@ def _resolve_escalation(channel_config, agent_id: str | None = None):
 
 
 def _get_agent_id_for_dm() -> str:
-  """Resolve agent_id for DMs: dm_agent_id -> default_agent_id -> empty."""
+  """Resolve agent_id for DMs: dm_agent_id -> default_agent_id -> empty.
+
+  Legacy helper retained as the LAST-RESORT fallback when the new DM
+  resolver (FR-023) cannot run (e.g. RBAC disabled, no OBO token).
+  When ``SLACK_RBAC_ENABLED=true`` the resolver picked from
+  ``dm_thread_overrides`` / saved prefs / env defaults is preferred.
+  """
   if config.defaults.dm_agent_id:
     return config.defaults.dm_agent_id
   if config.defaults.default_agent_id:
     return config.defaults.default_agent_id
   logger.warning("No agent_id configured for DMs — using empty string")
   return ""
+
+
+# =============================================================================
+# Phase 2 (spec 2026-05-24) — personal DM commands + DM agent resolver
+# =============================================================================
+# These singletons back BOTH the slash-command handlers below and the DM
+# resolver wired into `handle_dm_message`. We construct them lazily so unit
+# tests that import `app.py` without a full Slack environment don't blow up.
+from utils.accessible_agents_client import AccessibleAgentsClient  # noqa: E402
+from utils.command_rate_limiter import CommandRateLimiter  # noqa: E402
+from utils.dm_agent_resolver import DmAgentResolution, resolve_dm_agent  # noqa: E402
+from utils.dm_authz_client import DmAuthzClient  # noqa: E402
+from utils.dm_thread_overrides import OverrideKey, get_default_override_store  # noqa: E402
+from utils.slash_commands import (  # noqa: E402
+    SlashCommandResult,
+    handle_help_command,
+    handle_list_command,
+    handle_use_command,
+)
+from utils.user_preferences_client import UserPreferencesClient  # noqa: E402
+
+_dm_authz_client_singleton: DmAuthzClient | None = None
+_accessible_agents_client_singleton: AccessibleAgentsClient | None = None
+_user_preferences_client_singleton: UserPreferencesClient | None = None
+_command_rate_limiter_singleton: CommandRateLimiter | None = None
+
+
+def _dm_authz_client() -> DmAuthzClient:
+  global _dm_authz_client_singleton
+  if _dm_authz_client_singleton is None:
+    _dm_authz_client_singleton = DmAuthzClient()
+  return _dm_authz_client_singleton
+
+
+def _accessible_agents_client() -> AccessibleAgentsClient:
+  global _accessible_agents_client_singleton
+  if _accessible_agents_client_singleton is None:
+    _accessible_agents_client_singleton = AccessibleAgentsClient()
+  return _accessible_agents_client_singleton
+
+
+def _user_preferences_client() -> UserPreferencesClient:
+  global _user_preferences_client_singleton
+  if _user_preferences_client_singleton is None:
+    _user_preferences_client_singleton = UserPreferencesClient()
+  return _user_preferences_client_singleton
+
+
+def _command_rate_limiter() -> CommandRateLimiter:
+  global _command_rate_limiter_singleton
+  if _command_rate_limiter_singleton is None:
+    _command_rate_limiter_singleton = CommandRateLimiter(
+        max_per_window=int(os.environ.get("SLACK_COMMAND_RATE_LIMIT", "5")),
+        window_seconds=float(os.environ.get("SLACK_COMMAND_RATE_WINDOW", "30")),
+    )
+  return _command_rate_limiter_singleton
+
+
+def _override_key_for_dm(
+    *,
+    workspace_id: str | None,
+    channel_id: str | None,
+    user_id: str | None,
+    thread_ts: str | None,
+) -> OverrideKey | None:
+  """Build a Slack DM override key, or None if any component is missing.
+
+  Only DM channels (Slack channel id starts with ``D``) are eligible —
+  callers gate on that BEFORE calling.
+  """
+  if not workspace_id or not channel_id or not user_id or not thread_ts:
+    return None
+  try:
+    return OverrideKey(
+        workspace_id=str(workspace_id),
+        channel_id=str(channel_id),
+        user_id=str(user_id),
+        thread_ts=str(thread_ts),
+    )
+  except ValueError as exc:
+    logger.warning("Invalid OverrideKey components: {}", exc)
+    return None
+
+
+def _resolve_dm_agent_for_message(
+    *,
+    bearer_token: str,
+    override_key: OverrideKey,
+) -> DmAgentResolution:
+  """Run the FR-023 dispatch chain for a DM message.
+
+  Returns the full :class:`DmAgentResolution`; callers handle
+  ``source=='pdp_unavailable'`` (temporary deny), ``'denied'`` (helpful
+  hint), and the regular allow paths.
+  """
+  return resolve_dm_agent(
+      override_key=override_key,
+      overrides=get_default_override_store(),
+      prefs_client=_user_preferences_client(),
+      authz_client=_dm_authz_client(),
+      dm_agent_id=config.defaults.dm_agent_id or None,
+      default_agent_id=config.defaults.default_agent_id or None,
+      bearer_token=bearer_token,
+  )
+
+
+def _ack_ephemeral(ack, result: SlashCommandResult) -> None:
+  """Post a slash-command result as an ephemeral reply (FR-034)."""
+  try:
+    ack(response_type="ephemeral", text=result.text)
+  except Exception as exc:
+    logger.warning("Failed to ack slash command (code={}): {}", result.code, exc)
+
+
+@app.command("/caipe-help")
+def slash_caipe_help(ack, body, context=None):
+  """``/caipe-help`` — list available commands (FR-030)."""
+  user_id = body.get("user_id") or ""
+  result = handle_help_command(
+      user_key=user_id,
+      rate_limiter=_command_rate_limiter(),
+  )
+  _ack_ephemeral(ack, result)
+
+
+@app.command("/caipe-list")
+def slash_caipe_list(ack, body, context=None):
+  """``/caipe-list`` — show user's accessible agents (FR-028, FR-036)."""
+  user_id = body.get("user_id") or ""
+  bearer_token = _obo_token_from_context(context) or ""
+  if not bearer_token:
+    _ack_ephemeral(
+        ack,
+        SlashCommandResult(
+            text=(
+                "I couldn't verify your identity for this command. "
+                "Please re-link your account and try again."
+            ),
+            code="no_bearer",
+        ),
+    )
+    return
+  result = handle_list_command(
+      user_key=user_id,
+      bearer_token=bearer_token,
+      accessible_agents_client=_accessible_agents_client(),
+      rate_limiter=_command_rate_limiter(),
+  )
+  _ack_ephemeral(ack, result)
+
+
+@app.command("/caipe-use")
+def slash_caipe_use(ack, body, context=None):
+  """``/caipe-use <agent>|default`` — set DM thread override or clear preferences."""
+  user_id = body.get("user_id") or ""
+  bearer_token = _obo_token_from_context(context) or ""
+  if not bearer_token:
+    _ack_ephemeral(
+        ack,
+        SlashCommandResult(
+            text=(
+                "I couldn't verify your identity for this command. "
+                "Please re-link your account and try again."
+            ),
+            code="no_bearer",
+        ),
+    )
+    return
+
+  raw_text = body.get("text") or ""
+  channel_id = body.get("channel_id") or ""
+  workspace_id = (context or {}).get("slack_workspace_id") or body.get("team_id") or ""
+  # Slack slash commands fire against a single channel; for DM threads
+  # the "thread" identity is the channel itself (Slack DMs don't carry
+  # a thread_ts in the command body). This matches the override key the
+  # DM message handler builds below for root messages.
+  thread_ts = channel_id  # one thread-key per DM channel for command-level overrides
+
+  # Slack DM channel ids start with "D" — this is a stable Slack
+  # convention, so it works regardless of whether RBAC enrichment ran.
+  is_dm = bool(channel_id) and channel_id.startswith("D")
+  override_key = (
+      _override_key_for_dm(
+          workspace_id=workspace_id,
+          channel_id=channel_id,
+          user_id=user_id,
+          thread_ts=thread_ts,
+      )
+      if is_dm
+      else None
+  )
+
+  result = handle_use_command(
+      user_key=user_id,
+      raw_text=raw_text,
+      bearer_token=bearer_token,
+      is_dm=is_dm,
+      override_key=override_key,
+      override_store=get_default_override_store(),
+      dm_authz_client=_dm_authz_client(),
+      user_preferences_client=_user_preferences_client(),
+      accessible_agents_client=_accessible_agents_client(),
+      rate_limiter=_command_rate_limiter(),
+  )
+  _ack_ephemeral(ack, result)
 
 
 def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
@@ -674,19 +902,31 @@ def rbac_global_middleware(body, context, next, logger):
     context["rbac_enabled"] = True
     context["slack_user_id"] = slack_user_id
 
-    # @mentions work in any channel; Q&A messages require a channel-to-team mapping
+    # @mentions work in any channel; Q&A messages require a channel-to-team mapping.
+    # Slash commands (spec 2026-05-24 FR-036) are personal surfaces that ALWAYS
+    # run regardless of channel mapping — the command itself decides whether
+    # its semantics require DM context. So we treat both like mentions for the
+    # mapping requirement and the command handlers enforce DM-only semantics
+    # for `/caipe-use <agent>` themselves.
     is_mention = event.get("type") == "app_mention"
+    is_command = bool(body.get("command"))
 
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
-            _rbac_enrich_context(body, slack_user_id, context, require_mapping=not is_mention)
+            _rbac_enrich_context(
+                body,
+                slack_user_id,
+                context,
+                require_mapping=not (is_mention or is_command),
+            )
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user {} — denying request: {}", slack_user_id, exc)
         channel = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
+            or body.get("channel_id")  # slash command bodies
         )
         if channel:
             try:
@@ -704,6 +944,7 @@ def rbac_global_middleware(body, context, next, logger):
     channel = (
         body.get("event", {}).get("channel")
         or body.get("channel", {}).get("id")
+        or body.get("channel_id")  # slash command bodies
     )
 
     if rbac_status == "unlinked":
@@ -1224,11 +1465,78 @@ def handle_dm_message(event, say, client, context=None):
     bot_info = client.auth_test()
     bot_user_id = bot_info.get("user_id")
 
-    agent_id = _get_agent_id_for_dm()
+    # Phase 2 (spec 2026-05-24 FR-023): pick the DM agent via the
+    # override → saved-pref → dm_agent_id → default_agent_id chain.
+    # When RBAC is disabled OR we couldn't get an OBO token (auth
+    # degraded), fall back to the legacy static resolver so the bot
+    # still works in pre-RBAC deployments.
+    bearer_token = _obo_token_from_context(context) if context else None
+    agent_id: str = ""
+    resolver_notices: list[str] = []
+    resolver_source: str = "legacy"
+    workspace_id_for_override = (context or {}).get("slack_workspace_id") or event.get("team") or ""
+    override_key = _override_key_for_dm(
+        workspace_id=workspace_id_for_override,
+        channel_id=channel_id,
+        user_id=user_id,
+        thread_ts=thread_ts,
+    )
+    if bearer_token and override_key is not None:
+      resolution = _resolve_dm_agent_for_message(
+          bearer_token=bearer_token,
+          override_key=override_key,
+      )
+      resolver_source = resolution.source
+      resolver_notices = list(resolution.notices)
+      if resolution.source == "pdp_unavailable":
+        say(
+            text=(
+                "I can't verify your agent access right now. Please try "
+                "again in a moment."
+            ),
+            thread_ts=thread_ts,
+        )
+        return
+      if resolution.source in {"denied", "no_candidates"}:
+        say(
+            text=(
+                "You don't have access to any agents that can answer this "
+                "DM. Use `/caipe-list` to see what's available, or ask "
+                "your admin for a grant."
+            ),
+            thread_ts=thread_ts,
+        )
+        return
+      agent_id = resolution.agent_id or ""
+      logger.info(
+          f"[{thread_ts}] DM resolver source={resolver_source} agent_id={agent_id}",
+      )
+    else:
+      agent_id = _get_agent_id_for_dm()
+
     if not agent_id:
-      logger.error(f"[{thread_ts}] No agent_id configured for DMs — set SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID")
-      say(text="Sorry, DMs aren't configured yet — no agent ID is set. Please contact an admin.", thread_ts=thread_ts)
+      logger.error(
+          f"[{thread_ts}] No agent_id configured for DMs — set "
+          "SLACK_INTEGRATION_DM_AGENT_ID or SLACK_INTEGRATION_DEFAULT_AGENT_ID"
+      )
+      say(
+          text=(
+              "Sorry, DMs aren't configured yet — no agent ID is set. "
+              "Please contact an admin."
+          ),
+          thread_ts=thread_ts,
+      )
       return
+
+    # Surface any resolver notices BEFORE we kick off the agent call so
+    # the user understands why their preference/override changed.
+    for notice in resolver_notices:
+      try:
+        say(text=notice, thread_ts=thread_ts)
+      except Exception as notice_err:
+        logger.warning(
+            f"[{thread_ts}] Could not post resolver notice: {notice_err}"
+        )
 
     # Create or retrieve conversation via shared API (server owns ID generation).
     # Must happen BEFORE context building so we can use `created` to decide

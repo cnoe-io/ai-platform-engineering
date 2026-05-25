@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ai_platform_engineering.integrations.webex_bot.app import (
+    REASON_COMMAND_HANDLED,
     REASON_DISPATCH_ALLOWED,
     REASON_IGNORED_BOT,
     REASON_IGNORED_MALFORMED,
@@ -273,3 +274,145 @@ def test_ignored_bot_self_and_malformed_events() -> None:
     assert malformed.ignored is True
     assert malformed.reason_code == REASON_IGNORED_MALFORMED
     assert dispatcher.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (spec 2026-05-24 T153): command handler short-circuit.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _FakeCommandHandler:
+    intercept: bool = True
+    code: str = "help"
+    calls: int = 0
+    last_bearer: Optional[str] = None
+
+    async def maybe_handle(self, *, parsed: Any, keycloak_user_id: str, bearer_token: str):
+        self.calls += 1
+        self.last_bearer = bearer_token
+        if not self.intercept:
+            return None
+
+        class _Result:
+            pass
+
+        r = _Result()
+        r.code = self.code  # type: ignore[attr-defined]
+        return r
+
+
+def test_command_handler_short_circuits_dispatch() -> None:
+    """When the handler returns a sentinel the gate must NOT route or
+    dispatch — even if a route+ReBAC would have failed otherwise.
+    """
+    dispatcher = FakeDispatcher()
+    handler = _FakeCommandHandler(intercept=True, code="help")
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="help"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            # Route resolver that WOULD fail; should never run.
+            route_resolver=FakeRouteResolver(agent_id=None),
+            # ReBAC that WOULD deny; should never run.
+            rebac_checker=FakeRebacChecker(allowed=False, reason="should_not_be_called"),
+            command_handler=handler,
+            dispatcher=dispatcher,
+        )
+    )
+    assert handler.calls == 1
+    assert handler.last_bearer == "obo-access"
+    assert result.allowed is True
+    assert result.dispatched is False
+    assert result.reason_code == REASON_COMMAND_HANDLED
+    assert dispatcher.calls == []
+
+
+def test_command_handler_falls_through_for_non_command_text() -> None:
+    """When the handler returns ``None`` the gate must continue with
+    its normal route + ReBAC + dispatch path."""
+    dispatcher = FakeDispatcher()
+    handler = _FakeCommandHandler(intercept=False)
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="actual chat"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=FakeRouteResolver(agent_id="incident-agent"),
+            command_handler=handler,
+            dispatcher=dispatcher,
+        )
+    )
+    assert handler.calls == 1
+    assert result.allowed is True
+    assert result.dispatched is True
+    assert result.reason_code == REASON_DISPATCH_ALLOWED
+    assert len(dispatcher.calls) == 1
+
+
+def test_command_handler_exception_falls_through() -> None:
+    """A crash in the command handler must NEVER block a normal message."""
+    class _BrokenHandler:
+        async def maybe_handle(self, **_: object) -> None:
+            raise RuntimeError("handler crashed")
+
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="help"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(),
+            rebac_checker=FakeRebacChecker(),
+            route_resolver=FakeRouteResolver(agent_id="incident-agent"),
+            command_handler=_BrokenHandler(),
+            dispatcher=dispatcher,
+        )
+    )
+    # Fell through to normal dispatch because the handler crashed.
+    assert result.allowed is True
+    assert result.dispatched is True
+    assert result.reason_code == REASON_DISPATCH_ALLOWED
+
+
+def test_parsed_webex_event_carries_is_direct_flag() -> None:
+    """``roomType=="direct"`` must be propagated into ``ParsedWebexEvent``
+    so downstream handlers (commands + DM resolver) can refuse to change
+    behavior in a shared group space."""
+    from ai_platform_engineering.integrations.webex_bot.app import parse_webex_event
+
+    direct = parse_webex_event(
+        {
+            "person_id": "person1234",
+            "space_id": "space12345",
+            "text": "use github",
+            "roomType": "direct",
+        }
+    )
+    assert direct is not None
+    assert direct.is_direct is True
+
+    group = parse_webex_event(
+        {
+            "person_id": "person1234",
+            "space_id": "space12345",
+            "text": "use github",
+            "roomType": "group",
+        }
+    )
+    assert group is not None
+    assert group.is_direct is False
+
+    unspecified = parse_webex_event(
+        {
+            "person_id": "person1234",
+            "space_id": "space12345",
+            "text": "hello",
+        }
+    )
+    assert unspecified is not None
+    assert unspecified.is_direct is False
