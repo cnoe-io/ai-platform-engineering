@@ -11,19 +11,19 @@
  *      bar at the top of the card, which renders one row per failed
  *      email (`<email>: <error>`).
  *   2. The general "Warnings" bar at the bottom of the card, which
- *      renders one row per migration warning (e.g. "Skipped
- *      active_team default selection because
- *      `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is unset and there is not
- *      exactly one Mongo team.").
+ *      renders one row per non-bootstrap migration warning. Phase 3
+ *      (spec 2026-05-24-derive-team-from-channel) removed all of the
+ *      per-team / per-scope warnings, so today only the bootstrap-admin
+ *      family is registered here. The pattern table is kept so new
+ *      warning families can be added without rewriting the explainer.
  *
  * Both groups of strings are accurate but unfriendly to admins who
  * have not been living inside the RBAC system: they reference
- * uppercase env vars, internal phrases like "active_team default
- * selection", and ops-only concepts like "OBO audience client". This
- * decoder turns each known warning into a structured
- * `{ title, body, fix? }` tooltip explanation in the same "keep both
- * technical and plain-English" style we use for invariant IDs (see
- * `invariant-explanations.ts` for the wording-style policy).
+ * uppercase env vars and ops-only concepts. This decoder turns each
+ * known warning into a structured `{ title, body, fix? }` tooltip
+ * explanation in the same "keep both technical and plain-English"
+ * style we use for invariant IDs (see `invariant-explanations.ts` for
+ * the wording-style policy).
  *
  * Design notes:
  *
@@ -60,22 +60,6 @@ export interface WarningExplanation {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Reusable glosses, mirrored from invariant-explanations.ts so the two
-// modules speak the same plain-English vocabulary.
-// ─────────────────────────────────────────────────────────────────────
-
-const OBO_GLOSS = "OBO (on-behalf-of, i.e. the bot acting as a real user)";
-
-const SHARED_AUDIENCE_GLOSS =
-  "the `caipe-platform` client (the shared OBO audience — both the Slack bot and the Webex bot exchange their own service-account token for a user-impersonation token aimed at `caipe-platform`)";
-
-const ACTIVE_TEAM_CLAIM_GLOSS =
-  "`active_team` claim (the field in the OBO token that tells the bot which team identity to assume for this request)";
-
-const SLUG_GLOSS =
-  "team slug (a short, URL-safe team name like `platform` or `eti-sre-admin`)";
-
-// ─────────────────────────────────────────────────────────────────────
 // Pattern table. Each entry's `match` function is run against the raw
 // warning string; the first match wins. `explain` receives the regex
 // match (if any) so it can interpolate captured values.
@@ -91,58 +75,6 @@ interface WarningPattern {
 }
 
 const WARNING_PATTERNS: WarningPattern[] = [
-  // ────────────────────────────────────────────────────────────────
-  // KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG — emitted from
-  // `keycloak-rbac-reconciliation.ts` when the BFF migration can't
-  // decide which team scope should be the audience-default on
-  // `caipe-platform`.
-  //
-  // There are two near-identical phrasings from the same code path:
-  //
-  //   "Skipped active_team default selection because
-  //    KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset and there is not
-  //    exactly one Mongo team."
-  //
-  //   "No KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG configured and multiple/no
-  //    Mongo teams exist; active_team default selection will be
-  //    skipped."
-  //
-  // We catch both with a generous pattern keyed on the env var name.
-  // ────────────────────────────────────────────────────────────────
-  {
-    id: "active_team_slug_unset",
-    pattern: /KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG/,
-    explain: () => ({
-      title:
-        "`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is not set — no team is being used as the default `active_team`",
-      body:
-        `This warning fires when the BFF (the UI server) startup migration ` +
-        `couldn't decide which team scope should be the *audience-default* ` +
-        `on ${SHARED_AUDIENCE_GLOSS}. ` +
-        `That default scope is what stamps the ${ACTIVE_TEAM_CLAIM_GLOSS} ` +
-        `into every ${OBO_GLOSS} token the bots issue, because Keycloak's ` +
-        `OAuth2 / RFC 8693 token-exchange flow ignores the bot's requested ` +
-        `\`scope=\` parameter and only injects mappers from scopes that are ` +
-        `*default* on the audience. The migration safely skips the selection ` +
-        `(rather than guessing) whenever \`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` ` +
-        `is unset AND there is not exactly one team in MongoDB. With ` +
-        `multiple teams and no default chosen, OBO tokens will lack an ` +
-        `\`active_team\` claim, so the bots fall back to personal / ` +
-        `tokenless mode for every channel that maps to a team.`,
-      fix:
-        `Set the \`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG\` environment variable on ` +
-        `the \`caipe-ui\` deployment to the ${SLUG_GLOSS} of the team that ` +
-        `should be the default. For example, if your main team's slug is ` +
-        `\`platform\`, set \`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG=platform\`. ` +
-        `Then click \`Reconcile all\` (or restart the UI pod) — the ` +
-        `migration will bind \`team-platform\` as the single default ` +
-        `\`team-*\` scope on \`caipe-platform\` and the warning goes ` +
-        `away. If you really do operate with a single team in MongoDB, ` +
-        `you can leave the env var unset: the migration auto-picks that ` +
-        `team as the default in the single-team case.`,
-    }),
-  },
-
   // ────────────────────────────────────────────────────────────────
   // Bootstrap admin — per-email failure pushed from
   // `keycloak-bootstrap-admins.ts`: `${email}: ${error message}`.

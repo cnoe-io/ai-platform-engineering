@@ -25,69 +25,6 @@ import {
  */
 describe("explainWarning", () => {
   // ────────────────────────────────────────────────────────────────
-  // KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG family
-  //
-  // The migration emits two near-identical phrasings from the same
-  // code path; both must classify to `active_team_slug_unset`.
-  // ────────────────────────────────────────────────────────────────
-  describe("active_team_slug_unset family", () => {
-    const phrasings = [
-      "Skipped active_team default selection because KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset and there is not exactly one Mongo team.",
-      "No KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG configured and multiple/no Mongo teams exist; active_team default selection will be skipped.",
-    ];
-
-    it.each(phrasings)(
-      "classifies %s as active_team_slug_unset",
-      (raw) => {
-        expect(classifyWarning(raw)).toBe("active_team_slug_unset");
-      },
-    );
-
-    it.each(phrasings)("produces a non-fallback explanation for: %s", (raw) => {
-      const result = explainWarning(raw);
-      expect(result.title).not.toBe("Migration warning");
-      expect(result.title).toContain("KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG");
-      expect(result.body.length).toBeGreaterThan(120);
-      expect(result.fix).toBeDefined();
-    });
-
-    it("explains what the env var controls in plain English (technical + gloss)", () => {
-      const result = explainWarning(phrasings[0]);
-      // Technical names survive so engineers can grep.
-      expect(result.body).toMatch(/caipe-platform/);
-      expect(result.body).toMatch(/active_team/);
-      expect(result.body).toMatch(/OBO/);
-      expect(result.body).toMatch(/RFC 8693/);
-      // …and each technical name has a plain-English gloss in the same body.
-      expect(result.body).toMatch(/on-behalf-of/i);
-      expect(result.body).toMatch(/shared OBO audience/i);
-      expect(result.body).toMatch(/which team identity to assume/i);
-    });
-
-    it("explains why the migration *skipped* rather than picked a default", () => {
-      const result = explainWarning(phrasings[0]);
-      expect(result.body).toMatch(/safely skips|not exactly one team/i);
-      expect(result.body).toMatch(/personal.*mode|tokenless mode/i);
-    });
-
-    it("gives a concrete fix action with an example slug", () => {
-      const result = explainWarning(phrasings[0]);
-      expect(result.fix).toBeDefined();
-      expect(result.fix).toMatch(/KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG/);
-      expect(result.fix).toMatch(/caipe-ui/);
-      expect(result.fix).toMatch(/Reconcile all|restart/i);
-      // The example value MUST be a concrete slug so admins don't
-      // have to invent one.
-      expect(result.fix).toMatch(/=platform\b/);
-    });
-
-    it("calls out that a single-team deployment can leave the env var unset", () => {
-      const result = explainWarning(phrasings[0]);
-      expect(result.fix).toMatch(/single[- ]team|exactly one team|auto-picks/i);
-    });
-  });
-
-  // ────────────────────────────────────────────────────────────────
   // Bootstrap admin per-email failure family
   // ────────────────────────────────────────────────────────────────
   describe("bootstrap_admin_email_failed family", () => {
@@ -135,12 +72,14 @@ describe("explainWarning", () => {
       expect(fix).toMatch(/Reconcile all/i);
     });
 
-    it("does not collide with the active_team_slug_unset family for inputs that contain colons", () => {
+    it("does not misclassify a non-`<email>: <error>` colon-bearing warning as a bootstrap-admin row", () => {
       // A warning that just happens to contain a colon, but is NOT
       // an `<email>: <error>` line — must NOT be misclassified as a
-      // bootstrap-admin row.
-      const raw = "Skipped active_team default selection because KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset and there is not exactly one Mongo team.";
-      expect(classifyWarning(raw)).toBe("active_team_slug_unset");
+      // bootstrap-admin row. After Phase 3 demolition no other
+      // specific warning family is registered, so this falls through
+      // to the safe fallback path.
+      const raw = "Some non-email warning: with a colon in it.";
+      expect(classifyWarning(raw)).toBeNull();
     });
   });
 

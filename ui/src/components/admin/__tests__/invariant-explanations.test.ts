@@ -122,50 +122,6 @@ describe("explainInvariant", () => {
     });
   });
 
-  describe("team scope families", () => {
-    it("explains team_scope.<slug>.active_team_mapper for a normal team", () => {
-      const result = explainInvariant("team_scope.team-platform.active_team_mapper");
-      expect(result.title).toContain("team-platform");
-      expect(result.body).toMatch(/active_team/);
-      expect(result.body).toMatch(/Reconcile/);
-      // For non-personal teams the body should NOT say `__personal__`.
-      expect(result.body).not.toContain("__personal__");
-    });
-
-    it("explains team_scope.team-personal.active_team_mapper with the __personal__ DM marker", () => {
-      const result = explainInvariant("team_scope.team-personal.active_team_mapper");
-      expect(result.title).toContain("team-personal");
-      expect(result.body).toContain("__personal__");
-      expect(result.body).toMatch(/DM|personal mode/);
-    });
-
-    it("explains team_scope.<slug>.optional_on_slack_bot", () => {
-      const result = explainInvariant("team_scope.team-platform.optional_on_slack_bot");
-      expect(result.title).toContain("team-platform");
-      expect(result.title).toMatch(/Slack/);
-      expect(result.body).toMatch(/active_team/);
-    });
-
-    it("explains team_scope.<slug>.optional_on_webex_bot", () => {
-      const result = explainInvariant("team_scope.team-platform.optional_on_webex_bot");
-      expect(result.title).toContain("team-platform");
-      expect(result.title).toMatch(/Webex/);
-    });
-
-    it("explains team_scope.<slug>.default_on_obo_audience and references the RFC 8693 gotcha", () => {
-      const result = explainInvariant("team_scope.team-platform.default_on_obo_audience");
-      expect(result.title).toContain("team-platform");
-      expect(result.body).toMatch(/RFC 8693/);
-      expect(result.body).toMatch(/caipe-platform/);
-      expect(result.body).toMatch(/active_team/);
-    });
-
-    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-    // `audience.<client>.single_team_default` family — both the invariant
-    // and the explanation entry are gone now that nothing consumes the
-    // `active_team` claim.
-  });
-
   describe("fallback", () => {
     it("returns a safe stub (and does not throw) for an unknown ID", () => {
       const result = explainInvariant("totally.made.up.invariant.id");
@@ -245,52 +201,11 @@ describe("explainInvariant", () => {
         gloss: /machine-user identity/i,
       },
       {
-        label: "client scope is glossed as a reusable bundle of token settings",
-        id: "team_scope.team-platform.optional_on_slack_bot",
-        term: /client scope/i,
-        gloss: /reusable bundle|bundle of token settings/i,
-      },
-      {
-        label: "slug is glossed as a short, URL-safe team name",
-        id: "team_scope.team-platform.active_team_mapper",
-        term: /slug/i,
-        gloss: /short, URL-safe team name/i,
-      },
-      {
-        label: "protocol mapper is glossed as injecting an extra claim into the token",
-        id: "team_scope.team-platform.active_team_mapper",
-        term: /protocol mapper/i,
-        gloss: /injects an extra claim|labeled field/i,
-      },
-      {
-        label: "`active_team` claim is glossed as which team identity the bot assumes",
-        id: "team_scope.team-platform.default_on_obo_audience",
-        term: /active_team/,
-        gloss: /which team identity to assume/i,
-      },
-      {
         label: "`caipe-platform` is glossed as the shared OBO audience",
         id: "obo.token_exchange.shared_audience.exists",
         term: /caipe-platform/,
         gloss: /shared OBO audience/i,
       },
-      {
-        label: "RFC 8693 is glossed as the OAuth2 token-exchange flow",
-        id: "team_scope.team-platform.default_on_obo_audience",
-        term: /RFC 8693/,
-        gloss: /OAuth2|token.exchange flow/i,
-      },
-      {
-        label: "BFF is glossed as the UI server",
-        id: "team_scope.team-platform.default_on_obo_audience",
-        term: /BFF/,
-        gloss: /UI server/i,
-      },
-      // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-      // `team_personal.dm_mode_known_limitation` advisory invariant and its
-      // gloss row. The `__personal__` value lives on as a legacy mapper value
-      // surfaced by the per-scope invariants only; we no longer test for
-      // its gloss because the special-case explanation block is gone.
     ];
 
     it.each(cases)(
@@ -317,12 +232,6 @@ describe("explainInvariant", () => {
         "obo.users_impersonate.caipe-slack-bot_policy_attached",
         "obo.bot.caipe-slack-bot.token_exchange_policy_attached",
         "service_account.caipe-slack-bot.impersonation_role",
-        "team_scope.team-platform.active_team_mapper",
-        "team_scope.team-platform.optional_on_slack_bot",
-        "team_scope.team-platform.optional_on_webex_bot",
-        "team_scope.team-platform.default_on_obo_audience",
-        // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
-        // `team_personal.dm_mode_known_limitation` from the sample set.
       ];
       for (const id of samples) {
         const result = explainInvariant(id);

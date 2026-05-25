@@ -31,8 +31,8 @@
  *
  *   Every tooltip body is written for an admin who hasn't been living
  *   inside the RBAC system. We do NOT strip the technical names (OBO,
- *   token exchange, slug, protocol mapper, AFFIRMATIVE, RFC 8693,
- *   `caipe-platform`, `active_team`, etc.) — engineers need them to
+ *   token exchange, AFFIRMATIVE, RFC 8693, `caipe-platform`, etc.) —
+ *   engineers need them to
  *   grep, and the raw invariant ID is already rendered in mono right
  *   under the description by the panel itself. Instead, each body:
  *
@@ -97,21 +97,6 @@ const SERVICE_ACCOUNT_GLOSS =
   "service account (the bot's own machine-user identity inside Keycloak, separate from any human user)";
 
 /** First-mention gloss for "client scope". */
-const CLIENT_SCOPE_GLOSS =
-  "client scope (a reusable bundle of token settings and protocol mappers that a Keycloak client can opt into)";
-
-/** First-mention gloss for "slug". Used in every team-scope body. */
-const SLUG_GLOSS =
-  "slug (a short, URL-safe team name like `platform` or `eti-sre-admin`)";
-
-/** First-mention gloss for "protocol mapper". */
-const PROTOCOL_MAPPER_GLOSS =
-  "protocol mapper (a small Keycloak rule that injects an extra claim — a labeled field — into the issued token)";
-
-/** First-mention gloss for the `active_team` claim itself. */
-const ACTIVE_TEAM_CLAIM_GLOSS =
-  "`active_team` claim (the field in the OBO token that tells the bot which team identity to assume for this request)";
-
 // ─────────────────────────────────────────────────────────────────────
 // Anchor sentences. Bodies compose a plain-English opener + the
 // reusable glosses + the structural "what breaks" closer below.
@@ -359,89 +344,6 @@ export function explainInvariant(id: string): InvariantExplanation {
         `policy attachment is otherwise correct.`,
     };
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // Team scopes — per-team client scopes that carry the team slug
-  // into the issued OBO token.
-  // ─────────────────────────────────────────────────────────────
-  const teamMapper = id.match(/^team_scope\.(.+)\.active_team_mapper$/);
-  if (teamMapper) {
-    const scope = teamMapper[1];
-    const isPersonal = scope === "team-personal";
-    return {
-      title: `${scope} has an active_team protocol mapper`,
-      body:
-        `This row checks that the team-specific bundle of token settings is ` +
-        `correctly stamped with this team's identity. Each team has a ` +
-        `${CLIENT_SCOPE_GLOSS} named \`${scope}\` that carries a hardcoded ` +
-        `\`active_team\` ${PROTOCOL_MAPPER_GLOSS}, which injects the ` +
-        `${ACTIVE_TEAM_CLAIM_GLOSS}. ${
-          isPersonal
-            ? `For \`team-personal\` the injected value is the literal string ` +
-              `\`__personal__\`, which the bots check to enter DM / personal ` +
-              `mode (one-on-one chat with no team context).`
-            : `The mapper's hardcoded value must match the team ${SLUG_GLOSS} ` +
-              `embedded in the scope name (\`${scope}\` → \`${scope.replace(/^team-/, "")}\`); ` +
-              `if it drifts (manual Keycloak Admin Console edit, partial ` +
-              `migration), the bot rejects the resulting token as malformed.`
-        } If this row is red, clicking the "Reconcile-now" button on this ` +
-        `row recreates the mapper with the correct value.`,
-    };
-  }
-  const teamSlackBound = id.match(/^team_scope\.(.+)\.optional_on_slack_bot$/);
-  if (teamSlackBound) {
-    const scope = teamSlackBound[1];
-    return {
-      title: `${scope} is bound optional on the Slack bot client`,
-      body:
-        `This row checks that the Slack bot is allowed to ask for this team's ` +
-        `identity when it knows which team the user is acting on behalf of. ` +
-        `Team ${CLIENT_SCOPE_GLOSS} entries are bound *optional* on the Slack ` +
-        `bot, meaning "the bot can request this on a per-call basis" — ` +
-        `concretely \`scope=openid ${scope}\` in the token request. If a ` +
-        `team scope isn't bound to the bot at all, the scope request is ` +
-        `silently dropped by Keycloak and the resulting OBO token has no ` +
-        `${ACTIVE_TEAM_CLAIM_GLOSS}, so the bot can't tell which team to ` +
-        `act as.`,
-    };
-  }
-  const teamWebexBound = id.match(/^team_scope\.(.+)\.optional_on_webex_bot$/);
-  if (teamWebexBound) {
-    const scope = teamWebexBound[1];
-    return {
-      title: `${scope} is bound optional on the Webex bot client`,
-      body:
-        `Same as the Slack-bot check, but for the Webex bot: the Webex bot ` +
-        `needs every team ${CLIENT_SCOPE_GLOSS} bound as an *optional* ` +
-        `client scope so it can request \`${scope}\` per-call. A missing ` +
-        `binding means the Webex bot can't act on behalf of a member of ` +
-        `the \`${scope.replace(/^team-/, "")}\` team — every such request ` +
-        `falls back to a tokenless / personal flow.`,
-    };
-  }
-  const teamAudienceDefault = id.match(/^team_scope\.(.+)\.default_on_obo_audience$/);
-  if (teamAudienceDefault) {
-    const scope = teamAudienceDefault[1];
-    return {
-      title: `${scope} is bound as a default scope on the OBO audience`,
-      body:
-        `This row checks a subtle quirk of how Keycloak's token exchange ` +
-        `treats requested scopes. Under the OAuth2 / RFC 8693 token-exchange ` +
-        `flow, Keycloak silently *drops* the \`scope=\` parameter the bot ` +
-        `sends and only injects mappers from scopes that are *default* on ` +
-        `the audience client — \`caipe-platform\`. The BFF (the UI server) ` +
-        `migration sets exactly one team ${CLIENT_SCOPE_GLOSS} as default ` +
-        `per request, based on the channel→team mapping, so the resulting ` +
-        `token carries the right ${ACTIVE_TEAM_CLAIM_GLOSS}. If \`${scope}\` ` +
-        `is missing from \`caipe-platform\`'s default scopes when the BFF ` +
-        `tries to swap it in, the OBO token will have no \`active_team\` ` +
-        `claim and the bot will reject it.`,
-    };
-  }
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // `team_personal.dm_mode_known_limitation` and `audience.<client>.single_team_default`
-  // explanation entries. The underlying invariants are gone — see the
-  // matching comment in `ui/src/lib/rbac/keycloak-invariants.ts`.
 
   // ─────────────────────────────────────────────────────────────
   // Fallback — keeps the UI working if a new ID lands without a
