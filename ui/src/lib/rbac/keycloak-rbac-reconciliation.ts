@@ -25,7 +25,7 @@ export const KEYCLOAK_RBAC_MIGRATION_DEFINITION: MigrationDefinition = {
   kind: "implicit",
   title: "Keycloak RBAC mapping reconciliation",
   description:
-    "Reconcile Mongo-backed teams into Keycloak active_team scopes and bot OBO permissions for caipe-platform.",
+    "Reconcile bot OBO permissions, service-account impersonation roles, the caipe-platform token-exchange decision strategy, and bootstrap-admin OpenFGA tuples. Per-team Keycloak client scopes are no longer touched (removed in Phase 3 of spec 2026-05-24-derive-team-from-channel; team identity is now derived from channel\u2192team mappings at request time).",
   confirmation: KEYCLOAK_RBAC_CONFIRMATION,
   required: true,
   blocking: true,

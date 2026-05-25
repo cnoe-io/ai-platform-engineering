@@ -1320,16 +1320,17 @@ async function listOptionalClientScopes(clientUuid: string): Promise<KeycloakCli
 //  `deleteClientScope` — see the Phase 3 demolition comment above.)
 
 /**
- * Validate a slug for a Keycloak client-scope name. Keycloak itself accepts a
- * fairly permissive set of characters but we keep this strict (lowercase
- * alphanumerics + hyphen) so the resulting `active_team` value renders cleanly
- * in JWTs, AGW logs, and OpenFGA relationship object IDs. Callers should reject invalid slugs
- * before trying to materialize a scope; this function is the canonical regex.
+ * Validate a team slug. Keycloak itself accepts a fairly permissive set of
+ * characters but we keep this strict (lowercase alphanumerics + hyphen) so the
+ * slug renders cleanly in OpenFGA object IDs (`team:<slug>`), MongoDB foreign
+ * keys in `channel_team_mappings` / `webex_space_team_mappings`, and admin
+ * URLs. Callers should reject invalid slugs before persisting a team; this
+ * function is the canonical regex.
  *
  * Phase 3 (spec 2026-05-24-derive-team-from-channel) retained this
  * validator — team-slug format is still enforced when creating Mongo
- * team docs and OpenFGA team objects even though no Keycloak client
- * scope is materialized.
+ * team docs and OpenFGA team objects. The slug no longer participates
+ * in any Keycloak object name or JWT claim.
  */
 export function isValidTeamSlug(slug: string): boolean {
   if (!slug || slug.length > 63) return false;
