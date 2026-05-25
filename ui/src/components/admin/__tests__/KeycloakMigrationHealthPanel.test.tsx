@@ -62,7 +62,7 @@ const failedHealth = {
         status: "failed",
         actor: "webui-startup",
         updated_at: "2026-05-19T12:00:00.000Z",
-        applied_counts: { team_scopes_reconciled: 2, token_exchange_permissions_reconciled: 1 },
+        applied_counts: { obo_permission_sets_reconciled: 2, token_exchange_permissions_reconciled: 1 },
         planned_counts: {},
         warnings: ["Keycloak unavailable"],
         error: "Keycloak unavailable",
@@ -73,15 +73,6 @@ const failedHealth = {
       blocking_required_count: 1,
     },
     keycloak_values: {
-      team_scopes: [
-        {
-          scope: "team-platform",
-          active_team: "platform",
-          optional_on_slack_bot: true,
-          optional_on_webex_bot: true,
-          default_on_obo_audience: true,
-        },
-      ],
       obo_permissions: [
         {
           bot_client_id: "caipe-slack-bot",
@@ -107,12 +98,6 @@ const failedHealth = {
             "caipe-webex-bot-token-exchange",
             "caipe-slack-bot-token-exchange",
           ],
-        },
-      ],
-      active_team_defaults: [
-        {
-          audience_client_id: "caipe-platform",
-          default_team_scopes: ["team-platform"],
         },
       ],
     },
@@ -179,7 +164,7 @@ describe("KeycloakMigrationHealthPanel", () => {
       .mockResolvedValueOnce(jsonResponse({
         success: true,
         data: {
-          applied_counts: { team_scopes_reconciled: 2, obo_permission_sets_reconciled: 2 },
+          applied_counts: { obo_permission_sets_reconciled: 2 },
         },
       }))
       .mockResolvedValueOnce(jsonResponse(completedHealth));
@@ -278,10 +263,10 @@ describe("KeycloakMigrationHealthPanel", () => {
         ...completedHealth.data,
         keycloak_invariants: {
           summary: {
-            total: 3,
+            total: 2,
             passing: 1,
             failing: 1,
-            unknown: 1,
+            unknown: 0,
             reconcile_now_recommended: true,
           },
           items: [
@@ -301,15 +286,6 @@ describe("KeycloakMigrationHealthPanel", () => {
               source: "init-idp.sh",
               status: "pass",
               remediation: "none",
-            },
-            {
-              id: "team_scope.team-platform.active_team_mapper",
-              description: "team-platform has an active_team protocol mapper",
-              group: "team-scope",
-              source: "bff-migration",
-              status: "unknown",
-              detail: "Could not read the mapper.",
-              remediation: "reconcile_now",
             },
           ],
         },
@@ -340,17 +316,6 @@ describe("KeycloakMigrationHealthPanel", () => {
       screen.getByTestId("invariant-fix-obo.users_impersonate.affirmative"),
     ).toHaveTextContent(/Fix/);
 
-    // The unknown team-scope row is rendered inside the team-scope
-    // matrix view (not the flat list), with its status carried on
-    // the StatusDot's data-status attribute. The matrix table itself
-    // is gated behind the accordion header being open, which the
-    // panel does automatically for any group containing a non-pass
-    // invariant.
-    const unknownDot = await screen.findByTestId(
-      "team-scope-status-dot-team_scope.team-platform.active_team_mapper",
-    );
-    expect(unknownDot.getAttribute("data-status")).toBe("unknown");
-
     // Reconcile-all CTA at the top of the card is visible because at least
     // one failing invariant has remediation=reconcile_now even though the
     // existing schema/migration state is healthy.
@@ -360,20 +325,16 @@ describe("KeycloakMigrationHealthPanel", () => {
   // ─────────────────────────────────────────────────────────────
   // Plain-English invariant tooltip explainer.
   //
-  // The cryptic machine IDs (`obo.token_exchange.shared_audience.affirmative`,
-  // `team_scope.team-platform.active_team_mapper`) are accurate but not
-  // self-explanatory. Each row now renders a HelpCircle affordance with a
-  // hover tooltip decoded by `explainInvariant`. These assertions verify
+  // The cryptic machine IDs (e.g. `obo.token_exchange.shared_audience.affirmative`)
+  // are accurate but not self-explanatory. Each row now renders a
+  // HelpCircle affordance with a hover tooltip decoded by
+  // `explainInvariant`. These assertions verify
   // (a) the affordance is present for EVERY row regardless of status,
   // (b) the tooltip body is decoded (not the raw ID), and
   // (c) the aria-label embeds the decoded title so screen readers and
   //     keyboard users get the same information without the hover.
   // ─────────────────────────────────────────────────────────────
   it("renders a plain-English explainer tooltip for every invariant row regardless of status", async () => {
-    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-    // `team_personal.dm_mode_known_limitation` advisory from the BFF,
-    // so this test now exercises OBO invariants only — those are the
-    // ones that still render with the `invariant-explain-…` testid.
     const healthWithMixedInvariants = {
       success: true,
       data: {
@@ -475,12 +436,12 @@ describe("KeycloakMigrationHealthPanel", () => {
           },
           items: [
             {
-              id: "team_scope.team-personal.optional_on_webex_bot",
-              description: "team-personal bound optional on caipe-webex-bot",
-              group: "team-scope",
+              id: "obo.users_impersonate.affirmative",
+              description: "users.impersonate scope-permission uses AFFIRMATIVE strategy",
+              group: "obo",
               source: "init-idp.sh",
               status: "fail",
-              detail: "Scope not listed in the Webex bot's optional client scopes.",
+              detail: "Current strategy: UNANIMOUS.",
               remediation: "reconcile_now",
             },
           ],
@@ -494,20 +455,15 @@ describe("KeycloakMigrationHealthPanel", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           success: true,
-          data: { applied_counts: { team_scopes_reconciled: 1 } },
+          data: { applied_counts: { obo_permission_sets_reconciled: 1 } },
         }),
       )
       .mockResolvedValueOnce(jsonResponse(completedHealth));
 
     render(<KeycloakMigrationHealthPanel />);
 
-    // With the team-scope matrix in place, the per-row Fix testid is
-    // gone; the equivalent at this layer is the per-team Fix button
-    // on the row (`team-scope-team-fix-<slug>`). Clicking it drives
-    // the same global reconcile migration as the old per-invariant
-    // Fix, just with a different originId for the spinner indicator.
     fireEvent.click(
-      await screen.findByTestId("team-scope-team-fix-team-personal"),
+      await screen.findByTestId("invariant-fix-obo.users_impersonate.affirmative"),
     );
 
     await waitFor(() => {
@@ -584,24 +540,15 @@ describe("KeycloakMigrationHealthPanel", () => {
   // Plain-English explainer tooltips for migration warnings and
   // bootstrap admin failures.
   //
-  // These tests guard the two pieces of UX added in response to
-  // admin feedback that the raw warning text ("Skipped active_team
-  // default selection because KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is
-  // unset…", "Bootstrap admin reconciliation failed for 1 email(s)")
-  // is technically accurate but means nothing to an admin who has
-  // not been living inside the RBAC system.
+  // The reconciliation pipeline can still surface ad-hoc warning
+  // strings (e.g. from `keycloak-bootstrap-admins.ts`). Each row in
+  // the migration "Warnings" bar must still get a HelpCircle
+  // affordance — even unknown warning strings fall back to a generic
+  // explainer so the panel never silently swallows them.
   //
-  // The wiring lives on:
-  //   - Every row in the migration "Warnings" bar gets a HelpCircle
-  //     affordance with a decoded title / body / fix tooltip.
-  //   - The "Bootstrap admin reconciliation failed for N email(s)"
-  //     header gets a HelpCircle that explains the *concept* of
-  //     bootstrap admin reconciliation, separate from any specific
-  //     failing email.
-  //   - Each failed-email row inside the bootstrap bar also gets
-  //     its own HelpCircle that explains common failure causes
-  //     (typo, OpenFGA unreachable, profile policy too strict,
-  //     email casing).
+  // Bootstrap admin failures keep a section-level explainer plus a
+  // per-row explainer for each failed email (typo, OpenFGA
+  // unreachable, profile policy too strict, email casing).
   // ─────────────────────────────────────────────────────────────
   it("renders a plain-English explainer tooltip on every migration warning row", async () => {
     global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse({
@@ -613,7 +560,6 @@ describe("KeycloakMigrationHealthPanel", () => {
           last_run: {
             ...completedHealth.data.migration.last_run,
             warnings: [
-              "Skipped active_team default selection because KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset and there is not exactly one Mongo team.",
               "Some brand new warning we haven't taught the decoder yet",
             ],
           },
@@ -623,37 +569,15 @@ describe("KeycloakMigrationHealthPanel", () => {
 
     render(<KeycloakMigrationHealthPanel />);
 
-    // The raw warning text is still rendered verbatim — admins can
-    // copy it, screen readers read it, the explainer just augments.
+    // The raw warning text is rendered verbatim and the explainer
+    // augments it with the generic fallback body.
     await waitFor(() =>
       expect(
-        screen.getByText(/KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset/i),
+        screen.getByText(/brand new warning/i),
       ).toBeInTheDocument(),
     );
 
-    // Row 0: the known active_team_slug_unset warning should have
-    // an explainer affordance with the decoded title + body + fix.
-    const knownRow = screen.getByTestId("migration-warning-row-0");
-    expect(knownRow).toHaveTextContent(/KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset/i);
-    const knownTrigger = screen.getByTestId("migration-warning-explain-0");
-    expect(knownTrigger).toBeInTheDocument();
-    expect(knownTrigger.getAttribute("aria-label") ?? "").toMatch(
-      /Explain warning:.*KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG/,
-    );
-    // Tooltip body (rendered inline by the mock) must contain
-    // both the technical name AND a plain-English gloss for it,
-    // PLUS a "How to fix:" block with a concrete example.
-    const knownTooltip = knownTrigger.closest("[data-testid='migration-warning-row-0']");
-    expect(knownTooltip?.textContent ?? "").toMatch(/caipe-platform/);
-    expect(knownTooltip?.textContent ?? "").toMatch(/active_team/);
-    expect(knownTooltip?.textContent ?? "").toMatch(/on-behalf-of/i);
-    expect(knownTooltip?.textContent ?? "").toMatch(/How to fix:/);
-    expect(knownTooltip?.textContent ?? "").toMatch(/KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG=platform/);
-
-    // Row 1: even an unknown warning must still get an explainer
-    // trigger (with the generic fallback body) — the panel must
-    // never silently swallow the row.
-    const unknownTrigger = screen.getByTestId("migration-warning-explain-1");
+    const unknownTrigger = screen.getByTestId("migration-warning-explain-0");
     expect(unknownTrigger).toBeInTheDocument();
     expect(unknownTrigger.getAttribute("aria-label") ?? "").toMatch(/Migration warning/);
   });
@@ -732,362 +656,4 @@ describe("KeycloakMigrationHealthPanel", () => {
     expect(row1Text).toMatch(/KEYCLOAK_USER_PROFILE_UNMANAGED_ATTRIBUTE_POLICY/);
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // Team-scope matrix at scale.
-  //
-  // These tests pin the contract for the matrix that replaced the
-  // flat list. Every realm size now renders the matrix (no
-  // threshold), so we exercise:
-  //
-  //   - 100 teams render as 100 rows in a single table,
-  //   - the slug search and "failing only" toggle narrow the
-  //     visible rows without touching the underlying matrix counts,
-  //   - the per-failure-kind chip filter does what it says,
-  //   - the per-team and per-kind Fix buttons both POST to the
-  //     same global reconcile endpoint,
-  //   - team-personal renders 3 cells and an "N/A" marker in the
-  //     audience column (no failure noise from a structurally
-  //     missing cell), and
-  //   - the dm_mode_known_limitation advisory is hoisted to its
-  //     own row above the matrix (not stuck inside the table).
-  //
-  // Helper: build the migration-health fixture for N teams with an
-  // optional set of failing-kind injections. The matrix is always
-  // rendered as the team-scope group's body.
-  // ─────────────────────────────────────────────────────────────
-  function makeMatrixFixture({
-    teamSlugs,
-    failingCells = [],
-    includePersonalTeam = true,
-    includeDmAdvisory = true,
-  }: {
-    teamSlugs: string[];
-    failingCells?: Array<{ slug: string; kind: string }>;
-    includePersonalTeam?: boolean;
-    includeDmAdvisory?: boolean;
-  }) {
-    const kinds = [
-      "active_team_mapper",
-      "optional_on_slack_bot",
-      "optional_on_webex_bot",
-      "default_on_obo_audience",
-    ];
-    const items: Array<Record<string, unknown>> = [];
-    const isFailing = (slug: string, kind: string) =>
-      failingCells.some((f) => f.slug === slug && f.kind === kind);
-    for (const slug of teamSlugs) {
-      for (const kind of kinds) {
-        items.push({
-          id: `team_scope.team-${slug}.${kind}`,
-          description: `team-${slug} ${kind}`,
-          group: "team-scope",
-          source: "bff-migration",
-          status: isFailing(slug, kind) ? "fail" : "pass",
-          remediation: isFailing(slug, kind) ? "reconcile_now" : "none",
-        });
-      }
-    }
-    if (includePersonalTeam) {
-      for (const kind of kinds.filter((k) => k !== "default_on_obo_audience")) {
-        items.push({
-          id: `team_scope.team-personal.${kind}`,
-          description: `team-personal ${kind}`,
-          group: "team-scope",
-          source: "init-token-exchange.sh",
-          status: "pass",
-          remediation: "none",
-        });
-      }
-    }
-    if (includeDmAdvisory) {
-      // Phase 3 (spec 2026-05-24-derive-team-from-channel) retired
-      // the `team_personal.dm_mode_known_limitation` advisory — the
-      // BFF no longer emits it because DMs no longer go through
-      // Keycloak token exchange. The matrix builder treats an unknown
-      // id as a no-op (`matrix.advisory === null`), which is what we
-      // want here too.
-      items.push({
-        id: "team_personal.dm_mode_known_limitation",
-        description: "team-personal DM mode has a known token-exchange limitation",
-        group: "team-scope",
-        source: "init-token-exchange.sh",
-        status: "unknown",
-        detail: "RFC 8693 drops the scope= parameter; see architecture.md for the rationale.",
-        remediation: "manual_keycloak",
-      });
-    }
-    const failing = items.filter((i) => i.status === "fail").length;
-    const unknown = items.filter((i) => i.status === "unknown").length;
-    return {
-      success: true,
-      data: {
-        ...completedHealth.data,
-        keycloak_invariants: {
-          summary: {
-            total: items.length,
-            passing: items.length - failing - unknown,
-            failing,
-            unknown,
-            reconcile_now_recommended: failing > 0,
-          },
-          items,
-        },
-      },
-    };
-  }
-
-  it("renders one row per team in the matrix table at 100 teams (no flat list, no virtualization)", async () => {
-    const teamSlugs = Array.from({ length: 100 }, (_, i) => `t${i.toString().padStart(3, "0")}`);
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
-      makeMatrixFixture({
-        teamSlugs,
-        failingCells: [{ slug: "t017", kind: "optional_on_slack_bot" }],
-      }),
-    ));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    // Matrix container is rendered (not the old flat ul of 400+ <li>s).
-    await waitFor(() => expect(screen.getByTestId("team-scope-matrix")).toBeInTheDocument());
-
-    // One row per real team (100 customer teams + 1 personal team).
-    expect(screen.getByTestId("team-scope-row-team-t017")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-t000")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-t099")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-personal")).toBeInTheDocument();
-
-    // Each row carries one StatusDot per kind (4 for normal teams,
-    // 3 for team-personal which structurally omits the audience cell).
-    for (const kind of [
-      "active_team_mapper",
-      "optional_on_slack_bot",
-      "optional_on_webex_bot",
-      "default_on_obo_audience",
-    ]) {
-      expect(
-        screen.getByTestId(`team-scope-cell-team-t000-${kind}`),
-      ).toBeInTheDocument();
-    }
-    expect(
-      screen.getByTestId("team-scope-cell-team-personal-active_team_mapper"),
-    ).toBeInTheDocument();
-    // team-personal's audience cell renders the N/A marker, not a dot.
-    const personalAudienceCell = screen.getByTestId(
-      "team-scope-cell-team-personal-default_on_obo_audience",
-    );
-    expect(personalAudienceCell.textContent ?? "").toMatch(/N\/A/);
-
-    // The failing row sorts above the passing rows.
-    const tableHtml = screen.getByTestId("team-scope-matrix-table").innerHTML;
-    expect(tableHtml.indexOf("team-scope-row-team-t017")).toBeLessThan(
-      tableHtml.indexOf("team-scope-row-team-t000"),
-    );
-  });
-
-  it("narrows the visible rows when the slug search and 'failing only' toggle are used (counts unchanged)", async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
-      makeMatrixFixture({
-        teamSlugs: ["alpha", "beta", "gamma"],
-        failingCells: [{ slug: "alpha", kind: "optional_on_slack_bot" }],
-      }),
-    ));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await waitFor(() => expect(screen.getByTestId("team-scope-matrix")).toBeInTheDocument());
-
-    // All four rows visible at first (alpha, beta, gamma, personal).
-    expect(screen.getByTestId("team-scope-row-team-alpha")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-beta")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-gamma")).toBeInTheDocument();
-    expect(screen.getByTestId("team-scope-row-team-personal")).toBeInTheDocument();
-
-    // Slug search narrows the visible rows.
-    fireEvent.change(screen.getByTestId("team-scope-slug-search"), {
-      target: { value: "alph" },
-    });
-    expect(screen.getByTestId("team-scope-row-team-alpha")).toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-beta")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-gamma")).not.toBeInTheDocument();
-
-    // Clear the search and exercise the "failing only" toggle.
-    fireEvent.change(screen.getByTestId("team-scope-slug-search"), {
-      target: { value: "" },
-    });
-    fireEvent.click(screen.getByTestId("team-scope-failing-only"));
-    expect(screen.getByTestId("team-scope-row-team-alpha")).toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-beta")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-gamma")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-personal")).not.toBeInTheDocument();
-  });
-
-  it("filters by per-kind failure chip and disables chips with no issues", async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
-      makeMatrixFixture({
-        teamSlugs: ["a", "b"],
-        failingCells: [
-          { slug: "a", kind: "optional_on_slack_bot" },
-          { slug: "b", kind: "optional_on_webex_bot" },
-        ],
-      }),
-    ));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await waitFor(() => expect(screen.getByTestId("team-scope-matrix")).toBeInTheDocument());
-
-    // Slack chip is active (has 1 issue), webex chip too. Mapper and
-    // audience chips show no issues and are disabled.
-    const slackChip = screen.getByTestId("team-scope-kind-chip-optional_on_slack_bot");
-    const webexChip = screen.getByTestId("team-scope-kind-chip-optional_on_webex_bot");
-    const mapperChip = screen.getByTestId("team-scope-kind-chip-active_team_mapper");
-    expect(slackChip).not.toBeDisabled();
-    expect(webexChip).not.toBeDisabled();
-    expect(mapperChip).toBeDisabled();
-
-    // Clicking the Slack chip narrows to team-a only.
-    fireEvent.click(slackChip);
-    expect(screen.getByTestId("team-scope-row-team-a")).toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-row-team-b")).not.toBeInTheDocument();
-  });
-
-  it("clicking the per-team Fix button POSTs to the global reconcile endpoint", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce(jsonResponse(
-        makeMatrixFixture({
-          teamSlugs: ["needs-fix"],
-          failingCells: [{ slug: "needs-fix", kind: "optional_on_slack_bot" }],
-        }),
-      ))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          data: { applied_counts: { team_scopes_reconciled: 1 } },
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse(completedHealth));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    fireEvent.click(
-      await screen.findByTestId("team-scope-team-fix-team-needs-fix"),
-    );
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ confirmation: "MIGRATE keycloak_rbac_mappings TO v1" }),
-        }),
-      );
-    });
-
-    expect(await screen.findByText(/Reconcile applied/i)).toBeInTheDocument();
-  });
-
-  it("clicking the per-kind Fix button POSTs to the same global reconcile endpoint", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce(jsonResponse(
-        makeMatrixFixture({
-          teamSlugs: ["a", "b"],
-          failingCells: [
-            { slug: "a", kind: "optional_on_slack_bot" },
-            { slug: "b", kind: "optional_on_slack_bot" },
-          ],
-        }),
-      ))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          data: { applied_counts: { team_scopes_reconciled: 2 } },
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse(completedHealth));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    fireEvent.click(
-      await screen.findByTestId("team-scope-kind-fix-optional_on_slack_bot"),
-    );
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply",
-        expect.objectContaining({ method: "POST" }),
-      );
-    });
-  });
-
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) retired the
-  // `team_personal.dm_mode_known_limitation` advisory. The panel
-  // therefore no longer renders a `team-scope-advisory` bar even if
-  // the legacy advisory id sneaks back into a fixture. This test
-  // pins the new contract: the advisory bar must not render.
-  it("does not render the dm_mode_known_limitation advisory bar (Phase 3 retired the invariant)", async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
-      makeMatrixFixture({
-        teamSlugs: ["a"],
-        failingCells: [],
-        includeDmAdvisory: true,
-      }),
-    ));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await waitFor(() => expect(screen.getByTestId("team-scope-matrix")).toBeInTheDocument());
-
-    expect(screen.queryByTestId("team-scope-advisory")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("team-scope-advisory-explain")).not.toBeInTheDocument();
-    expect(
-      screen.queryByTestId("team-scope-cell-team-personal-dm_mode_known_limitation"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("expanding a team row reveals the four per-cell invariants with the existing plain-English explainer tooltips", async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
-      makeMatrixFixture({
-        teamSlugs: ["alpha"],
-        failingCells: [{ slug: "alpha", kind: "active_team_mapper" }],
-      }),
-    ));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await waitFor(() => expect(screen.getByTestId("team-scope-row-team-alpha")).toBeInTheDocument());
-
-    // Toggle the row open.
-    fireEvent.click(screen.getByTestId("team-scope-row-toggle-team-alpha"));
-
-    // The detail row is rendered.
-    expect(
-      screen.getByTestId("team-scope-row-detail-team-alpha"),
-    ).toBeInTheDocument();
-
-    // Each per-cell invariant carries a HelpCircle explain affordance
-    // wired to `invariant-explanations.ts`, AND for failing cells with
-    // remediation=reconcile_now there's an inline per-cell Fix
-    // affordance (clicking it POSTs to the same global endpoint).
-    expect(
-      screen.getByTestId(
-        "team-scope-expanded-explain-team_scope.team-alpha.active_team_mapper",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId(
-        "team-scope-expanded-fix-team_scope.team-alpha.active_team_mapper",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // targeted "Reconcile active-team scope" heal action — the
-  // POST /api/admin/keycloak/active-team-scope route, the
-  // `audience.<client>.single_team_default` invariant, and the panel
-  // UI that drove the heal. All matching tests are gone with it. Any
-  // legacy `team-*` defaults still in a realm are now diagnostic-only
-  // (surfaced via `team_scope.<scope>.active_team_mapper` invariants)
-  // and cleaned up via `scripts/cleanup-team-keycloak-scopes.sh`.
 });

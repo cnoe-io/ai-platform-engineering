@@ -713,28 +713,6 @@ export async function ensureUserByEmail(email: string): Promise<KeycloakUserEnsu
   return { id: createdId, email: trimmed, created: response.status !== 409 };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Spec 104 (DEMOLISHED by Phase 3 of spec 2026-05-24-derive-team-from-channel)
-// — per-team Keycloak client scopes for `active_team` claim.
-//
-// Historical context: one client scope per team named `team-<slug>` carried
-// a single `oidc-hardcoded-claim-mapper` injecting `active_team=<slug>`
-// into the access token, bound as an optional scope on bot clients and as
-// a default scope on the bot OBO audience client. Phase 3 removed every
-// production call site that minted, bound, or deleted these scopes
-// (`ensureTeamClientScope`, `selectAgentGatewayActiveTeamScope`,
-// `deleteTeamClientScope`, `ensurePersonalTeamClientScope`,
-// `deleteOrphanTeamClientScopes` are all gone). The runtime path no longer
-// reads `active_team` from the JWT — team identity is derived from
-// `channel_team_mappings` at request time.
-//
-// The read-only diagnostics below survive solely so the migration health
-// panel can flag any legacy `team-*` client scope left in an upgraded
-// realm, pointing operators to `scripts/cleanup-team-keycloak-scopes.sh`
-// for one-time cleanup. The values returned here power the
-// `team_scope.*` invariants in `keycloak-invariants.ts`.
-// ─────────────────────────────────────────────────────────────────────────────
-
 const SLACK_BOT_CLIENT_ID =
   process.env.KEYCLOAK_BOT_CLIENT_ID?.trim() || "caipe-slack-bot";
 
@@ -743,16 +721,6 @@ const WEBEX_BOT_CLIENT_ID =
 
 export const BOT_OBO_AUDIENCE_CLIENT_ID =
   process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
-
-// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-// `team-personal` Keycloak client scope and the `PERSONAL_TEAM_*`
-// constants / `isPersonalTeam*` helpers that bound it. The DM-mode
-// signal now travels at the data layer (`channel_team_mappings` +
-// OpenFGA `team:personal`) and no longer requires a Keycloak client
-// scope or `active_team` JWT claim. Any legacy `team-personal` scope
-// left in a realm is treated like any other `team-*` legacy scope —
-// surfaced as a diagnostic invariant and cleaned up via
-// `scripts/cleanup-team-keycloak-scopes.sh`.
 
 function canonicalBotPolicyName(policyName: string): string {
   if (policyName === "caipe-webex-bot-token-exchange-policy") {
@@ -764,20 +732,6 @@ function canonicalBotPolicyName(policyName: string): string {
 interface KeycloakClient {
   id: string;
   clientId: string;
-}
-
-interface KeycloakClientScope {
-  id: string;
-  name: string;
-  protocol?: string;
-  description?: string;
-}
-
-interface KeycloakProtocolMapper {
-  id: string;
-  name: string;
-  protocolMapper: string;
-  config?: Record<string, string>;
 }
 
 interface KeycloakManagementPermissions {
@@ -840,15 +794,6 @@ export interface KeycloakAttachedPolicy {
 }
 
 export interface KeycloakRbacDiagnosticValues {
-  team_scopes: Array<{
-    scope: string;
-    scope_id: string;
-    active_team: string;
-    active_team_mapper: string;
-    optional_on_slack_bot: boolean;
-    optional_on_webex_bot: boolean;
-    default_on_obo_audience: boolean;
-  }>;
   obo_permissions: Array<{
     bot_client_id: string;
     policy_name: string;
@@ -894,10 +839,6 @@ export interface KeycloakRbacDiagnosticValues {
     decision_strategy: string;
     attached_policies: KeycloakAttachedPolicy[];
   };
-  active_team_defaults: Array<{
-    audience_client_id: string;
-    default_team_scopes: string[];
-  }>;
 }
 
 async function getClientByClientId(clientId: string): Promise<KeycloakClient | null> {
@@ -1220,150 +1161,18 @@ async function readScopePermissionDetails(
   };
 }
 
-async function listClientScopes(): Promise<KeycloakClientScope[]> {
-  const response = await adminFetch("/client-scopes", { method: "GET" });
-  await assertOk(response, "listClientScopes");
-  const raw = await parseJsonArray<Record<string, unknown>>(response);
-  return raw
-    .map((s) => {
-      const id = typeof s.id === "string" ? s.id : "";
-      const name = typeof s.name === "string" ? s.name : "";
-      if (!id || !name) return null;
-      return {
-        id,
-        name,
-        protocol: typeof s.protocol === "string" ? s.protocol : undefined,
-        description: typeof s.description === "string" ? s.description : undefined,
-      } as KeycloakClientScope;
-    })
-    .filter((x): x is KeycloakClientScope => x !== null);
-}
-
-// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
-// `getClientScopeByName` / `createClientScope` mutation pair. The
-// `listClientScopes` reader above is kept because
-// `getKeycloakRbacDiagnosticValues` (below) still scans for legacy
-// `team-*` scopes so operators can clean them up.
-
-async function listProtocolMappers(scopeId: string): Promise<KeycloakProtocolMapper[]> {
-  const enc = encodeURIComponent(scopeId);
-  const response = await adminFetch(
-    `/client-scopes/${enc}/protocol-mappers/models`,
-    { method: "GET" }
-  );
-  await assertOk(response, "listProtocolMappers");
-  const raw = await parseJsonArray<Record<string, unknown>>(response);
-  return raw
-    .map((m) => {
-      const id = typeof m.id === "string" ? m.id : "";
-      const name = typeof m.name === "string" ? m.name : "";
-      const protocolMapper = typeof m.protocolMapper === "string" ? m.protocolMapper : "";
-      if (!id || !name) return null;
-      return {
-        id,
-        name,
-        protocolMapper,
-        config:
-          m.config && typeof m.config === "object" && !Array.isArray(m.config)
-            ? (m.config as Record<string, string>)
-            : undefined,
-      } as KeycloakProtocolMapper;
-    })
-    .filter((x): x is KeycloakProtocolMapper => x !== null);
-}
-
-// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
-// team-scope mutation helpers (`ensureHardcodedActiveTeamMapper`,
-// `bindScopeAsOptional`, `bindScopeAsDefault`,
-// `unbindOptionalScope`, `unbindDefaultScope`, `deleteClientScope`).
-// The remaining read-only helpers (`listProtocolMappers`,
-// `listDefaultClientScopes`, `listOptionalClientScopes`) are kept
-// because `getKeycloakRbacDiagnosticValues` still walks legacy
-// `team-*` scopes so operators can clean them up via
-// `scripts/cleanup-team-keycloak-scopes.sh`.
-
-async function listDefaultClientScopes(clientUuid: string): Promise<KeycloakClientScope[]> {
-  const response = await adminFetch(
-    `/clients/${encodeURIComponent(clientUuid)}/default-client-scopes`,
-    { method: "GET" }
-  );
-  await assertOk(response, "listDefaultClientScopes");
-  const raw = await parseJsonArray<Record<string, unknown>>(response);
-  return raw
-    .map((s) => {
-      const id = typeof s.id === "string" ? s.id : "";
-      const name = typeof s.name === "string" ? s.name : "";
-      if (!id || !name) return null;
-      return { id, name } as KeycloakClientScope;
-    })
-    .filter((scope): scope is KeycloakClientScope => scope !== null);
-}
-
-async function listOptionalClientScopes(clientUuid: string): Promise<KeycloakClientScope[]> {
-  const response = await adminFetch(
-    `/clients/${encodeURIComponent(clientUuid)}/optional-client-scopes`,
-    { method: "GET" }
-  );
-  await assertOk(response, "listOptionalClientScopes");
-  const raw = await parseJsonArray<Record<string, unknown>>(response);
-  return raw
-    .map((s) => {
-      const id = typeof s.id === "string" ? s.id : "";
-      const name = typeof s.name === "string" ? s.name : "";
-      if (!id || !name) return null;
-      return { id, name } as KeycloakClientScope;
-    })
-    .filter((scope): scope is KeycloakClientScope => scope !== null);
-}
-
-// (Phase 3 removed `unbindDefaultScope`, `unbindOptionalScope`, and
-//  `deleteClientScope` — see the Phase 3 demolition comment above.)
-
 /**
- * Validate a team slug. Keycloak itself accepts a fairly permissive set of
- * characters but we keep this strict (lowercase alphanumerics + hyphen) so the
- * slug renders cleanly in OpenFGA object IDs (`team:<slug>`), MongoDB foreign
- * keys in `channel_team_mappings` / `webex_space_team_mappings`, and admin
- * URLs. Callers should reject invalid slugs before persisting a team; this
- * function is the canonical regex.
- *
- * Phase 3 (spec 2026-05-24-derive-team-from-channel) retained this
- * validator — team-slug format is still enforced when creating Mongo
- * team docs and OpenFGA team objects. The slug no longer participates
- * in any Keycloak object name or JWT claim.
+ * Validate a team slug. We keep the regex strict (lowercase alphanumerics
+ * + hyphen) so the slug renders cleanly in OpenFGA object IDs
+ * (`team:<slug>`), MongoDB foreign keys in `channel_team_mappings` /
+ * `webex_space_team_mappings`, and admin URLs. Callers should reject
+ * invalid slugs before persisting a team; this function is the canonical
+ * regex.
  */
 export function isValidTeamSlug(slug: string): boolean {
   if (!slug || slug.length > 63) return false;
   return /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug);
 }
-
-// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
-// team-scope mutation helpers that used to live here:
-//
-//   - `ensureTeamClientScope(slug)` — created the `team-<slug>` scope
-//     and bound it on both bot clients and the OBO audience.
-//   - `ensurePersonalTeamClientScope()` — created the `team-personal`
-//     DM-marker scope.
-//   - `deleteOrphanTeamClientScopes(keepSlugs)` — pruned `team-*`
-//     scopes that no longer matched a Mongo team.
-//   - `selectAgentGatewayActiveTeamScope(slug)` — pinned one
-//     `team-*` default scope on the OBO audience client.
-//
-// The new authorization model derives team identity from the
-// `channel_team_mappings` collection at request time (BFF +
-// AgentGateway PDP) so the bots no longer need an `active_team`
-// claim and Keycloak no longer needs per-team client scopes. The
-// read-only helpers used to surface drift (`listClientScopes`,
-// `listProtocolMappers`, etc.) are retained because
-// `getKeycloakRbacDiagnosticValues` still emits diagnostic
-// invariants pointing operators at any legacy `team-*` scopes for
-// cleanup via `scripts/cleanup-team-keycloak-scopes.sh`.
-//
-// Read-only sibling helpers are deliberately retained:
-//   - `listClientScopes()`           — used by getKeycloakRbacDiagnosticValues
-//   - `listProtocolMappers(scopeId)` — used by getKeycloakRbacDiagnosticValues
-//   - `listOptionalClientScopes()`   — used by getKeycloakRbacDiagnosticValues
-//   - `listDefaultClientScopes()`    — used by getKeycloakRbacDiagnosticValues
 
 async function ensureBotOboPermissions(botClientId: string, policyName: string): Promise<void> {
   const [botClient, oboAudienceClient, realmManagementClient] = await Promise.all([
@@ -1610,37 +1419,6 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
           resolveClientId
         ).catch(() => null)
       : null;
-  const teamScopes = (await listClientScopes())
-    .filter((scope) => scope.name.startsWith("team-"))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const [slackOptionalScopes, webexOptionalScopes, audienceDefaultScopes] = await Promise.all([
-    slackBotClient ? listOptionalClientScopes(slackBotClient.id) : Promise.resolve([]),
-    webexBotClient ? listOptionalClientScopes(webexBotClient.id) : Promise.resolve([]),
-    oboAudienceClient ? listDefaultClientScopes(oboAudienceClient.id) : Promise.resolve([]),
-  ]);
-  const slackOptionalNames = new Set(slackOptionalScopes.map((scope) => scope.name));
-  const webexOptionalNames = new Set(webexOptionalScopes.map((scope) => scope.name));
-  const audienceDefaultNames = new Set(audienceDefaultScopes.map((scope) => scope.name));
-
-  const teamScopeValues = await Promise.all(
-    teamScopes.map(async (scope) => {
-      const mappers = await listProtocolMappers(scope.id);
-      const activeTeamMapper = mappers.find(
-        (mapper) => mapper.config?.["claim.name"] === "active_team"
-      );
-      return {
-        scope: scope.name,
-        scope_id: scope.id,
-        active_team: activeTeamMapper?.config?.["claim.value"] ?? "missing",
-        active_team_mapper: activeTeamMapper?.name ?? "missing",
-        optional_on_slack_bot: slackOptionalNames.has(scope.name),
-        optional_on_webex_bot: webexOptionalNames.has(scope.name),
-        default_on_obo_audience: audienceDefaultNames.has(scope.name),
-      };
-    })
-  );
-
   const tokenExchangePermissionId =
     oboAudienceClient
       ? (await readClientManagementPermissions(
@@ -1735,7 +1513,6 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
   }
 
   return {
-    team_scopes: teamScopeValues,
     obo_permissions: oboPermissionRows,
     bot_service_accounts: serviceAccountRows,
     token_exchange_permissions: tokenExchangePermissionRows,
@@ -1753,25 +1530,14 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
               attached_policies: [],
             }
           : undefined,
-    active_team_defaults: oboAudienceClient
-      ? [
-          {
-            audience_client_id: oboAudienceClient.clientId,
-            default_team_scopes: audienceDefaultScopes
-              .map((scope) => scope.name)
-              .filter((name) => name.startsWith("team-"))
-              .sort(),
-          },
-        ]
-      : [],
   };
 }
 
 // Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted
 // `deleteTeamClientScope(slug)`. Team deletion is now a pure Mongo
-// + OpenFGA operation; any lingering `team-<slug>` Keycloak scopes
-// are cleaned up out-of-band via
-// `scripts/cleanup-team-keycloak-scopes.sh`.
+// + OpenFGA operation. The team-* Keycloak client scope mechanism
+// was never released to any user-facing realm so no operator-side
+// cleanup is required.
 
 function readAttributeValue(attrs: unknown, attributeName: string): string | undefined {
   if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;

@@ -22,7 +22,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { explainInvariant } from "./invariant-explanations";
-import { KeycloakTeamScopeMatrix } from "./KeycloakTeamScopeMatrix";
 import {
   BOOTSTRAP_ADMIN_HEADER_EXPLANATION,
   explainWarning,
@@ -161,11 +160,9 @@ interface KeycloakMigrationHealth {
     outcomes: Array<Record<string, unknown>>;
   };
   keycloak_values?: {
-    team_scopes?: Array<Record<string, unknown>>;
     obo_permissions?: Array<Record<string, unknown>>;
     bot_service_accounts?: Array<Record<string, unknown>>;
     token_exchange_permissions?: Array<Record<string, unknown>>;
-    active_team_defaults?: Array<Record<string, unknown>>;
     users_impersonate_permission?: Record<string, unknown>;
   };
   keycloak_values_error?: string;
@@ -183,7 +180,7 @@ interface KeycloakMigrationHealth {
 
 type InvariantStatus = "pass" | "fail" | "unknown";
 type InvariantRemediation = "reconcile_now" | "manual_keycloak" | "none";
-type InvariantGroup = "obo" | "client" | "team-scope" | "service-account";
+type InvariantGroup = "obo" | "client" | "service-account";
 
 interface KeycloakInvariant {
   id: string;
@@ -198,14 +195,12 @@ interface KeycloakInvariant {
 const INVARIANT_GROUP_ORDER: InvariantGroup[] = [
   "obo",
   "service-account",
-  "team-scope",
   "client",
 ];
 
 const INVARIANT_GROUP_LABELS: Record<InvariantGroup, string> = {
   obo: "OBO (token exchange & impersonation)",
   "service-account": "Bot service accounts",
-  "team-scope": "Team client scopes",
   client: "Clients & realm",
 };
 
@@ -338,12 +333,6 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
   const [error, setError] = useState<string | null>(null);
   const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<MetricDetails | null>(null);
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // targeted "Reconcile active-team scope" heal surface. The
-  // `audience.<client>.single_team_default` invariant is gone, the
-  // POST /api/admin/keycloak/active-team-scope route is deleted, and
-  // operators clean up any legacy `team-*` scopes via
-  // `scripts/cleanup-team-keycloak-scopes.sh`.
 
   const loadHealth = useCallback(async () => {
     setLoading(true);
@@ -402,10 +391,6 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
 
   const reconcileAll = useCallback(() => runReconcile(null), [runReconcile]);
 
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // healActiveTeamScope callback — see the matching comment above the
-  // removed state hooks at the top of the component.
-
   const lastRun = health?.migration.last_run;
   const bootstrapHasFailures = Boolean(health?.bootstrap_admins && health.bootstrap_admins.failed_count > 0);
   const invariantsFailing = Boolean(
@@ -414,11 +399,6 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
   const invariantsRecommendReconcile = Boolean(
     health?.keycloak_invariants?.summary.reconcile_now_recommended,
   );
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
-  // `audienceSingleTeamDefaultFailing` and `currentRealTeamDefaultsByAudience`
-  // because the audience-cardinality invariant and its targeted heal UI are
-  // both gone. The `Reconcile all` button still drives the generic Keycloak
-  // RBAC reconciliation migration for the OBO permission wiring that remains.
   const degraded = Boolean(
     error ||
       health?.blocking.is_blocking ||
@@ -520,14 +500,6 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
             />
           </div>
         )}
-        {/*
-          Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-          targeted "Reconcile active-team scope" heal UI together with the
-          POST /api/admin/keycloak/active-team-scope route, the
-          `audience.<client>.single_team_default` invariant, and the
-          `healActiveTeamScope` callback. Operators clean up any lingering
-          legacy `team-*` scopes via scripts/cleanup-team-keycloak-scopes.sh.
-        */}
         {!health && !error && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1014,29 +986,7 @@ function InvariantsSection({
                   )}
                 </span>
               </button>
-              {isOpen && group === "team-scope" && (
-                <div id={`invariants-${group}`} className="border-t p-3">
-                  {/*
-                    The `team-scope` group is special-cased: at any
-                    realm size it emits one invariant per (team_slug,
-                    wiring_kind) pair, so the flat list would scale to
-                    `4N + 1` rows. The matrix view pivots to one row
-                    per team × column per wiring kind, with filter
-                    affordances and per-team / per-kind Fix buttons.
-                    The accordion header above still shows the
-                    aggregate count badge, so we hide the matrix's
-                    own redundant summary strip.
-                  */}
-                  <KeycloakTeamScopeMatrix
-                    items={items}
-                    reconciling={reconciling}
-                    reconcileOriginId={reconcileOriginId}
-                    onFixOne={onFixOne}
-                    hideSummaryStrip
-                  />
-                </div>
-              )}
-              {isOpen && group !== "team-scope" && (
+              {isOpen && (
                 <ul id={`invariants-${group}`} className="divide-y border-t">
                   {items.map((item) => {
                     const isFailing = item.status !== "pass";

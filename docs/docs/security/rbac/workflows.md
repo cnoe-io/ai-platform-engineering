@@ -685,9 +685,7 @@ The panel surfaces five high-signal tiles at the top (Schema area / Version /
 Migration status / Last actor / Bootstrap admins) and the Keycloak Invariants
 section below them with per-row **Fix** buttons as the actionable source of truth
 for OBO token-exchange permission strategy, attached OBO policies, and
-service-account impersonation roles. Any legacy `team-*` client scopes left over
-from before Phase 3 are surfaced here as diagnostic invariants pointing
-operators to `scripts/cleanup-team-keycloak-scopes.sh`. Bootstrap-admin
+service-account impersonation roles. Bootstrap-admin
 diagnostics (configured emails, resolved Keycloak subjects, placeholder
 creations, tuple writes, per-email warnings) are still inspectable through the
 Bootstrap admins tile at the top of the panel.

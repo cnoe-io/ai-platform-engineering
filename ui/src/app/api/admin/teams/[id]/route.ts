@@ -169,8 +169,8 @@ export const DELETE = withErrorHandler(async (
 
     // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Keycloak
     // per-team client scope no longer exists, so team deletion is a pure
-    // Mongo + OpenFGA operation. Operators clean up any legacy `team-<slug>`
-    // scopes that linger in a realm with `scripts/cleanup-team-keycloak-scopes.sh`.
+    // Mongo + OpenFGA operation. The feature was never released, so no
+    // realm has stale `team-<slug>` scopes to clean up.
     const slug = typeof team.slug === 'string' ? team.slug : '';
 
     console.log(`[Admin] Team deleted: ${team.name} (${params.id}, slug=${slug}) by ${user.email}`);

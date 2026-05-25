@@ -518,22 +518,21 @@ specific provisioning steps owned by `init-idp.sh`,
 named pass / fail / unknown check with a remediation hint:
 
 > **Phase 3 demolition note (spec 2026-05-24-derive-team-from-channel).**
-> The `team-scope` family of invariants and the targeted "Reconcile
-> active-team scope" heal surface described later in this section are
-> deprecated. Team identity is now derived from `channel_team_mappings`
-> at request time and Keycloak no longer participates. The invariants
-> remain in code as **diagnostics for legacy realms** — they flag any
-> `team-*` client scope left over from before Phase 3 so operators can
-> clean them up via [`scripts/cleanup-team-keycloak-scopes.sh`](https://github.com/cisco-eti/ai-platform-engineering/blob/main/scripts/cleanup-team-keycloak-scopes.sh).
-> The `team_personal.dm_mode_known_limitation` advisory and the
-> `audience.<client>.single_team_default` invariant are gone; the
+> The `team-scope` family of invariants, the targeted "Reconcile
+> active-team scope" heal surface, the `team-scope matrix` view, the
+> `team_personal.dm_mode_known_limitation` advisory, the
+> `audience.<client>.single_team_default` invariant, the
 > `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` env var, the
 > `POST /api/admin/keycloak/active-team-scope` route, and the
-> `Reconcile active-team scope` picker have all been deleted.
+> `Reconcile active-team scope` picker have all been deleted. The
+> `active_team` mechanism never shipped to production, so no realm
+> has legacy `team-*` scopes to clean up. Team identity is now derived
+> from `channel_team_mappings` at request time and Keycloak no longer
+> participates.
 
 **Plain-English explainer tooltip.** The machine IDs are accurate but
 cryptic to a human (e.g. `obo.token_exchange.shared_audience.affirmative`,
-`team_scope.team-platform.default_on_obo_audience`). Every row renders a
+`obo.users_impersonate.exists`). Every row renders a
 small `HelpCircle` affordance next to its description; hovering it (or
 focusing it via the keyboard) opens a tooltip with a decoded title and a
 two- to four-sentence body explaining **what the check verifies**, **why
@@ -612,13 +611,6 @@ file to extend.
   A `js` / `role` / empty-`clients` policy gives an admin a permissive single
   PERMIT under the AFFIRMATIVE decision strategy, so the panel asks an operator
   to remove it explicitly rather than auto-rewriting.
-- **Legacy team-scope cleanup** — any surviving `team-<slug>` client scope
-  from before Phase 3 of spec 2026-05-24-derive-team-from-channel shows up
-  as a `team_scope.<scope>.active_team_mapper` invariant. Run
-  `scripts/cleanup-team-keycloak-scopes.sh --apply` against the realm to
-  drop them. The script is idempotent and re-running it on a clean realm
-  is a no-op.
-
 **Admin-only header alert.** Admins do not have to be on the Keycloak tab
 to notice a regression. The right-hand cluster of the global `AppHeader`
 renders a single admin-only `Alerts: <N>` pill whenever one or more
@@ -706,16 +698,14 @@ The invariant set currently covers:
 | --- | --- |
 | OBO | `obo.token_exchange.*.affirmative`, `obo.token_exchange.shared_audience.{slack,webex}_policy_attached`, `obo.users_impersonate.affirmative`, `obo.users_impersonate.policies_strict`, `obo.users_impersonate.<bot>_policy_attached`, `obo.bot.<bot>.token_exchange_policy_attached`, `obo.bot.<bot>.users_impersonate_policy_attached` |
 | Bot service accounts | `service_account.<bot>.impersonation_role` |
-| Legacy team-scope diagnostics (Phase 3 demolition target) | `team_scope.<scope>.active_team_mapper`, `team_scope.<scope>.optional_on_{slack,webex}_bot` — emitted only for `team-*` client scopes left over from before Phase 3 of spec 2026-05-24-derive-team-from-channel. Clear by running `scripts/cleanup-team-keycloak-scopes.sh --apply`. |
 
-**Team-scope matrix view (legacy).** The `slug × wiring-kind` matrix
-view in `KeycloakTeamScopeMatrix.tsx` still renders any legacy `team-*`
-client scope an operator hasn't yet cleaned up. On a post-Phase-3 realm
-the matrix is empty and the panel renders no team-scope section at all.
-On an upgraded realm with leftover scopes, the matrix lists them so
-operators can verify what `scripts/cleanup-team-keycloak-scopes.sh`
-will remove. The matrix is read-only from the panel — there is no Fix
-button for legacy scopes; the script is the canonical cleanup path.
+Phase 3 of spec 2026-05-24-derive-team-from-channel removed the entire
+team-scope invariant family (`team_scope.<scope>.*`), the matrix view
+that surfaced it (`KeycloakTeamScopeMatrix.tsx`), and the
+`team_personal.dm_mode_known_limitation` advisory. The `active_team`
+mechanism never shipped to production, so no realm has legacy `team-*`
+scopes to clean up — the panel no longer renders a team-scope section
+at all.
 
 The evaluator is a pure function over the read-only inspection in
 `ui/src/lib/rbac/keycloak-admin.ts#getKeycloakRbacDiagnosticValues`, so it
