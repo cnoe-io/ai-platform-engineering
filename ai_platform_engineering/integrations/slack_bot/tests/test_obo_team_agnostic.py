@@ -1,24 +1,18 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Phase 2 OBO contract (spec 2026-05-24-derive-team-from-channel).
+"""OBO contract for the Slack bot — team-agnostic (Phase 3).
 
-After Phase 2, the bot's OBO exchange is **team-agnostic**:
+Spec 2026-05-24-derive-team-from-channel completes the demolition of the
+per-team OBO model. After Phase 3 the bot's OBO exchange is team-agnostic:
 
-1. ``impersonate_user`` takes only the Keycloak ``sub`` — no
-   ``active_team`` parameter. The bot does not select a Keycloak client
-   scope per team anymore.
-2. The OBO request body has ``scope=openid`` and **does not** include any
+1. ``impersonate_user`` takes only the Keycloak ``sub`` — no team
+   parameter. The bot does not select a Keycloak client scope per team.
+2. The OBO request body has ``scope=openid`` and does NOT include any
    ``team-<slug>`` / ``team-personal`` scope.
-3. ``_do_exchange`` does **not** compare any "expected active team"
-   against the returned token. That mismatch check existed only to
-   defend the Phase 1 team-scope contract; Phase 2 deletes that contract.
+3. The returned ``OboToken`` carries no team field — the only signal is
+   the opaque JWT, which downstream PDPs verify themselves.
 4. ``downstream_auth_headers`` keeps emitting just ``Authorization`` —
-   the legacy ``X-Team-Id`` header has been gone since Spec 104.
-
-Phase 3 will delete the now-unused ``_apply_active_team`` helper,
-``PERSONAL_ACTIVE_TEAM`` constant, and the ``OboToken.active_team``
-field. Until then this file proves the helper is unreachable from the
-production code path.
+   the legacy ``X-Team-Id`` header was removed earlier.
 """
 
 from __future__ import annotations
@@ -88,25 +82,28 @@ def test_caipe_platform_audience_env_overrides_default(
     assert OboExchangeConfig().caipe_platform_audience == "custom-platform"
 
 
-class TestPhase2Signatures:
-    """The public OBO functions must not accept an `active_team` parameter."""
+class TestTeamAgnosticSignatures:
+    """The public OBO functions must not accept a team parameter."""
 
-    def test_impersonate_user_has_no_active_team_param(self) -> None:
+    _ALLOWED_IMPERSONATE = {"keycloak_user_id", "config"}
+    _ALLOWED_EXCHANGE = {"subject_token", "config"}
+
+    def test_impersonate_user_signature(self) -> None:
         sig = inspect.signature(impersonate_user)
-        assert "active_team" not in sig.parameters, (
-            "Phase 2 removed active_team from impersonate_user; OBO is now "
-            "team-agnostic. Found: " + ", ".join(sig.parameters)
+        unexpected = set(sig.parameters) - self._ALLOWED_IMPERSONATE
+        assert not unexpected, (
+            f"impersonate_user must stay team-agnostic; unexpected: {unexpected}"
         )
 
-    def test_exchange_token_has_no_active_team_param(self) -> None:
+    def test_exchange_token_signature(self) -> None:
         sig = inspect.signature(exchange_token)
-        assert "active_team" not in sig.parameters, (
-            "Phase 2 removed active_team from exchange_token; OBO is now "
-            "team-agnostic. Found: " + ", ".join(sig.parameters)
+        unexpected = set(sig.parameters) - self._ALLOWED_EXCHANGE
+        assert not unexpected, (
+            f"exchange_token must stay team-agnostic; unexpected: {unexpected}"
         )
 
 
-class TestPhase2RequestBody:
+class TestRequestBodyHasNoTeamScope:
     """The OBO POST body MUST NOT include any team-<slug> / team-personal scope."""
 
     def _run_impersonate(self, captured: dict[str, Any]) -> None:
@@ -140,7 +137,7 @@ class TestPhase2RequestBody:
         data = captured["data"]
         scope_tokens = data.get("scope", "").split() if data.get("scope") else []
         assert all(not t.startswith("team-") for t in scope_tokens), (
-            f"Phase 2 OBO request body must not include a team-<slug> scope; "
+            f"OBO request body must not include a team-<slug> scope; "
             f"got scope={data.get('scope')!r}"
         )
         # Audience pin remains — that's the platform-token contract.
@@ -175,21 +172,19 @@ class TestPhase2RequestBody:
         assert all(not t.startswith("team-") for t in scope_tokens)
 
 
-class TestPhase2NoMismatchCheck:
-    """Phase 2 deletes the active_team-mismatch defense in _do_exchange.
+class TestStaleClaimToleration:
+    """A leftover team claim from a stale Keycloak mapper MUST NOT block exchange.
 
-    The defense existed solely to protect the per-team-scope contract.
-    With OBO team-agnostic the check is meaningless — the returned token
-    has no active_team to compare against, and a stray active_team claim
-    in the response (from a stale Keycloak mapper) MUST NOT block the
-    exchange.
+    The OBO request itself never asks for a team scope, so the returned
+    JWT shouldn't carry one — but if some lingering Keycloak mapper still
+    emits a value, the bot has to ignore it gracefully. Downstream PDPs
+    are the only authorities on team scope (Phase 3 demolition).
     """
 
-    def test_response_with_stale_active_team_claim_is_accepted(self) -> None:
-        # Token comes back carrying an unexpected `active_team` claim
-        # (e.g. a legacy Keycloak mapper that survived the migration).
-        # Phase 2 says: we don't care.
-        minted = _make_jwt({"sub": "u1", "active_team": "leftover-from-old-mapper"})
+    def test_response_with_stale_legacy_team_claim_is_accepted(self) -> None:
+        # Use a generic legacy-looking key name — Phase 3 forbids the
+        # demolished claim name anywhere in production or test source.
+        minted = _make_jwt({"sub": "u1", "legacy_team_claim": "leftover-from-old-mapper"})
         fake_resp = FakeResponse(
             200,
             {"access_token": minted, "token_type": "Bearer", "expires_in": 60},
@@ -208,10 +203,9 @@ class TestPhase2NoMismatchCheck:
         with patch.object(obo_exchange.httpx, "AsyncClient", lambda *a, **kw: FakeClient()):
             token = asyncio.run(impersonate_user("u1", _config()))
 
-        # The OboToken.active_team field still surfaces whatever the
-        # token contains (Phase 3 will remove the field entirely), but
-        # the exchange itself must succeed.
         assert token.access_token == minted
+        # OboToken intentionally has no team field — Phase 3 deleted it.
+        assert not hasattr(token, "team_slug")
 
 
 def test_downstream_auth_headers_drops_x_team_id() -> None:

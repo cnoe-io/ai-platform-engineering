@@ -1,17 +1,19 @@
-"""Spec 104 — resolve a Slack channel to its CAIPE team slug.
+"""Resolve a Slack channel to its CAIPE team slug.
 
 Runs before :func:`obo_exchange.impersonate_user`. Maps:
 
   Slack channel ID
     ─→ ``channel_team_mappings.team_id`` (team Mongo ObjectId hex)
         ─→ ``teams._id`` document
-            ─→ ``teams.slug`` (used as ``active_team`` in the OBO token)
+            ─→ ``teams.slug`` (used as the channel-resolved team scope
+               carried via the dispatch envelope and ``X-Team-Id`` /
+               ``X-Channel-Id`` headers — never in the OBO token).
 
 We also verify that the requesting user is a member of that team — the
 bot is the first of two RBAC checkpoints (the second is AgentGateway
-ext_authz/OpenFGA). Doing it here lets us
-return a friendly "you're not in this team" message rather than letting
-the request 403 silently downstream.
+ext_authz/OpenFGA). Doing it here lets us return a friendly "you're not
+in this team" message rather than letting the request 403 silently
+downstream.
 
 Uses an in-process TTL cache to avoid hammering Mongo on every Slack
 event; admins should restart bots after large team-membership changes or rely
@@ -38,12 +40,6 @@ from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
 
 logger = logging.getLogger("caipe.slack_bot.channel_team_resolver")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
-
-
-# Sentinel team slug used in OBO tokens for DM / personal interactions.
-# MUST match `obo_exchange.PERSONAL_ACTIVE_TEAM` and the hardcoded value
-# in the Keycloak `team-personal` client scope.
-PERSONAL_ACTIVE_TEAM = "__personal__"
 
 
 CHANNEL_NOT_MAPPED_TO_TEAM_MESSAGE = (
@@ -203,8 +199,8 @@ class ChannelTeamResolver:
             # backfilled a slug yet. Fail loud — the bot can't mint a
             # token-exchange scope without a slug.
             logger.error(
-                "Team %s (id=%s) has no slug; cannot mint active_team token. "
-                "Restart caipe-ui to trigger the team-scope auto-sync.",
+                "Team %s (id=%s) has no slug; cannot apply team-member ReBAC subject. "
+                "Run the team-slug migration or repair the Mongo `teams.slug` field.",
                 team_name,
                 team_id,
             )

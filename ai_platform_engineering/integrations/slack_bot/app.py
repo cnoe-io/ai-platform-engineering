@@ -74,7 +74,6 @@ if RBAC_ENABLED:
     from utils.channel_team_resolver import (
         resolve_channel_team,
         is_dm_channel,
-        PERSONAL_ACTIVE_TEAM,  # noqa: F401 — kept for Phase 3 legacy log lines
     )
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
     from utils.obo_exchange import impersonate_user, OboExchangeError
@@ -172,7 +171,7 @@ if RBAC_ENABLED:
                 # We still surface team metadata in context for legacy log
                 # lines / metrics and for the channel-ReBAC PDP call below;
                 # the OBO token itself does not carry it.
-                context["active_team"] = team_resolution.team_slug
+                context["team_slug"] = team_resolution.team_slug
                 context["team_id"] = team_resolution.team_id
                 context["team_name"] = team_resolution.team_name
                 context["surface_kind"] = "channel"
@@ -209,8 +208,8 @@ def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | N
     if not RBAC_ENABLED or context is None or not channel_id or not agent_id:
         return None
     try:
-        active_team = context.get("active_team")
-        if active_team == PERSONAL_ACTIVE_TEAM or is_dm_channel(channel_id):
+        team_slug = context.get("team_slug")
+        if is_dm_channel(channel_id):
             return None
         workspace_id = context.get("slack_workspace_id") or slack_workspace_ref()
         obo_token = context.get("obo_token")
@@ -221,7 +220,7 @@ def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | N
         workspace_id=str(workspace_id),
         channel_id=str(channel_id),
         agent_id=str(agent_id),
-        active_team=str(active_team or ""),
+        team_slug=str(team_slug or ""),
         obo_token=obo_token if isinstance(obo_token, str) else None,
     )
     if decision.allowed:

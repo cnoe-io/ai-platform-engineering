@@ -82,15 +82,14 @@ class FakeOboExchanger:
             )
 
             raise OboExchangeError("exchange failed")
-        # Phase 2 (spec 2026-05-24): the OBO token is team-agnostic. Tests
-        # that assert team binding now look at the dispatch payload's
-        # `active_team` (set by the runtime gate from the space resolver),
+        # Phase 3 (spec 2026-05-24): the OBO token is team-agnostic. Tests
+        # that assert team binding look at the dispatch payload's
+        # ``team_slug`` (set by the runtime gate from the space resolver),
         # not the token itself.
         return OboToken(
             access_token="obo-access",
             token_type="Bearer",
             expires_in=300,
-            active_team=None,
         )
 
 
@@ -163,7 +162,7 @@ def test_linked_allowed_dispatches() -> None:
     assert len(dispatcher.calls) == 1
     assert dispatcher.calls[0]["obo_token"] == "obo-access"
     assert dispatcher.calls[0]["agent_id"] == "incident-agent"
-    assert dispatcher.calls[0]["active_team"] == "platform-eng"
+    assert dispatcher.calls[0]["team_slug"] == "platform-eng"
 
 
 def test_missing_team_mapping_denies() -> None:

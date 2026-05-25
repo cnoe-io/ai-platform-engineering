@@ -33,10 +33,15 @@ class WebexSpaceRebacDecision:
     reason: WebexSpaceRebacReason
 
 
-def build_team_member_subject(active_team: Optional[str]) -> Optional[str]:
-    if not active_team or active_team == "__personal__":
+def build_team_member_subject(team_slug: Optional[str]) -> Optional[str]:
+    """Build a `team:<slug>#member` ReBAC subject for the channel-resolved team.
+
+    Returns ``None`` when no team scope is available (DM / unmapped space)
+    so the caller falls back to a user-only ReBAC check.
+    """
+    if not team_slug:
         return None
-    return f"team:{active_team}#member"
+    return f"team:{team_slug}#member"
 
 
 def _default_base_url() -> str:
@@ -125,7 +130,7 @@ class WebexRebacEvaluator:
         workspace_id: str,
         space_id: str,
         agent_id: str,
-        active_team: Optional[str],
+        team_slug: Optional[str],
         obo_token: str,
     ) -> WebexSpaceRebacDecision:
         path = (
@@ -137,7 +142,7 @@ class WebexRebacEvaluator:
             "resource": {"type": "agent", "id": agent_id},
             "action": "use",
         }
-        subject = build_team_member_subject(active_team)
+        subject = build_team_member_subject(team_slug)
         if subject:
             payload["user_subject"] = subject
         return self._post(path, payload, obo_token)

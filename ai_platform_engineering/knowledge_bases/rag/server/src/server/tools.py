@@ -75,11 +75,11 @@ class AgentTools:
     if user.email.startswith("client:"):
       return None
 
-    # Phase 1 (spec 2026-05-24): use centralised derivation. The MCP tool
-    # path doesn't have a Request, so `derive_team_for_request(None, ...)`
-    # only consults the claim. Fall back to the legacy realm-role
-    # extraction for SA tokens that don't carry an active_team claim — we
-    # keep that path until Phase 3 demolition.
+    # Phase 3 (spec 2026-05-24): centralised derivation is now data-layer-only.
+    # The MCP tool path doesn't have a Request, so `derive_team_for_request(
+    # None, ...)` always returns None here — we fall back to the legacy
+    # ``team_member(<id>)`` realm-role pattern used by service-account tokens
+    # that pre-date OBO and don't carry channel/team headers.
     team_id = await derive_team_for_request(None, user)
     if team_id is None:
       legacy = self._extract_team_id(user)

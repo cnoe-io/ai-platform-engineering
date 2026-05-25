@@ -1,7 +1,7 @@
 """BFF client for the DM agent-access decision.
 
 Phase 2 of spec 2026-05-24-derive-team-from-channel — the Slack bot's
-DM path no longer relies on the `active_team` JWT claim. Instead, on
+DM path is purely PDP-driven (no JWT team claim). Instead, on
 every DM the bot asks the BFF whether the dispatched agent is allowed
 for the signed-in user. The BFF's ``/api/user/check_agent_access``
 route runs ``evaluateAgentAccess(subject, agentId)`` which short-circuits

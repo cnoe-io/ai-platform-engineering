@@ -74,7 +74,7 @@ class WebexMessageResult:
     linking_url: Optional[str] = None
     deny_message: Optional[str] = None
     rebac_reason: Optional[str] = None
-    active_team: Optional[str] = None
+    team_slug: Optional[str] = None
     agent_id: Optional[str] = None
     keycloak_user_id: Optional[str] = None
 
@@ -112,7 +112,7 @@ class RebacCheckerProtocol(Protocol):
         workspace_id: str,
         space_id: str,
         agent_id: str,
-        active_team: Optional[str],
+        team_slug: Optional[str],
         obo_token: str,
     ) -> WebexSpaceRebacDecision:
         """Decide whether the caller may invoke ``agent_id`` in this space."""
@@ -309,7 +309,7 @@ def _deny(
     linking_url: Optional[str] = None,
     rebac_reason: Optional[str] = None,
     keycloak_user_id: Optional[str] = None,
-    active_team: Optional[str] = None,
+    team_slug: Optional[str] = None,
 ) -> WebexMessageResult:
     return WebexMessageResult(
         allowed=False,
@@ -320,7 +320,7 @@ def _deny(
         linking_url=linking_url,
         rebac_reason=rebac_reason,
         keycloak_user_id=keycloak_user_id,
-        active_team=active_team,
+        team_slug=team_slug,
     )
 
 
@@ -519,11 +519,11 @@ async def handle_webex_message(
             keycloak_user_id=keycloak_user_id,
         )
 
-    active_team = team_resolution.team_slug
+    team_slug = team_resolution.team_slug
 
     try:
         # Phase 2 (spec 2026-05-24): OBO is team-agnostic. We still pass
-        # `active_team` into the ReBAC checker below to enforce the
+        # `team_slug` into the ReBAC checker below to enforce the
         # channel-team binding, but the token itself doesn't carry it.
         obo_token = await obo.impersonate(keycloak_user_id)
     except (OboExchangeError, ValueError) as exc:
@@ -545,7 +545,7 @@ async def handle_webex_message(
             REASON_OBO_FAILED,
             deny_message=TEAM_SESSION_UNAVAILABLE_MESSAGE,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
 
     # Phase 2 (spec 2026-05-24): personal-DM commands intercept BEFORE
@@ -581,7 +581,7 @@ async def handle_webex_message(
                 ignored=False,
                 reason_code=REASON_COMMAND_HANDLED,
                 keycloak_user_id=keycloak_user_id,
-                active_team=active_team,
+                team_slug=team_slug,
                 agent_id=None,
             )
 
@@ -605,14 +605,14 @@ async def handle_webex_message(
             "WEBEX_ROUTE_DENIED",
             deny_message=route.deny_message,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
 
     rebac_decision = rebac.check_agent_access(
         workspace_id=parsed.workspace_id,
         space_id=parsed.space_id,
         agent_id=agent_id,
-        active_team=active_team,
+        team_slug=team_slug,
         obo_token=obo_token.access_token,
     )
     if not rebac_decision.allowed:
@@ -638,7 +638,7 @@ async def handle_webex_message(
             ),
             rebac_reason=rebac_decision.reason,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
 
     if dispatcher is not None:
@@ -649,7 +649,7 @@ async def handle_webex_message(
                 "workspace_id": parsed.workspace_id,
                 "text": parsed.text,
                 "keycloak_user_id": keycloak_user_id,
-                "active_team": active_team,
+                "team_slug": team_slug,
                 "agent_id": agent_id,
                 "obo_token": obo_token.access_token,
                 "message_id": parsed.message_id,
@@ -673,6 +673,6 @@ async def handle_webex_message(
         ignored=False,
         reason_code=REASON_DISPATCH_ALLOWED,
         keycloak_user_id=keycloak_user_id,
-        active_team=active_team,
+        team_slug=team_slug,
         agent_id=agent_id,
     )

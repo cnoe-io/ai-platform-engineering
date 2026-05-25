@@ -200,16 +200,16 @@
 
 ### 3.2 — Bot deletions
 
-- [ ] T210 [P3] In `slack_bot/utils/obo_exchange.py` — delete `_apply_active_team` function entirely; clean up dead imports. Delete any helper exclusively used by it.
-- [ ] T211 [P3] [P] Symmetric for `webex_bot/utils/obo_exchange.py`.
-- [ ] T212 [P3] In `slack_bot/app.py` — remove the now-dead `PERSONAL_ACTIVE_TEAM` import and any references; remove the legacy DM-claim branch.
-- [ ] T213 [P3] [P] Symmetric for Webex `webex_bot/app.py`.
-- [ ] T214 [P3] Run `rg -n "active_team|PERSONAL_ACTIVE_TEAM|_apply_active_team" ai_platform_engineering/integrations/` — must return zero results. Add this check to the verification gate.
+- [x] T210 [P3] In `slack_bot/utils/obo_exchange.py` — delete `_apply_active_team` function entirely; clean up dead imports. Delete any helper exclusively used by it.
+- [x] T211 [P3] [P] Symmetric for `webex_bot/utils/obo_exchange.py`.
+- [x] T212 [P3] In `slack_bot/app.py` — remove the now-dead `PERSONAL_ACTIVE_TEAM` import and any references; remove the legacy DM-claim branch.
+- [x] T213 [P3] [P] Symmetric for Webex `webex_bot/app.py`.
+- [x] T214 [P3] Run `rg -n "active_team|PERSONAL_ACTIVE_TEAM|_apply_active_team" ai_platform_engineering/integrations/` — must return zero results. Add this check to the verification gate.
 
 ### 3.3 — RAG deletions
 
-- [ ] T220 [P3] In `rag/server/src/server/rbac.py` — delete `extract_active_team_from_claims`. Adjust `derive_team_for_request` to drop the claim-first branch — now Mongo-only via `channel_id`. Adjust corresponding test in `test_team_derivation.py` to reflect: claim presence is now irrelevant; channel_id is the only signal.
-- [ ] T221 [P3] Run `rg -n "active_team|extract_active_team_from_claims" ai_platform_engineering/knowledge_bases/` — must return zero results.
+- [x] T220 [P3] In `rag/server/src/server/rbac.py` — delete `extract_active_team_from_claims`. Adjust `derive_team_for_request` to drop the claim-first branch — now Mongo-only via `channel_id`. Adjust corresponding test in `test_team_derivation.py` to reflect: claim presence is now irrelevant; channel_id is the only signal.
+- [x] T221 [P3] Run `rg -n "active_team|extract_active_team_from_claims" ai_platform_engineering/knowledge_bases/` — must return zero results.
 
 ### 3.4 — Config + Helm cleanup
 

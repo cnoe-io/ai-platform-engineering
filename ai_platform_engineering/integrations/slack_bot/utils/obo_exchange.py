@@ -1,20 +1,14 @@
 """On-Behalf-Of (OBO) token exchange client (RFC 8693).
 
-Phase 2 of spec 2026-05-24-derive-team-from-channel makes OBO **team-
-agnostic**: the bot no longer asks Keycloak for a per-team client scope
-and no longer expects an ``active_team`` claim on the returned token.
-Team scope is now derived downstream from channel context (FR-016/FR-017).
-
-The legacy ``PERSONAL_ACTIVE_TEAM`` sentinel, the ``_apply_active_team``
-helper, and the ``OboToken.active_team`` field are kept inert for one
-more release window so that any downstream code still importing them
-doesn't crash at import time. Phase 3 deletes them.
+Phase 3 of spec 2026-05-24-derive-team-from-channel completes the
+demolition of the per-team OBO model: there is no signed team claim on
+the token at all. Team scope is resolved purely from channel context by
+the Web UI BFF, RAG server, and Dynamic Agents — the bot just mints a
+team-agnostic platform token for the impersonated user.
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import os
 import re
@@ -24,14 +18,6 @@ from typing import Optional
 import httpx
 
 logger = logging.getLogger("caipe.slack_bot.obo_exchange")
-
-
-# Phase 3 will delete these. Phase 2 keeps them so unrelated modules that
-# still `from utils.obo_exchange import PERSONAL_ACTIVE_TEAM` (legacy
-# error messages, log lines, etc.) keep importing cleanly until those
-# call sites are also cleaned up.
-PERSONAL_ACTIVE_TEAM = "__personal__"
-PERSONAL_SCOPE_NAME = "team-personal"
 
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$")
@@ -52,10 +38,6 @@ class OboToken:
     token_type: str
     expires_in: int
     scope: Optional[str] = None
-    # Phase 3 deletes this field. Phase 2 surfaces whatever the response
-    # token happens to carry (typically ``None`` because we no longer ask
-    # for the claim) so log lines and unit tests keep working.
-    active_team: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -92,8 +74,8 @@ async def exchange_token(
 ) -> OboToken:
     """Exchange a user access token for an OBO token via RFC 8693.
 
-    Phase 2: team-agnostic. The bot asks Keycloak only for the platform
-    audience; team scope is derived downstream from channel context.
+    Team-agnostic: the bot asks Keycloak only for the platform audience;
+    team scope is derived downstream from channel context.
     """
     cfg = config or _default_config
     endpoint = (
@@ -120,19 +102,19 @@ async def impersonate_user(
 ) -> OboToken:
     """Mint a token impersonating ``keycloak_user_id``.
 
-    Phase 2: team-agnostic. The bot no longer selects a Keycloak client
-    scope per team. Team scope is derived downstream from channel context
-    by the RAG server / PDP using ``channel_team_mappings`` (FR-017).
+    Team-agnostic: the bot does NOT select a Keycloak client scope per
+    team. Team scope is derived downstream from channel context by the
+    Web UI BFF, RAG server, and Dynamic Agents using
+    ``channel_team_mappings`` (FR-017).
 
     Args:
         keycloak_user_id: User's Keycloak ``sub`` (UUID).
         config: Optional Keycloak config override.
 
     Returns:
-        :class:`OboToken` whose JWT carries ``sub=<user>``,
-        ``aud=caipe-platform`` by default. The token does **not** carry
-        an ``active_team`` claim — downstream services use channel
-        context to resolve the team.
+        :class:`OboToken` whose JWT carries ``sub=<user>`` and
+        ``aud=caipe-platform`` by default. The token does not carry a
+        team claim — downstream services use channel context.
     """
     cfg = config or _default_config
     endpoint = (
@@ -152,40 +134,11 @@ async def impersonate_user(
     return await _do_exchange(endpoint, data)
 
 
-def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None:
-    """LEGACY helper, kept until Phase 3 deletion.
-
-    Phase 2 removed all production call sites. The function body is
-    preserved so anyone importing it for log-message construction or
-    legacy tests doesn't crash — but it MUST NOT be reintroduced into
-    the OBO request path.
-    """
-    if active_team is None:
-        return
-    if active_team == PERSONAL_ACTIVE_TEAM:
-        scope_name = PERSONAL_SCOPE_NAME
-    else:
-        if not _is_valid_slug(active_team):
-            raise ValueError(
-                f"Invalid active_team slug {active_team!r}: must be lowercase "
-                "alphanumerics with hyphens, max 63 chars"
-            )
-        scope_name = f"team-{active_team}"
-    data["scope"] = f"openid {scope_name}"
-
-
 async def _do_exchange(
     endpoint: str,
     data: dict[str, str],
 ) -> OboToken:
-    """Shared token exchange request logic.
-
-    Phase 2: the active_team mismatch defense has been deleted. The bot
-    no longer asks for a team scope, so there's nothing meaningful to
-    compare. We still surface whatever ``active_team`` claim happens to
-    be in the response (typically ``None``) on the returned ``OboToken``
-    for backward-compatible log lines; Phase 3 deletes that field.
-    """
+    """Shared token exchange request logic."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(endpoint, data=data)
 
@@ -202,37 +155,12 @@ async def _do_exchange(
 
         payload = resp.json()
 
-    access_token = payload["access_token"]
-    active_team = _extract_active_team_claim(access_token)
-
     return OboToken(
-        access_token=access_token,
+        access_token=payload["access_token"],
         token_type=payload.get("token_type", "Bearer"),
         expires_in=payload.get("expires_in", 300),
         scope=payload.get("scope"),
-        active_team=active_team,
     )
-
-
-def _extract_active_team_claim(jwt: str) -> Optional[str]:
-    """Best-effort decode of the unverified JWT payload.
-
-    Used only for log lines now (Phase 2 deleted the mismatch check).
-    Cryptographic verification happens downstream in AGW / dynamic-agents.
-    Returns ``None`` if the token is malformed or has no claim.
-    """
-    try:
-        parts = jwt.split(".")
-        if len(parts) < 2:
-            return None
-        payload_b64 = parts[1]
-        padding = "=" * (-len(payload_b64) % 4)
-        payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
-        payload = json.loads(payload_bytes)
-        value = payload.get("active_team")
-        return value if isinstance(value, str) else None
-    except Exception:  # noqa: BLE001 — best-effort decode; never raise
-        return None
 
 
 class OboExchangeError(Exception):
@@ -242,8 +170,8 @@ class OboExchangeError(Exception):
 def downstream_auth_headers(access_token: str) -> dict[str, str]:
     """Headers for outbound platform calls (A2A, RAG, AGW) using an OBO token.
 
-    The legacy ``X-Team-Id`` header has been removed since Spec 104.
-    Phase 2 onwards the team is derived from channel context by the
-    receiving service, not signalled by the caller.
+    The legacy ``X-Team-Id`` header was removed earlier; the team is now
+    derived from channel context by the receiving service, not signalled
+    by the caller.
     """
     return {"Authorization": f"Bearer {access_token}"}

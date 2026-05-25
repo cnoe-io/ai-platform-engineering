@@ -254,21 +254,6 @@ def extract_realm_roles_from_claims(claims: Dict[str, Any]) -> List[str]:
   return out
 
 
-def extract_active_team_from_claims(claims: Dict[str, Any]) -> Optional[str]:
-  """Spec 104: read the signed `active_team` JWT claim, if present.
-
-  Returns the literal sentinel ``"__personal__"`` for DM/personal mode,
-  a team slug like ``"platform-eng"`` for mapped channels, or ``None``
-  when the token has no claim (legacy SA tokens, BFF-issued login tokens
-  before the per-team scope rollout, etc.). Callers decide whether
-  ``None`` is a hard reject or a soft fallback to legacy behavior.
-  """
-  value = claims.get("active_team")
-  if isinstance(value, str) and value.strip():
-    return value.strip()
-  return None
-
-
 def kb_scope_satisfies(perm_scope: str, required: str) -> bool:
   """Return True if a KB permission scope meets the required access level."""
   return _KB_SCOPE_RANK.get(perm_scope, 0) >= _KB_SCOPE_RANK.get(required, 0)
@@ -439,7 +424,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   Flow:
   1. Validate access_token (signature, expiry, audience, issuer)
   2. Check if client credentials token (machine-to-machine) → return immediately
-  3. Extract 'sub', email, realm roles, and active_team from access_token
+  3. Extract 'sub', email, and realm roles from access_token
   4. Determine coarse RAG service role from Keycloak realm roles
 
   Returns:
@@ -482,7 +467,6 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         is_authenticated=True,
         kb_permissions=[],
         realm_roles=extract_realm_roles_from_claims(access_claims),
-        active_team=extract_active_team_from_claims(access_claims),
       )
 
       logger.debug(f"Client authenticated: {email}, role: {RBAC_CLIENT_CREDENTIALS_ROLE}")
@@ -529,7 +513,6 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       role = Role.ANONYMOUS
       logger.info(f"Role denied: no Keycloak realm roles for email={email}")
 
-    active_team = extract_active_team_from_claims(access_claims)
     user_context = UserContext(
       subject=sub if sub != "unknown" else None,
       email=email,
@@ -538,12 +521,10 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       is_authenticated=True,
       kb_permissions=kb_permissions,
       realm_roles=jwt_roles,
-      active_team=active_team,
     )
 
     logger.info(
-      f"User authenticated successfully: email={email}, role={role}, "
-      f"active_team={active_team}, source=access_token"
+      f"User authenticated successfully: email={email}, role={role}, source=access_token"
     )
     return user_context
 
@@ -897,29 +878,24 @@ async def _resolve_team_slug_from_channel(channel_id: str) -> Optional[str]:
 
 async def derive_team_for_request(
   request: Optional[Request],
-  user_context: Any,
+  user_context: Any,  # noqa: ARG001 — kept for backward-compatible call sites
 ) -> Optional[str]:
-  """Spec 2026-05-24 Phase 1: single source of truth for team derivation.
+  """Spec 2026-05-24 Phase 3: data-layer-only team derivation.
 
-  Resolution order (claim-first; data-layer fallback):
+  Resolution order (no JWT claim — that path is deleted):
 
-  1. ``user_context.active_team`` (signed JWT claim) — wins when present.
-  2. ``X-Team-Id`` request header — legacy SA-token fallback during the
-     dual-read window.
-  3. ``X-Channel-Id`` header → ``channel_team_mappings`` → ``teams.slug``.
-  4. ``None`` — caller interprets as "no team scope".
+  1. ``X-Team-Id`` request header — explicit team scope (used by Web UI BFF
+     and bot envelopes that have already resolved a team from a channel
+     mapping).
+  2. ``X-Channel-Id`` header → ``channel_team_mappings`` → ``teams.slug``.
+  3. ``None`` — caller interprets as "no team scope" (personal / DM).
 
-  ``"__personal__"`` is normalized to ``None`` at any tier; that sentinel
-  is the user's explicit "DM / no team" signal and MUST NOT trigger a
-  channel-based re-binding.
+  ``"__personal__"`` in the header is normalized to ``None``; it is the
+  caller's explicit "DM / no team" signal.
 
   ``request`` may be ``None`` (MCP tool path doesn't always have one);
-  in that case only the claim and an absent header are considered.
+  in that case the function returns ``None``.
   """
-  active_team = getattr(user_context, "active_team", None)
-  if isinstance(active_team, str) and active_team.strip():
-    return None if active_team.strip() == "__personal__" else active_team.strip()
-
   if request is None:
     return None
 

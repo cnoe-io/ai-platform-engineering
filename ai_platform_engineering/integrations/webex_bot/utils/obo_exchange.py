@@ -1,16 +1,13 @@
 """On-Behalf-Of (OBO) token exchange for the Webex bot.
 
-Phase 2 of spec 2026-05-24-derive-team-from-channel makes OBO **team-
-agnostic**: the bot no longer requests a per-team client scope and no
-longer expects an ``active_team`` claim. Team scope is derived
-downstream from space/channel context. Phase 3 deletes the legacy
-``_apply_active_team`` helper and ``PERSONAL_ACTIVE_TEAM`` constant.
+Phase 3 of spec 2026-05-24-derive-team-from-channel completes the
+demolition of the per-team OBO model. The Webex bot mints a
+team-agnostic platform token; team scope is derived downstream from
+space context by the Web UI BFF, RAG server, and Dynamic Agents.
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import os
 import re
@@ -21,10 +18,6 @@ import httpx
 
 logger = logging.getLogger("caipe.webex_bot.obo_exchange")
 
-# Legacy constants — kept inert for Phase 2 so existing log lines and
-# error messages keep importing. Phase 3 deletes them.
-PERSONAL_ACTIVE_TEAM = "__personal__"
-PERSONAL_SCOPE_NAME = "team-personal"
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$")
 
@@ -48,8 +41,6 @@ class OboToken:
     token_type: str
     expires_in: int
     scope: Optional[str] = None
-    # Phase 3 deletes this field.
-    active_team: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -87,9 +78,9 @@ async def impersonate_user(
 ) -> OboToken:
     """Mint an OBO token for ``keycloak_user_id``.
 
-    Phase 2: team-agnostic. Team scope is derived downstream from space
-    context. The returned token contains ``sub=<user>`` and
-    ``aud=caipe-platform`` by default — no ``active_team`` claim.
+    Team-agnostic: team scope is derived downstream from space context.
+    The returned token contains ``sub=<user>`` and
+    ``aud=caipe-platform`` by default — no team claim.
     """
     cfg = config or _default_config
     endpoint = f"{cfg.server_url}/realms/{cfg.realm}/protocol/openid-connect/token"
@@ -105,33 +96,11 @@ async def impersonate_user(
     return await _do_exchange(endpoint, data)
 
 
-def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None:
-    """LEGACY helper, kept inert until Phase 3 deletion.
-
-    Phase 2 removed all production call sites. The body is preserved so
-    any legacy module importing the symbol keeps loading.
-    """
-    if active_team is None:
-        return
-    if active_team == PERSONAL_ACTIVE_TEAM:
-        scope_name = PERSONAL_SCOPE_NAME
-    else:
-        if not _is_valid_slug(active_team):
-            raise ValueError(f"Invalid active_team slug {active_team!r}")
-        scope_name = f"team-{active_team}"
-    data["scope"] = f"openid {scope_name}"
-
-
 async def _do_exchange(
     endpoint: str,
     data: dict[str, str],
 ) -> OboToken:
-    """Shared token exchange request logic.
-
-    Phase 2 deleted the active_team mismatch check — OBO is now
-    team-agnostic, so there's nothing to compare against. ``active_team``
-    extraction is kept for backward-compatible log lines.
-    """
+    """Shared token exchange request logic."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(endpoint, data=data)
         if resp.status_code != 200:
@@ -141,31 +110,12 @@ async def _do_exchange(
             )
         payload = resp.json()
 
-    access_token = payload["access_token"]
-    active_team = _extract_active_team_claim(access_token)
-
     return OboToken(
-        access_token=access_token,
+        access_token=payload["access_token"],
         token_type=payload.get("token_type", "Bearer"),
         expires_in=payload.get("expires_in", 300),
         scope=payload.get("scope"),
-        active_team=active_team,
     )
-
-
-def _extract_active_team_claim(jwt: str) -> Optional[str]:
-    try:
-        parts = jwt.split(".")
-        if len(parts) < 2:
-            return None
-        payload_b64 = parts[1]
-        padding = "=" * (-len(payload_b64) % 4)
-        payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
-        payload = json.loads(payload_bytes)
-        value = payload.get("active_team")
-        return value if isinstance(value, str) else None
-    except Exception:  # noqa: BLE001
-        return None
 
 
 class OboExchangeError(Exception):

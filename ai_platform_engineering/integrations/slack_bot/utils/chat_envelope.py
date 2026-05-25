@@ -4,7 +4,7 @@ Phase 1 of the channel-derived team binding migration (spec
 2026-05-24-derive-team-from-channel, FR-016) adds the originating
 channel/workspace/thread/surface context to the outbound chat envelope so
 the RAG server can derive `team_id` from `channel_id` instead of relying
-on the deprecated `active_team` JWT claim.
+on a JWT team claim (which no longer exists).
 
 The Dynamic Agents `ClientContext` model uses `extra="allow"`, so adding
 these keys is a no-op for any downstream consumer that doesn't know about
