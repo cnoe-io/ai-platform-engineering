@@ -1,23 +1,17 @@
 /**
- * Spec 104 — startup auto-sync of Keycloak RBAC mappings.
+ * Spec 104 / spec 2026-05-24-derive-team-from-channel — startup auto-sync of
+ * Keycloak RBAC mappings.
  *
  * On server boot we run the BFF-owned Keycloak RBAC reconciliation migration.
- * It walks every team in Mongo and reconciles the Keycloak client scopes and
- * OBO permissions required by Slack/Webex bot impersonation. This handles three cases:
+ * Before Phase 3 of the channel-team derivation spec, this also materialized
+ * per-team `team-<slug>` client scopes. Phase 3 removed that surface: team
+ * identity is now derived from the channel→team mapping at message time, so
+ * the reconciliation only repairs OBO permissions and any non-team Keycloak
+ * wiring still required by the bots.
  *
- *   1. Brand-new team that was created while this Web UI backend was down (the
- *      sibling instance created the Mongo doc but failed to reach KC).
- *   2. Existing teams that pre-date the slug field — we backfill
- *      `slug` from `name` and create the matching scope.
- *   3. Drift between Mongo and Keycloak after a manual KC restore.
- *
- * Helper is idempotent and records its status in Mongo migration collections.
- *
- * Failures are logged but never thrown — we don't want a transient KC
- * outage to take the whole Web UI backend down. Subsequent team CRUD calls use the
- * synchronous `ensureTeamClientScope` path and DO surface errors to the
- * admin, so any team that ends up unprovisioned here will be repaired
- * on its next admin interaction.
+ * The helper is idempotent and records its status in Mongo migration
+ * collections. Failures are logged but never thrown — we don't want a
+ * transient Keycloak outage to take the whole Web UI backend down.
  */
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import { runKeycloakRbacStartupMigration } from "@/lib/rbac/keycloak-rbac-reconciliation";

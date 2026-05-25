@@ -2,11 +2,7 @@ import type { Document } from "mongodb";
 
 import { ApiError } from "@/lib/api-error";
 import { getCollection } from "@/lib/mongodb";
-import {
-  ensureTeamClientScope,
-  ensureWebexBotOboPermissions,
-  selectAgentGatewayActiveTeamScope,
-} from "@/lib/rbac/keycloak-admin";
+import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
@@ -198,11 +194,11 @@ export async function onboardWebexSpace(
     };
   }
 
-  await ensureTeamClientScope(teamSlug);
-  await Promise.all([
-    ensureWebexBotOboPermissions(),
-    selectAgentGatewayActiveTeamScope(teamSlug),
-  ]);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): Webex space onboarding
+  // no longer needs per-team Keycloak client scopes. Team identity is derived
+  // from the space→team mapping at message time. We still ensure the Webex bot
+  // has general OBO permissions in place so token exchange works.
+  await ensureWebexBotOboPermissions();
 
   const [mappings, grants, routes] = await Promise.all([
     getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings"),

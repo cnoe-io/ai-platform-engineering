@@ -3,11 +3,7 @@ import type { Document } from "mongodb";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import {
-  ensureSlackBotOboPermissions,
-  ensureTeamClientScope,
-  selectAgentGatewayActiveTeamScope,
-} from "@/lib/rbac/keycloak-admin";
+import { ensureSlackBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import {
@@ -247,23 +243,24 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       }
     }
 
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Slack bot
+    // no longer needs a per-team OBO client scope materialized in Keycloak
+    // because team identity is derived from the channel→team mapping at
+    // message time. We still ensure the bot's general OBO permissions are
+    // in place — the rest of the legacy team-scope wiring is gone.
     try {
-      await Promise.all(requestedTeamSlugs.map((slug) => ensureTeamClientScope(slug)));
       await ensureSlackBotOboPermissions();
-      const scopedTeamSlugs = uniqueStrings(
-        hasChannelScopedDefaults ? channelDefaults.map((channel) => channel.team_slug) : [teamSlug]
-      );
-      await selectAgentGatewayActiveTeamScope(
-        scopedTeamSlugs.length === 1 ? scopedTeamSlugs[0] : teamSlug
-      );
     } catch (error) {
-      console.error("[Slack ReBAC] Failed to prepare Slack bot team session setup:", error);
+      console.error("[Slack ReBAC] Failed to prepare Slack bot OBO permissions:", error);
       throw new ApiError(
         "We couldn't finish preparing Slack access for this team. Open Security & Policy, " +
           "run Reconcile now, then try setting up the channel again.",
         502
       );
     }
+    // `hasChannelScopedDefaults` is still computed above to drive the per-channel
+    // mapping loop below; the value no longer influences Keycloak.
+    void hasChannelScopedDefaults;
 
     let channelsOnboarded = 0;
     let channelsAssignedTeam = 0;

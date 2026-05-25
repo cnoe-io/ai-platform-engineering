@@ -1,14 +1,10 @@
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  deleteOrphanTeamClientScopes,
   ensureBotServiceAccountImpersonationRoles,
   ensureCaipePlatformTokenExchangeDecisionStrategy,
-  ensurePersonalTeamClientScope,
   ensureSlackBotOboPermissions,
-  ensureTeamClientScope,
   ensureWebexBotOboPermissions,
   isValidTeamSlug,
-  selectAgentGatewayActiveTeamScope,
 } from "@/lib/rbac/keycloak-admin";
 import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
@@ -66,15 +62,6 @@ function deriveSlug(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 63)
     .replace(/-+$/g, "");
-}
-
-function configuredActiveTeamSlug(teamSlugs: string[]): string | null {
-  const explicit =
-    process.env.KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG?.trim() ||
-    process.env.KEYCLOAK_DEFAULT_ACTIVE_TEAM_SLUG?.trim() ||
-    process.env.ACTIVE_TEAM_SLUG?.trim();
-  if (explicit) return explicit.toLowerCase();
-  return teamSlugs.length === 1 ? teamSlugs[0] ?? null : null;
 }
 
 async function seedManifest(now: string): Promise<void> {
@@ -241,13 +228,11 @@ export async function planKeycloakRbacReconciliationMigration(
   if (!isMongoDBConfigured) {
     warnings.push("MongoDB is not configured; Keycloak RBAC mapping reconciliation cannot inspect teams.");
   }
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed per-team Keycloak
+  // client scopes. We still surface the Mongo team count for diagnostics so the
+  // admin can verify the team data is healthy, but the migration only plans OBO
+  // permission reconciliation now.
   const teamSlugs = isMongoDBConfigured ? await loadTeamSlugs(now, warnings) : [];
-  const activeTeamSlug = configuredActiveTeamSlug(teamSlugs);
-  if (!activeTeamSlug) {
-    warnings.push(
-      "No KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG configured and multiple/no Mongo teams exist; active_team default selection will be skipped."
-    );
-  }
 
   return {
     migration_id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
@@ -258,17 +243,10 @@ export async function planKeycloakRbacReconciliationMigration(
     to_version: KEYCLOAK_RBAC_SCHEMA_VERSION,
     counts: {
       mongo_teams_seen: teamSlugs.length,
-      team_scopes_planned: teamSlugs.length,
       obo_permission_sets_planned: 2,
-      active_team_defaults_planned: activeTeamSlug ? 1 : 0,
     },
     warnings,
-    sample_diffs: teamSlugs.slice(0, 10).map((slug) => ({
-      collection: "keycloak",
-      id: `team-${slug}`,
-      before: {},
-      after: { client_scope: `team-${slug}`, active_team: slug },
-    })),
+    sample_diffs: [],
     tuple_writes_planned: 0,
     confirmation: KEYCLOAK_RBAC_CONFIRMATION,
   };
@@ -281,15 +259,15 @@ export async function runKeycloakRbacStartupMigration(input: {
   const actor = input.actor ?? "webui-startup";
   const now = input.now ?? nowIso();
   const warnings: string[] = [];
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the per-team
+  // and personal client scopes, orphan-scope cleanup, and audience-default
+  // selection counters. The reconciler now only reports OBO permission /
+  // service-account / decision-strategy / bootstrap-admin counts.
   const counts: Record<string, number> = {
     mongo_teams_seen: 0,
-    team_scopes_reconciled: 0,
-    personal_team_scope_reconciled: 0,
-    orphan_team_scopes_deleted: 0,
     obo_permission_sets_reconciled: 0,
     bot_service_accounts_reconciled: 0,
     token_exchange_permissions_reconciled: 0,
-    active_team_defaults_selected: 0,
     bootstrap_admins_resolved: 0,
     bootstrap_admin_placeholders_created: 0,
     bootstrap_admin_tuples_written: 0,
@@ -312,33 +290,13 @@ export async function runKeycloakRbacStartupMigration(input: {
     const teamSlugs = await loadTeamSlugs(now, warnings);
     counts.mongo_teams_seen = teamSlugs.length;
 
-    for (const slug of teamSlugs) {
-      await ensureTeamClientScope(slug);
-      counts.team_scopes_reconciled += 1;
-    }
-
-    // Spec 104 DM-mode marker scope. Provisioned by `init-token-exchange.sh`
-    // at realm bootstrap; re-asserted here so it survives drift (e.g. someone
-    // deleted the optional binding from the Webex bot in the Admin Console).
-    // See `ensurePersonalTeamClientScope` for why this is not bound on the
-    // OBO audience client.
-    await ensurePersonalTeamClientScope();
-    counts.personal_team_scope_reconciled = 1;
-
-    // Orphan cleanup — any `team-<slug>` scope without a matching Mongo team
-    // (and that isn't the special `team-personal`) is a stale artifact from a
-    // deleted team, a renamed team, or an aborted reconciliation. Delete them
-    // so the invariant panel doesn't show eternally-failing rows for scopes
-    // that nobody owns. `deleteOrphanTeamClientScopes` unbinds from both bots
-    // and the audience first, then removes the scope itself.
-    const deletedOrphans = await deleteOrphanTeamClientScopes(teamSlugs);
-    counts.orphan_team_scopes_deleted = deletedOrphans.length;
-    if (deletedOrphans.length > 0) {
-      warnings.push(
-        `Removed ${deletedOrphans.length} orphan team scope(s): ${deletedOrphans.join(", ")}. ` +
-          `If any of these belonged to a still-active CAIPE team, recreate the team in the Admin → Teams tab.`
-      );
-    }
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed per-team
+    // Keycloak client scopes, the `team-personal` marker scope, the orphan
+    // cleanup step, and audience-default scope selection. Team identity is
+    // now derived from the channel→team mapping at message time. The
+    // reconciler still keeps the OBO permission wiring, service-account
+    // impersonation roles, decision strategy, and bootstrap admin assignment
+    // — those are independent of the legacy `active_team` claim.
 
     await ensureSlackBotOboPermissions();
     await ensureWebexBotOboPermissions();
@@ -349,16 +307,6 @@ export async function runKeycloakRbacStartupMigration(input: {
 
     await ensureCaipePlatformTokenExchangeDecisionStrategy("AFFIRMATIVE");
     counts.token_exchange_permissions_reconciled = 1;
-
-    const activeTeamSlug = configuredActiveTeamSlug(teamSlugs);
-    if (activeTeamSlug) {
-      await selectAgentGatewayActiveTeamScope(activeTeamSlug);
-      counts.active_team_defaults_selected = 1;
-    } else {
-      warnings.push(
-        "Skipped active_team default selection because KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG is unset and there is not exactly one Mongo team."
-      );
-    }
 
     bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
     counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;
