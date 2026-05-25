@@ -714,27 +714,25 @@ export async function ensureUserByEmail(email: string): Promise<KeycloakUserEnsu
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Spec 104 — per-team Keycloak client scopes for active_team claim.
+// Spec 104 (DEMOLISHED by Phase 3 of spec 2026-05-24-derive-team-from-channel)
+// — per-team Keycloak client scopes for `active_team` claim.
 //
-// One client scope per team named `team-<slug>` carries a single
-// `oidc-hardcoded-claim-mapper` injecting `active_team=<slug>` into the
-// access token. We bind the scope BOTH as an optional scope on the
-// `caipe-slack-bot` client (for code symmetry with team-personal) AND as
-// a *default* scope on the bot OBO audience client. Keycloak's
-// RFC 8693 token-exchange silently drops the `scope` request parameter,
-// so the only reliable way to inject the `active_team` claim is via the
-// target audience client's default scopes — see Spec 104 and the
-// `_apply_active_team` comment in the slack-bot OBO module.
+// Historical context: one client scope per team named `team-<slug>` carried
+// a single `oidc-hardcoded-claim-mapper` injecting `active_team=<slug>`
+// into the access token, bound as an optional scope on bot clients and as
+// a default scope on the bot OBO audience client. Phase 3 removed every
+// production call site that minted, bound, or deleted these scopes
+// (`ensureTeamClientScope`, `selectAgentGatewayActiveTeamScope`,
+// `deleteTeamClientScope`, `ensurePersonalTeamClientScope`,
+// `deleteOrphanTeamClientScopes` are all gone). The runtime path no longer
+// reads `active_team` from the JWT — team identity is derived from
+// `channel_team_mappings` at request time.
 //
-// CAVEAT: with multiple teams bound as defaults on the OBO audience, every
-// hardcoded mapper fires and the last one wins (mapper order is
-// undefined). The bot's mismatch check (`_do_exchange`) catches this and
-// rejects, but multi-team users will see denials. Follow-up work should
-// switch to a script-mapper that reads the requested team from a custom
-// parameter rather than per-team default scopes.
-//
-// All operations are idempotent so the Web UI backend can re-run them on every
-// startup as part of the team-scope auto-sync.
+// The read-only diagnostics below survive solely so the migration health
+// panel can flag any legacy `team-*` client scope left in an upgraded
+// realm, pointing operators to `scripts/cleanup-team-keycloak-scopes.sh`
+// for one-time cleanup. The values returned here power the
+// `team_scope.*` invariants in `keycloak-invariants.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SLACK_BOT_CLIENT_ID =

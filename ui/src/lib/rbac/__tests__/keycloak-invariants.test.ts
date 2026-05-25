@@ -44,18 +44,13 @@ function happyPathValues(
   const slackPol = clientPolicy(`${SLACK}-token-exchange`, SLACK);
   const slackPolAlt = clientPolicy(`${SLACK}-token-exchange-policy`, SLACK);
   const webexPol = clientPolicy(`${WEBEX}-token-exchange`, WEBEX);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) — a clean realm has
+  // ZERO legacy `team-*` scopes. The happy path therefore returns an
+  // empty `team_scopes` array. Tests that exercise the legacy-diagnostic
+  // path pass an override seeding a `team-*` scope to model an upgraded
+  // realm that hasn't yet run `scripts/cleanup-team-keycloak-scopes.sh`.
   return {
-    team_scopes: [
-      {
-        scope: "team-platform",
-        scope_id: "scope-platform",
-        active_team: "platform",
-        active_team_mapper: "active_team",
-        optional_on_slack_bot: true,
-        optional_on_webex_bot: true,
-        default_on_obo_audience: true,
-      },
-    ],
+    team_scopes: [],
     obo_permissions: [
       {
         bot_client_id: SLACK,
@@ -269,99 +264,79 @@ describe("evaluateKeycloakInvariants — missing permission / policy attachments
   });
 });
 
-describe("evaluateKeycloakInvariants — team-scope wiring", () => {
-  it("fails active_team_mapper invariant when the mapper is missing", () => {
-    const values = happyPathValues();
-    values.team_scopes[0]!.active_team_mapper = "missing";
-    values.team_scopes[0]!.active_team = "missing";
-    const inv = findInv(evaluate(values), "team_scope.team-platform.active_team_mapper");
-    expect(inv.status).toBe("fail");
-    expect(inv.remediation).toBe("reconcile_now");
-  });
+describe("evaluateKeycloakInvariants — legacy team-scope diagnostics (post-Phase-3)", () => {
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) demolished the
+  // per-team Keycloak client scope mechanism. The remaining
+  // `team_scope.*` invariants exist solely to surface legacy
+  // `team-*` scopes still present in an upgraded realm so an operator
+  // can drop them with `scripts/cleanup-team-keycloak-scopes.sh`.
+  //
+  // The post-Phase-3 contract is:
+  //   - Any presence of a `team-*` scope in `values.team_scopes`
+  //     produces a `team_scope.<scope>.active_team_mapper` invariant
+  //     with `status: fail` and `remediation: manual_keycloak`.
+  //   - Bot-binding invariants are only emitted when the legacy scope
+  //     is still bound on that bot (otherwise no row needs cleanup).
+  //   - No `default_on_obo_audience` invariant is ever emitted; the
+  //     audience-default selection step is gone entirely.
 
-  it("fails the bot-binding invariant when scope is not optional on a bot", () => {
-    const values = happyPathValues();
-    values.team_scopes[0]!.optional_on_slack_bot = false;
-    const inv = findInv(
-      evaluate(values),
-      "team_scope.team-platform.optional_on_slack_bot"
-    );
-    expect(inv.status).toBe("fail");
-  });
-
-  it("fails the OBO-audience default invariant when scope is not bound default", () => {
-    const values = happyPathValues();
-    values.team_scopes[0]!.default_on_obo_audience = false;
-    const inv = findInv(
-      evaluate(values),
-      "team_scope.team-platform.default_on_obo_audience"
-    );
-    expect(inv.status).toBe("fail");
-  });
-});
-
-describe("evaluateKeycloakInvariants — team-personal special-case", () => {
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // `team_personal.dm_mode_known_limitation` advisory and the
-  // `default_on_obo_audience` invariant for the personal-team scope.
-  // The legacy `team-personal` scope is now treated like any other
-  // `team-<slug>` legacy scope by the per-scope invariants below; the
-  // operator-facing cleanup is the `scripts/cleanup-team-keycloak-scopes.sh`
-  // script. The remaining invariants below still verify that, while the
-  // scope is present, its bot bindings and mapper value remain consistent
-  // — that is purely defensive in case an operator hasn't yet run the
-  // cleanup script.
-
-  function personalScopeOverride(
-    overrides: Partial<KeycloakRbacDiagnosticValues["team_scopes"][number]> = {}
-  ) {
+  function legacyTeamScopeValues(
+    scopeOverrides: Partial<KeycloakRbacDiagnosticValues["team_scopes"][number]> = {}
+  ): KeycloakRbacDiagnosticValues {
     return happyPathValues({
       team_scopes: [
         {
-          scope: "team-personal",
-          scope_id: "scope-personal",
-          active_team: "__personal__",
-          active_team_mapper: "active-team-personal",
+          scope: "team-platform",
+          scope_id: "scope-platform",
+          active_team: "platform",
+          active_team_mapper: "active_team",
           optional_on_slack_bot: true,
           optional_on_webex_bot: true,
-          // Intentionally false — team-personal is NEVER default on the audience.
-          default_on_obo_audience: false,
-          ...overrides,
+          default_on_obo_audience: true,
+          ...scopeOverrides,
         },
       ],
     });
   }
 
-  it("does NOT emit a default_on_obo_audience invariant for team-personal", () => {
-    const invariants = evaluate(personalScopeOverride());
-    const audienceInv = invariants.find(
-      (inv) => inv.id === "team_scope.team-personal.default_on_obo_audience"
+  it("emits a `manual_keycloak` legacy diagnostic for every legacy team-* scope", () => {
+    const inv = findInv(
+      evaluate(legacyTeamScopeValues()),
+      "team_scope.team-platform.active_team_mapper"
+    );
+    expect(inv.status).toBe("fail");
+    expect(inv.remediation).toBe("manual_keycloak");
+    expect(inv.detail).toContain("scripts/cleanup-team-keycloak-scopes.sh");
+  });
+
+  it("emits the slack-bot legacy binding diagnostic when the scope is still bound", () => {
+    const inv = findInv(
+      evaluate(legacyTeamScopeValues({ optional_on_slack_bot: true })),
+      "team_scope.team-platform.optional_on_slack_bot"
+    );
+    expect(inv.status).toBe("fail");
+    expect(inv.remediation).toBe("manual_keycloak");
+  });
+
+  it("does NOT emit a slack-bot binding row when the legacy scope is not bound on the slack bot", () => {
+    const result = evaluate(legacyTeamScopeValues({ optional_on_slack_bot: false }));
+    const inv = result.find(
+      (i) => i.id === "team_scope.team-platform.optional_on_slack_bot"
+    );
+    expect(inv).toBeUndefined();
+  });
+
+  it("does NOT emit any default_on_obo_audience invariant (the check is gone)", () => {
+    const result = evaluate(legacyTeamScopeValues());
+    const audienceInv = result.find(
+      (i) => i.id === "team_scope.team-platform.default_on_obo_audience"
     );
     expect(audienceInv).toBeUndefined();
   });
 
-  it("still checks optional_on_slack_bot and optional_on_webex_bot for team-personal", () => {
-    const invariants = evaluate(
-      personalScopeOverride({ optional_on_webex_bot: false })
-    );
-    const webexInv = findInv(
-      invariants,
-      "team_scope.team-personal.optional_on_webex_bot"
-    );
-    expect(webexInv.status).toBe("fail");
-    expect(webexInv.remediation).toBe("reconcile_now");
-  });
-
-  it("fails active_team_mapper for team-personal when the mapper value drifts off __personal__", () => {
-    const invariants = evaluate(
-      personalScopeOverride({ active_team: "platform" })
-    );
-    const inv = findInv(
-      invariants,
-      "team_scope.team-personal.active_team_mapper"
-    );
-    expect(inv.status).toBe("fail");
-    expect(inv.detail).toContain("expected __personal__");
+  it("emits no team_scope.* invariants on a clean post-Phase-3 realm", () => {
+    const result = evaluate(happyPathValues());
+    expect(result.filter((i) => i.group === "team-scope")).toEqual([]);
   });
 });
 

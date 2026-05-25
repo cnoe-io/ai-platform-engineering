@@ -397,92 +397,68 @@ export function evaluateKeycloakInvariants(
   }
 
   // ────────────────────────────────────────────────────────────────
-  // Team-scope wiring sourced from values.team_scopes
+  // Legacy team-scope diagnostics sourced from values.team_scopes
   //
   // Phase 3 (spec 2026-05-24-derive-team-from-channel) stopped
   // materializing `team-<slug>` client scopes. The BFF no longer
-  // creates, mutates, or relies on them, but legacy realms may
-  // still carry stale `team-*` scopes from earlier installs. The
-  // per-team `team_scope.<scope>.active_team_mapper` invariants
-  // below act as diagnostics in that case — they surface the
-  // legacy scopes so an operator can clean them up using
-  // `scripts/cleanup-team-keycloak-scopes.sh`. We do NOT emit a
-  // `team_personal.dm_mode_known_limitation` invariant anymore;
-  // DMs do not run through Keycloak token exchange, so the RFC
-  // 8693 limitation no longer applies.
+  // creates, mutates, or relies on them. Each `team_scope.*`
+  // invariant emitted below is **legacy-realm diagnostic**: it flags
+  // a `team-*` scope still present in an upgraded realm so an
+  // operator can drop it with
+  // `scripts/cleanup-team-keycloak-scopes.sh`. The runtime path no
+  // longer reads the `active_team` claim — the diagnostic exists
+  // solely for clean-up triage.
+  //
+  // `remediation: manual_keycloak` (not `reconcile_now`) because the
+  // BFF reconciliation migration **does not** rewrite these scopes
+  // anymore; the cleanup script is the canonical removal path. We
+  // emit them with status `fail` so the row stays visible in the
+  // panel until the operator removes the scope (status would only
+  // be `pass` on a brand-new realm that never had `team-*` scopes,
+  // in which case `values.team_scopes` is empty and the loop
+  // produces no rows at all).
   // ────────────────────────────────────────────────────────────────
-  const PERSONAL_SCOPE_NAME = "team-personal";
   for (const scope of values.team_scopes) {
-    const isPersonal = scope.scope === PERSONAL_SCOPE_NAME;
-    const expectedActiveTeam = isPersonal ? "__personal__" : null;
-    const mapperOk =
-      scope.active_team_mapper !== "missing" &&
-      scope.active_team !== "missing" &&
-      (expectedActiveTeam === null || scope.active_team === expectedActiveTeam);
     invariants.push({
       id: `team_scope.${scope.scope}.active_team_mapper`,
-      description: `${scope.scope} has an active_team protocol mapper`,
+      description: `Legacy ${scope.scope} client scope still present in Keycloak`,
       group: "team-scope",
-      source: isPersonal ? "init-token-exchange.sh" : "bff-migration",
-      status: mapperOk ? "pass" : "fail",
-      detail: mapperOk
-        ? undefined
-        : `Mapper status: name=${scope.active_team_mapper}, value=${scope.active_team}` +
-          (expectedActiveTeam !== null ? ` (expected ${expectedActiveTeam})` : "") +
-          `. Reconcile now will create or repair the mapper.`,
-      remediation: mapperOk ? "none" : "reconcile_now",
+      source: "bff-migration",
+      status: "fail",
+      detail:
+        `Mapper status: name=${scope.active_team_mapper}, value=${scope.active_team}. ` +
+        `Phase 3 of spec 2026-05-24-derive-team-from-channel removed team-scope ` +
+        `provisioning from the BFF; this scope is a remnant of a pre-Phase-3 install. ` +
+        `Drop it with \`scripts/cleanup-team-keycloak-scopes.sh --apply\`.`,
+      remediation: "manual_keycloak",
     });
-    const slackBound = scope.optional_on_slack_bot;
-    invariants.push({
-      id: `team_scope.${scope.scope}.optional_on_slack_bot`,
-      description: `${scope.scope} bound optional on ${slackBotClientId}`,
-      group: "team-scope",
-      source: isPersonal ? "init-token-exchange.sh" : "bff-migration",
-      status: slackBound ? "pass" : "fail",
-      detail: slackBound
-        ? undefined
-        : `Scope not listed in the Slack bot's optional client scopes. Reconcile now will bind it.`,
-      remediation: slackBound ? "none" : "reconcile_now",
-    });
-    const webexBound = scope.optional_on_webex_bot;
-    invariants.push({
-      id: `team_scope.${scope.scope}.optional_on_webex_bot`,
-      description: `${scope.scope} bound optional on ${webexBotClientId}`,
-      group: "team-scope",
-      source: isPersonal ? "init-token-exchange.sh" : "bff-migration",
-      status: webexBound ? "pass" : "fail",
-      detail: webexBound
-        ? undefined
-        : `Scope not listed in the Webex bot's optional client scopes. Reconcile now will bind it.`,
-      remediation: webexBound ? "none" : "reconcile_now",
-    });
-    if (!isPersonal) {
-      const audienceBound = scope.default_on_obo_audience;
+    if (scope.optional_on_slack_bot) {
       invariants.push({
-        id: `team_scope.${scope.scope}.default_on_obo_audience`,
-        description: `${scope.scope} bound default on ${oboAudienceClientId}`,
+        id: `team_scope.${scope.scope}.optional_on_slack_bot`,
+        description: `Legacy ${scope.scope} still bound on ${slackBotClientId}`,
         group: "team-scope",
         source: "bff-migration",
-        status: audienceBound ? "pass" : "fail",
-        detail: audienceBound
-          ? undefined
-          : `Scope not listed in the OBO audience client's default scopes. Token exchange relies ` +
-            `on the audience contributing the team scope as a default — Reconcile now will bind it.`,
-        remediation: audienceBound ? "none" : "reconcile_now",
+        status: "fail",
+        detail:
+          `Pre-Phase-3 install bound this scope on the Slack bot client. The cleanup ` +
+          `script unbinds before deletion.`,
+        remediation: "manual_keycloak",
       });
     }
-    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-    // `team_personal.dm_mode_known_limitation` invariant: DM-mode no longer
-    // relies on a token-exchange-injected `active_team` claim, so the
-    // structural limitation it described no longer applies.
+    if (scope.optional_on_webex_bot) {
+      invariants.push({
+        id: `team_scope.${scope.scope}.optional_on_webex_bot`,
+        description: `Legacy ${scope.scope} still bound on ${webexBotClientId}`,
+        group: "team-scope",
+        source: "bff-migration",
+        status: "fail",
+        detail:
+          `Pre-Phase-3 install bound this scope on the Webex bot client. The cleanup ` +
+          `script unbinds before deletion.`,
+        remediation: "manual_keycloak",
+      });
+    }
   }
-
-  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
-  // `audience.<client>.single_team_default` audience-cardinality invariant.
-  // The OBO audience client no longer needs at-most-one `team-*` default
-  // scope because no service consumes the `active_team` claim. Operators
-  // who still have legacy `team-*` scopes bound on the audience can clean
-  // them up with `scripts/cleanup-team-keycloak-scopes.sh`.
 
   return invariants;
 }
