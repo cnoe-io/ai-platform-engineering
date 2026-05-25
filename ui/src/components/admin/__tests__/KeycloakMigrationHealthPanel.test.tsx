@@ -370,16 +370,20 @@ describe("KeycloakMigrationHealthPanel", () => {
   //     keyboard users get the same information without the hover.
   // ─────────────────────────────────────────────────────────────
   it("renders a plain-English explainer tooltip for every invariant row regardless of status", async () => {
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+    // `team_personal.dm_mode_known_limitation` advisory from the BFF,
+    // so this test now exercises OBO invariants only — those are the
+    // ones that still render with the `invariant-explain-…` testid.
     const healthWithMixedInvariants = {
       success: true,
       data: {
         ...completedHealth.data,
         keycloak_invariants: {
           summary: {
-            total: 3,
+            total: 2,
             passing: 1,
             failing: 1,
-            unknown: 1,
+            unknown: 0,
             reconcile_now_recommended: true,
           },
           items: [
@@ -400,15 +404,6 @@ describe("KeycloakMigrationHealthPanel", () => {
               detail: "Permission missing.",
               remediation: "reconcile_now",
             },
-            {
-              id: "team_personal.dm_mode_known_limitation",
-              description: "team-personal DM mode has a known token-exchange limitation",
-              group: "team-scope",
-              source: "init-token-exchange.sh",
-              status: "unknown",
-              detail: "RFC 8693 drops the scope= parameter; see architecture docs.",
-              remediation: "manual_keycloak",
-            },
           ],
         },
       },
@@ -419,20 +414,12 @@ describe("KeycloakMigrationHealthPanel", () => {
     render(<KeycloakMigrationHealthPanel />);
 
     // (a) Affordance present for every row, including the passing one
-    // (so users can hover *any* row to learn what it checks). The
-    // OBO group still renders as a flat accordion, so its rows keep
-    // the `invariant-explain-…` testids; the team-scope group now
-    // renders as the matrix view, so the dm_mode_known_limitation
-    // advisory is hoisted to the matrix's top-level advisory row
-    // with its own testid (`team-scope-advisory-explain`).
+    // (so users can hover *any* row to learn what it checks).
     expect(
       await screen.findByTestId("invariant-explain-obo.token_exchange.shared_audience.affirmative"),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("invariant-explain-obo.users_impersonate.exists"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("team-scope-advisory-explain"),
     ).toBeInTheDocument();
 
     // (b) Tooltip body is the decoded explanation, not the raw ID. With
@@ -456,16 +443,6 @@ describe("KeycloakMigrationHealthPanel", () => {
       /realm-level (?:`users\.impersonate` )?scope-permission/i,
     );
     expect(existsRow.textContent ?? "").toMatch(/no client.*can ever issue an OBO.*token/i);
-
-    // The advisory DM-mode row now lives in the team-scope matrix's
-    // top-level advisory bar (not in the flat invariant list). The
-    // tooltip body — decoded from `invariant-explanations.ts` — must
-    // still surface the RFC 8693 explanation, and the BFF's raw
-    // `detail` is rendered inline underneath so admins can read the
-    // multi-sentence prose without hovering.
-    const dmAdvisory = screen.getByTestId("team-scope-advisory");
-    expect(dmAdvisory.textContent ?? "").toMatch(/DM-mode marker (?:client )?scope/i);
-    expect(dmAdvisory.textContent ?? "").toMatch(/architecture\.md/);
 
     // (c) The hover affordance's aria-label embeds the decoded title so
     // screen-reader users get the same context without firing a hover.
@@ -823,6 +800,12 @@ describe("KeycloakMigrationHealthPanel", () => {
       }
     }
     if (includeDmAdvisory) {
+      // Phase 3 (spec 2026-05-24-derive-team-from-channel) retired
+      // the `team_personal.dm_mode_known_limitation` advisory — the
+      // BFF no longer emits it because DMs no longer go through
+      // Keycloak token exchange. The matrix builder treats an unknown
+      // id as a no-op (`matrix.advisory === null`), which is what we
+      // want here too.
       items.push({
         id: "team_personal.dm_mode_known_limitation",
         description: "team-personal DM mode has a known token-exchange limitation",
@@ -1038,7 +1021,12 @@ describe("KeycloakMigrationHealthPanel", () => {
     });
   });
 
-  it("hoists the team_personal.dm_mode_known_limitation advisory to its own row above the matrix", async () => {
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) retired the
+  // `team_personal.dm_mode_known_limitation` advisory. The panel
+  // therefore no longer renders a `team-scope-advisory` bar even if
+  // the legacy advisory id sneaks back into a fixture. This test
+  // pins the new contract: the advisory bar must not render.
+  it("does not render the dm_mode_known_limitation advisory bar (Phase 3 retired the invariant)", async () => {
     global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(
       makeMatrixFixture({
         teamSlugs: ["a"],
@@ -1049,20 +1037,10 @@ describe("KeycloakMigrationHealthPanel", () => {
 
     render(<KeycloakMigrationHealthPanel />);
 
-    // The advisory bar renders with its own testid, distinct from
-    // any matrix row, and includes the BFF's multi-sentence detail
-    // inline so admins can read the RFC 8693 explanation without
-    // hovering anything.
-    const advisory = await screen.findByTestId("team-scope-advisory");
-    expect(advisory).toHaveTextContent(/known token-exchange limitation/i);
-    expect(advisory).toHaveTextContent(/RFC 8693/);
-    // The advisory's explainer affordance is present (same hover
-    // contract as every other invariant), and the row is marked
-    // "Manual" because there's no remediation we can apply.
-    expect(screen.getByTestId("team-scope-advisory-explain")).toBeInTheDocument();
-    expect(advisory).toHaveTextContent(/Manual/);
+    await waitFor(() => expect(screen.getByTestId("team-scope-matrix")).toBeInTheDocument());
 
-    // Sanity: the advisory must NOT appear as a matrix cell.
+    expect(screen.queryByTestId("team-scope-advisory")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("team-scope-advisory-explain")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("team-scope-cell-team-personal-dm_mode_known_limitation"),
     ).not.toBeInTheDocument();
@@ -1104,191 +1082,12 @@ describe("KeycloakMigrationHealthPanel", () => {
     ).toBeInTheDocument();
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // Targeted heal for the `audience.<client>.single_team_default`
-  // invariant. The panel renders a dedicated picker + button only
-  // when the invariant is failing; clicking it calls the new
-  // `/api/admin/keycloak/active-team-scope` route with the typed
-  // slug, then refreshes the health fixture.
-  // ─────────────────────────────────────────────────────────────
-  function fixtureWithAudienceCardinalityFailing(defaults: string[]) {
-    return {
-      success: true,
-      data: {
-        ...completedHealth.data,
-        keycloak_values: {
-          ...completedHealth.data.keycloak_values,
-          active_team_defaults: [
-            { audience_client_id: "caipe-platform", default_team_scopes: defaults },
-          ],
-        },
-        keycloak_invariants: {
-          summary: {
-            total: 1,
-            passing: 0,
-            failing: 1,
-            unknown: 0,
-            reconcile_now_recommended: true,
-          },
-          items: [
-            {
-              id: "audience.caipe-platform.single_team_default",
-              description: "caipe-platform has at most one real team-* default scope",
-              group: "team-scope",
-              source: "bff-migration",
-              status: "fail",
-              remediation: "reconcile_now",
-              detail: `Audience client \`caipe-platform\` currently has multiple real team-* scopes bound as default: \`${defaults.join("`, `")}\`.`,
-            },
-          ],
-        },
-      },
-    };
-  }
-
-  it("does NOT render the active-team-scope heal action when the invariant is passing (no failing items)", async () => {
-    const passingFixture = {
-      success: true,
-      data: {
-        ...completedHealth.data,
-        keycloak_invariants: {
-          summary: {
-            total: 1,
-            passing: 1,
-            failing: 0,
-            unknown: 0,
-            reconcile_now_recommended: false,
-          },
-          items: [
-            {
-              id: "audience.caipe-platform.single_team_default",
-              description: "caipe-platform has at most one real team-* default scope",
-              group: "team-scope",
-              source: "bff-migration",
-              status: "pass",
-              remediation: "none",
-            },
-          ],
-        },
-      },
-    };
-    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse(passingFixture));
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await screen.findByText("Keycloak Reconciliation Health");
-    expect(screen.queryByTestId("active-team-scope-action")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("active-team-scope-slug-input")).not.toBeInTheDocument();
-  });
-
-  it("renders the active-team-scope heal action with the current team-* defaults when the invariant fails", async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce(
-      jsonResponse(
-        fixtureWithAudienceCardinalityFailing(["team-platform", "team-eti-sre-admin"]),
-      ),
-    );
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    await screen.findByText("Keycloak Reconciliation Health");
-    const action = await screen.findByTestId("active-team-scope-action");
-    // Both current defaults must be displayed so the admin can see
-    // what's currently bound and pick which one to pin.
-    expect(action).toHaveTextContent("team-platform");
-    expect(action).toHaveTextContent("team-eti-sre-admin");
-    expect(action).toHaveTextContent("caipe-platform");
-    // The slug input is empty by default; the apply button is
-    // disabled until the admin types something.
-    const input = screen.getByTestId("active-team-scope-slug-input") as HTMLInputElement;
-    expect(input.value).toBe("");
-    const apply = screen.getByTestId("active-team-scope-apply") as HTMLButtonElement;
-    expect(apply).toBeDisabled();
-  });
-
-  it("POSTs the lowercased slug to the new route, shows success, and refreshes health", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse(
-          fixtureWithAudienceCardinalityFailing(["team-platform", "team-eti-sre-admin"]),
-        ),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          success: true,
-          data: {
-            active_team_slug: "platform",
-            audience_client_id: "caipe-platform",
-          },
-        }),
-      )
-      // Refresh after the heal — invariant now passes (we don't have
-      // to model the exact passing fixture, the action surface
-      // disappearing on the next render is enough).
-      .mockResolvedValueOnce(
-        jsonResponse(fixtureWithAudienceCardinalityFailing(["team-platform"])),
-      );
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    const input = (await screen.findByTestId(
-      "active-team-scope-slug-input",
-    )) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "Platform" } });
-    fireEvent.click(screen.getByTestId("active-team-scope-apply"));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/admin/keycloak/active-team-scope",
-        expect.objectContaining({
-          method: "POST",
-          // Slug is lowercased before sending so case-insensitive
-          // human input still produces the canonical slug Keycloak
-          // expects.
-          body: JSON.stringify({ team_slug: "platform" }),
-        }),
-      );
-    });
-    // Inline success message rendered with the result; the route's
-    // response is shown verbatim so the admin can see exactly what
-    // got changed.
-    expect(await screen.findByTestId("active-team-scope-success")).toHaveTextContent(
-      /pinned to platform/i,
-    );
-  });
-
-  it("surfaces a backend error inline without losing the typed slug", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce(
-        jsonResponse(
-          fixtureWithAudienceCardinalityFailing(["team-platform", "team-eti-sre-admin"]),
-        ),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse(
-          {
-            success: false,
-            error: 'Invalid team slug "bad!" — must be lowercase alphanumerics with hyphens',
-          },
-          false,
-          400,
-        ),
-      );
-
-    render(<KeycloakMigrationHealthPanel />);
-
-    const input = (await screen.findByTestId(
-      "active-team-scope-slug-input",
-    )) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "bad!" } });
-    fireEvent.click(screen.getByTestId("active-team-scope-apply"));
-
-    // The error toast / banner uses the same error pipeline as the
-    // rest of the panel, so it surfaces inline near the top.
-    expect(await screen.findByText(/Invalid team slug/i)).toBeInTheDocument();
-    // The slug input retains the typed value so the admin can fix
-    // the typo without re-typing.
-    expect(input.value).toBe("bad!");
-  });
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // targeted "Reconcile active-team scope" heal action — the
+  // POST /api/admin/keycloak/active-team-scope route, the
+  // `audience.<client>.single_team_default` invariant, and the panel
+  // UI that drove the heal. All matching tests are gone with it. Any
+  // legacy `team-*` defaults still in a realm are now diagnostic-only
+  // (surfaced via `team_scope.<scope>.active_team_mapper` invariants)
+  // and cleaned up via `scripts/cleanup-team-keycloak-scopes.sh`.
 });

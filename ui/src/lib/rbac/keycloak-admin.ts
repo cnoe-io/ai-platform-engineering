@@ -746,36 +746,15 @@ const WEBEX_BOT_CLIENT_ID =
 export const BOT_OBO_AUDIENCE_CLIENT_ID =
   process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Special-case "personal" team scope
-//
-// Spec 104 reserves `team-personal` as the DM-mode marker scope. Unlike real
-// team scopes its slug is fixed (`personal`), its `active_team` mapper value
-// is the sentinel `__personal__`, and it has no matching Mongo team row — it
-// is provisioned exclusively by `init-token-exchange.sh` and re-asserted by
-// the reconciliation migration.
-//
-// Architectural note: real `team-<slug>` scopes contribute `active_team` via
-// the **default-on-audience** binding because Keycloak's RFC 8693
-// token-exchange silently drops the `scope=` request parameter. Only one
-// `team-*` scope can be default on a given audience at a time
-// (`selectAgentGatewayActiveTeamScope` enforces this). For that reason
-// `team-personal` is NOT bound on the audience — DMs currently land on
-// whatever real team is default. Surfacing that as an explicit follow-up
-// invariant is intentional; we don't silently "fix" it via an ambiguous
-// binding here.
-// ─────────────────────────────────────────────────────────────────────────────
-export const PERSONAL_TEAM_SLUG = "personal";
-export const PERSONAL_TEAM_SCOPE_NAME = `team-${PERSONAL_TEAM_SLUG}`;
-export const PERSONAL_TEAM_ACTIVE_VALUE = "__personal__";
-export const PERSONAL_TEAM_MAPPER_NAME = `active-team-${PERSONAL_TEAM_SLUG}`;
-
-export function isPersonalTeamSlug(slug: string): boolean {
-  return slug === PERSONAL_TEAM_SLUG;
-}
-export function isPersonalTeamScopeName(scopeName: string): boolean {
-  return scopeName === PERSONAL_TEAM_SCOPE_NAME;
-}
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+// `team-personal` Keycloak client scope and the `PERSONAL_TEAM_*`
+// constants / `isPersonalTeam*` helpers that bound it. The DM-mode
+// signal now travels at the data layer (`channel_team_mappings` +
+// OpenFGA `team:personal`) and no longer requires a Keycloak client
+// scope or `active_team` JWT claim. Any legacy `team-personal` scope
+// left in a realm is treated like any other `team-*` legacy scope —
+// surfaced as a diagnostic invariant and cleaned up via
+// `scripts/cleanup-team-keycloak-scopes.sh`.
 
 function canonicalBotPolicyName(policyName: string): string {
   if (policyName === "caipe-webex-bot-token-exchange-policy") {
@@ -1262,36 +1241,11 @@ async function listClientScopes(): Promise<KeycloakClientScope[]> {
     .filter((x): x is KeycloakClientScope => x !== null);
 }
 
-async function getClientScopeByName(name: string): Promise<KeycloakClientScope | null> {
-  const all = await listClientScopes();
-  return all.find((s) => s.name === name) ?? null;
-}
-
-async function createClientScope(
-  name: string,
-  description: string
-): Promise<KeycloakClientScope> {
-  console.log(`[KeycloakAdmin] createClientScope name=${name}`);
-  const response = await adminFetch("/client-scopes", {
-    method: "POST",
-    body: JSON.stringify({
-      name,
-      protocol: "openid-connect",
-      description,
-      // Keep the scope name out of the access-token "scope" claim so
-      // only the active_team mapper output leaks into the token. This
-      // matters because the bot may request "openid team-<slug>" and we
-      // don't want to advertise the team list back to clients.
-      attributes: { "include.in.token.scope": "false" },
-    }),
-  });
-  await assertOk(response, "createClientScope");
-  const found = await getClientScopeByName(name);
-  if (!found) {
-    throw new Error(`Client scope "${name}" was created but could not be re-fetched`);
-  }
-  return found;
-}
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
+// `getClientScopeByName` / `createClientScope` mutation pair. The
+// `listClientScopes` reader above is kept because
+// `getKeycloakRbacDiagnosticValues` (below) still scans for legacy
+// `team-*` scopes so operators can clean them up.
 
 async function listProtocolMappers(scopeId: string): Promise<KeycloakProtocolMapper[]> {
   const enc = encodeURIComponent(scopeId);
@@ -1320,89 +1274,15 @@ async function listProtocolMappers(scopeId: string): Promise<KeycloakProtocolMap
     .filter((x): x is KeycloakProtocolMapper => x !== null);
 }
 
-async function ensureHardcodedActiveTeamMapper(
-  scopeId: string,
-  mapperName: string,
-  claimValue: string
-): Promise<void> {
-  const existing = await listProtocolMappers(scopeId);
-  const match = existing.find((m) => m.name === mapperName);
-  if (match) {
-    // Treat config divergence as fatal — silently re-pointing active_team
-    // would be a security regression.
-    const currentValue = match.config?.["claim.value"];
-    const currentName = match.config?.["claim.name"];
-    if (currentName !== "active_team" || currentValue !== claimValue) {
-      throw new Error(
-        `Hardcoded mapper "${mapperName}" exists but maps to ${currentName}=${currentValue}; ` +
-          `expected active_team=${claimValue}. Refusing to silently update.`
-      );
-    }
-    return;
-  }
-  console.log(
-    `[KeycloakAdmin] createHardcodedActiveTeamMapper scope=${scopeId} value=${claimValue}`
-  );
-  const enc = encodeURIComponent(scopeId);
-  const response = await adminFetch(`/client-scopes/${enc}/protocol-mappers/models`, {
-    method: "POST",
-    body: JSON.stringify({
-      name: mapperName,
-      protocol: "openid-connect",
-      protocolMapper: "oidc-hardcoded-claim-mapper",
-      consentRequired: false,
-      config: {
-        "claim.name": "active_team",
-        "claim.value": claimValue,
-        "jsonType.label": "String",
-        "id.token.claim": "true",
-        "access.token.claim": "true",
-        "userinfo.token.claim": "true",
-      },
-    }),
-  });
-  await assertOk(response, "createHardcodedActiveTeamMapper");
-}
-
-async function bindScopeAsOptional(
-  clientUuid: string,
-  scopeId: string
-): Promise<void> {
-  // PUT is idempotent: 204 on success, 409 if already bound (treat as ok).
-  const encClient = encodeURIComponent(clientUuid);
-  const encScope = encodeURIComponent(scopeId);
-  const response = await adminFetch(
-    `/clients/${encClient}/optional-client-scopes/${encScope}`,
-    { method: "PUT" }
-  );
-  if (!response.ok && response.status !== 204 && response.status !== 409) {
-    const detail = await readErrorBody(response);
-    throw new Error(`bindScopeAsOptional failed: ${response.status} ${detail}`);
-  }
-}
-
-/**
- * Bind a client scope as a *default* scope on a client. Used for the
- * bot OBO audience client because Keycloak's RFC 8693 token-exchange
- * silently drops the `scope` request parameter — the only way to get a
- * scope's mappers (and therefore the `active_team` claim) into the minted
- * token is via default scopes on the *target audience* client.
- */
-async function bindScopeAsDefault(
-  clientUuid: string,
-  scopeId: string
-): Promise<void> {
-  const encClient = encodeURIComponent(clientUuid);
-  const encScope = encodeURIComponent(scopeId);
-  const response = await adminFetch(
-    `/clients/${encClient}/default-client-scopes/${encScope}`,
-    { method: "PUT" }
-  );
-  if (!response.ok && response.status !== 204 && response.status !== 409) {
-    const detail = await readErrorBody(response);
-    throw new Error(`bindScopeAsDefault failed: ${response.status} ${detail}`);
-  }
-}
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
+// team-scope mutation helpers (`ensureHardcodedActiveTeamMapper`,
+// `bindScopeAsOptional`, `bindScopeAsDefault`,
+// `unbindOptionalScope`, `unbindDefaultScope`, `deleteClientScope`).
+// The remaining read-only helpers (`listProtocolMappers`,
+// `listDefaultClientScopes`, `listOptionalClientScopes`) are kept
+// because `getKeycloakRbacDiagnosticValues` still walks legacy
+// `team-*` scopes so operators can clean them up via
+// `scripts/cleanup-team-keycloak-scopes.sh`.
 
 async function listDefaultClientScopes(clientUuid: string): Promise<KeycloakClientScope[]> {
   const response = await adminFetch(
@@ -1438,47 +1318,8 @@ async function listOptionalClientScopes(clientUuid: string): Promise<KeycloakCli
     .filter((scope): scope is KeycloakClientScope => scope !== null);
 }
 
-async function unbindDefaultScope(
-  clientUuid: string,
-  scopeId: string
-): Promise<void> {
-  const encClient = encodeURIComponent(clientUuid);
-  const encScope = encodeURIComponent(scopeId);
-  const response = await adminFetch(
-    `/clients/${encClient}/default-client-scopes/${encScope}`,
-    { method: "DELETE" }
-  );
-  if (!response.ok && response.status !== 204 && response.status !== 404) {
-    const detail = await readErrorBody(response);
-    throw new Error(`unbindDefaultScope failed: ${response.status} ${detail}`);
-  }
-}
-
-async function unbindOptionalScope(
-  clientUuid: string,
-  scopeId: string
-): Promise<void> {
-  const encClient = encodeURIComponent(clientUuid);
-  const encScope = encodeURIComponent(scopeId);
-  const response = await adminFetch(
-    `/clients/${encClient}/optional-client-scopes/${encScope}`,
-    { method: "DELETE" }
-  );
-  // 404 = already unbound; treat as success.
-  if (!response.ok && response.status !== 204 && response.status !== 404) {
-    const detail = await readErrorBody(response);
-    throw new Error(`unbindOptionalScope failed: ${response.status} ${detail}`);
-  }
-}
-
-async function deleteClientScope(scopeId: string): Promise<void> {
-  const enc = encodeURIComponent(scopeId);
-  const response = await adminFetch(`/client-scopes/${enc}`, { method: "DELETE" });
-  if (!response.ok && response.status !== 204 && response.status !== 404) {
-    const detail = await readErrorBody(response);
-    throw new Error(`deleteClientScope failed: ${response.status} ${detail}`);
-  }
-}
+// (Phase 3 removed `unbindDefaultScope`, `unbindOptionalScope`, and
+//  `deleteClientScope` — see the Phase 3 demolition comment above.)
 
 /**
  * Validate a slug for a Keycloak client-scope name. Keycloak itself accepts a
@@ -1486,212 +1327,44 @@ async function deleteClientScope(scopeId: string): Promise<void> {
  * alphanumerics + hyphen) so the resulting `active_team` value renders cleanly
  * in JWTs, AGW logs, and OpenFGA relationship object IDs. Callers should reject invalid slugs
  * before trying to materialize a scope; this function is the canonical regex.
+ *
+ * Phase 3 (spec 2026-05-24-derive-team-from-channel) retained this
+ * validator — team-slug format is still enforced when creating Mongo
+ * team docs and OpenFGA team objects even though no Keycloak client
+ * scope is materialized.
  */
 export function isValidTeamSlug(slug: string): boolean {
   if (!slug || slug.length > 63) return false;
   return /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug);
 }
 
-/**
- * Idempotently ensure a `team-<slug>` client scope exists with a hardcoded
- * `active_team=<slug>` claim mapper, and is bound as an optional scope on the
- * Slack-bot client. Safe to call repeatedly during startup auto-sync.
- *
- * Throws if the slug is invalid or if an existing mapper is misconfigured —
- * we never silently rewrite an existing claim value to a different team.
- */
-export async function ensureTeamClientScope(slug: string): Promise<void> {
-  if (!isValidTeamSlug(slug)) {
-    throw new Error(
-      `Invalid team slug "${slug}" — must be lowercase alphanumerics with hyphens, max 63 chars`
-    );
-  }
-  const scopeName = `team-${slug}`;
-  const description = `Spec 104: marks the user as acting in team "${slug}"`;
-
-  const [slackBotClient, webexBotClient] = await Promise.all([
-    getClientByClientId(SLACK_BOT_CLIENT_ID),
-    getClientByClientId(WEBEX_BOT_CLIENT_ID),
-  ]);
-  if (!slackBotClient) {
-    throw new Error(
-      `Keycloak bot client "${SLACK_BOT_CLIENT_ID}" not found; cannot bind team scope`
-    );
-  }
-
-  let scope = await getClientScopeByName(scopeName);
-  if (!scope) {
-    scope = await createClientScope(scopeName, description);
-  }
-
-  await ensureHardcodedActiveTeamMapper(scope.id, `active-team-${slug}`, slug);
-  await bindScopeAsOptional(slackBotClient.id, scope.id);
-  if (webexBotClient) {
-    await bindScopeAsOptional(webexBotClient.id, scope.id);
-  }
-
-  // Spec 104: bind as DEFAULT on the OBO audience too. Token-exchange ignores
-  // the `scope=` request parameter, so optional-on-bot alone produces a
-  // token without the `active_team` claim. Default-on-audience is the only
-  // wiring that actually injects the claim. Best-effort: if the
-  // audience client doesn't exist yet, log
-  // and skip rather than failing team creation entirely.
-  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
-  if (!oboAudienceClient) {
-    console.warn(
-      `[keycloak-admin] OBO audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found; ` +
-        `team scope "${scopeName}" will not appear in OBO tokens until you run ` +
-        `init-idp.sh or create the target audience client manually.`
-    );
-    return;
-  }
-  await bindScopeAsDefault(oboAudienceClient.id, scope.id);
-}
-
-/**
- * Idempotently ensure the special `team-personal` client scope exists, has a
- * hardcoded `active_team=__personal__` mapper, and is bound as an *optional*
- * scope on both bot clients (`caipe-slack-bot` and `caipe-webex-bot`).
- *
- * This deliberately does **not** bind on the OBO audience client. Real team
- * scopes need default-on-audience because token-exchange drops `scope=`; we
- * intentionally do not "fix" that for `team-personal` because making it
- * default-on-audience would clobber whichever real team is currently default,
- * and making it optional-on-audience has no effect (verified live: KC still
- * drops `scope=team-personal` during token-exchange). The structural DM
- * limitation is surfaced as a separate advisory invariant; this function only
- * keeps the bot-side bindings symmetric and the mapper sane.
- */
-export async function ensurePersonalTeamClientScope(): Promise<void> {
-  const description = `Spec 104: marks the user as acting in personal (DM) mode`;
-
-  const [slackBotClient, webexBotClient] = await Promise.all([
-    getClientByClientId(SLACK_BOT_CLIENT_ID),
-    getClientByClientId(WEBEX_BOT_CLIENT_ID),
-  ]);
-  if (!slackBotClient) {
-    throw new Error(
-      `Keycloak bot client "${SLACK_BOT_CLIENT_ID}" not found; cannot bind ${PERSONAL_TEAM_SCOPE_NAME} scope`
-    );
-  }
-
-  let scope = await getClientScopeByName(PERSONAL_TEAM_SCOPE_NAME);
-  if (!scope) {
-    scope = await createClientScope(PERSONAL_TEAM_SCOPE_NAME, description);
-  }
-
-  await ensureHardcodedActiveTeamMapper(
-    scope.id,
-    PERSONAL_TEAM_MAPPER_NAME,
-    PERSONAL_TEAM_ACTIVE_VALUE
-  );
-  await bindScopeAsOptional(slackBotClient.id, scope.id);
-  if (webexBotClient) {
-    await bindScopeAsOptional(webexBotClient.id, scope.id);
-  } else {
-    console.warn(
-      `[keycloak-admin] Webex bot client "${WEBEX_BOT_CLIENT_ID}" not found; ` +
-        `${PERSONAL_TEAM_SCOPE_NAME} will not be bound on Webex.`
-    );
-  }
-}
-
-/**
- * Delete any `team-<slug>` Keycloak client scopes whose slug is not in the
- * provided `keepSlugs` allow-list AND is not the special `personal` slug.
- *
- * Returns the list of deleted scope names so the caller can record the count
- * in migration metadata. Each delete unbinds the scope from the Slack bot,
- * Webex bot, and OBO audience client first (so we don't leave dangling
- * client-scope mappings), then removes the scope itself.
- *
- * Safe to call repeatedly: no-op when there's nothing to delete.
- */
-export async function deleteOrphanTeamClientScopes(
-  keepSlugs: Iterable<string>
-): Promise<string[]> {
-  const allowed = new Set<string>(keepSlugs);
-  // `team-personal` is always allowed — it's a structural special-case scope
-  // owned by `init-token-exchange.sh` / `ensurePersonalTeamClientScope`.
-  allowed.add(PERSONAL_TEAM_SLUG);
-
-  const [slackBotClient, webexBotClient, oboAudienceClient, allScopes] =
-    await Promise.all([
-      getClientByClientId(SLACK_BOT_CLIENT_ID),
-      getClientByClientId(WEBEX_BOT_CLIENT_ID),
-      getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
-      listClientScopes(),
-    ]);
-
-  const orphans = allScopes.filter((scope) => {
-    if (!scope.name.startsWith("team-")) return false;
-    const slug = scope.name.slice("team-".length);
-    return !allowed.has(slug);
-  });
-
-  const deletedNames: string[] = [];
-  for (const scope of orphans) {
-    if (slackBotClient) {
-      await unbindOptionalScope(slackBotClient.id, scope.id);
-    }
-    if (webexBotClient) {
-      await unbindOptionalScope(webexBotClient.id, scope.id);
-    }
-    if (oboAudienceClient) {
-      await unbindDefaultScope(oboAudienceClient.id, scope.id);
-      await unbindOptionalScope(oboAudienceClient.id, scope.id);
-    }
-    await deleteClientScope(scope.id);
-    deletedNames.push(scope.name);
-    console.log(
-      `[keycloak-admin] deleteOrphanTeamClientScopes deleted "${scope.name}" ` +
-        `(no matching Mongo team and not a structural special-case scope)`
-    );
-  }
-  return deletedNames;
-}
-
-/**
- * Select the single bot OBO audience `team-*` default scope that should contribute
- * `active_team` to token-exchange results.
- *
- * This is a narrow repair for Keycloak's token-exchange behavior: when multiple
- * hardcoded active-team mappers are default scopes on the target audience,
- * mapper order is undefined and the bot can receive the wrong `active_team`.
- */
-export async function selectAgentGatewayActiveTeamScope(slug: string): Promise<void> {
-  if (!isValidTeamSlug(slug)) {
-    throw new Error(
-      `Invalid team slug "${slug}" — must be lowercase alphanumerics with hyphens, max 63 chars`
-    );
-  }
-  const oboAudienceClient = await getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID);
-  if (!oboAudienceClient) {
-    throw new Error(`Keycloak audience client "${BOT_OBO_AUDIENCE_CLIENT_ID}" not found`);
-  }
-  const targetScope = await getClientScopeByName(`team-${slug}`);
-  if (!targetScope) {
-    throw new Error(`Keycloak client scope "team-${slug}" not found`);
-  }
-
-  const defaultScopes = await listDefaultClientScopes(oboAudienceClient.id);
-  await Promise.all(
-    defaultScopes
-      .filter(
-        (scope) =>
-          scope.name.startsWith("team-") &&
-          scope.id !== targetScope.id &&
-          // Defensive: `team-personal` should never be default on the audience
-          // (see `ensurePersonalTeamClientScope` for the rationale), but if a
-          // previous run accidentally bound it we don't want this function to
-          // be the one that strips it — keep that as an explicit operator
-          // action via the dedicated orphan-cleanup / invariant flow.
-          !isPersonalTeamScopeName(scope.name)
-      )
-      .map((scope) => unbindDefaultScope(oboAudienceClient.id, scope.id))
-  );
-  await bindScopeAsDefault(oboAudienceClient.id, targetScope.id);
-}
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted the
+// team-scope mutation helpers that used to live here:
+//
+//   - `ensureTeamClientScope(slug)` — created the `team-<slug>` scope
+//     and bound it on both bot clients and the OBO audience.
+//   - `ensurePersonalTeamClientScope()` — created the `team-personal`
+//     DM-marker scope.
+//   - `deleteOrphanTeamClientScopes(keepSlugs)` — pruned `team-*`
+//     scopes that no longer matched a Mongo team.
+//   - `selectAgentGatewayActiveTeamScope(slug)` — pinned one
+//     `team-*` default scope on the OBO audience client.
+//
+// The new authorization model derives team identity from the
+// `channel_team_mappings` collection at request time (BFF +
+// AgentGateway PDP) so the bots no longer need an `active_team`
+// claim and Keycloak no longer needs per-team client scopes. The
+// read-only helpers used to surface drift (`listClientScopes`,
+// `listProtocolMappers`, etc.) are retained because
+// `getKeycloakRbacDiagnosticValues` still emits diagnostic
+// invariants pointing operators at any legacy `team-*` scopes for
+// cleanup via `scripts/cleanup-team-keycloak-scopes.sh`.
+//
+// Read-only sibling helpers are deliberately retained:
+//   - `listClientScopes()`           — used by getKeycloakRbacDiagnosticValues
+//   - `listProtocolMappers(scopeId)` — used by getKeycloakRbacDiagnosticValues
+//   - `listOptionalClientScopes()`   — used by getKeycloakRbacDiagnosticValues
+//   - `listDefaultClientScopes()`    — used by getKeycloakRbacDiagnosticValues
 
 async function ensureBotOboPermissions(botClientId: string, policyName: string): Promise<void> {
   const [botClient, oboAudienceClient, realmManagementClient] = await Promise.all([
@@ -2095,48 +1768,11 @@ export async function getKeycloakRbacDiagnosticValues(): Promise<KeycloakRbacDia
   };
 }
 
-/**
- * Idempotently remove a team scope. Unbinds from the bot client first, then
- * deletes the scope itself. Safe if the scope is already missing.
- */
-export async function deleteTeamClientScope(slug: string): Promise<void> {
-  if (!isValidTeamSlug(slug)) {
-    // If the slug is invalid we can't have created a scope for it; nothing to do.
-    return;
-  }
-  // Guard rail: never let team deletion remove the structural `team-personal`
-  // scope (the DM-mode marker is provisioned at realm bootstrap, not by team
-  // CRUD). If a maintainer renames a team to `personal` we want this to be a
-  // visible no-op, not a quiet wipe of personal-mode wiring.
-  if (isPersonalTeamSlug(slug)) {
-    console.warn(
-      `[keycloak-admin] Refusing to delete reserved scope "${PERSONAL_TEAM_SCOPE_NAME}" via deleteTeamClientScope`
-    );
-    return;
-  }
-  const scopeName = `team-${slug}`;
-  const scope = await getClientScopeByName(scopeName);
-  if (!scope) return;
-
-  const [slackBotClient, webexBotClient, oboAudienceClient] = await Promise.all([
-    getClientByClientId(SLACK_BOT_CLIENT_ID),
-    getClientByClientId(WEBEX_BOT_CLIENT_ID),
-    getClientByClientId(BOT_OBO_AUDIENCE_CLIENT_ID),
-  ]);
-  if (slackBotClient) {
-    await unbindOptionalScope(slackBotClient.id, scope.id);
-  }
-  if (webexBotClient) {
-    // Slack/Webex symmetry: previous implementations only unbound from Slack,
-    // leaving an orphan optional binding on the Webex bot that the next
-    // reconcile pass had to clean up. Unbind both sides as part of the delete.
-    await unbindOptionalScope(webexBotClient.id, scope.id);
-  }
-  if (oboAudienceClient) {
-    await unbindDefaultScope(oboAudienceClient.id, scope.id);
-  }
-  await deleteClientScope(scope.id);
-}
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) deleted
+// `deleteTeamClientScope(slug)`. Team deletion is now a pure Mongo
+// + OpenFGA operation; any lingering `team-<slug>` Keycloak scopes
+// are cleaned up out-of-band via
+// `scripts/cleanup-team-keycloak-scopes.sh`.
 
 function readAttributeValue(attrs: unknown, attributeName: string): string | undefined {
   if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;

@@ -26,11 +26,16 @@
  *
  * Everything in this file is **pure** — it takes the panel's raw
  * `KeycloakInvariant[]` and returns a sorted matrix data structure
- * the renderer can lay out without further computation. The
- * `team_personal.dm_mode_known_limitation` advisory is *not* part
- * of the matrix (it's a top-level row above it), and any
+ * the renderer can lay out without further computation. Any
  * non-`team-scope`-group invariant is silently dropped so callers
  * can safely pass the entire invariant list without pre-filtering.
+ *
+ * Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+ * `team_personal.dm_mode_known_limitation` advisory invariant — DMs
+ * no longer go through Keycloak token exchange, so there is no
+ * RFC 8693 limitation to advertise. The `advisory` field on the
+ * returned matrix is retained for back-compat with the renderer but
+ * is always `null` now.
  */
 
 import type { KeycloakInvariant, KeycloakInvariantStatus } from "@/lib/rbac/keycloak-invariants";
@@ -148,22 +153,21 @@ export interface TeamScopeMatrix {
     pass_count: number;
   };
   /**
-   * The `team_personal.dm_mode_known_limitation` advisory invariant
-   * if present (it doesn't fit the slug × kind grid; rendered as a
-   * top-level row above the matrix). `null` if not emitted.
+   * Phase 3 (spec 2026-05-24-derive-team-from-channel) retired the
+   * DM-mode advisory invariant. The field is kept on the type for
+   * back-compat with renderers that read `advisory` and treat `null`
+   * as "no advisory" — the matrix builder always sets this to `null`.
    */
   advisory: KeycloakInvariant | null;
 }
 
 /**
  * Match the BFF's ID format: `team_scope.<slug>.<kind>` for the
- * per-cell invariants, and `team_personal.dm_mode_known_limitation`
- * for the advisory. We intentionally use a regex (not a split) so
- * slugs containing dots (none today, but defensive) don't collapse
- * the parsing.
+ * per-cell invariants. We intentionally use a regex (not a split)
+ * so slugs containing dots (none today, but defensive) don't
+ * collapse the parsing.
  */
 const TEAM_SCOPE_ID_RE = /^team_scope\.([^.]+)\.(active_team_mapper|optional_on_slack_bot|optional_on_webex_bot|default_on_obo_audience)$/;
-const ADVISORY_ID = "team_personal.dm_mode_known_limitation";
 
 const PERSONAL_SLUG = "team-personal";
 
@@ -177,13 +181,8 @@ const PERSONAL_SLUG = "team-personal";
  */
 export function buildTeamScopeMatrix(items: KeycloakInvariant[]): TeamScopeMatrix {
   const rowMap = new Map<string, TeamScopeRow>();
-  let advisory: KeycloakInvariant | null = null;
 
   for (const item of items) {
-    if (item.id === ADVISORY_ID) {
-      advisory = item;
-      continue;
-    }
     if (item.group !== "team-scope") continue;
     const match = TEAM_SCOPE_ID_RE.exec(item.id);
     if (!match) continue;
@@ -256,7 +255,7 @@ export function buildTeamScopeMatrix(items: KeycloakInvariant[]): TeamScopeMatri
     kinds: [...TEAM_SCOPE_KIND_ORDER],
     kind_summary,
     summary,
-    advisory,
+    advisory: null,
   };
 }
 

@@ -172,23 +172,26 @@ describe("buildTeamScopeMatrix", () => {
       expect(matrix.rows).toHaveLength(1);
     });
 
-    it("extracts the team_personal.dm_mode_known_limitation advisory separately", () => {
-      const advisory: KeycloakInvariant = {
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) retired the
+    // `team_personal.dm_mode_known_limitation` advisory invariant.
+    // `matrix.advisory` is now always `null`, even when callers pass
+    // in the legacy advisory id (which they no longer should, but the
+    // matrix builder is defensive and ignores unknown ids).
+    it("returns advisory=null even if legacy DM-mode advisory id is in the input", () => {
+      const legacyAdvisory: KeycloakInvariant = {
         id: "team_personal.dm_mode_known_limitation",
-        description: "team-personal DM mode has a known token-exchange limitation",
+        description: "Legacy DM-mode advisory (no longer emitted by the BFF)",
         group: "team-scope",
         source: "init-token-exchange.sh",
         status: "unknown",
-        detail: "Keycloak's RFC 8693 drops the scope= parameter…",
         remediation: "manual_keycloak",
       };
       const matrix = buildTeamScopeMatrix([
         ...fullyPassingTeam("platform"),
         ...fullyPassingPersonalTeam(),
-        advisory,
+        legacyAdvisory,
       ]);
-      expect(matrix.advisory).toBe(advisory);
-      // …and it does NOT leak into the matrix rows.
+      expect(matrix.advisory).toBeNull();
       const personalRow = matrix.rows.find((row) => row.slug === "team-personal");
       expect(personalRow?.total_cells).toBe(3);
       expect(personalRow?.cells.default_on_obo_audience).toBeUndefined();

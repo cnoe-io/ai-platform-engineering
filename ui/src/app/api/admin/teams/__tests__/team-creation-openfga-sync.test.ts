@@ -17,7 +17,9 @@ import { ObjectId } from "mongodb";
 const mockGetServerSession = jest.fn();
 const mockCheckPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
-const mockEnsureTeamClientScope = jest.fn();
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+// `ensureTeamClientScope` from team creation. Mock is gone; test
+// no longer references it.
 const mockListTeamMembershipSources = jest.fn();
 const mockUpsertTeamMembershipSource = jest.fn();
 const mockSearchRealmUsers = jest.fn();
@@ -51,8 +53,7 @@ jest.mock("@/lib/rbac/audit", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
-  deleteTeamClientScope: jest.fn(),
+  // Phase 3: per-team Keycloak helpers removed from this mock.
   isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
   searchRealmUsers: (...args: unknown[]) => mockSearchRealmUsers(...args),
 }));
@@ -114,7 +115,7 @@ beforeEach(() => {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
-  mockEnsureTeamClientScope.mockResolvedValue(undefined);
+  // Phase 3: no team client-scope mock to reset.
   mockListTeamMembershipSources.mockResolvedValue([]);
   mockUpsertTeamMembershipSource.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });

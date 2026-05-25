@@ -399,18 +399,17 @@ export function evaluateKeycloakInvariants(
   // ────────────────────────────────────────────────────────────────
   // Team-scope wiring sourced from values.team_scopes
   //
-  // Each team in MongoDB must have a `team-<slug>` client scope with
-  // an `active_team` mapper, bound optional on each bot client and
-  // default on the OBO audience client.
-  //
-  // `team-personal` is structurally different: it is the DM-mode
-  // marker scope (active_team=__personal__) and is bound *optional*
-  // on the bots, with NO audience binding. See
-  // `ensurePersonalTeamClientScope` in keycloak-admin.ts for the
-  // rationale. The per-team invariants below skip the audience check
-  // for it and a separate top-level invariant
-  // (`team_personal.dm_mode_known_limitation`) surfaces the resulting
-  // DM-mode limitation explicitly.
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) stopped
+  // materializing `team-<slug>` client scopes. The BFF no longer
+  // creates, mutates, or relies on them, but legacy realms may
+  // still carry stale `team-*` scopes from earlier installs. The
+  // per-team `team_scope.<scope>.active_team_mapper` invariants
+  // below act as diagnostics in that case — they surface the
+  // legacy scopes so an operator can clean them up using
+  // `scripts/cleanup-team-keycloak-scopes.sh`. We do NOT emit a
+  // `team_personal.dm_mode_known_limitation` invariant anymore;
+  // DMs do not run through Keycloak token exchange, so the RFC
+  // 8693 limitation no longer applies.
   // ────────────────────────────────────────────────────────────────
   const PERSONAL_SCOPE_NAME = "team-personal";
   for (const scope of values.team_scopes) {

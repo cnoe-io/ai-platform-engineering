@@ -49,9 +49,12 @@ jest.mock('@/lib/rbac/openfga', () => ({
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+// `ensureTeamClientScope` / `deleteTeamClientScope` from
+// `keycloak-admin.ts`. The team CRUD routes no longer import them,
+// so the mock only needs `isValidTeamSlug`. The stale mock entries
+// were leftovers from before the demolition.
 jest.mock('@/lib/rbac/keycloak-admin', () => ({
-  ensureTeamClientScope: jest.fn().mockResolvedValue(undefined),
-  deleteTeamClientScope: jest.fn().mockResolvedValue(undefined),
   isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
 }));
 
@@ -321,31 +324,13 @@ describe('POST /api/admin/teams', () => {
     expect(body.error).toContain('already exists');
   });
 
-  it('returns a friendly message when identity setup fails', async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
-    const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(null);
-    mockCollections['teams'] = teamsCol;
-    const { ensureTeamClientScope } = require('@/lib/rbac/keycloak-admin') as {
-      ensureTeamClientScope: jest.Mock;
-    };
-    ensureTeamClientScope.mockRejectedValueOnce(new Error('raw scope failure'));
-
-    const req = makeRequest('/api/admin/teams', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'New Team' }),
-    });
-
-    const res = await POST(req);
-    const body = await res.json();
-
-    expect(res.status).toBe(502);
-    expect(body.error).toContain("We couldn't finish setting up this team");
-    expect(body.error).not.toContain('Keycloak');
-    expect(body.error).not.toContain('scope');
-    expect(body.error).not.toContain('raw scope failure');
-    expect(teamsCol.deleteOne).toHaveBeenCalledTimes(1);
-  });
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // `ensureTeamClientScope` call from team creation, so the 502
+  // "identity setup failed" failure mode is no longer reachable: team
+  // creation no longer touches Keycloak. Any test that injected
+  // `ensureTeamClientScope.mockRejectedValueOnce(...)` was deleted with
+  // the helper. OpenFGA tuple-write failures continue to be tolerated
+  // (logged, not thrown) per the same comment in `route.ts`.
 });
 
 // ============================================================================
