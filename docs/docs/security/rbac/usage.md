@@ -517,6 +517,20 @@ specific provisioning steps owned by `init-idp.sh`,
 `init-token-exchange.sh`, and the BFF startup migration. Each invariant is a
 named pass / fail / unknown check with a remediation hint:
 
+> **Phase 3 demolition note (spec 2026-05-24-derive-team-from-channel).**
+> The `team-scope` family of invariants and the targeted "Reconcile
+> active-team scope" heal surface described later in this section are
+> deprecated. Team identity is now derived from `channel_team_mappings`
+> at request time and Keycloak no longer participates. The invariants
+> remain in code as **diagnostics for legacy realms** — they flag any
+> `team-*` client scope left over from before Phase 3 so operators can
+> clean them up via [`scripts/cleanup-team-keycloak-scopes.sh`](https://github.com/cisco-eti/ai-platform-engineering/blob/main/scripts/cleanup-team-keycloak-scopes.sh).
+> The `team_personal.dm_mode_known_limitation` advisory and the
+> `audience.<client>.single_team_default` invariant are gone; the
+> `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` env var, the
+> `POST /api/admin/keycloak/active-team-scope` route, and the
+> `Reconcile active-team scope` picker have all been deleted.
+
 **Plain-English explainer tooltip.** The machine IDs are accurate but
 cryptic to a human (e.g. `obo.token_exchange.shared_audience.affirmative`,
 `team_scope.team-platform.default_on_obo_audience`). Every row renders a
@@ -535,7 +549,7 @@ The wording style policy is **"keep both technical and plain-English"**.
 Every tooltip body keeps the technical names — `OBO`, `token exchange`,
 `scope-permission`, `policy` / `type=client`, `AFFIRMATIVE` /
 `UNANIMOUS`, `service account`, `client scope`, team `slug`, `protocol
-mapper`, `active_team` claim, `caipe-platform`, `RFC 8693` — so
+mapper`, `caipe-platform`, `RFC 8693` — so
 engineers can grep them and so the prose matches the raw invariant ID
 already rendered in monospace right below the description. But each
 unavoidable term is given a one-shot plain-English gloss on first
@@ -554,22 +568,17 @@ half (e.g. just leaves "OBO" without "(on-behalf-of, …)") fails CI
 before it ships.
 
 **Plain-English explainer tooltips also cover migration warnings.**
-The Keycloak panel has two warning surfaces underneath the invariant
-list: the amber "Bootstrap admin reconciliation failed for N email(s)"
-bar (when one or more entries in `BOOTSTRAP_ADMIN_EMAILS` couldn't be
-seeded as realm admins), and the general "Warnings" bar (e.g.
-"Skipped active\_team default selection because
-`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is unset and there is not exactly
-one Mongo team."). Both surfaces follow the same explainer pattern as
-the invariant rows:
+The Keycloak panel surfaces the amber "Bootstrap admin reconciliation
+failed for N email(s)" bar (when one or more entries in
+`BOOTSTRAP_ADMIN_EMAILS` couldn't be seeded as realm admins) and a
+general "Warnings" bar for any other reconciliation issue. Both
+surfaces follow the same explainer pattern as the invariant rows:
 
 - Each individual warning row carries a `?` HelpCircle next to the
   raw text; hovering it shows a 2- to 4-sentence body explaining
   what the warning means, why it fires, and **what the system did
-  instead** (e.g. "left every other admin alone", "fell back to
-  personal mode for every channel that maps to a team"). The body
-  is followed by a "How to fix:" line with a concrete action,
-  including example env-var values.
+  instead**. The body is followed by a "How to fix:" line with a
+  concrete action, including example env-var values.
 - The "Bootstrap admin reconciliation failed" header has its own
   `?` HelpCircle that explains the *concept* — what
   `BOOTSTRAP_ADMIN_EMAILS` is for, why a brand-new deployment with
@@ -587,53 +596,15 @@ warning families added to `keycloak-rbac-reconciliation.ts` or
 get a safe generic fallback that points the next engineer at the
 file to extend.
 
-The single most common warning admins hit is the
-`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG`-unset one: that env var on the
-`caipe-ui` deployment names the team slug whose `team-*` client
-scope should sit as the single audience-default scope on
-`caipe-platform`. Because Keycloak's RFC 8693 token-exchange flow
-ignores the requested `scope=` and only injects mappers from
-*default* audience scopes, that one scope is what stamps the
-`active_team` claim into every OBO token the Slack and Webex bots
-issue. The migration auto-picks the lone team when only one team
-exists in MongoDB; otherwise it skips selection rather than
-guessing, and the warning fires until you set
-`KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG=<slug>` (e.g. `=platform`,
-`=eti-sre-admin`).
-
 - **Reconcile now** — the BFF migration `keycloak_rbac_mapping_reconciliation_v1`
-  knows how to repair the invariant. Two affordances drive the same migration:
+  knows how to repair OBO permission strategy / policy attachment / service-account
+  impersonation role drift. Two affordances drive the same migration:
   - **Reconcile all** at the top of the card fixes every failing
     `remediation: reconcile_now` invariant in one transaction. It also retries
     bootstrap admin email resolution and OpenFGA tuple seeding in the same pass.
   - **Fix** next to a specific failing row runs the identical migration but
     surfaces an inline "Fixing…" indicator on the originating row so admins can
-    triage long lists without losing context. The button becomes available
-    whenever any failing invariant has `remediation: reconcile_now`, even if the
-    schema and migration manifest are already current.
-- **Reconcile active-team scope (targeted heal)** — there is one specific
-  invariant the migration can drift back on: `audience.<client>.single_team_default`.
-  If `caipe-platform` has two or more real `team-*` default scopes, every
-  OBO-exchanged token gets a non-deterministic `active_team` claim (multiple
-  protocol mappers fire and the last one wins; mapper-order is undefined). This
-  intermittently breaks Slack/Webex bot DMs and channel routing in a way that
-  looks random — sometimes works, sometimes "team session unavailable".
-  - The migration heals this drift only when `KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG` is
-    set on the `caipe-ui` deployment to a real slug (e.g. `=platform`). With
-    that env var set, every reconciliation pass calls
-    `selectAgentGatewayActiveTeamScope(<slug>)`, which unbinds every other
-    `team-*` default and re-binds only `team-<slug>` — so even if a future
-    `ensureTeamClientScope` call binds another team's scope as default, the
-    next cycle cleans it up.
-  - With that env var unset and ≥2 teams in Mongo, the migration emits a
-    warning and skips the call. The panel then renders a dedicated
-    **Reconcile active-team scope** picker on the card: it lists the current
-    `team-*` defaults on each audience client (so an admin can see what
-    they're choosing between without leaving the page), accepts a slug, and
-    posts to `POST /api/admin/keycloak/active-team-scope`. The backend runs
-    the same `selectAgentGatewayActiveTeamScope(slug)` call as the migration
-    and refreshes the panel. The action surface only shows when the invariant
-    is failing — it's not a permanent fixture.
+    triage long lists without losing context.
 - **Manual** — the invariant requires a direct edit in the Keycloak Admin
   Console. Today this only fires for *strict policy shape* checks: every
   attached policy on the shared `users.impersonate` and `token-exchange`
@@ -641,6 +612,12 @@ guessing, and the warning fires until you set
   A `js` / `role` / empty-`clients` policy gives an admin a permissive single
   PERMIT under the AFFIRMATIVE decision strategy, so the panel asks an operator
   to remove it explicitly rather than auto-rewriting.
+- **Legacy team-scope cleanup** — any surviving `team-<slug>` client scope
+  from before Phase 3 of spec 2026-05-24-derive-team-from-channel shows up
+  as a `team_scope.<scope>.active_team_mapper` invariant. Run
+  `scripts/cleanup-team-keycloak-scopes.sh --apply` against the realm to
+  drop them. The script is idempotent and re-running it on a clean realm
+  is a no-op.
 
 **Admin-only header alert.** Admins do not have to be on the Keycloak tab
 to notice a regression. The right-hand cluster of the global `AppHeader`
@@ -729,72 +706,16 @@ The invariant set currently covers:
 | --- | --- |
 | OBO | `obo.token_exchange.*.affirmative`, `obo.token_exchange.shared_audience.{slack,webex}_policy_attached`, `obo.users_impersonate.affirmative`, `obo.users_impersonate.policies_strict`, `obo.users_impersonate.<bot>_policy_attached`, `obo.bot.<bot>.token_exchange_policy_attached`, `obo.bot.<bot>.users_impersonate_policy_attached` |
 | Bot service accounts | `service_account.<bot>.impersonation_role` |
-| Team client scopes | `team_scope.<scope>.active_team_mapper`, `team_scope.<scope>.optional_on_{slack,webex}_bot`, `team_scope.<scope>.default_on_obo_audience` (omitted for `team-personal` — see special-case below) |
-| Personal / DM mode | `team_personal.dm_mode_known_limitation` (advisory only) |
+| Legacy team-scope diagnostics (Phase 3 demolition target) | `team_scope.<scope>.active_team_mapper`, `team_scope.<scope>.optional_on_{slack,webex}_bot` — emitted only for `team-*` client scopes left over from before Phase 3 of spec 2026-05-24-derive-team-from-channel. Clear by running `scripts/cleanup-team-keycloak-scopes.sh --apply`. |
 
-The `team-personal` scope is a structural special-case. It is the DM-mode
-marker scope (`active_team=__personal__`) and is bound *optional* on both
-bots, but it is intentionally NOT default on the OBO audience client because
-Keycloak's RFC 8693 token-exchange drops the `scope=` request parameter and
-only one `team-*` default-on-audience binding can contribute `active_team`
-to the issued token at a time. Consequently:
-
-- The evaluator does **not** emit a `team_scope.team-personal.default_on_obo_audience` invariant — it would be a perpetually red row with no automatic remediation.
-- It does emit the advisory invariant `team_personal.dm_mode_known_limitation` (status `unknown`, remediation `manual_keycloak`) so the structural DM-mode gap is visible without being conflated with real failures. Tracked as a follow-up; see `docs/docs/security/rbac/architecture.md` for the design options.
-- Orphan `team-<slug>` scopes whose slug is not in the Mongo `teams`
-  collection (and is not `personal`) are auto-deleted during reconciliation
-  to keep the panel from flagging eternally-failing rows for scopes nobody
-  owns. The migration emits a warning summary listing the deleted scope
-  names so admins can recreate the corresponding team if the deletion was
-  unintended.
-
-**Team-scope matrix view.** Each team emits four (or three, for
-`team-personal`) team-scope invariants, so a 100-team realm would render
-~400 visually identical flat rows. To make the panel scale, the team-scope
-group is rendered as a `slug × wiring-kind` matrix instead of a flat list,
-at every realm size (one code path, no threshold switching). The layout is:
-
-- A status-strip header (`N teams · X pass · Y fail · Z unknown`) that
-  always reflects the *unfiltered* counts so admins can spot the
-  delta-from-clean state at a glance.
-- The `team_personal.dm_mode_known_limitation` advisory hoisted to its
-  own top-level amber row above the table (it does not fit the `slug ×
-  kind` grid — the kind doesn't exist for it).
-- A filter bar: slug substring search, a "failing only" toggle, and one
-  chip per wiring kind annotated with that kind's failing+unknown count.
-  Chips for kinds with no issues are disabled so the affordance is
-  honest about what's actionable. Filters AND together (search + toggle
-  + chip multi-select).
-- The matrix table itself: one row per team, four columns of compact
-  status dots (one per wiring kind), a per-team Fix button on the
-  right, and a chevron that expands the row into the four full
-  invariant cards (each with its plain-English explainer tooltip and
-  the existing per-cell Fix affordance).
-- A per-kind Fix button on each column header next to the chip count —
-  e.g. "Slack bot · Fix 12".
-
-The honest semantics admins should understand (and the panel surfaces
-this in a small note under the matrix): **per-team and per-kind Fix
-buttons all run the same global Keycloak reconcile migration**, the
-same one as `Reconcile all`. The difference is purely UX — clicking a
-narrower Fix button pins the `Fixing…` spinner to that row/column so
-admins see where their attention should be, not what scope of work
-the migration is actually doing. (The migration itself is idempotent
-and converges every team-scope invariant in one shot.) Sort order is:
-failing rows first (more fails sort earlier), then unknown-bearing
-rows, then passing rows; within each tier the rows sort
-alphabetically by slug, with `team-personal` pushed to the end of its
-tier so the structural row never visually dominates.
-
-Filters are local UI state — they do not change the underlying matrix
-counts, the `Copy diagnostics` JSON, or the migration's behaviour, so
-narrowing the table for triage never gives admins a partial view of
-the realm's health. The matrix code lives in
-`ui/src/components/admin/KeycloakTeamScopeMatrix.tsx` (rendering) and
-`ui/src/components/admin/team-scope-matrix.ts` (the pure pivot from
-invariant list → `slug × kind` grid), both unit-tested against
-fixtures up to 100 teams (`team-scope-matrix.test.ts`) and exercised
-end-to-end through the panel suite (`KeycloakMigrationHealthPanel.test.tsx`).
+**Team-scope matrix view (legacy).** The `slug × wiring-kind` matrix
+view in `KeycloakTeamScopeMatrix.tsx` still renders any legacy `team-*`
+client scope an operator hasn't yet cleaned up. On a post-Phase-3 realm
+the matrix is empty and the panel renders no team-scope section at all.
+On an upgraded realm with leftover scopes, the matrix lists them so
+operators can verify what `scripts/cleanup-team-keycloak-scopes.sh`
+will remove. The matrix is read-only from the panel — there is no Fix
+button for legacy scopes; the script is the canonical cleanup path.
 
 The evaluator is a pure function over the read-only inspection in
 `ui/src/lib/rbac/keycloak-admin.ts#getKeycloakRbacDiagnosticValues`, so it
@@ -904,7 +825,7 @@ channel.
 This flow preserves existing UI-managed and config-synced route metadata; it
 only imports selected channel rows, writes each selected row's channel-team
 mapping, ensures channel-agent OpenFGA grants, ensures the selected team-agent
-grant, repairs the Slack bot's OBO/active-team Keycloak wiring, reloads the
+grant, reloads the
 running Slack bot route cache when the admin API is reachable, and creates
 missing default routes when route creation is enabled.
 
@@ -1043,7 +964,7 @@ Keycloak client-credentials token.
 | `WEBEX_USER_NOT_LINKED` | Complete the Webex account-link flow so `webex_user_id` maps to a Keycloak user |
 | `WEBEX_WORKSPACE_UNCONFIGURED` | Set `WEBEX_WORKSPACE_ALIAS` or `WEBEX_WORKSPACE_ID` |
 | `WEBEX_SPACE_TEAM_NOT_FOUND` | Map the space to a team in Admin → Teams |
-| `WEBEX_OBO_FAILED` | Check Keycloak Webex bot client secret, token-exchange policy, and active-team scope |
+| `WEBEX_OBO_FAILED` | Check Keycloak Webex bot client secret and token-exchange policy attachment |
 | `WEBEX_ROUTE_DENIED` | Add an enabled route for the selected space and agent |
 | `missing_space_grant` | Ensure the `webex_space` OpenFGA tuple exists for the requested agent/resource |
 | `pdp_unavailable` | Check CAIPE UI BFF, OpenFGA, and Webex bot route diagnostics |
@@ -1057,10 +978,13 @@ If `WEBEX_OBO_FAILED` logs show `403 Forbidden`, verify the
 `caipe-webex-bot-token-exchange` Keycloak policy is attached to all three
 permissions: `caipe-webex-bot` token-exchange, users `impersonate`, and
 the `CAIPE_PLATFORM_AUDIENCE` target client's token-exchange permission
-(`caipe-platform` by default). If token exchange succeeds but the bot logs an
-`active_team` mismatch, the `CAIPE_PLATFORM_AUDIENCE` client has multiple
-`team-*` default client scopes; re-run the Webex BFF onboarding flow for the
-space/team so it selects the expected `team-<slug>` scope.
+(`caipe-platform` by default). (Phase 3 of spec
+2026-05-24-derive-team-from-channel removed the per-team
+`active_team` claim mechanism, so token-exchange now mints a
+team-agnostic OBO token and the previous "active_team mismatch"
+class of failure no longer exists. If logs reference an `active_team`
+mismatch on a current build, the Webex bot binary is older than the
+realm — upgrade the bot.)
 
 If the bot replies `I could not complete the request. Please try again.` after
 `WEBEX_DISPATCH_ALLOWED`, check the Webex bot logs for the downstream BFF

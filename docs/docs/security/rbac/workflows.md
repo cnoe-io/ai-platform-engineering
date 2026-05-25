@@ -391,7 +391,7 @@ sequenceDiagram
         alt still unmapped
             WB-->>User: deny WEBEX_SPACE_TEAM_NOT_FOUND
         else mapped
-            WB->>KC: token exchange for user OBO JWT with active_team
+            WB->>KC: token exchange for team-agnostic user OBO JWT<br/>(channel→team is resolved by BFF via webex_space_team_mappings)
             WB->>FGA: read webex_space:<alias>--<space> agent route tuples
             WB->>UI: POST /api/admin/webex/spaces/{workspace}/{space}/access-check
             UI->>FGA: check space grant and user/team resource relationship
@@ -434,13 +434,17 @@ for outbound Webex API calls.
 ### Team Creation OpenFGA Sync
 
 When an admin creates a team through `POST /api/admin/teams`, the Web UI
-backend must synchronize four pieces of state in one shot — Mongo `teams`,
-Mongo `team_membership_sources`, Keycloak (per-team client scope), and
-OpenFGA (membership tuples). The OpenFGA write is what makes
-`team:<slug>#can_use` resolve true for the creator on subsequent requests
-like Dynamic Agent creation. **Skipping the OpenFGA step leaves
-`team:<slug>#can_use` false even though Mongo has the membership row, and
-`OWNER_TEAM_FORBIDDEN` fires on the very next agent-creation API call.**
+backend synchronizes three pieces of state in one shot — Mongo `teams`,
+Mongo `team_membership_sources`, and OpenFGA (membership tuples). The
+OpenFGA write is what makes `team:<slug>#can_use` resolve true for the
+creator on subsequent requests like Dynamic Agent creation. **Skipping
+the OpenFGA step leaves `team:<slug>#can_use` false even though Mongo has
+the membership row, and `OWNER_TEAM_FORBIDDEN` fires on the very next
+agent-creation API call.**
+
+> Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
+> per-team Keycloak client scope (`team-<slug>`). Team creation no
+> longer touches Keycloak; teams are a pure Mongo+OpenFGA concept.
 
 ```mermaid
 sequenceDiagram
@@ -454,7 +458,6 @@ sequenceDiagram
     Admin->>BFF: POST /api/admin/teams { name, slug, members[] }
     BFF->>BFF: Dedupe creator email out of members[]<br/>(silent — prevents duplicate "owner + member" rows)
     BFF->>MDB: teams.insertOne with creator role='owner'<br/>and remaining members role='member'
-    BFF->>KC: ensureTeamClientScope(slug)<br/>(synchronous; failure rolls back the Mongo doc)
     loop For every member row (creator + invitees)
         BFF->>KC: searchRealmUsers email → keycloak_sub
         alt sub resolved
@@ -666,29 +669,28 @@ state that only BFF startup could create.
 After that bootstrap, the Web UI backend owns the long-term Keycloak reconciliation
 path through `keycloak_rbac_mapping_reconciliation_v1`. This migration is
 code-backed in TypeScript rather than shell-backed by `init-idp.sh`; on BFF startup
-it reads Mongo teams, reconciles Keycloak `team-*` client scopes and bot OBO
-permissions, resolves `BOOTSTRAP_ADMIN_EMAILS` to Keycloak user ids, creates
-passwordless verified placeholders for bootstrap emails that have not logged in,
-writes durable OpenFGA admin tuples, records the run in Mongo migration tables,
-and leaves a blocking migration status if the Keycloak repair fails. The header checks
+it reconciles bot OBO permissions (token-exchange decision strategy, service-account
+impersonation roles, realm-level `users.impersonate` scope-permission), resolves
+`BOOTSTRAP_ADMIN_EMAILS` to Keycloak user ids, creates passwordless verified
+placeholders for bootstrap emails that have not logged in, writes durable OpenFGA
+admin tuples, records the run in Mongo migration tables, and leaves a blocking
+migration status if the Keycloak repair fails. (Phase 3 of spec
+2026-05-24-derive-team-from-channel removed the per-team and personal client-scope
+branches from this migration; teams no longer touch Keycloak.) The header checks
 `GET /api/rbac/migration-status` for every authenticated UI session so non-admin
 users see the same "migrations required" indicator. Admins can inspect persisted
 Keycloak run details, counts, warnings, and errors from `GET
 /api/admin/keycloak/migration-health` in Admin → Security & Policy → Keycloak.
 The panel surfaces five high-signal tiles at the top (Schema area / Version /
 Migration status / Last actor / Bootstrap admins) and the Keycloak Invariants
-section below them with per-row **Fix** buttons as the actionable source of
-truth for live `team-*` scopes, `active_team` mappers, client-scope bindings,
-OBO permissions, and service-account roles. The raw `applied_counts` tile grid
-that previously sat between them (Mongo teams seen / Team scopes reconciled /
-OBO permission sets reconciled / etc.) was removed on 2026-05-24 — those
-counters were bookkeeping noise from the last reconciliation run rather than a
-view of current Keycloak state. Raw counts remain on the migration record and
-are queryable via `GET /api/admin/keycloak/migration-health` for anyone
-debugging the migration itself. Bootstrap-admin diagnostics (configured emails,
-resolved Keycloak subjects, placeholder creations, tuple writes, per-email
-warnings) are still inspectable through the Bootstrap admins tile at the top of
-the panel.
+section below them with per-row **Fix** buttons as the actionable source of truth
+for OBO token-exchange permission strategy, attached OBO policies, and
+service-account impersonation roles. Any legacy `team-*` client scopes left over
+from before Phase 3 are surfaced here as diagnostic invariants pointing
+operators to `scripts/cleanup-team-keycloak-scopes.sh`. Bootstrap-admin
+diagnostics (configured emails, resolved Keycloak subjects, placeholder
+creations, tuple writes, per-email warnings) are still inspectable through the
+Bootstrap admins tile at the top of the panel.
 If the stored run is failed or the `keycloak_rbac_mappings` schema area is behind,
 the **Reconcile now** button posts to the existing migration apply route for
 `keycloak_rbac_mapping_reconciliation_v1` and then reloads the health panel from
@@ -715,15 +717,15 @@ sequenceDiagram
     BFF-->>UI: Manifest + current schema status
     UI->>BFF: GET /api/admin/keycloak/migration-health
     BFF->>MDB: Read keycloak_rbac_mapping_reconciliation_v1 run details
-    BFF->>KC: Read team scopes, mapper values, OBO permissions, service-account roles
+    BFF->>KC: Read OBO permissions, service-account roles, any legacy team-* scopes
     BFF-->>UI: Keycloak health, invariants, warnings, errors, bootstrap admin status
     Admin->>UI: Click Reconcile now when failed/behind
     UI->>BFF: POST /api/admin/rebac/migrations/keycloak_rbac_mapping_reconciliation_v1/apply
-    BFF->>KC: Reconcile team scopes, OBO permissions, bootstrap admin users
+    BFF->>KC: Reconcile OBO permissions, bootstrap admin users<br/>(no per-team scope work — see Phase 3 note above)
     BFF->>OpenFGA: Write bootstrap organization + system_config tuples
     BFF->>MDB: Update schema_migrations + data_schema_versions
     UI->>BFF: GET /api/admin/keycloak/migration-health
-    BFF->>KC: Startup migration checks/applies<br/>Keycloak team scopes + OBO permissions
+    BFF->>KC: Startup migration checks/applies<br/>OBO permission strategy + service-account impersonation roles
     BFF->>MDB: Record keycloak_rbac_mapping_reconciliation_v1<br/>in schema_migrations + data_schema_versions
     Admin->>UI: Select a migration and Dry run
     UI->>BFF: POST /migrations/{id}/plan
@@ -776,11 +778,22 @@ Keycloak responds with an OBO JWT where:
 - `email` = the user's email
 - `act.sub` = the bot's client ID — the delegation chain is cryptographically recorded
 - `aud` includes `caipe-platform` by default because the bot's immediate next hop is the CAIPE UI BFF access-check/proxy surface, not AgentGateway
-- `active_team` is the selected channel/space team slug, or `__personal__` for direct messages
 
-### Bot → BFF Audience and Active Team
+> Phase 3 of spec 2026-05-24-derive-team-from-channel removed the legacy
+> `active_team` JWT claim. The bot no longer requests a `team-*` scope and
+> the OBO token no longer carries a team identifier. Team identity for a
+> Slack channel or Webex space is now derived at request time from
+> `channel_team_mappings` / `webex_space_team_mappings` (see "Channel-message
+> dispatch" below). DM dispatch follows the personal chain (override →
+> preference → `dm_agent_id` → `default_agent_id` → deny).
 
-Slack and Webex use the same audience model. The bot mints a user OBO token for the **next hop it is calling**: the CAIPE UI BFF. That is why `CAIPE_PLATFORM_AUDIENCE` defaults to `caipe-platform`. AgentGateway still accepts `agentgateway` for direct data-plane callers and legacy paths, but bot pre-dispatch checks should not mint `aud=agentgateway`.
+### Bot → BFF Audience
+
+Slack and Webex use the same audience model. The bot mints a team-agnostic
+user OBO token for the **next hop it is calling**: the CAIPE UI BFF. That
+is why `CAIPE_PLATFORM_AUDIENCE` defaults to `caipe-platform`. AgentGateway
+still accepts `agentgateway` for direct data-plane callers and legacy paths,
+but bot pre-dispatch checks should not mint `aud=agentgateway`.
 
 ```mermaid
 sequenceDiagram
@@ -804,51 +817,52 @@ sequenceDiagram
         Bot-->>User: Link account prompt<br/>(Webex sends signed SSO link in 1:1 card)
     else linked
         MDB-->>Bot: keycloak_user_id
-        Bot->>MDB: Resolve conversation container → team context
-        alt direct message / personal context
-            Bot->>Bot: active_team = "__personal__"<br/>scope = openid team-personal
-        else mapped channel/space
+        alt direct message (DM / 1:1)
+            note over Bot: DM dispatch chain (post-Phase-3):<br/>override → dm_default_agent_id → realm dm_agent_id → default_agent_id → deny.<br/>No team context, no team-scope OBO.
+            Bot->>BFF: GET /api/user/preferences (load dm_default_agent_id)
+            Bot->>Bot: Resolve effective agent_id
+            alt no agent resolvable
+                Bot-->>User: "no default agent" + /caipe-list hint
+            end
+        else mapped channel / space
             Bot->>MDB: channel_team_mappings or webex_space_team_mappings
-            MDB-->>Bot: team slug (for example platform-eng)
-            Bot->>FGA: Pre-check user:{sub} member team:{slug}
-            FGA-->>Bot: allowed or denied
-            Bot->>Bot: active_team = team slug<br/>scope = openid team-{slug}
-        end
-
-        alt team mapping or membership denied
-            Bot-->>User: Fail closed before token exchange
-        else team context selected
-            Bot->>KC: POST /token (RFC 8693)<br/>client_id=bot client<br/>requested_subject=user sub<br/>audience=CAIPE_PLATFORM_AUDIENCE<br/>(default caipe-platform)<br/>scope=openid team-...
-            note over KC: Target audience client (`caipe-platform` by default)<br/>must allow bot token-exchange and carry the selected<br/>team-* default client scope mapper.
-            KC-->>Bot: OBO JWT<br/>sub=user sub, act.sub=bot client,<br/>aud=[caipe-platform], active_team=slug or __personal__
-
-            Bot->>Bot: Decode JWT payload and verify<br/>returned active_team == requested active_team
-            alt active_team mismatch or token exchange failure
-                Bot-->>User: OBO failed; do not dispatch<br/>(prevents wrong-team privilege confusion)
-            else OBO token is scoped correctly
-                Bot->>BFF: POST access-check route<br/>Authorization: Bearer OBO_JWT
-                note over BFF: BFF validates issuer, signature, expiry,<br/>and accepted audience includes `caipe-platform`.
-                BFF->>FGA: Check channel/space route grant and<br/>user/team/resource relationship
-                FGA-->>BFF: allowed or denied
-
-                alt denied, wrong audience, or PDP unavailable
-                    BFF-->>Bot: structured deny/unavailable
-                    Bot-->>User: Deny before Dynamic Agent dispatch
-                else dispatch allowed
-                    Bot->>BFF: POST /api/v1/chat/stream/start<br/>Authorization: Bearer OBO_JWT
-                    BFF->>FGA: Conversation write + agent-use checks
-                    BFF->>DA: Proxy request with same Bearer OBO_JWT
-                    DA->>DA: JwtAuthMiddleware binds current_user_token<br/>sub + active_team
-                    DA->>AG: MCP/tool request with same Bearer OBO_JWT<br/>+ signed agent context
-                    AG->>FGA: ext_authz checks user, agent, and tool relationships
-                    AG->>MCP: Forward authorized call<br/>Authorization: Bearer OBO_JWT
-                    MCP-->>AG: tool result
-                    AG-->>DA: tool result
-                    DA-->>BFF: streamed agent response
-                    BFF-->>Bot: streamed response
-                    Bot-->>User: Threaded Slack/Webex reply
+            MDB-->>Bot: team slug (for example platform-eng) or none
+            alt no active mapping
+                Bot-->>User: "this channel isn't assigned to a CAIPE team yet"
+            else mapped
+                Bot->>FGA: Pre-check user:{sub} member team:{slug}
+                FGA-->>Bot: allowed or denied
+                alt user not in mapped team
+                    Bot-->>User: "you aren't a member of {team}"
                 end
             end
+        end
+
+        Bot->>KC: POST /token (RFC 8693)<br/>client_id=bot client<br/>requested_subject=user sub<br/>audience=CAIPE_PLATFORM_AUDIENCE<br/>(default caipe-platform)<br/>scope=openid (no team-* scope)
+        note over KC: Target audience client must allow bot token-exchange.<br/>The OBO token is team-agnostic — channel→team mapping<br/>flows through `channel_team_mappings`, not the JWT.
+        KC-->>Bot: OBO JWT<br/>sub=user sub, act.sub=bot client,<br/>aud=[caipe-platform]
+
+        Bot->>BFF: POST access-check route + channel/space identifier<br/>Authorization: Bearer OBO_JWT
+        note over BFF: BFF validates issuer, signature, expiry,<br/>audience, then resolves channel→team in MongoDB,<br/>then evaluates the OpenFGA decision.
+        BFF->>FGA: Check channel/space route grant and<br/>user/team/resource relationship
+        FGA-->>BFF: allowed or denied
+
+        alt denied, wrong audience, or PDP unavailable
+            BFF-->>Bot: structured deny/unavailable
+            Bot-->>User: Deny before Dynamic Agent dispatch
+        else dispatch allowed
+            Bot->>BFF: POST /api/v1/chat/stream/start<br/>Authorization: Bearer OBO_JWT + agent_id
+            BFF->>FGA: Conversation write + agent-use checks<br/>(direct or team-union per spec 2026-05-24 Phase 2)
+            BFF->>DA: Proxy request with same Bearer OBO_JWT
+            DA->>DA: JwtAuthMiddleware binds current_user_token (sub only)
+            DA->>AG: MCP/tool request with same Bearer OBO_JWT<br/>+ signed agent context
+            AG->>FGA: ext_authz checks user, agent, and tool relationships
+            AG->>MCP: Forward authorized call<br/>Authorization: Bearer OBO_JWT
+            MCP-->>AG: tool result
+            AG-->>DA: tool result
+            DA-->>BFF: streamed agent response
+            BFF-->>Bot: streamed response
+            Bot-->>User: Threaded Slack/Webex reply
         end
     end
 ```
@@ -856,7 +870,44 @@ sequenceDiagram
 The two load-bearing invariants are:
 
 1. **Audience follows the next hop.** Bot pre-dispatch calls target the CAIPE UI BFF, so OBO uses `CAIPE_PLATFORM_AUDIENCE` (`caipe-platform` by default). The same bearer can still be forwarded later because Dynamic Agents and AgentGateway accept `caipe-platform`.
-2. **Team context is signed, then verified.** The bot derives `active_team` from the channel/space mapping, requests the matching `team-*` scope, and rejects the request if Keycloak returns any other `active_team`.
+2. **Team context is data-layer derived, not JWT-signed** (Phase 3 of spec 2026-05-24-derive-team-from-channel). Channel/space → team mapping is read from MongoDB at every request, and the BFF + AgentGateway PDP evaluate the OpenFGA decision against that mapping. The OBO token is team-agnostic.
+
+### `/use default` workflow (DM personal default)
+
+`/caipe-use default <agent_id>` and `/caipe-use default` (no agent) update a
+single per-user preference (`dm_default_agent_id`) in one round-trip. The
+bot resolves the agent (or `null`), checks the user can `can_use` it (when
+setting), then writes the preference. The next DM dispatches via the
+personal chain and lands on the new default.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Slack/Webex user
+    participant Bot as Slack/Webex bot
+    participant BFF as CAIPE UI BFF
+    participant FGA as OpenFGA
+    participant MDB as MongoDB user_preferences
+
+    U->>Bot: /caipe-use default my-agent<br/>(or /caipe-use default to clear)
+    Bot->>BFF: POST /api/user/check_agent_access<br/>(skip when clearing)
+    BFF->>FGA: Check user:{sub} can_use agent:{my-agent}
+    FGA-->>BFF: allowed | denied
+    alt setting + denied
+        BFF-->>Bot: { allowed: false, reason }
+        Bot-->>U: "you don't have access to my-agent"
+    else clearing or allowed
+        Bot->>BFF: PUT /api/user/preferences<br/>{ dm_default_agent_id: "my-agent" | null }
+        BFF->>MDB: upsert user_preferences row
+        MDB-->>BFF: ok
+        BFF-->>Bot: 204
+        Bot-->>U: "default agent set to my-agent" / "default cleared"
+    end
+```
+
+Both the override (live DM dispatch) and the preference (next-DM default)
+are cleared in a single round-trip when the user passes the bare form,
+matching FR-029a in spec 2026-05-24-derive-team-from-channel.
 
 ```mermaid
 sequenceDiagram
@@ -877,7 +928,7 @@ sequenceDiagram
     SB->>KC: POST /token (grant=token-exchange, requested_subject=a3f9...)
     KC-->>SB: OBO JWT (sub=a3f9, act.sub=slack-bot)
 
-    SB->>SUP: POST /a2a  Authorization: Bearer OBO_JWT
+    SB->>SUP: POST /a2a  Authorization: Bearer OBO_JWT<br/>(team-agnostic; channel→team is resolved by the BFF<br/>via `channel_team_mappings`, not from the JWT)
 
     note over SUP: JwtUserContextMiddleware
     SUP->>SUP: decode JWT → email=alice, sub=a3f9
@@ -970,9 +1021,9 @@ Slack channel routing now separates "which team owns this channel?" from "which 
 
 1. **Team lookup**: query `channel_team_mappings` in MongoDB by `slack_channel_id`.
 2. **Optional first-message auto-assignment**: when `SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS=true` and no active mapping exists, write the configured `SLACK_DEFAULT_TEAM_SLUG` mapping, the default `slack_channel:<workspace_alias>--<channel_id> user agent:<id>` OpenFGA tuple, and matching route metadata.
-3. **Active team minting**: mint the user's OBO token with the channel team's `active_team` claim.
+3. **Team-agnostic OBO mint**: mint the user's OBO token without a `team-*` scope (Phase 3 of spec 2026-05-24-derive-team-from-channel removed the per-team scope mint — channel→team is now resolved from `channel_team_mappings` at every request).
 4. **Channel association lookup**: read OpenFGA channel-agent tuples and join Mongo route metadata only for tuple-backed agents.
-5. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's active team/agent relationship.
+5. **Channel ReBAC check**: call the Slack channel access checker for `slack_channel:<workspace_alias>--<channel_id> can_use agent:<id>` and the user's team/agent relationship (team derived from the channel mapping).
 6. **Route**: dispatch to the selected `agent_id` only after both the channel association and user/team agent grant allow the request.
 
 The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association. The OpenFGA Policy Graph overlays `channel_team_mappings` as read-only `assigned_team` routing metadata edges so operators can see channel ownership next to OpenFGA grants without treating that ownership as a mutable tuple.
