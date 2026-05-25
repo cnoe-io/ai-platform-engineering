@@ -12,8 +12,9 @@ server_params = StdioServerParameters(
 
 
 async def run():
+    mcp_url = os.environ.get("MCP_URL", "http://127.0.0.1:8000/sse")
     async with sse_client(
-        url="http://localhost:8000/sse",
+        url=mcp_url,
     ) as (read, write), ClientSession(read, write) as session:
         # Initialize the connection
         await session.initialize()
