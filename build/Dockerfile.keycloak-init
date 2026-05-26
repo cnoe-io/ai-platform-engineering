@@ -24,6 +24,12 @@
 # bash if `apk add bash` is used.
 FROM cgr.dev/chainguard/wolfi-base:latest
 
+# Switch to the public Wolfi OS repo (packages.wolfi.dev/os) instead of the
+# default apk.cgr.dev/chainguard repo, which requires authentication and
+# rate-limits unauthenticated pulls. This mirrors what caipe-supervisor and
+# skill-scanner do and fixes "remote server returned error" / timeout failures.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
 RUN apk add --no-cache \
       python-3.13 \
       curl \
