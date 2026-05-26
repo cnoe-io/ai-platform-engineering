@@ -2344,6 +2344,13 @@ choose_features() {
             warn "Ollama embeddings selected, but no Ollama LLM was configured."
             warn "  The RAG server will reach OLLAMA_BASE_URL=http://localhost:${OLLAMA_PORT}."
             warn "  You must run an Ollama server reachable from inside the cluster."
+          else
+            # Pull the embedding model. This is typically a different model from
+            # the LLM model (e.g. nomic-embed-text vs llama2), so it must be
+            # pulled separately even though _collect_ollama_config already pulled
+            # the LLM model.
+            log "Pulling Ollama embedding model: ${EMBEDDINGS_MODEL}"
+            ollama pull "${EMBEDDINGS_MODEL}" || warn "Failed to pull embedding model — run 'ollama pull ${EMBEDDINGS_MODEL}' manually"
           fi
           ;;
         custom-litellm)
