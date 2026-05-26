@@ -139,7 +139,7 @@ jobs:
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
         run: |
-          echo "${{ steps.app-token.outputs.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Write local chart version normalizer
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
