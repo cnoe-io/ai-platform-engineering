@@ -888,10 +888,13 @@ function AdminPage() {
     try {
       const feedbackOn = getConfig('feedbackEnabled');
       const npsOn = getConfig('npsEnabled');
-      // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
-      // Always fetch unfiltered stats for the global overview cards
+      // Fetch stats, teams, skill metrics, feedback, and NPS in parallel.
+      // The user list is intentionally NOT fetched here — UserManagementTab
+      // lazy-loads it when the Users tab is selected. Fetching it eagerly
+      // burned a Keycloak list+count round-trip on every admin page load
+      // and the result was discarded.
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const [statsRes, globalStatsRes, usersRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
+      const [statsRes, globalStatsRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
         (() => {
           const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
           if (sourceFilter !== 'all') p.set('source', sourceFilter);
@@ -899,7 +902,6 @@ function AdminPage() {
           return fetch(`/api/admin/stats?${p}`);
         })(),
         hasStatsFilters ? fetch('/api/admin/stats') : null,
-        fetch('/api/admin/users'),
         fetchTeamsFromDb().catch(() => []),
         fetch('/api/admin/stats/skills').catch(() => null),
         feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
@@ -919,10 +921,9 @@ function AdminPage() {
         return;
       }
 
-      const [statsResponse, globalStatsResponse, usersResponse] = await Promise.all([
+      const [statsResponse, globalStatsResponse] = await Promise.all([
         statsForbidden ? Promise.resolve({ success: false }) : statsRes.json(),
         globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
-        usersRes.json().catch(() => ({ success: false, data: { users: [] } })),
       ]);
 
       if (statsResponse.success) {

@@ -167,6 +167,43 @@ describe('GET /api/admin/users — Keycloak list', () => {
     ];
     mockSearchRealmUsers.mockResolvedValue(raw);
     mockCountRealmUsers.mockResolvedValue(1);
+
+    const res = await GET(makeRequest('/api/admin/users'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(1);
+    expect(body.users[0]).toMatchObject({
+      id: 'u1',
+      email: 'alice@example.com',
+      slack_link_status: 'unlinked',
+      webex_link_status: 'unlinked',
+    });
+    // Roles are NOT included by default — `includeRoles=true` is opt-in.
+    expect(body.users[0]).not.toHaveProperty('roles');
+    expect(body.users[0]).not.toHaveProperty('raw_roles');
+    expect(body.users[0]).not.toHaveProperty('role_classifications');
+    expect(body.users[0]).not.toHaveProperty('hidden_role_count');
+    expect(mockListRealmRoleMappingsForUser).not.toHaveBeenCalled();
+    expect(body.total).toBe(1);
+    expect(body.page).toBe(1);
+    expect(body.pageSize).toBe(20);
+  });
+
+  it('includes curated role fields when includeRoles=true', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const raw = [
+      {
+        id: 'u1',
+        username: 'alice',
+        email: 'alice@example.com',
+        firstName: 'Alice',
+        lastName: 'A',
+        enabled: true,
+        attributes: {},
+      },
+    ];
+    mockSearchRealmUsers.mockResolvedValue(raw);
+    mockCountRealmUsers.mockResolvedValue(1);
     mockListRealmRoleMappingsForUser.mockResolvedValue([
       { name: 'admin' },
       { name: 'offline_access' },
@@ -175,7 +212,7 @@ describe('GET /api/admin/users — Keycloak list', () => {
       { name: 'agent_admin:1-april-2025' },
     ]);
 
-    const res = await GET(makeRequest('/api/admin/users'));
+    const res = await GET(makeRequest('/api/admin/users?includeRoles=true'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.users).toHaveLength(1);
@@ -207,9 +244,7 @@ describe('GET /api/admin/users — Keycloak list', () => {
         }),
       ])
     );
-    expect(body.total).toBe(1);
-    expect(body.page).toBe(1);
-    expect(body.pageSize).toBe(20);
+    expect(mockListRealmRoleMappingsForUser).toHaveBeenCalledWith('u1');
   });
 
   it('returns empty list when role filter matches no users', async () => {
