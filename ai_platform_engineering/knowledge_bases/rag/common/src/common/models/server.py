@@ -46,6 +46,7 @@ class ScrapySettings(BaseModel):
 
   # Misc
   user_agent: Optional[str] = Field(None, description="Custom user agent string (defaults to Chrome-like UA)")
+  allow_non_public_urls: bool = Field(False, description="Allow crawling URLs that resolve to private/internal IP addresses. Disabled by default (SSRF protection). Only enable for datasources on internal networks.")
 
 
 # ============================================================================
