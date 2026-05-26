@@ -596,6 +596,28 @@ export async function requireRbacPermission(
   const email = session.user?.email;
   const subject = session.sub;
 
+  // Bypass for anonymous admin: SSO is off + ALLOW_ANONYMOUS_ADMIN=true.
+  // getAuthenticatedUser() produces a session with role='admin' but no
+  // accessToken or sub, so the DENY_NO_TOKEN check below would always fire
+  // without this early-return.
+  if (
+    !getConfig('ssoEnabled') &&
+    process.env.ALLOW_ANONYMOUS_ADMIN === 'true' &&
+    session.role === 'admin'
+  ) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: 'anonymous',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ANONYMOUS_ADMIN',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
+
   if (!accessToken && !subject) {
     logAuthzDecision({
       tenantId: session.org ?? 'unknown',
