@@ -201,4 +201,39 @@ describe('requireConversationAccess — autonomous conversations', () => {
       requireConversationAccess(VALID_UUID, 'alice@example.com', getCollectionFn)
     ).rejects.toMatchObject({ statusCode: 403 });
   });
+
+  // Plan section 4.5 / 5: admin viewing another user's autonomous
+  // conversation receives `admin_audit` (read-only). The chat write
+  // routes (`messages` / `turns`) explicitly 403 on `admin_audit`. This
+  // test pins the autonomous-specific contract so a future refactor of
+  // `requireConversationAccess` cannot silently weaken it.
+  it('returns admin_audit for autonomous conversations so write routes can 403 the admin', async () => {
+    const conv = makeAutonomousConversation({ owner_id: 'alice@example.com' });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValue(conv);
+    const sharingAccessCol = createMockCollection();
+    sharingAccessCol.findOne.mockResolvedValue(null);
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+
+    const getCollectionFn = makeMockGetCollection({
+      conversations: convsCol,
+      sharing_access: sharingAccessCol,
+      teams: teamsCol,
+    });
+
+    const result = await requireConversationAccess(
+      VALID_UUID,
+      'admin@example.com',
+      getCollectionFn,
+      { role: 'admin' }
+    );
+
+    expect(result.access_level).toBe('admin_audit');
+    // Sanity: admin_audit is one of the two access levels the chat
+    // write routes (messages, turns) reject explicitly with 403; if
+    // this assertion ever flips to 'owner' / 'shared' the autonomous
+    // audit guarantee is broken.
+    expect(['admin_audit', 'shared_readonly']).toContain(result.access_level);
+  });
 });

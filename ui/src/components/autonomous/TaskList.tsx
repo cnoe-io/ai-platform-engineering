@@ -23,12 +23,19 @@ interface TaskListProps {
   /** ids that are currently being acted on (delete/trigger) — used to grey out buttons. */
   busyIds: Set<string>;
   /**
-   * IMP-19: when true, the per-task action toolbar (Run / Edit /
-   * Delete) is hidden entirely. Used for the read-only operator
-   * view -- the proxy will 403 these mutations server-side anyway,
-   * but rendering buttons that always 403 is hostile UX.
+   * Plan section 4.3 — admin-only owner column. When true, render a
+   * small `owner_id` line under the task title so admins can tell who
+   * created each task. Non-admins only ever see their own tasks
+   * (backend-filtered), so the column is pointless noise for them.
    */
-  readOnly?: boolean;
+  showOwner?: boolean;
+  /**
+   * Email of the currently authenticated user. Only consulted when
+   * `showOwner` is true — used to sort the caller's own tasks to the
+   * top of the list so an admin viewing a populated system sees their
+   * own tasks first rather than scrolling through everyone else's.
+   */
+  currentUserEmail?: string | null;
 }
 
 function describeTrigger(trigger: Trigger): string {
@@ -149,21 +156,36 @@ export function TaskList({
   onDelete,
   onTrigger,
   busyIds,
-  readOnly = false,
+  showOwner = false,
+  currentUserEmail = null,
 }: TaskListProps) {
   if (tasks.length === 0) {
+    // Plan section 4.3 — collapsed empty-state copy. Both an admin
+    // viewing a globally-empty system and a non-admin with zero
+    // personal tasks land here, and "create one" is the right next
+    // action in both cases.
     return (
       <div className="rounded-md border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
-        {readOnly
-          ? "No autonomous tasks configured yet."
-          : 'No autonomous tasks yet. Click "New task" to create one.'}
+        No autonomous tasks yet. Click &quot;New task&quot; to create one.
       </div>
     );
   }
 
+  // Plan section 4.3 — sort the caller's own tasks first when the
+  // admin owner column is shown. Cheap (O(N log N) over typically <50
+  // tasks). Non-mutating: do not sort `tasks` in place because the
+  // parent passes a memoised array.
+  const orderedTasks = showOwner && currentUserEmail
+    ? [...tasks].sort((a, b) => {
+        const aMine = a.owner_id === currentUserEmail ? 0 : 1;
+        const bMine = b.owner_id === currentUserEmail ? 0 : 1;
+        return aMine - bMine;
+      })
+    : tasks;
+
   return (
     <ul className="flex flex-col gap-2">
-      {tasks.map((task) => {
+      {orderedTasks.map((task) => {
         const isSelected = task.id === selectedTaskId;
         const isBusy = busyIds.has(task.id);
         return (
@@ -217,6 +239,14 @@ export function TaskList({
                         {task.description}
                       </p>
                     )}
+                    {showOwner && task.owner_id && (
+                      <p
+                        className="mt-1 text-[11px] text-muted-foreground"
+                        data-testid="autonomous-task-owner"
+                      >
+                        Owner: <span className="font-mono">{task.owner_id}</span>
+                      </p>
+                    )}
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <TriggerIcon type={task.trigger.type} />
@@ -259,12 +289,15 @@ export function TaskList({
                   </div>
                 </div>
               </button>
-              {!readOnly && (
-                <div
-                  className="flex items-center justify-end gap-1 border-t border-border px-2 py-1.5"
-                  data-testid="autonomous-task-actions"
-                >
-                  {/* Spec #099 FR-006 / Story 2: deep-link to the per-task
+              {/* Plan section 4.3 — action toolbar is always rendered.
+                  Backend `_assert_task_access` enforces per-task ownership
+                  for non-owners; per-task handlers surface 403s as toasts
+                  (defence in depth). */}
+              <div
+                className="flex items-center justify-end gap-1 border-t border-border px-2 py-1.5"
+                data-testid="autonomous-task-actions"
+              >
+                {/* Spec #099 FR-006 / Story 2: deep-link to the per-task
                       chat conversation. Stable UUIDv5 so the link works
                       even before the first run has fired. Open in a new
                       tab so the operator can keep the autonomous list
@@ -331,7 +364,6 @@ export function TaskList({
                     <span className="ml-1 text-xs">Delete</span>
                   </Button>
                 </div>
-              )}
             </div>
           </li>
         );

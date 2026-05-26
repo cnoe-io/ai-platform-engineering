@@ -51,7 +51,17 @@ def _assert_task_access(task: TaskDefinition, caller_email: str | None, is_admin
     """Raise 403 if caller does not own the task and is not an admin.
 
     Tasks without an owner_id (created before this feature) are treated as
-    admin-only to prevent accidental cross-user exposure.
+    admin-only to prevent accidental cross-user exposure. This orphaned-task
+    branch is the **only** path that produces a 403 for an admin-eligible
+    caller: once `is_admin` is true above, every other ownership check is
+    short-circuited. Backfilling `owner_id` for pre-feature tasks is the
+    out-of-band remediation; we deliberately do not auto-assign here so the
+    audit story stays clean (admin acted, not "system silently re-owned").
+
+    Audit signal for cross-user admin actions is NOT emitted here — it is
+    emitted at the verb call sites (`update_task` / `delete_task` /
+    `trigger_task_manually`) so the log line carries the action verb and
+    the task's human-readable name without re-fetching from the store.
     """
     if is_admin:
         return
@@ -243,6 +253,15 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
     if existing is not None:
         caller_email, is_admin = _get_caller(request)
         _assert_task_access(existing, caller_email, is_admin)
+        # Admin acting on someone else's task -- emit an audit log line at
+        # the verb call site (per plan section 4.4) so log scanners see the
+        # action verb and the human-readable task name without joining
+        # against the store.
+        if is_admin and existing.owner_id and existing.owner_id != caller_email:
+            logger.info(
+                "Admin %s acted on task %s (%r) owned by %s (action=%s)",
+                caller_email, task_id, existing.name, existing.owner_id, "update",
+            )
         # Preserve owner_id from the original task — callers cannot reassign ownership.
         task = task.model_copy(update={"owner_id": existing.owner_id})
 
@@ -310,6 +329,11 @@ async def delete_task(task_id: str, request: Request) -> None:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     caller_email, is_admin = _get_caller(request)
     _assert_task_access(task, caller_email, is_admin)
+    if is_admin and task.owner_id and task.owner_id != caller_email:
+        logger.info(
+            "Admin %s acted on task %s (%r) owned by %s (action=%s)",
+            caller_email, task_id, task.name, task.owner_id, "delete",
+        )
     try:
         await store.delete(task_id)
     except TaskNotFoundError as exc:
@@ -340,6 +364,11 @@ async def trigger_task_manually(task_id: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
     caller_email, is_admin = _get_caller(request)
     _assert_task_access(task, caller_email, is_admin)
+    if is_admin and task.owner_id and task.owner_id != caller_email:
+        logger.info(
+            "Admin %s acted on task %s (%r) owned by %s (action=%s)",
+            caller_email, task_id, task.name, task.owner_id, "trigger",
+        )
 
     # Fire-and-forget -- the run is recorded in the store as it
     # progresses so the UI can poll /tasks/{id}/runs to see the result.

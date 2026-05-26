@@ -762,3 +762,185 @@ class TestTaskOwnership:
         client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
         resp = client.delete("/api/v1/tasks/t1", headers=_user_headers("alice@example.com"))
         assert resp.status_code == 204
+
+    def test_non_admin_cannot_update_another_users_task(self, client: TestClient):
+        """PUT /tasks/{id} returns 403 when task belongs to a different user."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("alice@example.com"),
+        )
+        updated_payload = _cron_task("t1")
+        updated_payload["name"] = "renamed by bob"
+        resp = client.put(
+            "/api/v1/tasks/t1",
+            json=updated_payload,
+            headers=_user_headers("bob@example.com"),
+        )
+        assert resp.status_code == 403
+
+    def test_non_admin_cannot_trigger_another_users_task(self, client: TestClient):
+        """POST /tasks/{id}/run returns 403 when task belongs to a different user."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("alice@example.com"),
+        )
+        resp = client.post(
+            "/api/v1/tasks/t1/run",
+            headers=_user_headers("bob@example.com"),
+        )
+        assert resp.status_code == 403
+
+    def test_admin_can_update_another_users_task(self, client: TestClient):
+        """An admin can PUT another user's task."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        updated_payload = _cron_task("t1")
+        updated_payload["name"] = "renamed by admin"
+        resp = client.put(
+            "/api/v1/tasks/t1",
+            json=updated_payload,
+            headers=_admin_headers(),
+        )
+        assert resp.status_code == 200
+        # Ownership is preserved across an admin-initiated update.
+        listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
+        owners = {t["id"]: t["owner_id"] for t in listed}
+        assert owners["t1"] == "bob@example.com"
+
+    def test_admin_can_delete_another_users_task(self, client: TestClient):
+        """An admin can DELETE another user's task."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        resp = client.delete("/api/v1/tasks/t1", headers=_admin_headers())
+        assert resp.status_code == 204
+
+
+class TestAdminAuditLogging:
+    """Section 4.4: admin actions on someone else's task emit a log line."""
+
+    def test_admin_update_emits_audit_log(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ):
+        """Admin PUT on another user's task emits a log line with both emails + action."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        updated_payload = _cron_task("t1")
+        updated_payload["name"] = "renamed by admin"
+        caplog.clear()
+        with caplog.at_level("INFO", logger="autonomous_agents"):
+            resp = client.put(
+                "/api/v1/tasks/t1",
+                json=updated_payload,
+                headers={
+                    "X-Authenticated-User-Email": "admin@example.com",
+                    "X-Authenticated-User-Is-Admin": "true",
+                },
+            )
+            assert resp.status_code == 200
+        admin_log_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "Admin " in r.getMessage() and "acted on task" in r.getMessage()
+        ]
+        assert admin_log_lines, "expected an admin audit log line on PUT"
+        msg = admin_log_lines[0]
+        assert "admin@example.com" in msg
+        assert "bob@example.com" in msg
+        assert "t1" in msg
+        assert "update" in msg
+
+    def test_admin_delete_emits_audit_log(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ):
+        """Admin DELETE on another user's task emits a log line with both emails + action."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        caplog.clear()
+        with caplog.at_level("INFO", logger="autonomous_agents"):
+            resp = client.delete(
+                "/api/v1/tasks/t1",
+                headers={
+                    "X-Authenticated-User-Email": "admin@example.com",
+                    "X-Authenticated-User-Is-Admin": "true",
+                },
+            )
+            assert resp.status_code == 204
+        admin_log_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "Admin " in r.getMessage() and "acted on task" in r.getMessage()
+        ]
+        assert admin_log_lines, "expected an admin audit log line on DELETE"
+        msg = admin_log_lines[0]
+        assert "admin@example.com" in msg
+        assert "bob@example.com" in msg
+        assert "delete" in msg
+
+    def test_admin_trigger_emits_audit_log(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ):
+        """Admin manual trigger on another user's task emits a log line."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        caplog.clear()
+        with caplog.at_level("INFO", logger="autonomous_agents"):
+            resp = client.post(
+                "/api/v1/tasks/t1/run",
+                headers={
+                    "X-Authenticated-User-Email": "admin@example.com",
+                    "X-Authenticated-User-Is-Admin": "true",
+                },
+            )
+            assert resp.status_code == 200
+        admin_log_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "Admin " in r.getMessage() and "acted on task" in r.getMessage()
+        ]
+        assert admin_log_lines, "expected an admin audit log line on manual trigger"
+        msg = admin_log_lines[0]
+        assert "admin@example.com" in msg
+        assert "bob@example.com" in msg
+        assert "trigger" in msg
+
+    def test_owner_action_does_not_emit_admin_audit_log(
+        self, client: TestClient, caplog: pytest.LogCaptureFixture
+    ):
+        """Owner acting on their own task must not emit the cross-user admin audit log line."""
+        client.post(
+            "/api/v1/tasks",
+            json=_cron_task("t1"),
+            headers=_user_headers("bob@example.com"),
+        )
+        caplog.clear()
+        with caplog.at_level("INFO", logger="autonomous_agents"):
+            resp = client.delete(
+                "/api/v1/tasks/t1",
+                headers=_user_headers("bob@example.com"),
+            )
+            assert resp.status_code == 204
+        admin_log_lines = [
+            r.getMessage()
+            for r in caplog.records
+            if "Admin " in r.getMessage() and "acted on task" in r.getMessage()
+        ]
+        assert admin_log_lines == [], (
+            "owner deleting their own task should not emit the admin audit line"
+        )
