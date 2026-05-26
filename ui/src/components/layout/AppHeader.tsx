@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import {
@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   KeyRound,
   MoreHorizontal,
+  ChevronRight,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -34,6 +35,7 @@ import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
@@ -151,14 +153,19 @@ function GuardedLink({
 // cluster (status pill + settings + user menu) still fit on a typical
 // laptop without overlap.
 const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
-// Wider breakpoint used when an admin-only migration banner is showing on
-// the right. Each banner pill ("Migrations required: N" /
-// "Version metadata needed: N" / "Migration override active") adds a
-// chunky labelled chip plus a gap, and combined with the "Report a
-// Problem" full-text button can push the right cluster into the inline
-// nav. Collapsing earlier in that case prevents the overlap seen on
-// 1180–1320px viewports.
-const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1320px)";
+// Wider breakpoint used when an admin-only banner is showing on the right
+// (`migrationStatus.is_blocking` / `needs_version_bootstrap` /
+// `override_active`, or the Keycloak invariant alert chip). Each banner
+// pill adds ~140-200px of labelled width, and combined with the
+// full-text "Report a Problem" button can push the right cluster into
+// the inline nav — which then silently clips the last secondary item
+// (Admin) due to `overflow-hidden` on the left flex region. Collapsing
+// earlier in that case prevents the overlap that hides the Admin tab on
+// 1180-1500px viewports. Empirical: at 1440px with the Version metadata
+// chip showing, the inline nav was clipping Admin off-screen; 1500 is
+// the smallest breakpoint that gives reliable headroom for the wider
+// right cluster on every layout we've reproduced.
+const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1500px)";
 
 function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
   const query = earlyCollapse
@@ -192,6 +199,7 @@ export function AppHeader() {
     pendingNavigationHref,
     cancelNavigation,
     confirmNavigation,
+    requestNavigation,
     setUnsaved,
   } = useUnsavedChangesStore();
 
@@ -216,6 +224,15 @@ export function AppHeader() {
   }, [cancelNavigation]);
 
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
+  // Controlled state for the admin alerts popover. Per-row clicks
+  // navigate programmatically via `router.push()` (not via an `<a>`
+  // inside the popover) because the popover's own outside-click
+  // listener tears down the floating layer before the browser's
+  // synthetic click on a nested `<a>` can fire — the navigation
+  // visibly does nothing in that race. Programmatic navigation + an
+  // explicit close-after-push is deterministic.
+  const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
+  const router = useRouter();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -256,6 +273,12 @@ export function AppHeader() {
   const { versionInfo } = useVersion();
   const releasePrompt = useReleaseUpgradePrompt();
   const migrationStatus = useMigrationStatus();
+  // Admin-only Keycloak health summary so the header chip can surface
+  // invariant failures (e.g. missing OBO scope binding, AFFIRMATIVE policy
+  // misconfiguration) without making the admin navigate to Security &
+  // Policy → Keycloak just to notice. Gated by `isAdmin` so non-admin
+  // sessions never trigger the underlying Keycloak Admin round-trip.
+  const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
   const { toast } = useToast();
 
   React.useEffect(() => {
@@ -300,17 +323,82 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
-  // When an admin-only migration banner is showing on the right of the
-  // header, the right cluster gets ~150–200px wider. Use a slightly
-  // larger breakpoint so the inline nav collapses into "More" before
-  // the cluster overlaps with the nav at viewports in the 1180–1320px
-  // band (the size where the bug originally manifested).
-  const hasMigrationBanner = Boolean(
-    isAdmin &&
-      (migrationStatus.status?.is_blocking ||
-        migrationStatus.status?.needs_version_bootstrap ||
-        migrationStatus.status?.override_active),
-  );
+  // Admin-only alerts shown in the right cluster. Sources collapse into
+  // a SINGLE pill ("Alerts: <total>") to keep the header uncluttered —
+  // see the rendering block further down. Severity is `red` when the
+  // condition is service-down / blocking; `amber` otherwise.
+  //
+  // Order matters for two things:
+  //   - the unified pill's deep-link picks the first entry by severity
+  //     (red wins, then array order for ties), and
+  //   - the title / aria-label lists alerts in the same order so the
+  //     hover-text is stable.
+  //
+  // Counts use the same numbers each individual source previously
+  // displayed in its own chip, so the total in the unified pill is
+  // a simple sum across the visible sources.
+  type AdminAlertSource = {
+    id: string;
+    label: string;
+    count: number;
+    severity: "red" | "amber";
+    href: string;
+  };
+  const adminAlerts: AdminAlertSource[] = isAdmin
+    ? ([
+        keycloakHealth.summary?.configured && !keycloakHealth.summary.reachable
+          ? {
+              id: "keycloak_unreachable",
+              label: `Keycloak realm ${keycloakHealth.summary.realm} unreachable`,
+              count: 1,
+              severity: "red" as const,
+              href: "/admin?cat=security&tab=keycloak",
+            }
+          : null,
+        migrationStatus.status?.is_blocking
+          ? {
+              id: "migrations_blocking",
+              label: "Migrations required",
+              count: migrationStatus.status.blocking_required_count ?? 0,
+              severity: "red" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+        keycloakHealth.summary?.invariants && keycloakHealth.summary.invariants.failing > 0
+          ? {
+              id: "keycloak_invariants",
+              label: `Keycloak invariant${keycloakHealth.summary.invariants.failing === 1 ? "" : "s"} failing`,
+              count: keycloakHealth.summary.invariants.failing,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=keycloak",
+            }
+          : null,
+        !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap
+          ? {
+              id: "version_bootstrap",
+              label: "Version metadata needed",
+              count: migrationStatus.status.version_bootstrap_required_count ?? 0,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+        !migrationStatus.status?.is_blocking && migrationStatus.status?.override_active
+          ? {
+              id: "migration_override",
+              label: "Migration override active",
+              count: 1,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+      ].filter(Boolean) as AdminAlertSource[])
+    : [];
+  // The early-collapse signal for the inline nav: any time the admin
+  // alert pill is showing it adds ~140-200px of width to the right
+  // cluster, which can push the inline nav (including the Admin tab)
+  // into overflow. Keep the existing breakpoint behavior by treating
+  // the unified pill the same as the old per-source banners.
+  const hasMigrationBanner = adminAlerts.length > 0;
   const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
   const secondaryNavItems = [
     config.taskBuilderEnabled && {
@@ -855,49 +943,134 @@ export function AppHeader() {
             </PopoverContent>
           </Popover>
           {/*
-            Admin-only migration banners. The full descriptive label is
-            only rendered at `xl:` (>=1280px) so the right-side cluster
-            stays compact on smaller laptop viewports (where the banner
-            otherwise overlapped with the inline nav / Report a Problem
-            button). On narrower screens we collapse to a tooltip-only
-            icon + count chip. The `title` attribute on each link gives
-            screen-reader and hover users the full message.
+            Unified admin alerts pill. Replaces four previously separate
+            chips (Migrations required, Version metadata needed,
+            Migration override active, Keycloak unreachable / failing
+            invariants) with a single labelled `Alerts: <total>` trigger
+            so the header stays compact when multiple subsystems flag
+            issues simultaneously. Trigger severity is the worst across
+            all visible sources (red wins over amber).
+
+            Clicking the pill opens a popover that lists EVERY active
+            alert as its own row, each with its own GuardedLink to the
+            relevant admin tab. This replaces the previous "single
+            deep-link to the highest-severity source" behavior which
+            silently hid lower-severity items and produced confusing
+            no-ops when the user was already on the destination tab.
+
+            Per-row navigation uses GuardedLink so unsaved-changes
+            guards still fire. The popover closes itself on row click
+            via the controlled `alertsPopoverOpen` state so the
+            destination doesn't see a stale open popover after route
+            transition.
           */}
-          {isAdmin && migrationStatus.status?.is_blocking && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
-              aria-label={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Migrations required:</span>
-              <span>{migrationStatus.status.blocking_required_count}</span>
-            </GuardedLink>
-          )}
-          {isAdmin && !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
-              aria-label={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Version metadata needed:</span>
-              <span>{migrationStatus.status.version_bootstrap_required_count ?? 0}</span>
-            </GuardedLink>
-          )}
-          {isAdmin && migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title="Migration override active"
-              aria-label="Migration override active"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Migration override active</span>
-            </GuardedLink>
-          )}
+          {adminAlerts.length > 0 && (() => {
+            const hasRed = adminAlerts.some((a) => a.severity === "red");
+            const totalCount = adminAlerts.reduce((sum, a) => sum + a.count, 0);
+            const breakdown = adminAlerts
+              .map((a) => `${a.label}: ${a.count}`)
+              .join(" · ");
+            const triggerLabel = `${totalCount} admin alert${totalCount === 1 ? "" : "s"} — ${breakdown}. Click to see the list and choose which one to fix.`;
+            return (
+              <Popover open={alertsPopoverOpen} onOpenChange={setAlertsPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={triggerLabel}
+                    aria-haspopup="dialog"
+                    title={triggerLabel}
+                    data-testid="header-admin-alerts-trigger"
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all cursor-pointer hover:scale-105",
+                      hasRed
+                        ? "border-red-500/30 bg-red-500/15 text-red-500 hover:bg-red-500/20"
+                        : "border-amber-500/30 bg-amber-500/15 text-amber-500 hover:bg-amber-500/20",
+                    )}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="hidden xl:inline">Alerts:</span>
+                    <span>{totalCount}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="end"
+                  className="w-80 p-2"
+                  data-testid="header-admin-alerts-popover"
+                >
+                  <div className="px-2 py-1.5 border-b mb-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      Admin alerts ({totalCount})
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Choose an alert to open its admin tab.
+                    </p>
+                  </div>
+                  <ul className="space-y-0.5" role="list">
+                    {adminAlerts.map((alert) => {
+                      const rowLabel = `${alert.label} (${alert.count}) — open ${alert.href.includes("tab=keycloak") ? "Keycloak" : "Migrations"} tab to fix`;
+                      const handleAlertNavigate = () => {
+                        // Honour the unsaved-changes guard the same way
+                        // GuardedLink does — if the user has pending edits
+                        // on the current page, defer navigation to the
+                        // discard dialog; otherwise push immediately.
+                        if (hasUnsavedChanges) {
+                          requestNavigation(alert.href);
+                        } else {
+                          router.push(alert.href);
+                        }
+                        setAlertsPopoverOpen(false);
+                      };
+                      return (
+                        <li key={alert.id}>
+                          <button
+                            type="button"
+                            onClick={handleAlertNavigate}
+                            aria-label={rowLabel}
+                            title={rowLabel}
+                            data-testid={`admin-alert-row-${alert.id}`}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                              "hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                              alert.severity === "red"
+                                ? "text-red-500"
+                                : "text-amber-500",
+                            )}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  "h-2 w-2 shrink-0 rounded-full",
+                                  alert.severity === "red"
+                                    ? "bg-red-500"
+                                    : "bg-amber-500",
+                                )}
+                              />
+                              <span className="truncate">{alert.label}</span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              <span
+                                className={cn(
+                                  "tabular-nums",
+                                  alert.severity === "red"
+                                    ? "text-red-500"
+                                    : "text-amber-500",
+                                )}
+                              >
+                                {alert.count}
+                              </span>
+                              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </PopoverContent>
+              </Popover>
+            );
+          })()}
         </div>
 
         {/* Personalization, Links & User */}

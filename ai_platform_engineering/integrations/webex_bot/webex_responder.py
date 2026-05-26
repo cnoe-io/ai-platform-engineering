@@ -13,6 +13,7 @@ import httpx
 
 from .a2a_client import SSEEventType, WebexSSEClient, space_message_to_conversation_id
 from .app import WebexMessageResult
+from .utils.chat_envelope import augment_webex_client_context
 from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIED_MESSAGE
 
 logger = logging.getLogger("caipe.webex_bot.webex_responder")
@@ -294,18 +295,31 @@ class WebexThreadedStreamDispatcher:
                 conversation.get("conversation_id")
                 or space_message_to_conversation_id(space_id, parent_id)
             )
+            client_context = {
+                "source": "webex",
+                "surface": "webex",
+                "webex_space_id": space_id,
+                "webex_message_id": message_id,
+                **({"webex_thread_parent_id": parent_id} if thread_parent_id else {}),
+            }
+            # Phase 1: propagate originating space context so RAG/PDP can
+            # derive team_id from channel_id (spec FR-016/FR-017). 1:1
+            # rooms are signalled by absence of a channel_team_mappings row
+            # downstream (FR-018), so we always emit surface_kind="channel"
+            # here; the receiving server treats unmapped channel_ids as
+            # DM-like for personal-team-union evaluation.
+            client_context = augment_webex_client_context(
+                client_context,
+                space_id=space_id,
+                thread_parent_id=parent_id if thread_parent_id else None,
+                surface_kind="channel",
+            )
             for event in self._sse_client.stream_chat(
                 message=agent_message,
                 conversation_id=conversation_id,
                 agent_id=agent_id,
                 bearer_token=obo_token,
-                client_context={
-                    "source": "webex",
-                    "surface": "webex",
-                    "webex_space_id": space_id,
-                    "webex_message_id": message_id,
-                    **({"webex_thread_parent_id": parent_id} if thread_parent_id else {}),
-                },
+                client_context=client_context,
             ):
                 if event.type == SSEEventType.TEXT_MESSAGE_CONTENT and event.delta:
                     accumulated += event.delta

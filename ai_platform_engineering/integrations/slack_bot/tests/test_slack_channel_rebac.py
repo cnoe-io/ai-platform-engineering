@@ -9,9 +9,10 @@ from ai_platform_engineering.integrations.slack_bot.utils.slack_rebac import (
 )
 
 
-def test_build_team_member_subject_uses_active_team_slug() -> None:
+def test_build_team_member_subject_uses_team_slug() -> None:
     assert build_team_member_subject("platform-engineering") == "team:platform-engineering#member"
-    assert build_team_member_subject("__personal__") is None
+    # Empty string and None both mean "no team scope" — DM / unmapped channel.
+    assert build_team_member_subject("") is None
     assert build_team_member_subject(None) is None
 
 
@@ -33,7 +34,7 @@ def test_channel_agent_check_posts_resource_and_subject(monkeypatch) -> None:
         workspace_id="T123456789",
         channel_id="C123456789",
         agent_id="incident-agent",
-        active_team="platform-engineering",
+        team_slug="platform-engineering",
         obo_token="obo-token",
     )
 
@@ -66,7 +67,7 @@ def test_channel_agent_check_denies_when_channel_grant_missing() -> None:
         workspace_id="T123456789",
         channel_id="C123456789",
         agent_id="incident-agent",
-        active_team="platform-engineering",
+        team_slug="platform-engineering",
         obo_token="obo-token",
     )
 

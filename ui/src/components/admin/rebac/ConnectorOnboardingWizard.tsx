@@ -86,8 +86,10 @@ function readinessFor(row: ConnectorOnboardingRow): {
   if (row.isExisting) {
     return {
       state: "ready",
-      label: "Already managed",
-      detail: row.selected ? "Will be verified and refreshed if selected." : "Already in CAIPE; select to refresh setup.",
+      label: "Setup completed",
+      detail: row.selected
+        ? "Will be verified and refreshed if selected."
+        : "Setup completed in CAIPE; select to refresh.",
     };
   }
   if (!row.selected) {

@@ -2,11 +2,10 @@
 # Reconcile Keycloak realm state from MongoDB after a Keycloak data loss.
 #
 # Walks every team in MongoDB and, for each one:
-#   1. Ensures the per-team client scope `team-<slug>` exists (delegates to
-#      the BFF startup auto-sync — restart caipe-ui first; this script just
-#      verifies).
+#   1. (REMOVED by Phase 3 of spec 2026-05-24-derive-team-from-channel:
+#      per-team `team-<slug>` Keycloak client scopes no longer exist.)
 #   2. Ensures the `team_member:<slug>` realm role exists (slug-keyed to
-#      match the signed `active_team` claim and OpenFGA team tuples).
+#      match the OpenFGA team tuples).
 #   3. For each member email, looks up the Keycloak user; if found, assigns
 #      the team_member realm role. Members who have not yet logged in via
 #      SSO are listed at the end as "needs SSO login" — they will get their
@@ -123,8 +122,8 @@ valid_team_role_names = {
 
 # --- Migration step: rename any legacy team_member:<ObjectId> roles to
 #     team_member:<slug>. The previous BFF + reconcile script keyed roles
-#     on the Mongo ObjectId, but OpenFGA and downstream team-scope checks use
-#     `active_team` where the signed claim is the slug.
+#     on the Mongo ObjectId, but OpenFGA tuples are slug-keyed, so the
+#     realm role names must match.
 #     A Keycloak role rename via PUT preserves the role's UUID and all
 #     existing user assignments — no re-add needed.
 print("\n  --- Migrating legacy team_member:<ObjectId> roles to team_member:<slug> ---")
@@ -166,7 +165,7 @@ for t in teams:
         print(f"    ! team {tid} has no slug — skipping (run BFF startup auto-sync to backfill)")
         continue
 
-    # Slug-keyed to match the signed active_team claim and OpenFGA team tuples.
+    # Slug-keyed to match OpenFGA team tuples.
     role_name = f"team_member:{slug}"
     enc = urllib.parse.quote(role_name, safe="")
 

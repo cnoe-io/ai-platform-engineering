@@ -53,8 +53,9 @@ jest.mock("@/lib/rbac/audit", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: jest.fn(),
-  deleteTeamClientScope: jest.fn(),
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+  // per-team Keycloak helpers; the team CRUD routes no longer
+  // import them so they don't need to be mocked.
   isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
   searchRealmUsers: (...args: unknown[]) => mockSearchRealmUsers(...args),
 }));

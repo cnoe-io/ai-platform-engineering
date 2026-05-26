@@ -8,7 +8,10 @@ import { ObjectId } from "mongodb";
 const mockGetServerSession = jest.fn();
 const mockCheckPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
-const mockEnsureTeamClientScope = jest.fn();
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed
+// `ensureTeamClientScope` from team CRUD. Mock left out of the
+// `keycloak-admin` mock map below; this test no longer asserts
+// against it.
 const mockListTeamMembershipSources = jest.fn();
 const mockUpsertTeamMembershipSource = jest.fn();
 
@@ -45,8 +48,6 @@ jest.mock("@/lib/rbac/audit", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
-  deleteTeamClientScope: jest.fn(),
   isValidTeamSlug: jest.fn((slug: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)),
 }));
 
@@ -104,7 +105,8 @@ beforeEach(() => {
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
-  mockEnsureTeamClientScope.mockResolvedValue(undefined);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): no team
+  // client-scope mock to reset — the helper is gone.
   mockListTeamMembershipSources.mockResolvedValue([
     {
       team_id: "507f1f77bcf86cd799439011",

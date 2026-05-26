@@ -83,7 +83,6 @@ class TestRebacFirstUserAuth:
                 "preferred_username": "sri@example.com",
                 "realm_access": {"roles": ["chat_user"]},
                 "groups": ["legacy-admin-group"],
-                "active_team": "platform-eng",
             }
         )
         request = SimpleNamespace(
@@ -99,5 +98,4 @@ class TestRebacFirstUserAuth:
         assert user.email == "sri@example.com"
         assert user.groups == []
         assert user.role == Role.READONLY
-        assert user.active_team == "platform-eng"
         assert auth_manager.fetch_userinfo_called is False

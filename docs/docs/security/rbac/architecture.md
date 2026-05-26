@@ -47,8 +47,8 @@ Legacy role names such as `chat_user`, `admin`, `admin_user`, `team_member:*`, `
 Relationships are created and assigned by:
 
 - `init-idp.sh` (runs in the `keycloak-init` job) is the first-run bootstrap escape hatch. It uses direct Keycloak admin credentials before the Web UI backend is healthy, which avoids a bootstrap cycle where BFF startup needs Keycloak config that only the BFF can create. It should keep only baseline app-realm prerequisites, IdP broker login bootstrap, optional demo personas (`KEYCLOAK_SEED_DEMO_USERS=true`), and operational master-realm settings such as admin-console `frontendUrl`.
-- The Web UI backend runs a startup Keycloak RBAC reconciliation migration (`keycloak_rbac_mapping_reconciliation_v1`) in TypeScript. MongoDB `teams` remain the source of truth; the migration creates/validates `team-<slug>` client scopes with `active_team` mappers, binds those scopes to Slack/Webex bot clients, repairs bot OBO token-exchange permissions for the `CAIPE_PLATFORM_AUDIENCE` target client, assigns bot service-account impersonation roles, resolves `BOOTSTRAP_ADMIN_EMAILS` to Keycloak user ids, creates passwordless verified placeholders for bootstrap emails that have not logged in yet, writes durable OpenFGA super-admin tuples, and records status in `migration_manifest`, `schema_migrations`, and `data_schema_versions`.
-- Slack/Webex bot onboarding can still repair OBO prerequisites on-demand, but the BFF startup migration is the canonical environment-wide reconciliation path after bootstrap. Its last run, counts, warnings, and errors are exposed through Admin → Security & Policy → Keycloak via `GET /api/admin/keycloak/migration-health`, plus the persistent header migration status indicator. The same endpoint also performs a read-only Keycloak inspection for the tile details modal, returning actual realm values such as `team-*` client scopes, `active_team` mapper values, bot optional/default scope bindings, token-exchange permission strategy, attached OBO policies, and bot service-account impersonation roles. When the migration is behind or failed, the Keycloak tab's **Reconcile now** button invokes the same typed migration apply path for `keycloak_rbac_mapping_reconciliation_v1` and refreshes the persisted health result. The `caipe-platform` target-audience token-exchange permission must use `AFFIRMATIVE` when both Slack and Webex bot policies are attached; otherwise Keycloak requires a single caller to satisfy both client policies and rejects OBO with `Client not allowed to exchange`.
+- The Web UI backend runs a startup Keycloak RBAC reconciliation migration (`keycloak_rbac_mapping_reconciliation_v1`) in TypeScript. MongoDB `teams` remain the source of truth; the migration repairs bot OBO token-exchange permissions for the `CAIPE_PLATFORM_AUDIENCE` target client, assigns bot service-account impersonation roles, pins the `AFFIRMATIVE` decision strategy on every scope-permission with bot client policies attached, resolves `BOOTSTRAP_ADMIN_EMAILS` to Keycloak user ids, creates passwordless verified placeholders for bootstrap emails that have not logged in yet, writes durable OpenFGA super-admin tuples, and records status in `migration_manifest`, `schema_migrations`, and `data_schema_versions`. (Phase 3 of spec 2026-05-24-derive-team-from-channel removed the per-team and personal client-scope branches, the orphan-scope deletion step, and the audience-default selection step — team identity now flows through `channel_team_mappings`, not Keycloak.)
+- Slack/Webex bot onboarding can still repair OBO prerequisites on-demand, but the BFF startup migration is the canonical environment-wide reconciliation path after bootstrap. Its last run, counts, warnings, and errors are exposed through Admin → Security & Policy → Keycloak via `GET /api/admin/keycloak/migration-health`, plus the persistent header migration status indicator. The same endpoint also performs a read-only Keycloak inspection for the tile details modal, returning actual realm values such as the OBO token-exchange permission strategy, attached OBO policies, and bot service-account impersonation roles. When the migration is behind or failed, the Keycloak tab's **Reconcile now** button invokes the same typed migration apply path for `keycloak_rbac_mapping_reconciliation_v1` and refreshes the persisted health result. Every Keycloak scope-permission that ends up with bot-specific client policies attached — the `caipe-platform` target-audience `token-exchange` perm, each bot client's own `token-exchange` perm (`caipe-slack-bot`, `caipe-webex-bot`), **and** the realm-level `users.impersonate` perm — must use `AFFIRMATIVE` decision strategy. With Keycloak's default `UNANIMOUS` strategy, adding the second bot's per-client policy makes the first bot's OBO fail with `Client not allowed to exchange` / `Client not allowed to impersonate` because the other bot's `clients=[...]` policy votes DENY for it. The `kc_attach_policy_to_scope_permission` helper in `init-idp.sh` and the matching `attach_policy_to_scope_permission` helper in `init-token-exchange.sh` both force `AFFIRMATIVE` on every attach so this regression cannot reappear when a new bot client is onboarded. The same invariants — plus a defense-in-depth "every attached policy is `type=client` with a non-empty `client_ids` allow-list" check — are evaluated server-side by `ui/src/lib/rbac/keycloak-invariants.ts#evaluateKeycloakInvariants`, exposed through `GET /api/admin/keycloak/migration-health` as `keycloak_invariants.items`, and rendered as a named pass/fail/unknown list in the Admin → Security & Policy → Keycloak tile. The evaluator is a pure function over the existing read-only inspector output, so the same checks gate every realm regardless of whether it was bootstrapped by `init-idp.sh` or by an operator using the Keycloak Admin Console. The inspector hydrates each `type=client` policy by calling `/authz/resource-server/policy/client/<id>` and resolves the returned UUIDs to operator-meaningful `clientId` strings via a single batched `/clients` round-trip per probe — this is necessary because Keycloak's `associatedPolicies` summary endpoint returns `config: {}` on client-type policies, so the allow-list is invisible to a naive inspector. The hydration step also lets the panel surface the policy's resolved `client_ids` (e.g. `clients=[caipe-slack-bot]`) inline whenever a policy is flagged, so admins don't have to leave the panel to identify the right policy in the Keycloak Admin Console.
 - Production `caipe-ui`, `caipe-platform` (supervisor), and Slack/Webex bot OBO client secrets are Keeper-backed Kubernetes Secrets/ExternalSecrets rather than values embedded in rendered ConfigMaps. `keycloak.uiClient.secretRef` or `keycloak.uiClient.externalSecret` feeds `KEYCLOAK_UI_CLIENT_SECRET` to the Keycloak init/reconcile hook, which updates the existing `caipe-ui` client through the Admin API so NextAuth's `OIDC_CLIENT_SECRET` stays aligned across upgrades and rotations. `keycloak.platformClient.secretRef` / `keycloak.platformClient.externalSecret` feeds `KEYCLOAK_PLATFORM_CLIENT_SECRET` the same way to replace the dev placeholder shipped in `realm-config.json` for the `caipe-platform` confidential client (consumed by the supervisor's `client_credentials` flow and the on-behalf-of / token-exchange target audience). Bot OBO secrets use the same single-source-of-truth pattern through `keycloak.tokenExchange.externalSecret` and `keycloak.webexTokenExchange.externalSecret`. Setting `keycloak.strictClientSecrets: true` adds a runtime guard at the end of `init-idp.sh` (covering `caipe-ui` + `caipe-platform`) and `init-token-exchange.sh` (covering `caipe-slack-bot` + `caipe-webex-bot`) that issues a `client_credentials` token request for each known dev placeholder secret and fails the Helm install if Keycloak still accepts any of them — preventing "operator forgot to set the secretRef" silent regressions. See [secrets-bootstrap → Production hardening](./secrets-bootstrap.md#production-hardening--strict-client-secret-mode) for the recommended adoption order.
 - The Admin UI **Team Resources panel** (`Admin → Teams → selected team → Resources` tab, spec 104 Story 4) — checking an agent or tool box calls `PUT /api/admin/teams/[id]/resources`, which:
   1. Writes base relationship intent to OpenFGA before Mongo persistence: `team:<slug>#member user agent:<id>`, `team:<slug>#admin manager agent:<id>`, and `team:<slug>#member caller tool:<prefix|*>`.
@@ -91,7 +91,7 @@ Conversation secondary views and mutations now use the same model: shared, searc
 
 Knowledge Base UI routes are enforced at the Web UI backend before proxying to the RAG server. `caipe-ui` authenticates the browser session, applies the coarse `rag` route gate, requires `admin_surface:rag_datasources#can_manage` for the Data Sources admin surface, checks concrete `knowledge_base:<id>` operations for every caller (including `role=admin` sessions), filters datasource list responses by `knowledge_base#can_read`, constrains search/MCP invocations to the caller's readable datasource IDs, and then forwards the Keycloak bearer token to RAG. RAG validates the token signature, issuer, audience, and expiry against Keycloak, then repeats OpenFGA checks for direct API/MCP requests using the caller's Keycloak `sub`. The default authenticated RAG role no longer grants access by itself; team-derived tuples such as `team:<slug>#member reader knowledge_base:<id>` are the source of truth for per-datasource access, while **Settings → Knowledge Bases / RAG Team Access** can grant either team access to the Data Sources admin surface or read/ingest/admin access to individual Knowledge Bases. Team owners/admins may manage KB grants for their own team without platform-admin access.
 
-Slack and Webex bot channel/space team resolution still uses Mongo mappings to find the owning CAIPE team and mint the correct `active_team` OBO scope. Membership prechecks are OpenFGA-first: the bot checks `user:<sub> member team:<slug>` and only falls back to legacy `teams.members` when the PDP is not configured or unavailable. A negative OpenFGA decision denies the bot interaction before OBO so users get the friendly "not a member" response.
+Slack and Webex bot channel/space team resolution uses Mongo mappings (`channel_team_mappings`, `webex_space_team_mappings`) to find the owning CAIPE team. Membership prechecks are OpenFGA-first: the bot checks `user:<sub> member team:<slug>` and only falls back to legacy `teams.members` when the PDP is not configured or unavailable. A negative OpenFGA decision denies the bot interaction before OBO so users get the friendly "not a member" response. (Phase 3 of spec 2026-05-24-derive-team-from-channel removed the per-team OBO scope mint — the bot now mints a team-agnostic OBO token and the channel→team mapping is the sole source of team identity downstream.)
 
 RAG accepts both browser user tokens and ingestor client-credentials tokens from Keycloak. For local Docker Compose, `OIDC_DISCOVERY_URL` and `INGESTOR_OIDC_DISCOVERY_URL` may be either the realm base URL (`http://keycloak:7080/realms/caipe`) or the full `.well-known/openid-configuration` URL; the server normalizes both forms before fetching metadata. Keycloak service-account tokens use `preferred_username=service-account-<client>`, so RAG treats that token shape as machine-to-machine and assigns `RBAC_CLIENT_CREDENTIALS_ROLE` instead of running the human userinfo/group lookup path.
 
@@ -326,6 +326,51 @@ The AgentGateway `openfga-authz-bridge` also writes each external `ext_authz`
 decision into the same `audit_events` collection with `source=openfga_authz_bridge`,
 so gateway-level OpenFGA allow/deny/error decisions appear without a trace
 backend. MongoDB is the durable audit record and the Admin UI reads it directly.
+
+### Personal DM Experience — Phase 2 (spec 2026-05-24)
+
+Slack DMs and Webex 1:1 spaces dispatch through a personal chain. (The
+legacy `active_team` JWT claim has been removed; see Phase 3 demolition
+notes above and the deprecated Spec 104 section below.) The BFF owns three new routes,
+the Web UI broadens its agent-use check to honor team-union grants, and
+both bots intercept text/slash commands before route resolution.
+
+| Surface | Endpoint | Purpose |
+|---------|----------|---------|
+| Bot → BFF | `POST /api/user/check_agent_access` | Pure PDP probe for the DM dispatch chain. Wraps `evaluateAgentAccess(subject, agent_id)` (direct grant → team-union fallback) and returns `{allowed, reason, path, matched_team_slug}`. No team scope needed on the token. |
+| Bot → BFF | `GET /api/user/accessible-agents` | Pagination-friendly list of agents the calling user can `can_use`. Drives `/caipe-list` (Slack) and `list` (Webex). |
+| Bot → BFF | `GET/PUT /api/user/preferences` | Per-user saved `dm_default_agent_id`. `PUT {"dm_default_agent_id": null}` clears the preference (FR-029a, invoked by `/caipe-use default`). |
+| Web UI | `requireAgentUsePermission` | New `ALLOW_TEAM_UNION` audit reason code. When direct user→agent grants miss, the helper probes the caller's team slugs (`listUserTeamSlugs`) and accepts `team:<slug>#member can_use agent:<id>`. This aligns the Web UI with the bots, which already honored team-mediated grants. |
+
+The bots' DM dispatch chain is:
+
+1. **Thread/space override** (`dm_thread_overrides.OverrideStore` — LRU
+   capped at 1000 entries, no TTL, cleared on bot restart or explicit
+   `/caipe-use default`).
+2. **Saved preference** (`user_preferences.dm_default_agent_id` via the
+   BFF).
+3. **Deployment `dm_agent_id`** (`SLACK_INTEGRATION_DM_AGENT_ID` /
+   `WEBEX_INTEGRATION_DM_AGENT_ID`).
+4. **Deployment `default_agent_id`** (fallback).
+
+Every candidate is re-checked via `POST /api/user/check_agent_access`
+before being returned. A stale override that fails the PDP is auto-cleared
+with a user-visible notice. A stale saved preference emits a notice but
+is NOT auto-cleared (the user may be temporarily off-team). Deployment
+defaults fall through silently on deny — org defaults failing is an ops
+issue, not something to spam users about. PDP unavailability returns a
+clean "try again later" response.
+
+Slack registers `/caipe-help`, `/caipe-list`, and `/caipe-use` Bolt
+commands (see `docs/integrations/slack-manifest.md`). Webex parses
+plain-text `help` / `list` / `use <agent>` / `use default` via
+`text_commands.parse_command_text` and intercepts them in
+`handle_webex_message` BEFORE route resolution so an unmapped 1:1 space
+still gets a useful response. Both surfaces are rate-limited per user
+(default 5 commands per 30s; `SLACK_COMMAND_RATE_LIMIT` /
+`WEBEX_COMMAND_RATE_LIMIT`) and reply ephemerally (Slack
+`response_type=ephemeral`; Webex DMs the issuer in group spaces, replies
+inline in 1:1).
 
 ### Credential Exchange Authorization
 
@@ -617,7 +662,15 @@ For opt-in onboarding, `WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=true` with
 space-team mapping, route metadata row, and OpenFGA tuple for a previously
 unmapped space. The feature is disabled by default, writes MongoDB before
 OpenFGA to avoid orphan grants, rolls back on failure, and never overwrites an
-existing active space mapping.
+existing active space mapping. The onboarding writer
+(`webex-space-onboarding.ts`) also emits the inbound
+`team:<slug>#member user webex_space:<workspace>--<space>` and
+`team:<slug>#admin manager webex_space:<workspace>--<space>` visibility tuples
+so the space surfaces in `/api/admin/webex/spaces` (which filters each row by
+`can_read`). Previously-onboarded spaces are backfilled by the same
+`messaging_team_visibility_v1` migration that handles Slack channels — both
+surfaces share the helper builders so admin-PUT, onboarding-defaults, and
+the backfill emit identical tuple shapes.
 
 Future PDP consolidation note: OpenFGA should remain the source of truth for all relationship decisions, but the OpenFGA auth bridge should not be treated as the universal application PDP until it exposes a stable, domain-neutral JSON authorization API in addition to its Envoy `ext_authz` adapter. Until then, keep the bridge focused on network enforcement for AgentGateway/MCP traffic and keep Slack using `/api/admin/slack/channels/[workspaceId]/[channelId]/access-check` for domain-aware dispatch checks. The later consolidation path is to extract shared OpenFGA decision helpers and audit/result shapes first, then optionally let Slack, Web UI backend routes, and the bridge call a common PDP service rather than duplicating tuple logic.
 
@@ -1228,53 +1281,49 @@ In Helm and GitOps installs, `charts/ai-platform-engineering/charts/slack-bot/te
 
 The realm seeder already provisions `caipe-platform` with all of those, so the default values "just work" in dev.
 
-## Spec 104 — `active_team` JWT claim (team-scope refactor)
+## Spec 104 — `active_team` JWT claim (REMOVED by Phase 3 of spec 2026-05-24-derive-team-from-channel)
 
-> **Status: implemented in this branch.** Replaces the legacy `X-Team-Id`
-> header. Full design + spike notes + sequence diagrams live in
-> `[docs/docs/specs/104-team-scoped-rbac/active-team-design.md](../../specs/104-team-scoped-rbac/active-team-design.md)`.
+> **Status: removed.** The `active_team` JWT claim mechanism described
+> here has been demolished. Team identity is now derived from the
+> `channel_team_mappings` collection at request time (BFF + AgentGateway
+> PDP). Bots no longer mint `team-<slug>` client scopes, the OBO audience
+> client no longer has any `team-*` default scope, and Keycloak no longer
+> participates in team-identity negotiation.
+>
+> See [spec 2026-05-24-derive-team-from-channel](../../specs/2026-05-24-derive-team-from-channel/spec.md)
+> for the full demolition rationale. The `active_team` mechanism never
+> shipped to production, so no realm has legacy `team-*` scopes to
+> clean up — Phase 3 is a pure code/Helm/UI deletion.
 
-### What changed
+### Components touched (post-demolition)
 
+1. **Keycloak** — no per-team client scopes, no `active_team` mapper, no
+   `team-personal` DM-marker scope. Only the team-agnostic OBO permission
+   wiring (token-exchange decision strategy, bot service-account
+   impersonation roles, realm-wide `users.impersonate` scope-permission)
+   remains in scope of the reconciliation migration.
+2. **Web UI backend (`caipe-ui`)** — `POST /api/admin/teams` writes a
+   Mongo team row + OpenFGA tuples only. `DELETE /api/admin/teams/[id]`
+   removes those rows. Slack / Webex channel onboarding writes
+   `channel_team_mappings` entries (no Keycloak touch).
+3. **Slack / Webex bots** — `obo_exchange.impersonate_user()` no longer
+   requests a `team-*` scope and no longer verifies an `active_team`
+   claim. Channel → team resolution lives entirely in
+   `channel_team_resolver`, which reads from `channel_team_mappings`.
+4. **Dynamic agents** — request-bound auth context is the user OBO JWT
+   only. No `active_team` claim is read or written.
+5. **AgentGateway PDP / RAG server** — both consume the user JWT plus
+   the channel→team mapping. RAG's `UserContext.active_team` field is
+   gone; `_kb_cel_context` now exposes `user.teams` as a list of teams
+   the user belongs to (OpenFGA-sourced), not the single channel team.
 
-| Before                                                                                                                     | After                                                                                                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Slack bot set `X-Team-Id: <slug>` on outbound A2A / RAG / AGW calls                                                        | Slack bot mints the OBO token with a Keycloak client scope (`team-<slug>` or `team-personal`) so the resulting JWT carries a signed `active_team` claim |
-| Header could be dropped, swapped, or forged at any hop between bot → caipe-ui → DA → AGW                                   | Claim is signed by Keycloak; tampering invalidates the JWT signature                                                                                    |
-| `dynamic-agents` outbound MCP traffic ran with the slack-bot service-account JWT (`chat_user` only) → AGW returned 0 tools | DA forwards the user's OBO token unchanged via `current_user_token`; SA fallback is gone, mismatch is logged loudly                                     |
-| AGW inline role rules could allow broad `chat_user` tool access                                                            | AGW delegates to OpenFGA `ext_authz`; team/resource grants are represented as tuples written by the Web UI backend                                      |
+### Failure modes (post-demolition)
 
-
-### Components touched
-
-1. **Keycloak**
-  - `team-personal` client scope (hardcoded `active_team=__personal_`_) bound as **optional** to `caipe-slack-bot`. Provisioned by the realm-init script on every boot.
-  - `team-<slug>` client scopes (hardcoded `active_team=<slug>`) created on demand by the Web UI backend when a team is created in Mongo, and on startup auto-sync for pre-existing teams.
-2. **Web UI backend (`caipe-ui`)**
-  - `Team` schema gains an immutable `slug` field. `POST /api/admin/teams` derives one from `name`, calls `ensureTeamClientScope(slug)`, and rolls back the Mongo insert if Keycloak provisioning fails.
-  - `DELETE /api/admin/teams/[id]` best-effort unbinds and deletes `team-<slug>`.
-  - Startup hook (`instrumentation.ts` → `team-scope-sync.ts`) backfills slugs and ensures every team has its KC scope.
-  - `/api/rag/*` proxy routes no longer add `X-Team-Id`.
-3. **Slack bot (`integrations/slack_bot/`)**
-  - `obo_exchange.impersonate_user(active_team=...)` adds `scope=openid team-<slug>` (or `team-personal`) to the token-exchange request and **verifies** the returned JWT's `active_team` claim matches what was requested. Mismatch raises `OboExchangeError` (load-bearing security invariant).
-  - `channel_team_resolver.py` resolves Slack channel → team slug via `channel_team_mappings` + `teams.slug`, and pre-checks user membership. DMs short-circuit to `__personal__`.
-  - `app._rbac_enrich_context` hard-rejects when a group channel has no team mapping or the user isn't in the mapped team — there is no silent fallback to personal mode for group channels.
-  - `downstream_auth_headers` now returns only `Authorization: Bearer …`; the legacy `X-Team-Id` header is gone.
-4. **Dynamic agents**
-  - `JwtAuthMiddleware` accepts `aud=caipe-platform,agentgateway` (comma-separated env, default covers both) and logs `sub`/`aud`/`active_team` on every validated request.
-  - `AgentRuntime.__init__` logs a WARNING when no per-request user token is bound — never falls back to a service-account token.
-5. **AgentGateway**
-  - Listener `audiences: [caipe-platform, agentgateway]`.
-  - Authorization is delegated through `extAuthz` to the OpenFGA bridge; the Mongo-backed CEL config bridge and `mcpAuthorization` rules are retired.
-6. **RAG server**
-  - `UserContext.active_team: Optional[str]` populated from the JWT claim by `extract_active_team_from_claims`.
-  - `_kb_cel_context` exposes the slug in `user.teams` so existing CEL like `"<slug>" in user.teams` keeps working.
-  - `check_kb_datasource_access` and `inject_kb_filter` prefer `user_context.active_team` over the legacy `X-Team-Id` header (header is still read as a fallback so mid-rollout tokens without the claim don't 403).
-
-### Failure modes (intentional)
-
-- **Group channel without a team mapping** → bot replies "this channel isn't assigned to a CAIPE team yet"; nothing reaches AGW.
-- **User not in the mapped team** → bot replies "you aren't a member of `<team>`".
-- **Keycloak scope provisioning fails on team create** → Web UI backend rolls back the Mongo insert and returns HTTP 502.
-- **OBO exchange fails / returns wrong `active_team`** → bot hard-rejects the request (no SA fallback).
-- **DA receives a request without a user JWT** → middleware logs WARNING, MCP call goes out without `Authorization`, AGW 401s.
+- **Group channel without a team mapping** → bot replies "this channel
+  isn't assigned to a CAIPE team yet"; nothing reaches AGW.
+- **User not in the mapped team** → bot replies "you aren't a member of
+  `<team>`".
+- **DM with no `dm_agent_id` preference and no realm default** → bot
+  replies with the `default_agent_id` selection UI.
+- **DA receives a request without a user JWT** → middleware logs
+  WARNING, MCP call goes out without `Authorization`, AGW 401s.

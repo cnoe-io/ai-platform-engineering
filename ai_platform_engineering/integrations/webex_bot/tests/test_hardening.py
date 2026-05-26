@@ -122,8 +122,11 @@ def test_identity_lookup_exception_fail_closed() -> None:
 
 @dataclass
 class ValueErrorOboExchanger:
-    async def impersonate(self, keycloak_user_id: str, *, active_team: str) -> OboToken:
-        raise ValueError("Invalid active_team slug")
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
+        # Simulates a Keycloak-side failure (e.g. user disabled, KC
+        # config drift) — kept as ValueError to preserve the fail-closed
+        # path the gate already exercises.
+        raise ValueError("OBO exchange failed")
 
 
 @dataclass
@@ -135,7 +138,7 @@ class LinkedIdentityLinker:
         return None
 
 
-def test_invalid_active_team_slug_fail_closed_at_obo() -> None:
+def test_obo_value_error_fail_closed() -> None:
     dispatcher = FakeDispatcher()
     result = asyncio.run(
         handle_webex_message(

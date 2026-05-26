@@ -68,6 +68,7 @@ export type AuditPdp = "keycloak" | "agent_gateway" | "local" | "openfga";
 export type AuditReasonCode =
   | "OK"
   | "OK_ROLE_FALLBACK"
+  | "ALLOW_TEAM_UNION"
   | "DENY_NO_CAPABILITY"
   | "DENY_NO_TOKEN"
   | "DENY_SCOPE"

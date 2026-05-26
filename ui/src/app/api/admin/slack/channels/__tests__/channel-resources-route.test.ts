@@ -9,9 +9,12 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
-const mockEnsureTeamClientScope = jest.fn();
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
+// per-team Keycloak helpers from Slack channel onboarding —
+// `ensureTeamClientScope` and `selectAgentGatewayActiveTeamScope`
+// are gone, so the related mocks below are no longer needed.
 const mockEnsureSlackBotOboPermissions = jest.fn();
-const mockSelectAgentGatewayActiveTeamScope = jest.fn();
+// (See Phase 3 comment above the removed mockEnsureTeamClientScope.)
 const mockCallSlackBotAdmin = jest.fn();
 
 const mockCollections: Record<string, any> = {};
@@ -29,9 +32,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): per-team
+  // scope helpers removed from the Slack channel onboarding flow.
+  // Only the team-agnostic OBO permission helper remains.
   ensureSlackBotOboPermissions: (...args: unknown[]) => mockEnsureSlackBotOboPermissions(...args),
-  selectAgentGatewayActiveTeamScope: (...args: unknown[]) => mockSelectAgentGatewayActiveTeamScope(...args),
 }));
 
 jest.mock("@/lib/slack-bot-admin", () => ({
@@ -149,9 +153,9 @@ beforeEach(() => {
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
-  mockEnsureTeamClientScope.mockResolvedValue(undefined);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): no team
+  // client-scope mocks to reset — the helpers are gone.
   mockEnsureSlackBotOboPermissions.mockResolvedValue(undefined);
-  mockSelectAgentGatewayActiveTeamScope.mockResolvedValue(undefined);
   mockCallSlackBotAdmin.mockResolvedValue({ reloaded: "all" });
   process.env.SLACK_DEFAULT_TEAM_SLUG = "platform-engineering";
   process.env.SLACK_DEFAULT_AGENT_ID = "incident-agent";
@@ -755,9 +759,11 @@ describe("Slack channel ReBAC APIs", () => {
       routes_ensured: 2,
       team_grant_ensured: true,
     });
-    expect(mockEnsureTeamClientScope).toHaveBeenCalledWith("platform-engineering");
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel): Slack
+    // channel onboarding no longer touches the Keycloak per-team
+    // scope helpers — the `mockEnsureTeamClientScope` and
+    // `mockSelectAgentGatewayActiveTeamScope` assertions are gone.
     expect(mockEnsureSlackBotOboPermissions).toHaveBeenCalledTimes(1);
-    expect(mockSelectAgentGatewayActiveTeamScope).toHaveBeenCalledWith("platform-engineering");
     expect(mockCallSlackBotAdmin).toHaveBeenCalledWith("/admin/slack/routes/reload", {
       method: "POST",
       body: {},

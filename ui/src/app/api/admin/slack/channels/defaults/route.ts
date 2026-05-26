@@ -3,14 +3,13 @@ import type { Document } from "mongodb";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import {
-  ensureSlackBotOboPermissions,
-  ensureTeamClientScope,
-  selectAgentGatewayActiveTeamScope,
-} from "@/lib/rbac/keycloak-admin";
+import { ensureSlackBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
-import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
+import {
+  slackChannelGrantRelationship,
+  slackChannelTeamVisibilityRelationships,
+} from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
@@ -244,23 +243,24 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
       }
     }
 
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Slack bot
+    // no longer needs a per-team OBO client scope materialized in Keycloak
+    // because team identity is derived from the channel→team mapping at
+    // message time. We still ensure the bot's general OBO permissions are
+    // in place — the rest of the legacy team-scope wiring is gone.
     try {
-      await Promise.all(requestedTeamSlugs.map((slug) => ensureTeamClientScope(slug)));
       await ensureSlackBotOboPermissions();
-      const scopedTeamSlugs = uniqueStrings(
-        hasChannelScopedDefaults ? channelDefaults.map((channel) => channel.team_slug) : [teamSlug]
-      );
-      await selectAgentGatewayActiveTeamScope(
-        scopedTeamSlugs.length === 1 ? scopedTeamSlugs[0] : teamSlug
-      );
     } catch (error) {
-      console.error("[Slack ReBAC] Failed to prepare Slack bot team session setup:", error);
+      console.error("[Slack ReBAC] Failed to prepare Slack bot OBO permissions:", error);
       throw new ApiError(
         "We couldn't finish preparing Slack access for this team. Open Security & Policy, " +
           "run Reconcile now, then try setting up the channel again.",
         502
       );
     }
+    // `hasChannelScopedDefaults` is still computed above to drive the per-channel
+    // mapping loop below; the value no longer influences Keycloak.
+    void hasChannelScopedDefaults;
 
     let channelsOnboarded = 0;
     let channelsAssignedTeam = 0;
@@ -517,18 +517,28 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
     }
 
     const writes: UniversalRebacRelationship[] = [
-      ...channels.map((channel) =>
-        {
-          const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
-          const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
-          return slackChannelGrantRelationship(
-            workspaceId,
-            channel.slack_channel_id,
-            { type: "agent", id: scopedDefault?.agent_id ?? agentId },
-            "use"
-          );
-        }
-      ),
+      ...channels.flatMap((channel): UniversalRebacRelationship[] => {
+        const workspaceId = slackWorkspaceRef(channel.slack_workspace_id);
+        const scopedDefault = channelDefaultByKey.get(`${workspaceId}/${channel.slack_channel_id}`);
+        const channelToAgent = slackChannelGrantRelationship(
+          workspaceId,
+          channel.slack_channel_id,
+          { type: "agent", id: scopedDefault?.agent_id ?? agentId },
+          "use"
+        );
+        // Inbound team→channel visibility. Without these, the admin
+        // /api/admin/slack/channels listing route filters this channel out
+        // because no user can `can_read` the channel object in OpenFGA.
+        const targetTeamSlug = scopedDefault?.team_slug ?? channel.team_slug;
+        const teamVisibility = targetTeamSlug
+          ? slackChannelTeamVisibilityRelationships(
+              workspaceId,
+              channel.slack_channel_id,
+              String(targetTeamSlug)
+            )
+          : [];
+        return [channelToAgent, ...teamVisibility];
+      }),
       ...Array.from(teamAgentPairs.values()).map(
         ({ team: targetTeam, agent_id: targetAgentId }): UniversalRebacRelationship => ({
           subject: { type: "team", id: String(targetTeam.slug), relation: "member" },

@@ -1,17 +1,114 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, PlayCircle, RefreshCw, Shield } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  HelpCircle,
+  Loader2,
+  PlayCircle,
+  RefreshCw,
+  Shield,
+  XCircle,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { explainInvariant } from "./invariant-explanations";
+import {
+  BOOTSTRAP_ADMIN_HEADER_EXPLANATION,
+  explainWarning,
+  type WarningExplanation,
+} from "./warning-explanations";
 
 type MigrationStatus = "not_started" | "planned" | "running" | "completed" | "failed" | "skipped";
 const KEYCLOAK_MIGRATION_ID = "keycloak_rbac_mapping_reconciliation_v1";
 const KEYCLOAK_MIGRATION_CONFIRMATION = "MIGRATE keycloak_rbac_mappings TO v1";
+
+/**
+ * Reusable "HelpCircle button → tooltip" affordance shared by every
+ * explainer in this panel (invariant rows, warning rows, the bootstrap
+ * admin section header). The shape mirrors the inline JSX that was
+ * already used for invariant rows; centralising it here means the
+ * three callsites stay visually identical and a future styling tweak
+ * lands in one place.
+ *
+ * `data-testid` is required so each call site has a stable selector
+ * (`invariant-explain-…`, `warning-explain-…`, `bootstrap-admin-header-explain`).
+ *
+ * The component renders the `body` and an optional "How to fix" block
+ * separated by a thin divider. Bodies are 2–4 sentences; fixes are
+ * 1–2 sentences. We deliberately do NOT use a Markdown renderer
+ * here — backticks render as plain backticks, which is the same
+ * convention as the invariant tooltips so the prose reads
+ * consistently across the panel.
+ */
+function ExplainerTooltip({
+  trigger,
+  explanation,
+  testId,
+  ariaLabel,
+  sideOffset = 6,
+}: {
+  /** Optional override for the button content; defaults to a `HelpCircle` icon. */
+  trigger?: React.ReactNode;
+  explanation: { title: string; body: string; fix?: string };
+  testId: string;
+  ariaLabel: string;
+  sideOffset?: number;
+}) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={ariaLabel}
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid={testId}
+          >
+            {trigger ?? <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="bottom"
+          sideOffset={sideOffset}
+          // Override the primitive's default `whitespace-nowrap` so
+          // the body wraps. ~360px reads comfortably for the 2-4
+          // sentence explanations without dominating the viewport.
+          className="whitespace-normal max-w-sm w-max text-left font-normal leading-snug p-3"
+        >
+          <div className="space-y-1.5">
+            <p className="font-semibold text-popover-foreground">
+              {explanation.title}
+            </p>
+            <p className="text-muted-foreground text-[11px]">
+              {explanation.body}
+            </p>
+            {explanation.fix && (
+              <>
+                <div className="my-1 border-t border-border/60" />
+                <p className="text-[11px]">
+                  <span className="font-semibold text-popover-foreground">
+                    How to fix:{" "}
+                  </span>
+                  <span className="text-muted-foreground">{explanation.fix}</span>
+                </p>
+              </>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 interface MetricDetails {
   title: string;
@@ -63,14 +160,49 @@ interface KeycloakMigrationHealth {
     outcomes: Array<Record<string, unknown>>;
   };
   keycloak_values?: {
-    team_scopes?: Array<Record<string, unknown>>;
     obo_permissions?: Array<Record<string, unknown>>;
     bot_service_accounts?: Array<Record<string, unknown>>;
     token_exchange_permissions?: Array<Record<string, unknown>>;
-    active_team_defaults?: Array<Record<string, unknown>>;
+    users_impersonate_permission?: Record<string, unknown>;
   };
   keycloak_values_error?: string;
+  keycloak_invariants?: {
+    summary: {
+      total: number;
+      passing: number;
+      failing: number;
+      unknown: number;
+      reconcile_now_recommended: boolean;
+    };
+    items: Array<KeycloakInvariant>;
+  };
 }
+
+type InvariantStatus = "pass" | "fail" | "unknown";
+type InvariantRemediation = "reconcile_now" | "manual_keycloak" | "none";
+type InvariantGroup = "obo" | "client" | "service-account";
+
+interface KeycloakInvariant {
+  id: string;
+  description: string;
+  group: InvariantGroup;
+  source: "init-idp.sh" | "init-token-exchange.sh" | "bff-migration";
+  status: InvariantStatus;
+  detail?: string;
+  remediation: InvariantRemediation;
+}
+
+const INVARIANT_GROUP_ORDER: InvariantGroup[] = [
+  "obo",
+  "service-account",
+  "client",
+];
+
+const INVARIANT_GROUP_LABELS: Record<InvariantGroup, string> = {
+  obo: "OBO (token exchange & impersonation)",
+  "service-account": "Bot service accounts",
+  client: "Clients & realm",
+};
 
 interface KeycloakMigrationHealthPanelProps {
   compact?: boolean;
@@ -126,21 +258,6 @@ function HealthCheck({
       {label}
     </span>
   );
-}
-
-function rowsForAppliedCount(
-  key: string,
-  value: number,
-  health: KeycloakMigrationHealth,
-): Array<Record<string, unknown>> {
-  if (key === "team_scopes_reconciled") return health.keycloak_values?.team_scopes ?? [];
-  if (key === "obo_permission_sets_reconciled") return health.keycloak_values?.obo_permissions ?? [];
-  if (key === "bot_service_accounts_reconciled") return health.keycloak_values?.bot_service_accounts ?? [];
-  if (key === "token_exchange_permissions_reconciled") {
-    return health.keycloak_values?.token_exchange_permissions ?? [];
-  }
-  if (key === "active_team_defaults_selected") return health.keycloak_values?.active_team_defaults ?? [];
-  return [{ count_name: key, count_value: value }];
 }
 
 function displayText(value: unknown): string {
@@ -207,6 +324,12 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
   const [health, setHealth] = useState<KeycloakMigrationHealth | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  // Tracks which surface initiated the active reconcile, so we can render an
+  // inline "Fixing…" indicator on the originating row without rebuilding the
+  // single-button affordance at the top of the panel. `null` = top button or
+  // no reconcile in flight; otherwise it's the invariant id of the row that
+  // triggered the run.
+  const [reconcileOriginId, setReconcileOriginId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconcileMessage, setReconcileMessage] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<MetricDetails | null>(null);
@@ -231,37 +354,58 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
     loadHealth();
   }, [loadHealth]);
 
-  const reconcileNow = useCallback(async () => {
-    setReconciling(true);
-    setError(null);
-    setReconcileMessage(null);
-    try {
-      const result = await readJson<{ applied_counts?: Record<string, number> }>(
-        await fetch(`/api/admin/rebac/migrations/${KEYCLOAK_MIGRATION_ID}/apply`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirmation: KEYCLOAK_MIGRATION_CONFIRMATION }),
-        }),
-      );
-      const appliedCount = Object.values(result.applied_counts ?? {}).reduce((sum, value) => sum + value, 0);
-      setReconcileMessage(`Reconcile applied${appliedCount ? ` (${appliedCount} updates)` : ""}.`);
-      await loadHealth();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reconcile Keycloak migration");
-    } finally {
-      setReconciling(false);
-    }
-  }, [loadHealth]);
+  const runReconcile = useCallback(
+    async (originId: string | null) => {
+      setReconciling(true);
+      setReconcileOriginId(originId);
+      setError(null);
+      setReconcileMessage(null);
+      try {
+        const result = await readJson<{ applied_counts?: Record<string, number> }>(
+          await fetch(`/api/admin/rebac/migrations/${KEYCLOAK_MIGRATION_ID}/apply`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmation: KEYCLOAK_MIGRATION_CONFIRMATION }),
+          }),
+        );
+        const appliedCount = Object.values(result.applied_counts ?? {}).reduce(
+          (sum, value) => sum + value,
+          0,
+        );
+        // Every "Fix this" and "Reconcile all" click drives the same global
+        // BFF migration, so we phrase the success line the same way regardless
+        // of which surface initiated it.
+        setReconcileMessage(
+          `Reconcile applied${appliedCount ? ` (${appliedCount} updates)` : ""}.`,
+        );
+        await loadHealth();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to reconcile Keycloak migration");
+      } finally {
+        setReconciling(false);
+        setReconcileOriginId(null);
+      }
+    },
+    [loadHealth],
+  );
+
+  const reconcileAll = useCallback(() => runReconcile(null), [runReconcile]);
 
   const lastRun = health?.migration.last_run;
-  const counts = useMemo(() => Object.entries(lastRun?.applied_counts ?? {}), [lastRun]);
   const bootstrapHasFailures = Boolean(health?.bootstrap_admins && health.bootstrap_admins.failed_count > 0);
+  const invariantsFailing = Boolean(
+    health?.keycloak_invariants && health.keycloak_invariants.summary.failing > 0,
+  );
+  const invariantsRecommendReconcile = Boolean(
+    health?.keycloak_invariants?.summary.reconcile_now_recommended,
+  );
   const degraded = Boolean(
     error ||
       health?.blocking.is_blocking ||
       health?.migration.manifest_status === "failed" ||
       !health?.keycloak.reachable ||
-      bootstrapHasFailures,
+      bootstrapHasFailures ||
+      invariantsFailing,
   );
   const canReconcile = Boolean(
     health &&
@@ -269,7 +413,8 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
       health.keycloak.configured &&
       (health.blocking.is_blocking ||
         health.schema_area.status !== "current" ||
-        health.migration.manifest_status === "failed"),
+        health.migration.manifest_status === "failed" ||
+        invariantsRecommendReconcile),
   );
   const Icon = degraded ? AlertTriangle : CheckCircle2;
   const healthContext = health
@@ -302,10 +447,31 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
         </div>
         <div className="flex flex-wrap gap-2">
           {canReconcile && (
-            <Button type="button" size="sm" onClick={reconcileNow} disabled={reconciling || loading}>
-              {reconciling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
-              Reconcile now
+            <Button
+              type="button"
+              size="sm"
+              onClick={reconcileAll}
+              disabled={reconciling || loading}
+              title="Apply the Keycloak reconciliation migration. Fixes every failing 'Reconcile now' invariant and retries bootstrap admin seeding in one transaction."
+            >
+              {reconciling ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PlayCircle className="mr-2 h-4 w-4" />
+              )}
+              {reconciling && reconcileOriginId === null ? "Reconciling…" : "Reconcile all"}
             </Button>
+          )}
+          {health && (
+            <CopyButton
+              variant="outline"
+              size="sm"
+              value={() => JSON.stringify(health, null, 2)}
+              copiedLabel="Copied JSON"
+              label="Copy full Keycloak diagnostics JSON"
+            >
+              Copy diagnostics
+            </CopyButton>
           )}
           <Button type="button" variant="outline" size="sm" onClick={loadHealth} disabled={loading || reconciling}>
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -315,13 +481,23 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
-          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
+          <div className="flex items-start justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
+            <CopyButton
+              value={error}
+              label="Copy error"
+              className="shrink-0 text-destructive hover:text-destructive"
+            />
           </div>
         )}
         {reconcileMessage && (
-          <div className="rounded-lg border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-900">
-            {reconcileMessage}
+          <div className="flex items-start justify-between gap-2 rounded-lg border border-emerald-300/60 bg-emerald-50 p-3 text-sm text-emerald-900">
+            <span className="min-w-0 whitespace-pre-wrap break-words">{reconcileMessage}</span>
+            <CopyButton
+              value={reconcileMessage}
+              label="Copy message"
+              className="shrink-0 text-emerald-900 hover:text-emerald-900"
+            />
           </div>
         )}
         {!health && !error && (
@@ -351,6 +527,28 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
                 <HealthCheck
                   label={bootstrapHasFailures ? "Bootstrap admin failures" : "Bootstrap admins seeded"}
                   state={bootstrapHealthState}
+                />
+              )}
+              {health.keycloak_invariants && (
+                <HealthCheck
+                  label={
+                    health.keycloak_invariants.summary.failing > 0
+                      ? `${health.keycloak_invariants.summary.failing} invariant${
+                          health.keycloak_invariants.summary.failing === 1 ? "" : "s"
+                        } failing`
+                      : health.keycloak_invariants.summary.unknown > 0
+                        ? `${health.keycloak_invariants.summary.unknown} invariant${
+                            health.keycloak_invariants.summary.unknown === 1 ? "" : "s"
+                          } unknown`
+                        : `${health.keycloak_invariants.summary.passing} invariants passing`
+                  }
+                  state={
+                    health.keycloak_invariants.summary.failing > 0
+                      ? "error"
+                      : health.keycloak_invariants.summary.unknown > 0
+                        ? "warning"
+                        : "ok"
+                  }
                 />
               )}
             </div>
@@ -423,42 +621,144 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
               )}
             </div>
 
-            {!compact && counts.length > 0 && (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {counts.map(([key, value]) => (
-                  <Metric
-                    key={key}
-                    label={humanizeKey(key)}
-                    value={String(value)}
-                    details={{
-                      title: `${humanizeKey(key)} details`,
-                      description: "Actual Keycloak values behind this reconciliation count.",
-                      rows: rowsForAppliedCount(key, value, health),
-                    }}
-                    onInspect={setSelectedMetric}
-                  />
-                ))}
-              </div>
+            {/*
+              The raw `applied_counts` tile grid that used to live here
+              (Mongo teams seen / Team scopes reconciled / OBO permission
+              sets reconciled / Bot service accounts reconciled / Token
+              exchange permissions reconciled / Active team defaults
+              selected / Bootstrap admin {resolved,placeholders,tuples,
+              failures}) was removed in 2026-05-24. Those values are
+              last-run bookkeeping counters from the reconciliation
+              algorithm — once Keycloak is steady they are just noise,
+              and they don't tell an admin whether the realm is actually
+              correctly configured.
+
+              The Invariants section directly below this comment is now
+              the single source of truth for "is Keycloak healthy", with
+              per-row Fix buttons. The high-signal tiles (Schema area /
+              Version / Migration status / Last actor / Bootstrap
+              admins) stay at the top of the panel. Raw counts are still
+              persisted on the migration record and visible via the JSON
+              API for anyone debugging the migration itself.
+            */}
+
+            {!compact && health.keycloak_invariants && (
+              <InvariantsSection
+                invariants={health.keycloak_invariants}
+                reconciling={reconciling}
+                reconcileOriginId={reconcileOriginId}
+                onFixOne={runReconcile}
+              />
             )}
 
             {(lastRun?.error || health.keycloak.probe_error) && (
-              <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
-                {lastRun?.error ?? health.keycloak.probe_error}
+              <div className="flex items-start justify-between gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
+                <span className="min-w-0 whitespace-pre-wrap break-words">
+                  {lastRun?.error ?? health.keycloak.probe_error}
+                </span>
+                <CopyButton
+                  value={lastRun?.error ?? health.keycloak.probe_error ?? ""}
+                  label="Copy error"
+                  className="shrink-0 text-amber-900 hover:text-amber-900"
+                />
+              </div>
+            )}
+            {health.bootstrap_admins && health.bootstrap_admins.failed_count > 0 && (
+              <div className="space-y-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-medium">
+                    <span>
+                      Bootstrap admin reconciliation failed for{" "}
+                      {health.bootstrap_admins.failed_count} email
+                      {health.bootstrap_admins.failed_count === 1 ? "" : "s"}
+                    </span>
+                    {/*
+                      Section-level "what does this mean?" affordance.
+                      Hover this for the *concept* of bootstrap admin
+                      reconciliation; per-row tooltips (below) explain
+                      each specific email failure.
+                    */}
+                    <ExplainerTooltip
+                      explanation={BOOTSTRAP_ADMIN_HEADER_EXPLANATION}
+                      testId="bootstrap-admin-header-explain"
+                      ariaLabel={`Explain bootstrap admin reconciliation: ${BOOTSTRAP_ADMIN_HEADER_EXPLANATION.title}`}
+                    />
+                  </div>
+                  <CopyButton
+                    value={() => JSON.stringify(health.bootstrap_admins, null, 2)}
+                    label="Copy bootstrap admin details as JSON"
+                    copiedLabel="Copied JSON"
+                    className="shrink-0 text-amber-900 hover:text-amber-900"
+                  />
+                </div>
+                {health.bootstrap_admins.warnings.length > 0 && (
+                  <ul className="space-y-1 text-xs">
+                    {health.bootstrap_admins.warnings.map((warning, idx) => {
+                      const explanation: WarningExplanation = explainWarning(warning);
+                      return (
+                        <li
+                          key={warning}
+                          className="flex items-center gap-1.5"
+                          data-testid={`bootstrap-admin-warning-row-${idx}`}
+                        >
+                          <span className="min-w-0 break-words">{warning}</span>
+                          <ExplainerTooltip
+                            explanation={explanation}
+                            testId={`bootstrap-admin-warning-explain-${idx}`}
+                            ariaLabel={`Explain bootstrap admin warning: ${explanation.title}`}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             )}
             {!compact && lastRun?.warnings && lastRun.warnings.length > 0 && (
               <div className="space-y-1 rounded-lg border p-3 text-sm">
-                <div className="font-medium">Warnings</div>
-                {lastRun.warnings.map((warning) => (
-                  <div key={warning} className="text-muted-foreground">
-                    {warning}
-                  </div>
-                ))}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-medium">Warnings</div>
+                  <CopyButton
+                    value={(lastRun.warnings ?? []).join("\n")}
+                    label="Copy warnings"
+                    className="shrink-0"
+                  />
+                </div>
+                {lastRun.warnings.map((warning, idx) => {
+                  // Each warning row gets a plain-English explainer
+                  // tooltip. The bodies are 2-4 sentences keeping
+                  // technical names (env var, RFC 8693, etc.)
+                  // alongside plain-English glosses, in the same
+                  // wording style as the invariant explainer; see
+                  // `warning-explanations.ts` for the rules.
+                  const explanation = explainWarning(warning);
+                  return (
+                    <div
+                      key={warning}
+                      className="flex items-center gap-1.5 text-muted-foreground"
+                      data-testid={`migration-warning-row-${idx}`}
+                    >
+                      <span className="min-w-0 break-words">{warning}</span>
+                      <ExplainerTooltip
+                        explanation={explanation}
+                        testId={`migration-warning-explain-${idx}`}
+                        ariaLabel={`Explain warning: ${explanation.title}`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
             {!compact && health.keycloak_values_error && (
-              <div className="rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
-                Keycloak value inspection failed: {health.keycloak_values_error}
+              <div className="flex items-start justify-between gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
+                <span className="min-w-0 whitespace-pre-wrap break-words">
+                  Keycloak value inspection failed: {health.keycloak_values_error}
+                </span>
+                <CopyButton
+                  value={`Keycloak value inspection failed: ${health.keycloak_values_error}`}
+                  label="Copy error"
+                  className="shrink-0 text-amber-900 hover:text-amber-900"
+                />
               </div>
             )}
           </>
@@ -515,6 +815,302 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+function InvariantStatusPill({ status }: { status: InvariantStatus }) {
+  if (status === "pass") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+        <CheckCircle2 className="h-3 w-3" />
+        Pass
+      </span>
+    );
+  }
+  if (status === "fail") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">
+        <XCircle className="h-3 w-3" />
+        Fail
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+      <HelpCircle className="h-3 w-3" />
+      Unknown
+    </span>
+  );
+}
+
+function formatInvariantForCopy(item: KeycloakInvariant): string {
+  // Stable, plain-text shape so admins can paste it into a ticket and the
+  // ordering matches what they see on screen. Newline-delimited so it
+  // renders cleanly without a JSON viewer.
+  const lines = [
+    `# ${item.description}`,
+    `id: ${item.id}`,
+    `status: ${item.status}`,
+    `group: ${item.group}`,
+    `source: ${item.source}`,
+    `remediation: ${item.remediation}`,
+  ];
+  if (item.detail) lines.push("", item.detail);
+  return lines.join("\n");
+}
+
+function InvariantsSection({
+  invariants,
+  reconciling,
+  reconcileOriginId,
+  onFixOne,
+}: {
+  invariants: NonNullable<KeycloakMigrationHealth["keycloak_invariants"]>;
+  reconciling: boolean;
+  reconcileOriginId: string | null;
+  onFixOne: (originId: string) => void | Promise<void>;
+}) {
+  // Open failing groups by default so admins see remediation hints
+  // without an extra click; happy-path realms render fully collapsed
+  // to keep the tile compact.
+  const initialOpen = useMemo(() => {
+    const set = new Set<InvariantGroup>();
+    for (const item of invariants.items) {
+      if (item.status !== "pass") set.add(item.group);
+    }
+    return set;
+  }, [invariants.items]);
+
+  const [openGroups, setOpenGroups] = useState<Set<InvariantGroup>>(initialOpen);
+
+  const grouped = useMemo(() => {
+    const map = new Map<InvariantGroup, KeycloakInvariant[]>();
+    for (const item of invariants.items) {
+      const list = map.get(item.group) ?? [];
+      list.push(item);
+      map.set(item.group, list);
+    }
+    return map;
+  }, [invariants.items]);
+
+  const toggle = (group: InvariantGroup) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
+
+  return (
+    <section
+      aria-label="Keycloak invariants"
+      data-testid="keycloak-invariants"
+      className="space-y-2 rounded-lg border bg-muted/10 p-3"
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Shield className="h-4 w-4" />
+          Keycloak invariants
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+            {invariants.summary.passing} pass
+          </Badge>
+          <Badge
+            variant="outline"
+            className={cn(
+              invariants.summary.failing > 0
+                ? "border-red-300 text-red-700"
+                : "border-muted text-muted-foreground",
+            )}
+          >
+            {invariants.summary.failing} fail
+          </Badge>
+          {invariants.summary.unknown > 0 && (
+            <Badge variant="outline" className="border-amber-300 text-amber-700">
+              {invariants.summary.unknown} unknown
+            </Badge>
+          )}
+        </div>
+      </header>
+
+      <p className="text-xs text-muted-foreground">
+        Each invariant corresponds to one provisioning step from{" "}
+        <code className="rounded bg-muted px-1 font-mono text-[10px]">init-idp.sh</code>,{" "}
+        <code className="rounded bg-muted px-1 font-mono text-[10px]">init-token-exchange.sh</code>
+        , or the BFF startup migration. Failing checks marked &quot;Reconcile now&quot; can be
+        repaired by &quot;Reconcile all&quot; at the top of this card, or row-by-row with the
+        &quot;Fix&quot; button next to each item; failures marked &quot;Manual&quot; require direct
+        Keycloak Admin Console action.
+      </p>
+
+      <ul className="space-y-2">
+        {INVARIANT_GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => {
+          const items = grouped.get(group)!;
+          const failing = items.filter((item) => item.status === "fail").length;
+          const unknown = items.filter((item) => item.status === "unknown").length;
+          const isOpen = openGroups.has(group);
+          return (
+            <li key={group} className="rounded-md border bg-background">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-muted/40"
+                onClick={() => toggle(group)}
+                aria-expanded={isOpen}
+                aria-controls={`invariants-${group}`}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  {isOpen ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                  {INVARIANT_GROUP_LABELS[group]}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  {failing > 0 && (
+                    <Badge variant="outline" className="border-red-300 text-red-700">
+                      {failing} fail
+                    </Badge>
+                  )}
+                  {unknown > 0 && (
+                    <Badge variant="outline" className="border-amber-300 text-amber-700">
+                      {unknown} unknown
+                    </Badge>
+                  )}
+                  {failing === 0 && unknown === 0 && (
+                    <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                      {items.length} pass
+                    </Badge>
+                  )}
+                </span>
+              </button>
+              {isOpen && (
+                <ul id={`invariants-${group}`} className="divide-y border-t">
+                  {items.map((item) => {
+                    const isFailing = item.status !== "pass";
+                    const isReconcileNow =
+                      item.remediation === "reconcile_now" && isFailing;
+                    const isThisRowFixing =
+                      reconciling && reconcileOriginId === item.id;
+                    return (
+                      <li
+                        key={item.id}
+                        className="space-y-1 px-3 py-2"
+                        data-testid={`invariant-${item.id}`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
+                          <div className="min-w-0 space-y-0.5">
+                            {/*
+                              Plain-English explainer rendered as a hover
+                              tooltip on a HelpCircle affordance next to
+                              the description. The machine ID below the
+                              description (e.g. `obo.token_exchange.shared
+                              _audience.exists`) is accurate but cryptic;
+                              the tooltip body tells admins what the check
+                              is verifying and what breaks if it fails.
+                              The decoder lives in
+                              `./invariant-explanations.ts` and is unit
+                              tested against every ID emitted by
+                              `keycloak-invariants.ts` to prevent shipping
+                              the fallback message.
+                            */}
+                            {(() => {
+                              const explanation = explainInvariant(item.id);
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-medium">{item.description}</span>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          aria-label={`Explain ${item.description}: ${explanation.title}`}
+                                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                                          data-testid={`invariant-explain-${item.id}`}
+                                        >
+                                          <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent
+                                        side="bottom"
+                                        sideOffset={6}
+                                        // Override the primitive's default
+                                        // `whitespace-nowrap` so the body
+                                        // wraps. ~360px reads comfortably
+                                        // for 2-4 sentence explanations
+                                        // without dominating the viewport.
+                                        className="whitespace-normal max-w-sm w-max text-left font-normal leading-snug p-3"
+                                      >
+                                        <div className="space-y-1">
+                                          <p className="font-semibold text-popover-foreground">
+                                            {explanation.title}
+                                          </p>
+                                          <p className="text-muted-foreground text-[11px]">
+                                            {explanation.body}
+                                          </p>
+                                        </div>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </div>
+                              );
+                            })()}
+                            <div className="font-mono text-[10px] text-muted-foreground">
+                              {item.id}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <InvariantStatusPill status={item.status} />
+                            {isReconcileNow && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                className="h-7 px-2 text-[10px]"
+                                onClick={() => onFixOne(item.id)}
+                                disabled={reconciling}
+                                title="Run the Keycloak reconciliation migration. Fixes every failing 'Reconcile now' invariant in one transaction; this row triggered it."
+                                data-testid={`invariant-fix-${item.id}`}
+                              >
+                                {isThisRowFixing ? (
+                                  <>
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                    Fixing…
+                                  </>
+                                ) : (
+                                  "Fix"
+                                )}
+                              </Button>
+                            )}
+                            {item.remediation === "manual_keycloak" && isFailing && (
+                              <Badge variant="outline" className="border-amber-300 text-[10px] text-amber-700">
+                                Manual
+                              </Badge>
+                            )}
+                            {isFailing && (
+                              <CopyButton
+                                value={() => formatInvariantForCopy(item)}
+                                label={`Copy diagnostic for ${item.id}`}
+                                className="h-7 w-7"
+                              />
+                            )}
+                          </div>
+                        </div>
+                        {item.detail && (
+                          <p className="text-xs text-muted-foreground">{item.detail}</p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

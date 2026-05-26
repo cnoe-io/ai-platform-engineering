@@ -30,7 +30,10 @@ NC='\033[0m'
 CLUSTER_NAME=""
 ENABLE_RAG=false
 ENABLE_TRACING=false
-ENABLE_PERSISTENCE=false
+# Redis persistence: default ON. Conversation checkpoints + cross-thread
+# memory survive pod restarts in baseline CAIPE. Set ENABLE_PERSISTENCE=false
+# or pass --no-persistence to skip.
+ENABLE_PERSISTENCE="${ENABLE_PERSISTENCE:-true}"
 OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 OPENAI_ENDPOINT="https://api.openai.com/v1"
 OPENAI_MODEL_NAME="gpt-5.2"
@@ -64,8 +67,15 @@ EMBEDDINGS_PROVIDER_SOURCE="${EMBEDDINGS_PROVIDER_SOURCE:-}"
 ENABLE_GRAPH_RAG=false
 ENABLE_VLLM="${ENABLE_VLLM:-false}"
 ENABLE_OLLAMA="${ENABLE_OLLAMA:-false}"
-ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-false}"
-ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-false}"
+# AgentGateway: default ON. Federates MCP servers behind a single endpoint
+# and is the data path RBAC runtime depends on. Set ENABLE_AGENTGATEWAY=false
+# or pass --no-agentgateway to skip (also disables RBAC runtime).
+ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-true}"
+# RBAC runtime: default ON. Installs in-chart Keycloak + OpenFGA + ext_authz
+# bridge + standalone AgentGateway proxy (the 0.5.0 RBAC stack). Implies
+# ENABLE_AGENTGATEWAY=true. Set ENABLE_RBAC_RUNTIME=false or pass
+# --no-rbac-runtime to skip.
+ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -86,14 +96,28 @@ NON_INTERACTIVE=false
 CREATE_CLUSTER=false
 FORCE_UPGRADE=false
 INGEST_URLS=()
-ENABLE_METALLB=false
-ENABLE_INGRESS=false
+# MetalLB: default ON. Required for real LoadBalancer IPs on kind clusters
+# and is a prerequisite for ingress. Set ENABLE_METALLB=false or pass
+# --no-metallb to skip (also disables ingress).
+ENABLE_METALLB="${ENABLE_METALLB:-true}"
+# Ingress: default ON. Exposes the UI via https://<domain> through
+# nginx-ingress. If no domain is provided (env var, CLI flag, or interactive
+# prompt), falls back to the CAIPE_DOMAIN_DEFAULT below. Set
+# ENABLE_INGRESS=false or pass --no-ingress to skip.
+ENABLE_INGRESS="${ENABLE_INGRESS:-true}"
+# Default ingress hostname used when ingress is enabled but no domain is
+# supplied. *.local.me resolves to 127.0.0.1 via public DNS, so this works
+# out-of-the-box on any laptop without /etc/hosts edits.
+CAIPE_DOMAIN_DEFAULT="${CAIPE_DOMAIN_DEFAULT:-caipe.local.me}"
 CAIPE_DOMAIN=""
 TLS_CERT_FILE=""
 TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
-ENABLE_DYNAMIC_AGENTS=false
+# Dynamic agents: default ON (custom agent builder UI is part of the
+# baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
+# --no-dynamic-agents to skip.
+ENABLE_DYNAMIC_AGENTS="${ENABLE_DYNAMIC_AGENTS:-true}"
 # Agents selected interactively; empty means all defaults are used (non-interactive path)
 SELECTED_AGENTS=()
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
@@ -1804,6 +1828,28 @@ SVCEOF
   fi
 }
 
+# Print a clear, single-source-of-truth banner whenever we plan to generate
+# a self-signed TLS cert. Used by both the interactive ingress flow and any
+# code path that intentionally falls through without a user-supplied cert.
+#
+# Args:
+#   $1 — domain (CN/SAN), informational only
+#   $2 — optional reason, shown in parentheses (e.g. "default hostname")
+_announce_self_signed() {
+  local _dom="$1" _reason="${2:-}"
+  echo ""
+  if [[ -n "$_reason" ]]; then
+    warn "Will generate a SELF-SIGNED TLS cert for ${_dom} (${_reason})."
+  else
+    warn "Will generate a SELF-SIGNED TLS cert for ${_dom}."
+  fi
+  echo -e "  ${DIM}Browsers and CLI tools will show a 'NET::ERR_CERT_AUTHORITY_INVALID' /${NC}"
+  echo -e "  ${DIM}'self signed certificate' warning on first visit. To use a trusted cert${NC}"
+  echo -e "  ${DIM}instead, re-run with --tls-cert=FILE --tls-key=FILE (Let's Encrypt,${NC}"
+  echo -e "  ${DIM}corporate CA, etc.) or drop PEMs at \$HOME/certs/{fullchain,privkey}.pem${NC}"
+  echo -e "  ${DIM}and re-run the setup.${NC}"
+}
+
 setup_tls() {
   step "Configuring TLS for ${CAIPE_DOMAIN}"
 
@@ -1823,6 +1869,11 @@ setup_tls() {
     fi
     log "Using provided TLS cert: ${TLS_CERT_FILE}"
   else
+    # Always announce self-signed up-front, even if the interactive flow
+    # already did — duplication is cheap and makes scripted/CI runs honest.
+    local _reason=""
+    [[ "$CAIPE_DOMAIN" == *.local.me ]] && _reason="*.local.me has no public CA"
+    _announce_self_signed "${CAIPE_DOMAIN}" "${_reason}"
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
     TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
     TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
@@ -1953,19 +2004,17 @@ choose_features() {
       log "RAG skipped (pass --rag to enable)"
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
-    $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
-    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (--rbac-runtime)" || log "RBAC runtime skipped (pass --rbac-runtime to enable)"
-    $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
-    $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (--dynamic-agents)" || log "Dynamic agents skipped (pass --dynamic-agents to enable)"
-    if $ENABLE_METALLB; then
-      log "MetalLB enabled (--metallb)"
-    fi
+    $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (default; pass --no-agentgateway to skip)" || log "AgentGateway disabled (--no-agentgateway)"
+    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (default; pass --no-rbac-runtime to skip)" || log "RBAC runtime disabled (--no-rbac-runtime)"
+    $ENABLE_PERSISTENCE && log "Redis persistence enabled (default; pass --no-persistence to skip)" || log "Persistence disabled (--no-persistence)"
+    $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (default; pass --no-dynamic-agents to skip)" || log "Dynamic agents disabled (--no-dynamic-agents)"
+    $ENABLE_METALLB && log "MetalLB enabled (default; pass --no-metallb to skip)" || log "MetalLB disabled (--no-metallb)"
     if $ENABLE_INGRESS; then
-      if [[ -n "$CAIPE_DOMAIN" ]]; then
-        log "Ingress enabled for domain: ${CAIPE_DOMAIN} (--ingress --domain)"
+      if [[ -z "$CAIPE_DOMAIN" ]]; then
+        CAIPE_DOMAIN="$CAIPE_DOMAIN_DEFAULT"
+        log "Ingress enabled with default domain: ${CAIPE_DOMAIN} (resolves to 127.0.0.1 via *.local.me; override with --domain=<hostname>)"
       else
-        err "--ingress requires --domain=<hostname>"
-        exit 1
+        log "Ingress enabled for domain: ${CAIPE_DOMAIN} (--ingress --domain)"
       fi
     fi
     return
@@ -2516,10 +2565,13 @@ choose_features() {
 
   echo ""
   if $ENABLE_DYNAMIC_AGENTS; then
-    log "Dynamic agents already enabled (detected from cluster)"
-    if ! ask_yn "Keep dynamic agents?" "y"; then ENABLE_DYNAMIC_AGENTS=false; fi
+    log "Dynamic agents enabled by default (custom agent builder)"
+    if ! ask_yn "Keep dynamic agents?" "y"; then
+      ENABLE_DYNAMIC_AGENTS=false
+      log "Dynamic agents disabled"
+    fi
   else
-    if ask_yn "Enable dynamic agents (custom agent builder)?" "n"; then
+    if ask_yn "Enable dynamic agents (custom agent builder)?" "y"; then
       ENABLE_DYNAMIC_AGENTS=true
       log "Dynamic agents enabled"
     else
@@ -2543,10 +2595,13 @@ choose_features() {
   echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
   echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
   if $ENABLE_AGENTGATEWAY; then
-    log "AgentGateway already enabled (detected from cluster)"
-    if ! ask_yn "Keep AgentGateway?" "y"; then ENABLE_AGENTGATEWAY=false; fi
+    log "AgentGateway enabled by default (federates MCP servers)"
+    if ! ask_yn "Keep AgentGateway?" "y"; then
+      ENABLE_AGENTGATEWAY=false
+      log "AgentGateway disabled"
+    fi
   else
-    if ask_yn "Enable AgentGateway for MCP server access?" "n"; then
+    if ask_yn "Enable AgentGateway for MCP server access?" "y"; then
       ENABLE_AGENTGATEWAY=true
       log "AgentGateway enabled"
     else
@@ -2558,13 +2613,14 @@ choose_features() {
   echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
   echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
   if $ENABLE_RBAC_RUNTIME; then
-    log "RBAC runtime already enabled (detected from cluster)"
+    log "RBAC runtime enabled by default (Keycloak + OpenFGA + ext_authz)"
     ENABLE_AGENTGATEWAY=true
     if ! ask_yn "Keep RBAC runtime?" "y"; then
       ENABLE_RBAC_RUNTIME=false
+      log "RBAC runtime disabled"
     fi
   else
-    if ask_yn "Enable RBAC runtime services?" "n"; then
+    if ask_yn "Enable RBAC runtime services?" "y"; then
       ENABLE_RBAC_RUNTIME=true
       ENABLE_AGENTGATEWAY=true
       log "RBAC runtime enabled"
@@ -2577,10 +2633,13 @@ choose_features() {
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
   echo -e "  ${DIM}in a dedicated Redis Stack pod, surviving pod restarts.${NC}"
   if $ENABLE_PERSISTENCE; then
-    log "Redis persistence already enabled (detected from cluster)"
-    if ! ask_yn "Keep Redis persistence?" "y"; then ENABLE_PERSISTENCE=false; fi
+    log "Redis persistence enabled by default (checkpoints + cross-thread memory)"
+    if ! ask_yn "Keep Redis persistence?" "y"; then
+      ENABLE_PERSISTENCE=false
+      log "Redis persistence disabled"
+    fi
   else
-    if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "n"; then
+    if ask_yn "Enable Redis persistence (checkpoints + cross-thread memory)?" "y"; then
       ENABLE_PERSISTENCE=true
       log "Redis persistence enabled"
     else
@@ -2590,86 +2649,97 @@ choose_features() {
 
   echo ""
   echo -e "  ${DIM}MetalLB provides real LoadBalancer IPs for kind clusters. Required for ingress.${NC}"
-  if ask_yn "Enable MetalLB (LoadBalancer support for kind)?" "n"; then
+  local _metallb_default="n"; $ENABLE_METALLB && _metallb_default="y"
+  if ask_yn "Enable MetalLB (LoadBalancer support for kind)?" "$_metallb_default"; then
     ENABLE_METALLB=true
     log "MetalLB enabled"
 
     echo ""
     echo -e "  ${DIM}nginx-ingress + a domain lets you access the UI at https://<domain> instead of localhost.${NC}"
-    if ask_yn "Enable nginx-ingress and expose UI via a domain?" "n"; then
+    local _ingress_default="n"; $ENABLE_INGRESS && _ingress_default="y"
+    if ask_yn "Enable nginx-ingress and expose UI via a domain?" "$_ingress_default"; then
       ENABLE_INGRESS=true
-      prompt "Enter the domain hostname (e.g. my-caipe.example.com): "
+      prompt "Enter the domain hostname (e.g. my-caipe.example.com) [${CAIPE_DOMAIN_DEFAULT}]: "
       tty_read -r CAIPE_DOMAIN
+      local _used_default_domain=false
       if [[ -z "$CAIPE_DOMAIN" ]]; then
-        err "Domain is required when ingress is enabled"
-        exit 1
+        CAIPE_DOMAIN="$CAIPE_DOMAIN_DEFAULT"
+        _used_default_domain=true
+        log "No hostname provided — using default: ${CAIPE_DOMAIN} (resolves to 127.0.0.1 via *.local.me)"
       fi
       log "Ingress enabled for: ${CAIPE_DOMAIN}"
 
       echo ""
-      # Auto-detect certs in common locations
-      local _auto_cert="" _auto_key=""
-      local _cert_search_paths=(
-        "$HOME/certs/fullchain.pem"   "$HOME/certs/cert.pem"   "$HOME/certs/tls.crt"
-        "$HOME/.certs/fullchain.pem"  "$HOME/.certs/cert.pem"
-        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/fullchain.pem"
-        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/cert.pem"
-        "/etc/ssl/certs/${CAIPE_DOMAIN}.pem"
-      )
-      local _key_search_paths=(
-        "$HOME/certs/privkey.pem"     "$HOME/certs/key.pem"    "$HOME/certs/tls.key"
-        "$HOME/.certs/privkey.pem"    "$HOME/.certs/key.pem"
-        "/etc/letsencrypt/live/${CAIPE_DOMAIN}/privkey.pem"
-        "/etc/ssl/private/${CAIPE_DOMAIN}.key"
-      )
-      for _p in "${_cert_search_paths[@]}"; do
-        [[ -f "$_p" ]] && { _auto_cert="$_p"; break; }
-      done
-      for _p in "${_key_search_paths[@]}"; do
-        [[ -f "$_p" ]] && { _auto_key="$_p"; break; }
-      done
-
-      if [[ -n "$_auto_cert" && -n "$_auto_key" ]]; then
-        echo -e "  ${GREEN}  ✓${NC} Auto-detected TLS certificates:"
-        echo -e "      cert: ${_auto_cert}"
-        echo -e "      key:  ${_auto_key}"
-        if ask_yn "Use these certificates?" "y"; then
-          TLS_CERT_FILE="$_auto_cert"
-          TLS_KEY_FILE="$_auto_key"
-          log "Using auto-detected TLS cert: ${TLS_CERT_FILE}"
-        else
-          _auto_cert=""  # fall through to manual prompt
-        fi
-      fi
-
-      if [[ -z "$_auto_cert" ]]; then
-        echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
-        while true; do
-          prompt "TLS cert file path (leave blank for self-signed): "
-          tty_read -r TLS_CERT_FILE
-          TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
-          if [[ -z "$TLS_CERT_FILE" ]]; then
-            log "Will generate self-signed cert for ${CAIPE_DOMAIN}"
-            break
-          elif [[ ! -f "$TLS_CERT_FILE" ]]; then
-            warn "File not found: ${TLS_CERT_FILE}"
-          else
-            while true; do
-              prompt "TLS key file path: "
-              tty_read -r TLS_KEY_FILE
-              TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
-              if [[ -z "$TLS_KEY_FILE" ]]; then
-                err "TLS key file is required when cert is provided"
-              elif [[ ! -f "$TLS_KEY_FILE" ]]; then
-                warn "File not found: ${TLS_KEY_FILE}"
-              else
-                log "Using custom TLS cert: ${TLS_CERT_FILE}"
-                break
-              fi
-            done
-            break
-          fi
+      if $_used_default_domain; then
+        # Local-dev default (*.local.me) — no public cert authority will
+        # issue for this, so always self-sign and skip the auto-detect /
+        # manual prompt flow entirely.
+        _announce_self_signed "${CAIPE_DOMAIN}" "default hostname — no public CA can issue for *.local.me"
+      else
+        # Auto-detect certs in common locations
+        local _auto_cert="" _auto_key=""
+        local _cert_search_paths=(
+          "$HOME/certs/fullchain.pem"   "$HOME/certs/cert.pem"   "$HOME/certs/tls.crt"
+          "$HOME/.certs/fullchain.pem"  "$HOME/.certs/cert.pem"
+          "/etc/letsencrypt/live/${CAIPE_DOMAIN}/fullchain.pem"
+          "/etc/letsencrypt/live/${CAIPE_DOMAIN}/cert.pem"
+          "/etc/ssl/certs/${CAIPE_DOMAIN}.pem"
+        )
+        local _key_search_paths=(
+          "$HOME/certs/privkey.pem"     "$HOME/certs/key.pem"    "$HOME/certs/tls.key"
+          "$HOME/.certs/privkey.pem"    "$HOME/.certs/key.pem"
+          "/etc/letsencrypt/live/${CAIPE_DOMAIN}/privkey.pem"
+          "/etc/ssl/private/${CAIPE_DOMAIN}.key"
+        )
+        for _p in "${_cert_search_paths[@]}"; do
+          [[ -f "$_p" ]] && { _auto_cert="$_p"; break; }
         done
+        for _p in "${_key_search_paths[@]}"; do
+          [[ -f "$_p" ]] && { _auto_key="$_p"; break; }
+        done
+
+        if [[ -n "$_auto_cert" && -n "$_auto_key" ]]; then
+          echo -e "  ${GREEN}  ✓${NC} Auto-detected TLS certificates:"
+          echo -e "      cert: ${_auto_cert}"
+          echo -e "      key:  ${_auto_key}"
+          if ask_yn "Use these certificates?" "y"; then
+            TLS_CERT_FILE="$_auto_cert"
+            TLS_KEY_FILE="$_auto_key"
+            log "Using auto-detected TLS cert: ${TLS_CERT_FILE}"
+          else
+            _auto_cert=""  # fall through to manual prompt
+          fi
+        fi
+
+        if [[ -z "$_auto_cert" ]]; then
+          echo -e "  ${DIM}Provide custom TLS cert/key files, or leave blank to generate a self-signed cert.${NC}"
+          while true; do
+            prompt "TLS cert file path (leave blank for self-signed): "
+            tty_read -r TLS_CERT_FILE
+            TLS_CERT_FILE="${TLS_CERT_FILE/#\~/$HOME}"
+            if [[ -z "$TLS_CERT_FILE" ]]; then
+              _announce_self_signed "${CAIPE_DOMAIN}" "no TLS cert provided"
+              break
+            elif [[ ! -f "$TLS_CERT_FILE" ]]; then
+              warn "File not found: ${TLS_CERT_FILE}"
+            else
+              while true; do
+                prompt "TLS key file path: "
+                tty_read -r TLS_KEY_FILE
+                TLS_KEY_FILE="${TLS_KEY_FILE/#\~/$HOME}"
+                if [[ -z "$TLS_KEY_FILE" ]]; then
+                  err "TLS key file is required when cert is provided"
+                elif [[ ! -f "$TLS_KEY_FILE" ]]; then
+                  warn "File not found: ${TLS_KEY_FILE}"
+                else
+                  log "Using custom TLS cert: ${TLS_CERT_FILE}"
+                  break
+                fi
+              done
+              break
+            fi
+          done
+        fi
       fi
     else
       log "Ingress skipped"
@@ -6614,18 +6684,26 @@ Options:
   --corporate-ca     Apply corporate TLS proxy CA patch to pods (for networks
                      with TLS inspection, e.g. Cisco Secure Access, Zscaler)
   --tracing          Enable Langfuse tracing (with --non-interactive, or pre-selects in interactive)
-  --agentgateway     Deploy AgentGateway to federate MCP servers behind a single endpoint
-  --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
-                     OpenFGA ext_authz bridge, and standalone AgentGateway
-  --persistence      Enable Redis persistence for checkpoints and cross-thread memory
-                     (deploys langgraph-redis subchart; enables fact extraction)
+  --agentgateway     Deploy AgentGateway to federate MCP servers behind a single endpoint — default ON
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
-  --dynamic-agents   Enable the dynamic agents service (custom agent builder UI)
+  --no-agentgateway  Skip AgentGateway (also disables --rbac-runtime, which depends on it)
+  --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
+                     OpenFGA ext_authz bridge, and standalone AgentGateway — default ON
+  --no-rbac-runtime  Skip the RBAC runtime services
+  --persistence      Enable Redis persistence for checkpoints and cross-thread memory — default ON
+                     (deploys langgraph-redis subchart; enables fact extraction)
+  --no-persistence   Skip Redis persistence (in-memory checkpointer only)
+  --dynamic-agents    Enable the dynamic agents service (custom agent builder UI) — default ON
+  --no-dynamic-agents Skip the dynamic agents service (opt out of the default)
   --all-in-one       All-in-One CAIPE: single supervisor with all agents embedded (default)
   --distributed      Distributed CAIPE: each agent runs as its own independent service
-  --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters
-  --ingress          Install nginx-ingress + MetalLB and expose UI via domain (requires --domain)
+  --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters — default ON
+  --no-metallb       Skip MetalLB (also disables --ingress, which depends on it)
+  --ingress          Install nginx-ingress + MetalLB and expose UI via domain — default ON
+                     If --domain is omitted, falls back to ${CAIPE_DOMAIN_DEFAULT} (resolves to 127.0.0.1 via *.local.me)
+  --no-ingress       Skip nginx-ingress
   --domain=HOST      Hostname for the UI ingress (e.g. my-caipe.example.com)
+                     Default when ingress is enabled and --domain is omitted: ${CAIPE_DOMAIN_DEFAULT}
   --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
@@ -6754,16 +6832,22 @@ for arg in "$@"; do
     --corporate-ca)    INJECT_CORPORATE_CA=true ;;
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
+    --no-agentgateway) ENABLE_AGENTGATEWAY=false; ENABLE_RBAC_RUNTIME=false ;;
     --rbac-runtime)    ENABLE_RBAC_RUNTIME=true; ENABLE_AGENTGATEWAY=true ;;
+    --no-rbac-runtime) ENABLE_RBAC_RUNTIME=false ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
+    --no-persistence)  ENABLE_PERSISTENCE=false ;;
     --metallb)         ENABLE_METALLB=true ;;
+    --no-metallb)      ENABLE_METALLB=false; ENABLE_INGRESS=false ;;
     --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
+    --no-ingress)      ENABLE_INGRESS=false ;;
     --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
-    --dynamic-agents)  ENABLE_DYNAMIC_AGENTS=true ;;
+    --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
+    --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
     --all-in-one)      CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
     --distributed)     CAIPE_DEPLOYMENT_MODE="distributed" ;;
     --upgrade)         FORCE_UPGRADE=true ;;

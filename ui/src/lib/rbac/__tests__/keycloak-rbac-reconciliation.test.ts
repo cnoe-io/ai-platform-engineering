@@ -2,13 +2,21 @@
  * @jest-environment node
  */
 
+// Phase 3 (spec 2026-05-24-derive-team-from-channel) demolished the
+// team-scope branch of the Keycloak RBAC reconciliation. This test
+// pins what survived: OBO permission wiring, the platform audience
+// token-exchange decision strategy, bot service-account
+// impersonation roles, and the bootstrap admin tuple-seeding hook.
+// The deleted helpers (`ensureTeamClientScope`,
+// `ensurePersonalTeamClientScope`, `deleteOrphanTeamClientScopes`,
+// `selectAgentGatewayActiveTeamScope`) are no longer mocked because
+// `keycloak-rbac-reconciliation.ts` no longer imports them.
+
 const mockGetCollection = jest.fn();
-const mockEnsureTeamClientScope = jest.fn();
 const mockEnsureSlackBotOboPermissions = jest.fn();
 const mockEnsureWebexBotOboPermissions = jest.fn();
-const mockEnsureBotServiceAccountImersonationRoles = jest.fn();
+const mockEnsureBotServiceAccountImpersonationRoles = jest.fn();
 const mockEnsureCaipePlatformTokenExchangeDecisionStrategy = jest.fn();
-const mockSelectAgentGatewayActiveTeamScope = jest.fn();
 const mockReconcileBootstrapAdmins = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
@@ -17,14 +25,12 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
   ensureSlackBotOboPermissions: (...args: unknown[]) => mockEnsureSlackBotOboPermissions(...args),
   ensureWebexBotOboPermissions: (...args: unknown[]) => mockEnsureWebexBotOboPermissions(...args),
   ensureBotServiceAccountImpersonationRoles: (...args: unknown[]) =>
-    mockEnsureBotServiceAccountImersonationRoles(...args),
+    mockEnsureBotServiceAccountImpersonationRoles(...args),
   ensureCaipePlatformTokenExchangeDecisionStrategy: (...args: unknown[]) =>
     mockEnsureCaipePlatformTokenExchangeDecisionStrategy(...args),
-  selectAgentGatewayActiveTeamScope: (...args: unknown[]) => mockSelectAgentGatewayActiveTeamScope(...args),
   isValidTeamSlug: (slug: string) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug),
 }));
 
@@ -41,7 +47,7 @@ function createCollection(rows: Array<Record<string, unknown>> = []) {
   };
 }
 
-describe("keycloak RBAC startup reconciliation migration", () => {
+describe("keycloak RBAC startup reconciliation migration (post Phase 3 demolition)", () => {
   const originalEnv = { ...process.env };
   let collections: Record<string, ReturnType<typeof createCollection>>;
 
@@ -51,7 +57,6 @@ describe("keycloak RBAC startup reconciliation migration", () => {
     process.env = {
       ...originalEnv,
       KEYCLOAK_URL: "http://keycloak",
-      KEYCLOAK_RBAC_ACTIVE_TEAM_SLUG: "platform",
     };
     collections = {
       teams: createCollection([
@@ -63,12 +68,10 @@ describe("keycloak RBAC startup reconciliation migration", () => {
       data_schema_versions: createCollection(),
     };
     mockGetCollection.mockImplementation(async (name: string) => collections[name]);
-    mockEnsureTeamClientScope.mockResolvedValue(undefined);
     mockEnsureSlackBotOboPermissions.mockResolvedValue(undefined);
     mockEnsureWebexBotOboPermissions.mockResolvedValue(undefined);
-    mockEnsureBotServiceAccountImersonationRoles.mockResolvedValue(undefined);
+    mockEnsureBotServiceAccountImpersonationRoles.mockResolvedValue(undefined);
     mockEnsureCaipePlatformTokenExchangeDecisionStrategy.mockResolvedValue(undefined);
-    mockSelectAgentGatewayActiveTeamScope.mockResolvedValue(undefined);
     mockReconcileBootstrapAdmins.mockResolvedValue({
       enabled: true,
       configured_emails: ["admin@cisco.com"],
@@ -92,24 +95,24 @@ describe("keycloak RBAC startup reconciliation migration", () => {
     process.env = originalEnv;
   });
 
-  it("applies Keycloak RBAC mappings and records a completed migration", async () => {
+  it("applies OBO + bootstrap-admin reconciliation (no team-scope helpers) and records a completed migration", async () => {
     const { runKeycloakRbacStartupMigration, KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID } =
       await import("../keycloak-rbac-reconciliation");
 
     const result = await runKeycloakRbacStartupMigration({ actor: "startup-test" });
 
     expect(result.status).toBe("completed");
-    expect(mockEnsureTeamClientScope).toHaveBeenCalledWith("platform");
-    expect(mockEnsureTeamClientScope).toHaveBeenCalledWith("eti-sre-admins");
+    // OBO permission wiring + token-exchange decision strategy are
+    // the team-agnostic remnants that survived Phase 3.
     expect(mockEnsureSlackBotOboPermissions).toHaveBeenCalled();
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
-    expect(mockEnsureBotServiceAccountImersonationRoles).toHaveBeenCalledWith([
+    expect(mockEnsureBotServiceAccountImpersonationRoles).toHaveBeenCalledWith([
       "caipe-slack-bot",
       "caipe-webex-bot",
     ]);
     expect(mockEnsureCaipePlatformTokenExchangeDecisionStrategy).toHaveBeenCalledWith("AFFIRMATIVE");
-    expect(mockSelectAgentGatewayActiveTeamScope).toHaveBeenCalledWith("platform");
     expect(mockReconcileBootstrapAdmins).toHaveBeenCalledWith({ actor: "startup-test" });
+
     expect(collections.migration_manifest.updateOne).toHaveBeenCalledWith(
       { _id: KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID },
       expect.objectContaining({
@@ -127,7 +130,6 @@ describe("keycloak RBAC startup reconciliation migration", () => {
         $set: expect.objectContaining({
           status: "completed",
           applied_counts: expect.objectContaining({
-            team_scopes_reconciled: 2,
             obo_permission_sets_reconciled: 2,
             bootstrap_admins_resolved: 1,
             bootstrap_admin_tuples_written: 3,

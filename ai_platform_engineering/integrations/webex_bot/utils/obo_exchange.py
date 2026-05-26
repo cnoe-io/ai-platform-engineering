@@ -1,9 +1,13 @@
-"""On-Behalf-Of (OBO) token exchange for the Webex bot."""
+"""On-Behalf-Of (OBO) token exchange for the Webex bot.
+
+Phase 3 of spec 2026-05-24-derive-team-from-channel completes the
+demolition of the per-team OBO model. The Webex bot mints a
+team-agnostic platform token; team scope is derived downstream from
+space context by the Web UI BFF, RAG server, and Dynamic Agents.
+"""
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import os
 import re
@@ -14,8 +18,6 @@ import httpx
 
 logger = logging.getLogger("caipe.webex_bot.obo_exchange")
 
-PERSONAL_ACTIVE_TEAM = "__personal__"
-PERSONAL_SCOPE_NAME = "team-personal"
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$")
 
@@ -25,7 +27,11 @@ def _is_valid_slug(slug: str) -> bool:
 
 
 def is_valid_team_slug(slug: str) -> bool:
-    """Return True when *slug* is safe to request as a Keycloak team client scope."""
+    """Return True when *slug* is a syntactically valid team slug.
+
+    Used by `space_team_resolver` and other modules to validate slugs
+    before persisting / logging — independent of OBO.
+    """
     return _is_valid_slug(slug.strip()) if slug else False
 
 
@@ -35,7 +41,6 @@ class OboToken:
     token_type: str
     expires_in: int
     scope: Optional[str] = None
-    active_team: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -70,15 +75,13 @@ _default_config = OboExchangeConfig()
 async def impersonate_user(
     keycloak_user_id: str,
     config: OboExchangeConfig | None = None,
-    *,
-    active_team: str,
 ) -> OboToken:
-    """Mint an OBO token for ``keycloak_user_id`` scoped to ``active_team``."""
-    if not active_team:
-        raise ValueError(
-            "impersonate_user requires active_team; pass PERSONAL_ACTIVE_TEAM for DMs"
-        )
+    """Mint an OBO token for ``keycloak_user_id``.
 
+    Team-agnostic: team scope is derived downstream from space context.
+    The returned token contains ``sub=<user>`` and
+    ``aud=caipe-platform`` by default — no team claim.
+    """
     cfg = config or _default_config
     endpoint = f"{cfg.server_url}/realms/{cfg.realm}/protocol/openid-connect/token"
     data: dict[str, str] = {
@@ -88,30 +91,16 @@ async def impersonate_user(
         "client_id": cfg.bot_client_id,
         "audience": cfg.caipe_platform_audience,
     }
-    _apply_active_team(data, active_team)
     if cfg.bot_client_secret:
         data["client_secret"] = cfg.bot_client_secret
-    return await _do_exchange(endpoint, data, expected_active_team=active_team)
-
-
-def _apply_active_team(data: dict[str, str], active_team: Optional[str]) -> None:
-    if active_team is None:
-        return
-    if active_team == PERSONAL_ACTIVE_TEAM:
-        scope_name = PERSONAL_SCOPE_NAME
-    else:
-        if not _is_valid_slug(active_team):
-            raise ValueError(f"Invalid active_team slug {active_team!r}")
-        scope_name = f"team-{active_team}"
-    data["scope"] = f"openid {scope_name}"
+    return await _do_exchange(endpoint, data)
 
 
 async def _do_exchange(
     endpoint: str,
     data: dict[str, str],
-    *,
-    expected_active_team: Optional[str] = None,
 ) -> OboToken:
+    """Shared token exchange request logic."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(endpoint, data=data)
         if resp.status_code != 200:
@@ -121,41 +110,12 @@ async def _do_exchange(
             )
         payload = resp.json()
 
-    access_token = payload["access_token"]
-    active_team = _extract_active_team_claim(access_token)
-    if expected_active_team is not None and active_team != expected_active_team:
-        logger.error(
-            "Webex OBO active_team mismatch: requested=%s got=%s",
-            expected_active_team,
-            active_team,
-        )
-        raise OboExchangeError(
-            f"Token exchange returned active_team={active_team!r}, "
-            f"expected {expected_active_team!r}"
-        )
-
     return OboToken(
-        access_token=access_token,
+        access_token=payload["access_token"],
         token_type=payload.get("token_type", "Bearer"),
         expires_in=payload.get("expires_in", 300),
         scope=payload.get("scope"),
-        active_team=active_team,
     )
-
-
-def _extract_active_team_claim(jwt: str) -> Optional[str]:
-    try:
-        parts = jwt.split(".")
-        if len(parts) < 2:
-            return None
-        payload_b64 = parts[1]
-        padding = "=" * (-len(payload_b64) % 4)
-        payload_bytes = base64.urlsafe_b64decode(payload_b64 + padding)
-        payload = json.loads(payload_bytes)
-        value = payload.get("active_team")
-        return value if isinstance(value, str) else None
-    except Exception:  # noqa: BLE001
-        return None
 
 
 class OboExchangeError(Exception):
@@ -163,4 +123,5 @@ class OboExchangeError(Exception):
 
 
 def downstream_auth_headers(access_token: str) -> dict[str, str]:
+    """Outbound headers. The legacy X-Team-Id header is gone."""
     return {"Authorization": f"Bearer {access_token}"}

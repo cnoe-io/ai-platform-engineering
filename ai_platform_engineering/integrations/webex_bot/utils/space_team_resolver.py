@@ -153,7 +153,7 @@ class WebexSpaceTeamResolver:
 
         if not isinstance(slug, str) or not slug.strip():
             logger.error(
-                "Team %s (id=%s) has no slug; cannot mint active_team token",
+                "Team %s (id=%s) has no slug; cannot apply team-member ReBAC subject",
                 team_name,
                 team_id,
             )

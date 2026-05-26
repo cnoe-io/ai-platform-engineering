@@ -41,12 +41,15 @@ class SlackChannelRebacDecision:
 PostCheck = Callable[[str, dict[str, object], str], SlackChannelRebacDecision]
 
 
-def build_team_member_subject(active_team: Optional[str]) -> Optional[str]:
-    """Build a Universal ReBAC subject for the active CAIPE team."""
+def build_team_member_subject(team_slug: Optional[str]) -> Optional[str]:
+    """Build a `team:<slug>#member` Universal ReBAC subject for the channel-resolved team.
 
-    if not active_team or active_team == "__personal__":
+    Returns ``None`` when no team scope is available (DM / unmapped channel)
+    so the caller falls back to a user-only ReBAC check.
+    """
+    if not team_slug:
         return None
-    return f"team:{active_team}#member"
+    return f"team:{team_slug}#member"
 
 
 def _default_base_url() -> str:
@@ -121,7 +124,7 @@ class SlackChannelRebacEvaluator:
         workspace_id: str,
         channel_id: str,
         agent_id: str,
-        active_team: Optional[str],
+        team_slug: Optional[str],
         obo_token: str,
     ) -> SlackChannelRebacDecision:
         """Check whether a Slack channel and user can use an agent."""
@@ -135,7 +138,7 @@ class SlackChannelRebacEvaluator:
             "resource": {"type": "agent", "id": agent_id},
             "action": "use",
         }
-        subject = build_team_member_subject(active_team)
+        subject = build_team_member_subject(team_slug)
         if subject:
             payload["user_subject"] = subject
         return self._post(path, payload, obo_token)

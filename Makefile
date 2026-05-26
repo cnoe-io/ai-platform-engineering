@@ -8,6 +8,15 @@
 # Variables
 APP_NAME ?= ai-platform-engineering
 
+# Cap BuildKit parallelism on cold-cache `docker compose ... up --build` runs.
+# 22 images building simultaneously saturates Docker Desktop's NAT and stalls
+# individual TCP streams long enough to trip uv's UV_HTTP_TIMEOUT (e.g. on the
+# pyarrow / cffi wheels). Override per-shell via `COMPOSE_PARALLEL_LIMIT=N make ...`
+# or unset to restore unlimited parallelism. Used by every target below that
+# invokes `docker compose ... up --build`.
+COMPOSE_PARALLEL_LIMIT ?= 4
+DOCKER_COMPOSE_BUILD_ENV := COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) BUILDKIT_MAX_PARALLELISM=$(COMPOSE_PARALLEL_LIMIT)
+
 ## -------------------------------------------------
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
@@ -22,6 +31,7 @@ APP_NAME ?= ai-platform-engineering
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
+	caipe-ui-hot caipe-ui-prod \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
 	check-helm-docs helm-docs check-yq docs-helm-charts docs-helm-validate \
 	scan-images scan-image \
@@ -224,12 +234,14 @@ run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires 
 
 caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes supervisor)
 	@echo "Starting CAIPE UI with docker-compose..."
-	docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+	$(DOCKER_COMPOSE_BUILD_ENV) docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 
 caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted ./ui/src)
-	@echo "Starting CAIPE UI in hot-reload mode..."
+	@echo "Starting CAIPE UI in hot-reload mode (next dev)..."
 	@echo "  - Edits in ui/src trigger sub-second rebuild via next dev"
 	@echo "  - public/ asset changes still need: make caipe-ui-hot (rebuilds image)"
+	$(DOCKER_COMPOSE_BUILD_ENV) \
+	CAIPE_UI_MODE=hot \
 	CAIPE_UI_BUILD_TARGET=dev \
 	CAIPE_UI_NODE_ENV=development \
 	CAIPE_UI_COMMAND="npm run dev" \
@@ -238,6 +250,23 @@ caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted
 	@echo ""
 	@echo "Hot-reload UI ready: http://localhost:3000"
 	@echo "Stream logs:        docker logs -f caipe-ui"
+	@echo "Switch back to prod-parity:  make caipe-ui-prod"
+
+caipe-ui-prod: ## Run CAIPE UI in Docker in prod-parity mode (next build + next start, no hot reload)
+	@echo "Starting CAIPE UI in prod-parity mode (next build + next start)..."
+	@echo "  - Source edits will NOT auto-reload — rerun this target to rebuild"
+	@echo "  - Matches the runner stage that ships in the published image"
+	$(DOCKER_COMPOSE_BUILD_ENV) \
+	CAIPE_UI_MODE=prod \
+	CAIPE_UI_BUILD_TARGET=runner \
+	CAIPE_UI_NODE_ENV=production \
+	CAIPE_UI_COMMAND=/app/entrypoint.sh \
+	CAIPE_UI_IMAGE_SUFFIX=-prod \
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
+	@echo ""
+	@echo "Prod-parity UI ready: http://localhost:3000"
+	@echo "Stream logs:          docker logs -f caipe-ui"
+	@echo "Switch back to hot reload:  make caipe-ui-hot"
 
 ## ========== Documentation (Docusaurus) ==========
 
@@ -635,7 +664,7 @@ test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). 
 test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
 	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
 	@echo "[test-rbac-up] e2e ports: ui=3000 (IdP-pinned) supervisor=$(E2E_SUPERVISOR_HOST_PORT) mongo=$(E2E_MONGODB_HOST_PORT) keycloak=7080"
-	@$(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
+	@$(DOCKER_COMPOSE_BUILD_ENV) $(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
 	   docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
 	@echo "[test-rbac-up] waiting for Keycloak readiness on $(E2E_KC_URL)…"
 	@for i in $$(seq 1 60); do \
@@ -681,6 +710,7 @@ e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + supervisor 
 	@echo "[e2e-test-minimal] starting trimmed stack with profiles: $(MINIMAL_PROFILES)"
 	@echo "[e2e-test-minimal] hot-reload enabled (DEV_HOT_RELOAD=true) — Python edits auto-restart."
 	@unset SLACK_INTEGRATION_AUTH_TOKEN_URL; \
+	   $(DOCKER_COMPOSE_BUILD_ENV) \
 	   DEV_HOT_RELOAD=true \
 	   COMPOSE_PROFILES='$(MINIMAL_PROFILES)' \
 	   docker compose -f docker-compose.dev.yaml up -d --wait --wait-timeout $(E2E_WAIT_SECS)

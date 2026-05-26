@@ -5,12 +5,17 @@ import type { TeamMembershipSource } from "./identity-group-sync";
 export interface Team {
   _id: string;
   /**
-   * Spec 104: short, URL-safe identifier used as the suffix of the per-team
-   * Keycloak client scope (`team-<slug>`) and as the literal value of the
-   * `active_team` JWT claim. Lowercase alphanumerics + hyphens, max 63 chars.
-   * Auto-derived from `name` on team creation; immutable afterwards because
-   * renaming the slug would orphan the existing Keycloak scope and silently
-   * change every downstream RBAC decision tied to it.
+   * Short, URL-safe identifier used as the team's OpenFGA object id
+   * (`team:<slug>`) and the channel/space mapping foreign key in
+   * `channel_team_mappings` and `webex_space_team_mappings`. Lowercase
+   * alphanumerics + hyphens, max 63 chars. Auto-derived from `name`
+   * on team creation; immutable afterwards because renaming the slug
+   * would orphan every OpenFGA tuple and every channel/space mapping
+   * row pinned to the team.
+   *
+   * (Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
+   * per-team Keycloak client scope; `slug` no longer participates in
+   * any Keycloak object name or JWT claim.)
    */
   slug: string;
   name: string;
