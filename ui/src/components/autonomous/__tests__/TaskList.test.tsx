@@ -151,16 +151,86 @@ describe('TaskList — chat thread deep-link (spec #099 Story 2)', () => {
     expect(screen.queryByTestId('autonomous-thread-link')).toBeNull();
   });
 
-  it('does NOT render the Thread link in readOnly mode (toolbar suppressed)', () => {
+  it('renders the Thread link and the action toolbar for every authenticated user (no readOnly gate)', () => {
+    // Plan section 4.3 dropped the `readOnly` prop entirely. Every user
+    // only ever sees rows they own (backend-filtered), so per-task
+    // actions are always rendered. The backend still 403s if the
+    // server-side ownership check disagrees; client-side gating is
+    // unnecessary now and was hostile UX for non-admin owners.
     render(
       <TaskList
         tasks={[makeTask({ chat_conversation_id: 'a25e9fc5-8be0-528f-98d8-e2fd6f73dcc8' })]}
         {...noopHandlers}
-        readOnly
       />,
     );
-    expect(screen.queryByTestId('autonomous-thread-link')).toBeNull();
-    expect(screen.queryByTestId('autonomous-task-actions')).toBeNull();
+    expect(screen.getByTestId('autonomous-thread-link')).toBeInTheDocument();
+    expect(screen.getByTestId('autonomous-task-actions')).toBeInTheDocument();
+  });
+});
+
+describe('TaskList — showOwner column (plan section 4.3)', () => {
+  it('renders the owner email when showOwner is true', () => {
+    render(
+      <TaskList
+        tasks={[makeTask({ owner_id: 'alice@example.com' })]}
+        {...noopHandlers}
+        showOwner
+      />,
+    );
+    expect(screen.getByTestId('autonomous-task-owner')).toHaveTextContent(
+      'alice@example.com',
+    );
+  });
+
+  it('hides the owner email when showOwner is false (non-admin view)', () => {
+    render(
+      <TaskList
+        tasks={[makeTask({ owner_id: 'alice@example.com' })]}
+        {...noopHandlers}
+      />,
+    );
+    expect(screen.queryByTestId('autonomous-task-owner')).toBeNull();
+  });
+
+  it('sorts the current user\'s tasks first when showOwner is true', () => {
+    const tasks = [
+      makeTask({ id: 'other-1', owner_id: 'carol@example.com', name: 'Carols 1' }),
+      makeTask({ id: 'mine-1', owner_id: 'admin@example.com', name: 'Mine 1' }),
+      makeTask({ id: 'other-2', owner_id: 'bob@example.com', name: 'Bobs 1' }),
+      makeTask({ id: 'mine-2', owner_id: 'admin@example.com', name: 'Mine 2' }),
+    ];
+
+    render(
+      <TaskList
+        tasks={tasks}
+        {...noopHandlers}
+        showOwner
+        currentUserEmail="admin@example.com"
+      />,
+    );
+
+    const rows = screen.getAllByRole('listitem');
+    // First two rows must belong to the current user.
+    expect(within(rows[0]).getByTestId('autonomous-task-owner')).toHaveTextContent(
+      'admin@example.com',
+    );
+    expect(within(rows[1]).getByTestId('autonomous-task-owner')).toHaveTextContent(
+      'admin@example.com',
+    );
+  });
+
+  it('uses a single create-prompt empty state regardless of showOwner', () => {
+    const { rerender } = render(
+      <TaskList tasks={[]} {...noopHandlers} />,
+    );
+    expect(
+      screen.getByText(/No autonomous tasks yet\. Click "New task" to create one\./i),
+    ).toBeInTheDocument();
+
+    rerender(<TaskList tasks={[]} {...noopHandlers} showOwner />);
+    expect(
+      screen.getByText(/No autonomous tasks yet\. Click "New task" to create one\./i),
+    ).toBeInTheDocument();
   });
 });
 

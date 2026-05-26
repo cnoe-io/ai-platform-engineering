@@ -115,6 +115,15 @@ export interface AutonomousTask {
    * anywhere. Spec #099 FR-006.
    */
   chat_conversation_id?: string | null;
+  /**
+   * Email of the user who created the task. Stamped server-side by the
+   * autonomous-agents FastAPI service from the
+   * `X-Authenticated-User-Email` header on POST /tasks (per-user
+   * ownership model, plan section 4.4). Returned by `_serialize_task`
+   * on every read path. `null` for legacy tasks created before the
+   * per-user feature shipped — those are admin-only by design.
+   */
+  owner_id?: string | null;
 }
 
 export interface TaskRun {

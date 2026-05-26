@@ -6,8 +6,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   withAuth,
   withErrorHandler,
-  requireAdmin,
-  requireAdminView,
   ApiError,
 } from '@/lib/api-middleware';
 import { getConfig } from '@/lib/config';
@@ -25,29 +23,29 @@ import { getConfig } from '@/lib/config';
  *      publicly in any deployment topology -- the UI is the only
  *      sanctioned entry point.
  *   2. Auth lives at the Next.js boundary. We require a NextAuth
- *      session here and (eventually) forward the JWT downstream so
- *      the autonomous-agents service can pick up the same identity
- *      semantics as the RAG proxy. Today the service is
- *      localhost-only so we skip the Bearer step until the
- *      service-side auth (IMP-10) is shipped.
+ *      session here and forward caller identity downstream via the
+ *      `X-Authenticated-User-*` headers so the backend can apply
+ *      per-task ownership rules without re-implementing OIDC.
  *   3. Centralising the URL keeps the React side decoupled -- code
  *      always hits `/api/autonomous/...` regardless of where the
  *      backend physically runs.
  *
- * Authorization model (IMP-19):
- *   - Read endpoints (GET) require the OIDC **admin-view** role
- *     (`requireAdminView`). Operators and on-call responders need to
- *     see what's scheduled and inspect run history without being
- *     handed the keys to mutate config.
- *   - Mutation endpoints (POST/PUT/PATCH/DELETE) require the OIDC
- *     **admin** role (`requireAdmin`). This includes
- *     `POST /tasks/{id}/run`: triggering a run is a write-equivalent
- *     side effect (LLM cost, downstream actions) and must not be
- *     available to view-only users.
- *
- * Without these guards, any authenticated user could create / edit /
- * delete / fire autonomous tasks -- which is fine in a single-tenant
- * dev box but a real production gap once the UI is shared.
+ * Authorization model (per-user ownership, plan 2026-05-25):
+ *   - Every authenticated user is allowed through this proxy. There is
+ *     no blanket admin gate at the Next.js boundary; the backend's
+ *     `_assert_task_access` decides per-task access using the headers
+ *     injected below. A regular user can create/read/edit/delete/run
+ *     their own tasks; admins can act on any task; read-only audit on
+ *     other users' autonomous chat threads is enforced by
+ *     `requireConversationAccess` on the chat-side routes.
+ *   - Admin detection here resolves through `getAuthenticatedUser`,
+ *     which reads the post-promotion session role. NextAuth's jwt /
+ *     session callbacks promote Mongo-flagged or OIDC-group admins
+ *     into `session.role === 'admin'` before any API route runs, so
+ *     this proxy does not perform a separate MongoDB lookup. The
+ *     `useAdminRole` hook and `requireConversationAccess` resolve the
+ *     same way (OIDC group first, MongoDB `users.metadata.role`
+ *     fallback), keeping the three admin surfaces in lock-step.
  */
 
 /**
@@ -106,23 +104,7 @@ async function readBody(request: NextRequest): Promise<unknown> {
   }
 }
 
-/**
- * Method → required role mapping. Kept as data so the auth gating
- * lives in one obvious place rather than being scattered across the
- * five HTTP verb handlers.
- */
 type SupportedMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-
-function enforceRole(
-  method: SupportedMethod,
-  session: { role?: string; canViewAdmin?: boolean },
-): void {
-  if (method === 'GET') {
-    requireAdminView(session);
-    return;
-  }
-  requireAdmin(session);
-}
 
 async function forward(
   request: NextRequest,
@@ -134,8 +116,6 @@ async function forward(
   }
 
   return await withAuth(request, async (_req, user, session) => {
-    enforceRole(method, session);
-
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

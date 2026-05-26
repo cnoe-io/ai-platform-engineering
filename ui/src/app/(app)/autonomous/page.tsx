@@ -5,7 +5,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, RefreshCw, Bot, Eye } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Plus, RefreshCw, Bot, ShieldCheck } from "lucide-react";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
@@ -36,23 +37,20 @@ function AutonomousAgentsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
-  // IMP-19: gate writes behind the OIDC admin role. ``canViewAdmin``
-  // covers ops/on-call who need to see what's scheduled and inspect
-  // run history; only ``isAdmin`` is allowed to create / edit /
-  // delete / fire tasks. The proxy at /api/autonomous enforces the
-  // same split server-side -- this hook just keeps the UI honest so
-  // we don't render buttons that will 403 on click.
+  // Per-user ownership model (plan section 4.2). Every authenticated
+  // user can manage their own tasks; admins additionally get cross-user
+  // visibility on this page (owner column + chip) and read-only audit
+  // access to any task's chat thread (enforced by
+  // `requireConversationAccess` on the chat routes). The proxy at
+  // /api/autonomous no longer enforces role -- the backend's
+  // `_assert_task_access` does per-task ownership using the headers
+  // injected by the proxy.
   //
-  // ``hasViewAccess`` deliberately includes admins. ``useAdminRole``
-  // can promote a user to ``isAdmin=true`` via the MongoDB profile
-  // fallback (`/api/auth/role`) without ever flipping
-  // ``canViewAdmin`` (which is sourced strictly from OIDC claims).
-  // The proxy's ``requireAdminView`` short-circuits on ``role ===
-  // 'admin'``, so MongoDB-promoted admins are server-authorised to
-  // GET /api/autonomous; gating the UI strictly on ``canViewAdmin``
-  // would lock those legitimate admins out (caught by Codex review).
-  const { isAdmin, canViewAdmin, loading: roleLoading } = useAdminRole();
-  const hasViewAccess = isAdmin || canViewAdmin;
+  // `useAdminRole` is retained solely to drive the admin chip + owner
+  // column toggle. It is NOT used to gate data fetching or buttons.
+  const { isAdmin, loading: roleLoading } = useAdminRole();
+  const { data: sessionData } = useSession();
+  const currentUserEmail = sessionData?.user?.email ?? null;
   const [tasks, setTasks] = useState<AutonomousTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -132,23 +130,19 @@ function AutonomousAgentsView() {
   const reload = useCallback(() => fetchTasks(false), [fetchTasks]);
 
   useEffect(() => {
-    // Don't bother hitting /api/autonomous if the role check is still
-    // resolving. Once it resolves, branch on access:
-    //   * has view access -> fetch tasks
-    //   * no view access  -> drop the initial loading/error state so
-    //     the header Refresh button doesn't sit disabled with a
-    //     spinning icon forever (the page itself is replaced with the
-    //     forbidden banner below, but the header is still rendered).
-    //     Caught by Copilot review.
+    // Plan section 4.2 — fetch tasks for every authenticated user as
+    // soon as the page mounts. We deliberately do NOT block on
+    // `roleLoading`: that flag is only used as a render-gate for the
+    // admin chip + owner column. Mongo-promoted admins briefly see
+    // `isAdmin === false` on first paint (because `useAdminRole`
+    // uses the raw NextAuth session before the `/api/auth/role` round
+    // trip completes); the chip + owner column flicker in once the
+    // role resolves. The task list itself comes back from the proxy
+    // which uses the server-side post-promotion role, so the data is
+    // unaffected.
     if (!autonomousAgentsEnabled) return;
-    if (roleLoading) return;
-    if (!hasViewAccess) {
-      setLoading(false);
-      setLoadError(null);
-      return;
-    }
     reload();
-  }, [reload, roleLoading, hasViewAccess, autonomousAgentsEnabled]);
+  }, [reload, autonomousAgentsEnabled]);
 
   // Spec #099 FR-011: poll for ack + next-run updates so the badge
   // refreshes after a background preflight resolves and the next-run
@@ -156,26 +150,27 @@ function AutonomousAgentsView() {
   // the spec-recommended cadence; cheap enough for the UI, infrequent
   // enough to avoid unnecessary load on the autonomous-agents service.
   useEffect(() => {
-    if (!autonomousAgentsEnabled || roleLoading || !hasViewAccess) return;
+    if (!autonomousAgentsEnabled) return;
     const interval = window.setInterval(() => {
       fetchTasks(true);
     }, 30_000);
     return () => window.clearInterval(interval);
-  }, [fetchTasks, roleLoading, hasViewAccess, autonomousAgentsEnabled]);
+  }, [fetchTasks, autonomousAgentsEnabled]);
 
   // Spec #099 Iteration A — when the chat sidebar's "+ New Chat" is
   // clicked while the Autonomous chip is active, that handler routes
   // here with ?new=1. Auto-open the create dialog so the operator
   // doesn't have to find and click the page-level "New task" button.
   // Strip the query param immediately so a refresh doesn't re-open
-  // the dialog if the operator dismissed it.
+  // the dialog if the operator dismissed it. Plan section 4.2 dropped
+  // the admin gate so the shortcut works for every authenticated user.
   useEffect(() => {
-    if (!autonomousAgentsEnabled || !isAdmin) return;
+    if (!autonomousAgentsEnabled) return;
     if (searchParams.get('new') !== '1') return;
     setEditingTask(null);
     setDialogOpen(true);
     router.replace('/autonomous');
-  }, [searchParams, isAdmin, router, autonomousAgentsEnabled]);
+  }, [searchParams, router, autonomousAgentsEnabled]);
 
   const markBusy = (id: string, busy: boolean) => {
     setBusyIds((prev) => {
@@ -277,6 +272,16 @@ function AutonomousAgentsView() {
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Autonomous Agents</h1>
+          {!roleLoading && isAdmin && (
+            <span
+              className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-700 dark:text-amber-300"
+              data-testid="autonomous-admin-chip"
+              title="You are viewing tasks across every user. Non-admin users only see their own."
+            >
+              <ShieldCheck className="h-3 w-3" />
+              Admin view · all users
+            </span>
+          )}
         </div>
         <span className="text-xs text-muted-foreground hidden sm:inline">
           Schedule and trigger CAIPE tasks without a human in the loop.
@@ -292,55 +297,25 @@ function AutonomousAgentsView() {
             <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", loading && "animate-spin")} />
             Refresh
           </Button>
-          {isAdmin && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCreate}
-              data-testid="autonomous-new-task"
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              New task
-            </Button>
-          )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleCreate}
+            data-testid="autonomous-new-task"
+          >
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
+            New task
+          </Button>
         </div>
       </header>
 
-      {!roleLoading && !isAdmin && canViewAdmin && (
-        // Read-only banner: tells the operator why "New task" is
-        // missing and why Edit/Delete/Run will be disabled. Without
-        // this they'd assume the page was broken.
-        <div
-          className="mx-6 mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2"
-          data-testid="autonomous-readonly-banner"
-        >
-          <Eye className="h-3.5 w-3.5 shrink-0" />
-          <span>
-            Read-only view. Ask an administrator to create or modify
-            autonomous tasks.
-          </span>
-        </div>
-      )}
-
-      {!roleLoading && !hasViewAccess && (
-        // No view access at all -- bail rather than rendering a page
-        // whose every API call will 403.
-        <div
-          className="mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300"
-          data-testid="autonomous-forbidden"
-        >
-          You don&apos;t have permission to view autonomous tasks.
-          Membership in the OIDC admin or admin-view group is required.
-        </div>
-      )}
-
-      {loadError && hasViewAccess && (
+      {loadError && (
         <div className="mx-6 mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
           {loadError}
         </div>
       )}
 
-      {hasViewAccess && tasks.length > 0 && (
+      {tasks.length > 0 && (
         // Spec #099 — compact "what's about to fire?" stats bar so the
         // operator can answer the upcoming-runs question without scanning
         // every row. Hidden when no tasks exist (the empty-state below
@@ -394,7 +369,6 @@ function AutonomousAgentsView() {
         </div>
       )}
 
-      {hasViewAccess && (
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 px-6 py-4 overflow-hidden">
         <section className="overflow-y-auto">
           {loading && tasks.length === 0 ? (
@@ -410,7 +384,8 @@ function AutonomousAgentsView() {
               onDelete={handleDelete}
               onTrigger={handleTrigger}
               busyIds={busyIds}
-              readOnly={!isAdmin}
+              showOwner={!roleLoading && isAdmin}
+              currentUserEmail={currentUserEmail}
             />
           )}
         </section>
@@ -468,26 +443,22 @@ function AutonomousAgentsView() {
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               {tasks.length === 0
-                ? (isAdmin ? "Create a task to get started." : "No autonomous tasks configured yet.")
+                ? "Create a task to get started."
                 : "Select a task to view details and run history."}
             </div>
           )}
         </section>
       </div>
-      )}
 
-      {isAdmin && (
-        // The form dialog is the *only* way to create or edit a task.
-        // Keep it mounted only for admins so a clever user can't pop
-        // it open via DOM tooling and try to submit -- the proxy
-        // would still 403, but defence in depth is cheap here.
-        <TaskFormDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          task={editingTask}
-          onSubmit={handleSubmitTask}
-        />
-      )}
+      {/* Plan section 4.2: dialog is mounted for every authenticated
+          user. Backend `_assert_task_access` is the load-bearing 403
+          path; client-side gating was hostile UX for non-admin owners. */}
+      <TaskFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        task={editingTask}
+        onSubmit={handleSubmitTask}
+      />
     </div>
   );
 }
