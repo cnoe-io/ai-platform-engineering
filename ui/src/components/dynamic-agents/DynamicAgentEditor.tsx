@@ -602,6 +602,35 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     fetchTeams();
   }, []);
 
+  // When editing an existing agent, find out if it is the platform default.
+  // If it is, lock the visibility selector so the admin can't accidentally
+  // demote `global → team` from here — the BFF would reject the request
+  // with 409 / AGENT_IS_PLATFORM_DEFAULT anyway, so we surface that
+  // constraint up front. The platform-config endpoint is readable by any
+  // signed-in user (it's how the Slack bot resolves the DM default), so
+  // this works for editors who aren't admins too.
+  const [isPlatformDefault, setIsPlatformDefault] = React.useState(false);
+  React.useEffect(() => {
+    if (!agent?._id) return;
+    let cancelled = false;
+    async function checkDefault() {
+      try {
+        const response = await fetch("/api/admin/platform-config");
+        const data = await response.json();
+        if (cancelled) return;
+        if (data.success && data.data?.default_agent_id === agent?._id) {
+          setIsPlatformDefault(true);
+        }
+      } catch {
+        // Non-fatal: the BFF will still enforce the invariant on save.
+      }
+    }
+    checkDefault();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent?._id]);
+
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
 
@@ -965,7 +994,41 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0 && (isEditing || ownerTeamSlug);
+  // Each entry describes one reason the Create Agent / Save Changes button is
+  // disabled. We render `blockers[0]` next to the button so the user always
+  // sees WHY they can't submit and on which step to fix it — previously the
+  // button just went `disabled` with no explanation, which the user reported
+  // as confusing (especially the Owner Team case, where the picker sits on
+  // the first wizard step but the button lives below step 5's content).
+  //
+  // assisted-by Cursor claude-opus-4-7
+  const blockers: { field: string; label: string; step: StepId }[] = React.useMemo(() => {
+    const list: { field: string; label: string; step: StepId }[] = [];
+    if (!name.trim()) {
+      list.push({ field: "name", label: "Agent name", step: "basic" });
+    }
+    if (availableModels.length === 0) {
+      // Distinct from "model not picked" — the user can't pick anything
+      // because nothing is configured. Surfacing this separately tells the
+      // operator the problem is upstream (no providers configured).
+      list.push({ field: "modelAvailability", label: "At least one model provider must be configured", step: "basic" });
+    } else if (!modelId) {
+      list.push({ field: "model", label: "Model", step: "basic" });
+    }
+    if (!isEditing && !ownerTeamSlug) {
+      list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
+    }
+    if (!systemPrompt.trim()) {
+      list.push({ field: "systemPrompt", label: "Instructions (system prompt)", step: "instructions" });
+    }
+    return list;
+  }, [name, systemPrompt, modelId, availableModels.length, isEditing, ownerTeamSlug]);
+
+  const isValid = blockers.length === 0;
+  const firstBlocker = blockers[0];
+  const blockerStepLabel = firstBlocker
+    ? STEPS.find((s) => s.id === firstBlocker.step)?.label ?? firstBlocker.step
+    : null;
 
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
@@ -1396,26 +1459,42 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
               <div className="space-y-2">
                 <Label>Visibility</Label>
+                {isPlatformDefault && (
+                  <p
+                    className="text-xs text-amber-600 dark:text-amber-400"
+                    data-testid="platform-default-visibility-note"
+                  >
+                    This agent is the platform default for new chats, so every signed-in user
+                    can use it. Change the platform default in Admin → Settings before changing
+                    its visibility.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
-                  {VISIBILITY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setVisibility(opt.value)}
-                      className={`p-3 rounded-lg border text-left transition-colors ${
-                        visibility === opt.value
-                          ? "border-primary bg-primary/5"
-                          : "border-muted hover:border-primary/50"
-                      }`}
-                      disabled={loading}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        {opt.icon}
-                        <span className="font-medium text-sm">{opt.label}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">{opt.description}</div>
-                    </button>
-                  ))}
+                  {VISIBILITY_OPTIONS.map((opt) => {
+                    // When this agent is the platform default, lock the
+                    // selector so the admin can't try to demote
+                    // `global → team` here — the BFF will reject it.
+                    const lockedByPlatformDefault = isPlatformDefault;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setVisibility(opt.value)}
+                        className={`p-3 rounded-lg border text-left transition-colors ${
+                          visibility === opt.value
+                            ? "border-primary bg-primary/5"
+                            : "border-muted hover:border-primary/50"
+                        } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
+                        disabled={loading || lockedByPlatformDefault}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          {opt.icon}
+                          <span className="font-medium text-sm">{opt.label}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{opt.description}</div>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Team selector - shown when visibility is "team" */}
@@ -1815,11 +1894,56 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </>
           )}
         </div>
+        {!readOnly && firstBlocker && !loading && (
+          // Inline blocker hint. Renders only when the submit button is
+          // disabled AND we're not mid-save. Includes a click-to-jump shortcut
+          // so the user can land on the offending step in one click without
+          // hunting through the wizard. Wrapped in flex so the label and the
+          // jump-to button sit on one line on wide screens and wrap on narrow.
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="create-agent-blocker-hint"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
+          >
+            <span>
+              Required: <span className="font-medium">{firstBlocker.label}</span>
+              {blockerStepLabel ? (
+                <>
+                  {" "}<span className="text-muted-foreground">(on {blockerStepLabel} step)</span>
+                </>
+              ) : null}
+              {blockers.length > 1 ? (
+                <span className="text-muted-foreground"> · {blockers.length - 1} more</span>
+              ) : null}
+            </span>
+            {blockerStepLabel && firstBlocker.step !== activeStep ? (
+              <button
+                type="button"
+                onClick={() => setActiveStep(firstBlocker.step)}
+                className="underline underline-offset-2 hover:text-destructive/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive rounded-sm"
+              >
+                Go to {blockerStepLabel}
+              </button>
+            ) : null}
+          </div>
+        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid}>
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || !isValid}
+            // Native-tooltip mirror of the inline hint above. Helps users who
+            // hover the button looking for an explanation when they miss the
+            // inline text (e.g. on narrow screens where the hint wraps).
+            title={
+              !loading && firstBlocker
+                ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
+                : undefined
+            }
+          >
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

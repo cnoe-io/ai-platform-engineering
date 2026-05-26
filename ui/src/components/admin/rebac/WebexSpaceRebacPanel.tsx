@@ -929,6 +929,8 @@ export function WebexSpaceRebacPanel({
         {!selfService && (
         <ConnectorOnboardingWizard
           connectorName="Webex"
+          provider="webex"
+          isAdmin={!selfService}
           itemSingular="space"
           itemPlural="spaces"
           discoveredLabel="bot-visible space"

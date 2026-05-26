@@ -77,7 +77,7 @@ describe('PlatformSettingsTab', () => {
     const select = await screen.findByRole('combobox');
     expect(select).toHaveValue('sre');
     expect(screen.getByText('Handles SRE workflows')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save/i })).toBeDisabled();
+    expect(screen.getByTestId('default-agent-save')).toBeDisabled();
   });
 
   it('disables default-agent editing for read-only users', async () => {
@@ -85,7 +85,7 @@ describe('PlatformSettingsTab', () => {
 
     const select = await screen.findByRole('combobox');
     expect(select).toBeDisabled();
-    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('default-agent-save')).not.toBeInTheDocument();
   });
 
   it('warns when the saved default agent is no longer available', async () => {
@@ -110,21 +110,26 @@ describe('PlatformSettingsTab', () => {
     });
   });
 
-  it('saves the supervisor fallback as a null default_agent_id', async () => {
+  it('saves the supervisor fallback as a null default_agent_id after clear confirmation', async () => {
     mockFetch({ config: { success: true, data: { default_agent_id: 'sre' } } });
 
     render(<PlatformSettingsTab isAdmin />);
 
     const select = await screen.findByRole('combobox');
     fireEvent.change(select, { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    fireEvent.click(screen.getByTestId('default-agent-save'));
+
+    // Lighter "Remove default" confirmation appears first.
+    const removeDefaultButton = await screen.findByRole('button', { name: /remove default/i });
+    expect(screen.getByText(/fall back to the supervisor/i)).toBeInTheDocument();
+    fireEvent.click(removeDefaultButton);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         '/api/admin/platform-config',
         expect.objectContaining({
           method: 'PATCH',
-          body: JSON.stringify({ default_agent_id: null }),
+          body: JSON.stringify({ default_agent_id: null, acknowledge_public_access: true }),
         })
       );
     });
@@ -137,5 +142,77 @@ describe('PlatformSettingsTab', () => {
     await screen.findByRole('combobox');
     expect(screen.queryByText('Release notes')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Active release version')).not.toBeInTheDocument();
+  });
+
+  it('renders the public-access banner above the default-agent picker', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    await screen.findByRole('combobox');
+    expect(screen.getByTestId('default-agent-public-banner')).toHaveTextContent(
+      /becomes available to every signed-in user/i,
+    );
+  });
+
+  it('opens the public-access confirmation modal when selecting a new default', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    const select = await screen.findByRole('combobox');
+    fireEvent.change(select, { target: { value: 'sre' } });
+    fireEvent.click(screen.getByTestId('default-agent-save'));
+
+    expect(
+      await screen.findByText(/Make.*Basic SRE.*the platform default/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Every signed-in user will be able to chat with this agent/i),
+    ).toBeInTheDocument();
+    // No PATCH yet — the admin still has to confirm.
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/admin/platform-config',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+  });
+
+  it('does not send PATCH when the public-access modal is cancelled', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    const select = await screen.findByRole('combobox');
+    fireEvent.change(select, { target: { value: 'sre' } });
+    fireEvent.click(screen.getByTestId('default-agent-save'));
+
+    fireEvent.click(await screen.findByRole('button', { name: /cancel/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Make.*Basic SRE.*the platform default/i)).not.toBeInTheDocument();
+    });
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/admin/platform-config',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
+  });
+
+  it('includes acknowledge_public_access in the PATCH after confirmation', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    const select = await screen.findByRole('combobox');
+    fireEvent.change(select, { target: { value: 'sre' } });
+    fireEvent.click(screen.getByTestId('default-agent-save'));
+
+    const confirmButton = await screen.findByRole('button', { name: /make it the default/i });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/admin/platform-config',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({
+            default_agent_id: 'sre',
+            acknowledge_public_access: true,
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 });

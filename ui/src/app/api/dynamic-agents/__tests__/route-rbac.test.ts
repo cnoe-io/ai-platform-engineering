@@ -16,6 +16,7 @@ const mockAuthenticateRequest = jest.fn();
 const mockGetDynamicAgentsConfig = jest.fn();
 const mockProxyRequest = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockIsPlatformDefaultAgent = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -75,6 +76,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/rbac/platform-default", () => ({
+  isPlatformDefaultAgent: (...args: unknown[]) => mockIsPlatformDefaultAgent(...args),
+}));
+
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
   getDynamicAgentsConfig: (...args: unknown[]) => mockGetDynamicAgentsConfig(...args),
@@ -99,6 +104,7 @@ describe("dynamic agents RBAC routes", () => {
     mockReconcileAgentRelationships.mockResolvedValue(undefined);
     mockDeleteAllAgentToolTuples.mockResolvedValue(undefined);
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
     mockAuthenticateRequest.mockResolvedValue({
       subject: "alice-sub",
       email: "alice@example.com",
@@ -686,6 +692,131 @@ describe("dynamic agents RBAC routes", () => {
     );
     expect(mockDeleteAllAgentToolTuples).toHaveBeenCalledWith("agent-1");
     expect(deleteOne).toHaveBeenCalledWith({ _id: "agent-1" });
+  });
+
+  // Platform-default agent invariant: an admin can pick an agent in
+  // Admin → Settings to be the "default for new chats", which writes a
+  // wildcard `user:* user agent:<id>` tuple so every signed-in user can
+  // chat with it. We must not let the same admin demote `visibility:
+  // global → team` from the per-agent edit page or delete the agent
+  // outright while that wildcard is still in place — both would silently
+  // strip new-user access. The PUT/DELETE handlers therefore reject
+  // those mutations with 409 / `AGENT_IS_PLATFORM_DEFAULT` and steer the
+  // admin back to Admin → Settings to change the platform default
+  // first.
+  it("blocks demoting the current platform default from global to team", async () => {
+    const findOneAndUpdate = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-default",
+        name: "Default",
+        visibility: "global",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(true);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-default", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "team" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: "AGENT_IS_PLATFORM_DEFAULT",
+    });
+    expect(mockIsPlatformDefaultAgent).toHaveBeenCalledWith("agent-default");
+    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
+  });
+
+  it("allows demoting an agent that is not the platform default", async () => {
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-1", visibility: "team" });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-1",
+        name: "Other",
+        visibility: "global",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "team" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(findOneAndUpdate).toHaveBeenCalled();
+  });
+
+  it("does not invoke the platform-default guard when visibility is unchanged", async () => {
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-default", name: "Renamed" });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-default",
+        name: "Default",
+        visibility: "global",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    // Even if the agent IS the platform default, an unrelated edit
+    // (renaming, system prompt change) must go through — we only block
+    // the demote path.
+    mockIsPlatformDefaultAgent.mockResolvedValue(true);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-default", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Renamed" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockIsPlatformDefaultAgent).not.toHaveBeenCalled();
+    expect(findOneAndUpdate).toHaveBeenCalled();
+  });
+
+  it("blocks deleting the current platform default agent", async () => {
+    const deleteOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-default",
+        is_system: false,
+        config_driven: false,
+      }),
+      deleteOne,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(true);
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      request("/api/dynamic-agents?id=agent-default", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: "AGENT_IS_PLATFORM_DEFAULT",
+    });
+    expect(mockIsPlatformDefaultAgent).toHaveBeenCalledWith("agent-default");
+    expect(mockDeleteAllAgentToolTuples).not.toHaveBeenCalled();
+    expect(deleteOne).not.toHaveBeenCalled();
   });
 
   // Built-in tool metadata is the same kind of static, system-wide

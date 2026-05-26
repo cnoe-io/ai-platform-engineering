@@ -812,7 +812,10 @@ describe("Slack channel ReBAC APIs", () => {
         $set: expect.objectContaining({
           source_type: "bootstrap",
           status: "active",
-          users: { enabled: true, listen: "mention" },
+          // Bootstrap stamps listen:"all" so the bot responds to both
+          // @mentions and plain channel messages when the admin explicitly
+          // ran "Setup Slack channel association".
+          users: { enabled: true, listen: "all" },
         }),
       }),
       { upsert: true }
@@ -913,7 +916,7 @@ describe("Slack channel ReBAC APIs", () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           priority: 100,
-          users: { enabled: true, listen: "mention" },
+          users: { enabled: true, listen: "all" },
         }),
       }),
       { upsert: true }
@@ -927,7 +930,9 @@ describe("Slack channel ReBAC APIs", () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           priority: 100,
-          users: { enabled: true, listen: "mention" },
+          // Bootstrap-created routes listen on both @mentions and plain
+          // channel messages — see ui/src/app/api/admin/slack/channels/defaults/route.ts.
+          users: { enabled: true, listen: "all" },
           source_type: "bootstrap",
         }),
       }),
