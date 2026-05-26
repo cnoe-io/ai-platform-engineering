@@ -96,6 +96,7 @@ function authenticatedSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
+    sub: 'user-sub',
   };
 }
 

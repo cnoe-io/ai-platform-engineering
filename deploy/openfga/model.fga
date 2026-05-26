@@ -11,6 +11,16 @@
 #   slack_channel:<workspace_id>--<channel_id> can_call tool:<tool_prefix>
 #   webex_space:<workspace_id>--<space_id> can_call tool:<tool_prefix>
 #   team:<slug>#member can_read knowledge_base:<kb_id>
+#
+# Team relation semantics:
+#   - `admin` is a raw relation written when a user is granted team admin.
+#   - `member` is `[direct member tuples] or admin`, so admins automatically
+#     satisfy any `team#member` check or subject reference. Consumers can
+#     therefore ask `check(user, "member", team:<slug>)` without also
+#     checking `admin` — admins always qualify.
+#   - The legacy convention of listing `team#member, team#admin` as a pair
+#     in other types' subject sets is now redundant but harmless; it stays
+#     for explicitness during this transition.
 
 model
   schema 1.1
@@ -34,7 +44,12 @@ type external_group
 
 type team
   relations
-    define member: [user, external_group#member]
+    # `member` is the union of explicit member tuples AND anyone with the
+    # `admin` relation on this team. That way a check for `team#member`
+    # returns true for both straight members and admins — matching the
+    # mental model "an admin is also a member of the team".
+    # assisted-by Cursor claude-opus-4-7
+    define member: [user, external_group#member] or admin
     define admin: [user, external_group#member]
     define can_read: member or admin
     define can_use: member or admin

@@ -128,7 +128,18 @@
       "type": "team",
       "relations": {
         "member": {
-          "this": {}
+          "union": {
+            "child": [
+              {
+                "this": {}
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
         },
         "admin": {
           "this": {}

@@ -10,6 +10,7 @@ import {
 } from "@/lib/rbac/keycloak-admin";
 import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
+import { ensureSuperAdminsTeam } from "@/lib/rbac/super-admins-team";
 import type { MigrationApplyResult, MigrationDefinition, MigrationPlanResult } from "@/lib/rbac/migrations/types";
 
 export const KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID = "keycloak_rbac_mapping_reconciliation_v1";
@@ -340,6 +341,32 @@ export async function runKeycloakRbacStartupMigration(input: {
     warnings.push(...bootstrapAdmins.warnings);
     if (bootstrapAdmins.failed_count > 0) {
       throw new Error(`Bootstrap admin reconciliation failed for ${bootstrapAdmins.failed_count} email(s)`);
+    }
+
+    // Idempotently materialise the "Super Admins" team that backs the
+    // platform default-team selector. We feed it the *resolved* user
+    // subjects from the bootstrap-admin step so OpenFGA tuples are written
+    // with the canonical Keycloak `sub`, not the email.
+    try {
+      const superAdmins = await ensureSuperAdminsTeam({
+        actor,
+        members: bootstrapAdmins.outcomes
+          .filter((outcome) => outcome.status !== "failed" && outcome.user_id)
+          .map((outcome) => ({ email: outcome.email, userSubject: outcome.user_id })),
+      });
+      counts.super_admins_team_status =
+        superAdmins.status === "created"
+          ? 2
+          : superAdmins.status === "updated"
+            ? 1
+            : 0;
+      counts.super_admins_members_added = superAdmins.members_added;
+      counts.super_admins_members_already_present = superAdmins.members_already_present;
+      counts.super_admins_members_unresolved = superAdmins.members_unresolved;
+      warnings.push(...superAdmins.warnings);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`super-admins team bootstrap failed: ${message}`);
     }
 
     await recordCompleted({ actor, now, counts, warnings, bootstrapAdmins });

@@ -51,6 +51,14 @@ jest.mock('uuid', () => ({
   v4: () => '550e8400-e29b-41d4-a716-446655440000',
 }));
 
+// 098-enterprise-rbac introduced an OpenFGA PDP gate in
+// `requireConversationResourcePermission`. Mock the OpenFGA helper so the
+// fallback ownership check decides 403 vs allow (implicit owner short-circuits
+// before this is consulted). For non-owners, deny so the route returns 403.
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: false }),
+}));
+
 jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -93,6 +101,9 @@ function userSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
+    // OpenFGA gates need a stable subject id, otherwise session-bound checks
+    // throw NO_SUBJECT and return 401 before the ownership/PDP decision.
+    sub: `sub-${email}`,
   };
 }
 
@@ -515,7 +526,12 @@ describe('GET /api/chat/conversations — public conversations', () => {
     GET = mod.GET;
   });
 
-  it('includes is_public condition in query', async () => {
+  // Spec 098-enterprise-rbac removed the per-user `$or` (owner_id /
+  // sharing.shared_with / sharing.is_public) from
+  // `/api/chat/conversations`. Visibility is now decided by the ReBAC
+  // post-filter (`filterConversationsByImplicitOrExplicitPermission`),
+  // so the Mongo query no longer references legacy sharing fields.
+  it('does NOT include legacy is_public/sharing predicates in the Mongo query', async () => {
     mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -534,12 +550,12 @@ describe('GET /api/chat/conversations — public conversations', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
+    const serialized = JSON.stringify(findCall);
+    expect(serialized).not.toContain('sharing.is_public');
+    expect(serialized).not.toContain('sharing.shared_with');
   });
 
-  it('includes is_public alongside owner and shared_with conditions', async () => {
+  it('keeps a stable $and query regardless of caller identity', async () => {
     mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -558,11 +574,8 @@ describe('GET /api/chat/conversations — public conversations', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toContainEqual({ owner_id: VIEWER_EMAIL });
-    expect(orConditions).toContainEqual({ 'sharing.shared_with': VIEWER_EMAIL });
-    expect(orConditions).toContainEqual({ 'sharing.is_public': true });
+    expect(findCall.$and).toBeDefined();
+    expect(JSON.stringify(findCall)).not.toContain('sharing.is_public');
   });
 });
 
@@ -579,7 +592,9 @@ describe('GET /api/chat/shared — public conversations', () => {
     GET = mod.GET;
   });
 
-  it('includes is_public condition in shared query', async () => {
+  // Spec 098-enterprise-rbac: `/api/chat/shared` now relies on the ReBAC
+  // post-filter and the Mongo query is just `{ owner_id: { $ne: caller } }`.
+  it('queries only owner_id !== caller and delegates is_public visibility to the ReBAC filter', async () => {
     mockGetServerSession.mockResolvedValue(userSession(VIEWER_EMAIL));
 
     const teamsCol = createMockCollection();
@@ -598,8 +613,8 @@ describe('GET /api/chat/shared — public conversations', () => {
     await GET(req);
 
     const findCall = convsCol.find.mock.calls[0][0];
-    expect(findCall.$or).toContainEqual({ 'sharing.is_public': true });
     expect(findCall.owner_id).toEqual({ $ne: VIEWER_EMAIL });
+    expect(JSON.stringify(findCall)).not.toContain('sharing.');
   });
 
   it('excludes own public conversations from shared listing', async () => {

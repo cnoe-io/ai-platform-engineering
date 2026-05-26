@@ -350,6 +350,14 @@ describe('POST /api/admin/teams/[id]/members', () => {
 
   it('returns 403 when not admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+    // Spec 098 reordered the route: the team is loaded before the permission
+    // gate so we can pass the resolved team into
+    // `requireTeamMembershipManagementPermission`. Seed the team so the test
+    // reaches the auth gate (instead of stopping at the 404).
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
+    mockCollections['teams'] = teamsCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -481,6 +489,13 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
 
   it('returns 403 when not admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+    // See POST 403 test above — spec 098 reordered the route so the team is
+    // resolved before the auth gate. Seed the team so the test reaches the
+    // permission check instead of short-circuiting to 404.
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
+    mockCollections['teams'] = teamsCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members?user_id=member@example.com`, {
       method: 'DELETE',
     });

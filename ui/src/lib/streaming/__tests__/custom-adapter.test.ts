@@ -2,7 +2,11 @@
  * @jest-environment node
  */
 
-import { CustomStreamAdapter } from "../custom-adapter";
+// 098/streaming refactor moved the adapters under `clients/` and the
+// public entry point became `createStreamAdapter({ protocol: "custom" })`.
+// We still want to exercise the legacy class directly to keep the
+// protocol-level assertions tight; import from the new location.
+import { CustomStreamAdapter } from "../clients/browser-custom-consumer";
 import type { StreamCallbacks } from "../callbacks";
 
 const mockFetch = jest.fn();
@@ -179,12 +183,15 @@ describe("CustomStreamAdapter", () => {
       cb,
     );
 
+    // 098 added a 6th `toolApprovals` parameter (batched gated tool calls).
+    // The custom protocol doesn't emit it, so it's expected to be undefined.
     expect(cb.onToolApprovalRequired).toHaveBeenCalledWith(
       "approval-1",
       "delete_file",
       { path: "/tmp/a" },
       ["approve", "reject"],
       "helper",
+      undefined,
     );
     expect(cb.onInputRequired).not.toHaveBeenCalled();
   });
