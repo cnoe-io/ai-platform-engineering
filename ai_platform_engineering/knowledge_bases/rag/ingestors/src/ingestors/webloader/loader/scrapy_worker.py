@@ -95,7 +95,7 @@ class WorkerSpider(Spider):
     self.follow_external = request.follow_external_links
     self.allowed_patterns = request.allowed_url_patterns or []
     self.denied_patterns = request.denied_url_patterns or []
-    self.allow_non_public_urls = request.allow_non_public_urls
+    self.allow_non_public_urls = request.allow_non_public_urls or False
 
     # Track the effective domain (may change after redirect for sitemap mode)
     self.effective_domain: str | None = None
