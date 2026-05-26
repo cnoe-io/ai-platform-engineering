@@ -47,6 +47,7 @@ from ai_platform_engineering.utils.deepagents_custom.self_service_middleware imp
 
 # Export custom tools
 from ai_platform_engineering.utils.deepagents_custom.tools import (
+    get_file_line_count,
     tool_result_to_file,
     FS_TOOL_NAMES,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "QuickActionTasksAnnouncementMiddleware",
     "SubAgentExecutionMiddleware",
     # Custom tools
+    "get_file_line_count",
     "tool_result_to_file",
     "FS_TOOL_NAMES",
     # State classes
