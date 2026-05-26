@@ -99,4 +99,4 @@ url = "https://pypi.org/simple/"
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2", "langchain-aws>=1.5.0"]
