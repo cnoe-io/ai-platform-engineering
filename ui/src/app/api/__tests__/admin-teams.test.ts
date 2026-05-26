@@ -105,6 +105,14 @@ function createMockCollection() {
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     deleteOne: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+    // `team-membership-source-store.upsertTeamMembershipSource()` now
+    // calls `deleteMany` after `updateOne` to collapse stale
+    // `status:"removed"` orphan rows (introduced together with the
+    // OpenFGA admin-implies-member model change). Routes that create
+    // teams hit that path indirectly through membership-source writes,
+    // so the shared mock collection has to advertise `deleteMany` too
+    // or the POST route fails with HTTP 500.
+    deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
   };
 }
