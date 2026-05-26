@@ -118,6 +118,7 @@ export interface ScrapySettings {
     chunk_size?: number;
     chunk_overlap?: number;
     user_agent?: string | null;
+    allow_non_public_urls?: boolean;
 }
 
 export const ingestUrl = async (params: {
