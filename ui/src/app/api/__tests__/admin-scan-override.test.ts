@@ -79,6 +79,37 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
 }));
 
+// `requireResourcePermission` (the third gate the route runs after
+// `requireRbacPermission`) was added with the 098-enterprise-rbac PR and
+// rejects any session whose `sub` is missing or whose OpenFGA check fails.
+// Stub it to defer to the `role === 'admin'` shortcut the surrounding
+// `requireRbacPermission` mock already uses, so this suite keeps testing
+// the route's *body validation / scan-override invariants* and does not
+// double-up on PDP plumbing.
+jest.mock("@/lib/rbac/resource-authz", () => {
+  const actual =
+    jest.requireActual<typeof import("@/lib/rbac/resource-authz")>(
+      "@/lib/rbac/resource-authz",
+    );
+  return {
+    ...actual,
+    requireResourcePermission: jest.fn(async (session: { role?: string }) => {
+      if (session.role !== "admin") {
+        const { ApiError } = jest.requireActual<typeof import("@/lib/api-error")>(
+          "@/lib/api-error",
+        );
+        throw new ApiError(
+          "You do not have permission to access this resource.",
+          403,
+          "skill#admin",
+          "pdp_denied",
+          "contact_admin",
+        );
+      }
+    }),
+  };
+});
+
 let mockIsMongoDBConfigured = true;
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
 const mockGetCollection = jest.fn((name: string) => {

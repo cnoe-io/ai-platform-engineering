@@ -155,6 +155,52 @@ export async function upsertTeamMembershipSource(source: TeamMembershipSource): 
     "teamMembershipSources"
   );
   await collection.updateOne(membershipSourceFilter(source), { $set: source }, { upsert: true });
+
+  // Collapse stale orphans: when a user is removed and later re-added with a
+  // different `relationship` (e.g. removed as member, re-added as admin), the
+  // `relationship`-keyed upsert above does not match the previous row, so the
+  // `status:"removed"` record is left behind. The UI then renders both a
+  // "Manual" and "Manual: Removed" badge next to the same user, which is
+  // confusing. Removed rows have no operational consumer (only the UI badge
+  // renderer reads them, and we now filter them out there) so we drop them
+  // here to keep the collection clean. Provenance fields are still matched
+  // exactly so we never collapse rows that came from different providers /
+  // sync rules.
+  const orphanFilter = orphanRemovedMatchFilter(source);
+  if (orphanFilter) {
+    await collection.deleteMany({ ...orphanFilter, status: "removed" });
+  }
+}
+
+/**
+ * Filter for the same logical user+team+source combination as
+ * `membershipSourceMatchFilter`, but intentionally agnostic to
+ * `relationship` so we can find rows that differ only in member-vs-admin.
+ * Returns `null` when the input has no usable identity anchor.
+ */
+function orphanRemovedMatchFilter(
+  source: TeamMembershipSource,
+): Record<string, unknown> | null {
+  const filter: Record<string, unknown> = {
+    team_slug: source.team_slug,
+    source_type: source.source_type,
+  };
+  if (source.user_subject) {
+    filter.user_subject = source.user_subject;
+  } else if (source.user_email) {
+    filter.user_email = source.user_email;
+  } else {
+    return null;
+  }
+  filter.provider_id =
+    source.provider_id !== undefined ? source.provider_id : { $in: [null, undefined] };
+  filter.external_group_id =
+    source.external_group_id !== undefined
+      ? source.external_group_id
+      : { $in: [null, undefined] };
+  filter.sync_rule_id =
+    source.sync_rule_id !== undefined ? source.sync_rule_id : { $in: [null, undefined] };
+  return filter;
 }
 
 export async function markTeamMembershipSourceRemoved(

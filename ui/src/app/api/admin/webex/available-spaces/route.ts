@@ -15,6 +15,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
+import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
 
 interface WebexRoom {
   id: string;
@@ -42,7 +43,10 @@ interface CacheEntry {
   fetched_at: number;
 }
 
-const CACHE_TTL_MS = 10 * 60_000;
+// Webex space lists rarely change between admin actions. The TTL is
+// admin-configurable in Admin → Platform Settings → Discovery cache TTL
+// and is read live from `platform_config` via getDiscoveryCacheTtlMs();
+// the default is 60 minutes, and 0 disables caching.
 const DEFAULT_UI_LIMIT = 200;
 const MAX_UI_LIMIT = 500;
 const MAX_WEBEX_PAGES = 50;
@@ -157,19 +161,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const now = Date.now();
   const cacheKey = token.slice(-12);
   const cached = cache.get(cacheKey);
+  const cacheTtlMs = await getDiscoveryCacheTtlMs();
 
   let allSpaces: NormalizedSpace[];
   let cacheHit = false;
   let fetchedAt: number;
 
-  if (!refresh && cached && now - cached.fetched_at < CACHE_TTL_MS) {
+  // ttl=0 disables caching entirely (admin-controlled debug knob).
+  if (!refresh && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs) {
     allSpaces = cached.spaces;
     fetchedAt = cached.fetched_at;
     cacheHit = true;
   } else {
     allSpaces = await listAllRooms(token);
     fetchedAt = now;
-    cache.set(cacheKey, { spaces: allSpaces, fetched_at: fetchedAt });
+    if (cacheTtlMs > 0) {
+      cache.set(cacheKey, { spaces: allSpaces, fetched_at: fetchedAt });
+    } else {
+      cache.delete(cacheKey);
+    }
   }
 
   let filtered = allSpaces;
