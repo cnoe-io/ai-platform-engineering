@@ -170,8 +170,11 @@ class TextCommandResult:
 
 
 class _OverrideStoreProto(Protocol):  # pragma: no cover - structural typing
-    def set(self, key: OverrideKey, agent_id: str) -> None: ...
-    def clear(self, key: OverrideKey) -> None: ...
+    def set(self, key: OverrideKey, agent_id: str) -> None:
+        raise NotImplementedError
+
+    def clear(self, key: OverrideKey) -> None:
+        raise NotImplementedError
 
 
 def _rate_limited(

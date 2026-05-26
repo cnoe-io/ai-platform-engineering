@@ -10,9 +10,12 @@ signed-in user — `user_subject=user:<sub>` only, no team subject (T111).
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from ai_platform_engineering.integrations.slack_bot.utils.dm_authz_client import (
     DmAgentAccessDecision,
@@ -235,8 +238,7 @@ class TestDmAuthzClient:
             available=True,
             matched_team_slug=None,
         )
-        try:
+        # `DmAgentAccessDecision` is a frozen dataclass, so any mutation must raise.
+        with pytest.raises(dataclasses.FrozenInstanceError):
             decision.allowed = True  # type: ignore[misc]
-        except (AttributeError, Exception):
-            pass
         assert decision.allowed is False

@@ -62,11 +62,13 @@ class DmAgentResolution:
 class _AuthzClientProtocol(Protocol):
     def check_agent_access(
         self, *, agent_id: str, bearer_token: str
-    ) -> DmAgentAccessDecision: ...
+    ) -> DmAgentAccessDecision:
+        raise NotImplementedError
 
 
 class _PrefsClientProtocol(Protocol):
-    def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult: ...
+    def get_dm_default_agent(self, *, bearer_token: str) -> UserPreferenceResult:
+        raise NotImplementedError
 
 
 def _normalize_agent(value: Optional[str]) -> Optional[str]:

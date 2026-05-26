@@ -55,7 +55,8 @@ class _WebexApiProto(Protocol):  # pragma: no cover - structural typing
         room_id: str | None = None,
         parent_id: str | None = None,
         person_id: str | None = None,
-    ) -> str: ...
+    ) -> str:
+        raise NotImplementedError
 
 
 class _ParsedWebexEventProto(Protocol):  # pragma: no cover - structural
