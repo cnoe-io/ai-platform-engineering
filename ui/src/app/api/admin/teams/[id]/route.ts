@@ -12,6 +12,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
+import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
 import {
   computeTeamMembershipSyncReport,
@@ -92,7 +93,6 @@ export const PATCH = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
@@ -104,6 +104,13 @@ export const PATCH = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+
+    // Issue #1509: gate edits behind requireTeamMembershipManagementPermission
+    // so scoped team admins (members with role=owner|admin) can rename or
+    // update their own team without holding the platform-wide
+    // `organization:<org>#admin` tuple. Platform admins still bypass via
+    // `admin_ui#admin`.
+    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
 
     const update: Record<string, any> = { updated_at: new Date() };
 
@@ -143,7 +150,6 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
@@ -153,6 +159,10 @@ export const DELETE = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+
+    // Issue #1509: scoped team admins can delete their own team. Platform
+    // admins still bypass via `admin_ui#admin`.
+    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
 
     // Remove team references from conversations shared_with_teams
     try {
