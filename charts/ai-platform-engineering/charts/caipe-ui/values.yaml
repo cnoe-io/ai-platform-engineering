@@ -531,3 +531,17 @@ appConfig:
   #   allowed_tools:
   #     github: []
   #   enabled: true
+
+  # Workflow configurations (multi-step automated pipelines)
+  workflow_configs: []
+  # Example:
+  # - id: "my-workflow"
+  #   name: "My Workflow"
+  #   description: "A multi-step workflow"
+  #   config_driven: true
+  #   steps:
+  #     - type: "step"
+  #       display_text: "Step description"
+  #       agent_id: "agent-sre"
+  #       prompt: "Do something"
+  #       on_error: "abort"
