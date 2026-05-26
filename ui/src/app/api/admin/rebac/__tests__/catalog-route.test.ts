@@ -74,6 +74,19 @@ beforeEach(() => {
   mockCollections.dynamic_agents = createMockCollection([
     { _id: "agent-1", name: "Incident Agent", enabled: true },
   ]);
+  // Spec 098 added `user` + `user_profile` to the universal resource model,
+  // sourced from the `users` collection. Without a seed there's no `user`
+  // resource in the catalog and the "every type is represented" assertion
+  // fails. Seed one user so both `user` and `user_profile` resources are
+  // emitted.
+  mockCollections.users = createMockCollection([
+    {
+      _id: "user-1",
+      email: "user@example.com",
+      name: "Test User",
+      keycloak_sub: "user-sub",
+    },
+  ]);
 });
 
 describe("GET /api/admin/rebac/catalog", () => {
