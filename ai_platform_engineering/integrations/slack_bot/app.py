@@ -758,9 +758,11 @@ def handle_message_events(body, say, client):
 
   channel_config = config.channels[channel_id]
 
-  # Skip thread replies; only root messages trigger the agent.
-  is_thread = event.get("thread_ts") is not None
-  if is_thread:
+  # Skip true thread replies (ts != thread_ts). Root messages can have
+  # thread_ts populated by Slack when a follow-up arrives before the socket
+  # event is delivered, so checking thread_ts is not None is too broad.
+  is_thread_reply = event.get("thread_ts") is not None and event.get("thread_ts") != event.get("ts")
+  if is_thread_reply:
     return
 
   # Skip @mentions — handled by handle_mention
