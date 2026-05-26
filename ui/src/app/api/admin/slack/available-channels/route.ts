@@ -55,6 +55,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
+import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
 
 interface SlackConversation {
   id: string;
@@ -88,9 +89,13 @@ interface CacheEntry {
   endpoint: "users.conversations" | "conversations.list";
 }
 
-// Channel lists rarely change between admin actions; 10 min keeps us well
-// inside Slack's rate limits even when several admins are active.
-const CACHE_TTL_MS = 10 * 60_000;
+// Channel lists rarely change between admin actions. The TTL is admin-
+// configurable in Admin → Platform Settings → Discovery cache TTL and is
+// read live from `platform_config` via getDiscoveryCacheTtlMs(); the
+// default is 60 minutes. A value of 0 disables caching entirely (every
+// request hits Slack), which is useful when an admin just added the bot
+// to a brand-new channel and wants the picker to reflect that without
+// clicking "Force refresh".
 // Slack max page size is 1000 for conversations.list / 999 for
 // users.conversations, but Slack recommends <=200 for stability. We pull at
 // 200 internally regardless of the UI page size (which is just a slice on top
@@ -248,12 +253,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // part of the key so the two endpoints don't poison each other's snapshot.
   const cacheKey = `${scope}:${token.slice(-12)}`;
   const cached = cache.get(cacheKey);
+  const cacheTtlMs = await getDiscoveryCacheTtlMs();
 
   let snapshot: NormalizedChannel[];
   let cacheHit = false;
   let fetchedAt: number;
 
-  if (!refresh && cached && now - cached.fetched_at < CACHE_TTL_MS) {
+  // ttl=0 disables caching entirely (admin-controlled debug knob).
+  if (!refresh && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs) {
     snapshot = cached.channels;
     fetchedAt = cached.fetched_at;
     cacheHit = true;
@@ -263,7 +270,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       defaultIsMember: memberOnly,
     });
     fetchedAt = now;
-    cache.set(cacheKey, { channels: snapshot, fetched_at: fetchedAt, endpoint });
+    if (cacheTtlMs > 0) {
+      cache.set(cacheKey, { channels: snapshot, fetched_at: fetchedAt, endpoint });
+    } else {
+      // Caching disabled — drop any stale entry so a future TTL increase
+      // can't be served from a snapshot fetched while caching was off.
+      cache.delete(cacheKey);
+    }
   }
 
   // Filter pipeline runs in-process against the cached snapshot.
