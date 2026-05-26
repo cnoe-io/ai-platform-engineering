@@ -8,6 +8,12 @@ import { getCollection } from '@/lib/mongodb';
 import { ApiError, withAuth, withErrorHandler, requireRbacPermission } from '@/lib/api-middleware';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
+import {
+  DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
+  MAX_DISCOVERY_CACHE_TTL_MINUTES,
+  MIN_DISCOVERY_CACHE_TTL_MINUTES,
+  normalizeDiscoveryCacheTtlMinutes,
+} from '@/lib/rbac/discovery-cache-config';
 
 const CONFIG_ID = 'platform_settings';
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
@@ -16,6 +22,7 @@ interface PlatformConfigDoc {
   _id?: string;
   default_agent_id?: unknown;
   release_notes?: unknown;
+  discovery_cache_ttl_minutes?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -92,6 +99,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const defaultAgentId = normalizeDefaultAgentId(doc?.default_agent_id);
     const envFallback = process.env.DEFAULT_AGENT_ID || null;
+    const discoveryTtlMinutes =
+      normalizeDiscoveryCacheTtlMinutes(doc?.discovery_cache_ttl_minutes) ??
+      normalizeDiscoveryCacheTtlMinutes(process.env.DISCOVERY_CACHE_TTL_MINUTES) ??
+      DEFAULT_DISCOVERY_CACHE_TTL_MINUTES;
 
     return NextResponse.json({
       success: true,
@@ -99,6 +110,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         default_agent_id: defaultAgentId ?? envFallback,
         source: defaultAgentId ? 'db' : (envFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
+        discovery_cache_ttl_minutes: discoveryTtlMinutes,
       },
     });
   });
@@ -128,13 +140,71 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
     }
 
+    // Slack/Webex discovery cache TTL. Accept an integer minute count.
+    // `null` clears the override (= "use the default 60 min"); otherwise
+    // we strictly require an integer in [MIN, MAX] so a fat-fingered
+    // PATCH can't silently disable caching for everyone.
+    if (Object.prototype.hasOwnProperty.call(body, 'discovery_cache_ttl_minutes')) {
+      const raw = body.discovery_cache_ttl_minutes;
+      if (raw === null) {
+        update.discovery_cache_ttl_minutes = null;
+      } else {
+        const asNumber = typeof raw === 'number' ? raw : Number(raw);
+        if (
+          !Number.isFinite(asNumber) ||
+          !Number.isInteger(asNumber) ||
+          asNumber < MIN_DISCOVERY_CACHE_TTL_MINUTES ||
+          asNumber > MAX_DISCOVERY_CACHE_TTL_MINUTES
+        ) {
+          throw new ApiError(
+            `discovery_cache_ttl_minutes must be an integer between ${MIN_DISCOVERY_CACHE_TTL_MINUTES} and ${MAX_DISCOVERY_CACHE_TTL_MINUTES}`,
+            400,
+            'INVALID_DISCOVERY_CACHE_TTL',
+          );
+        }
+        update.discovery_cache_ttl_minutes = asNumber;
+      }
+    }
+
     const col = await getCollection<PlatformConfigDoc>('platform_config');
     const previousDoc = hasDefaultAgentUpdate
       ? await col.findOne({ _id: CONFIG_ID } as never)
       : null;
     const previousDefaultAgentId = normalizeDefaultAgentId(previousDoc?.default_agent_id);
+    const defaultAgentChanged = hasDefaultAgentUpdate && previousDefaultAgentId !== nextDefaultAgentId;
+
+    // Selecting a non-null default agent grants `user:*` `can_use` on it,
+    // i.e. every signed-in user can chat with that agent. Require an
+    // explicit ack from the caller so scripts/curl/MCP tools can't flip
+    // an agent public by accident. Clearing the default (next=null) is
+    // safe — we just revoke the previous wildcard — so we don't require
+    // the ack there.
+    if (defaultAgentChanged && nextDefaultAgentId !== null) {
+      if (body.acknowledge_public_access !== true) {
+        throw new ApiError(
+          'Setting a platform default agent makes it available to all signed-in users. Confirm in the UI before saving.',
+          400,
+          'PUBLIC_ACCESS_NOT_ACKNOWLEDGED',
+        );
+      }
+    }
+
     if (hasDefaultAgentUpdate) {
       await reconcileDefaultAgentGrant(previousDefaultAgentId, nextDefaultAgentId);
+      if (defaultAgentChanged) {
+        // No shared audit helper exists in this codebase yet; emit a
+        // structured console line so existing log shippers (loki, etc.)
+        // can grep on `[AUDIT] platform_default_agent_changed`.
+        console.info(
+          '[AUDIT] platform_default_agent_changed',
+          JSON.stringify({
+            actor: user.email ?? null,
+            previous: previousDefaultAgentId,
+            next: nextDefaultAgentId,
+            at: new Date().toISOString(),
+          }),
+        );
+      }
     }
     await col.updateOne(
       { _id: CONFIG_ID } as never,
@@ -151,6 +221,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           ? { default_agent_id: update.default_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
+          ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
+          : {}),
       },
     });
   });

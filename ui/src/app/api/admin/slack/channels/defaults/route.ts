@@ -496,7 +496,12 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
               agent_id: targetAgentId,
               enabled: true,
               priority: 100,
-              users: { enabled: true, listen: "mention" },
+              // Admin explicitly ran "Setup Slack channel association" for this
+              // channel, which is itself the opt-in signal — so route both
+              // @mentions AND plain channel messages by default. Admins can
+              // narrow to mention-only later via the Step-2a route picker.
+              // assisted-by Cursor claude-opus-4-7
+              users: { enabled: true, listen: "all" },
               source_type: "bootstrap",
               status: "active",
               created_by: actor,
