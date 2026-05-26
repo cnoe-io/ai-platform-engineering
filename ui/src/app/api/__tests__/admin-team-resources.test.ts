@@ -188,10 +188,22 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
     expect(mockWriteOpenFgaTupleDiff).not.toHaveBeenCalled();
   });
 
-  it("returns 403 when user lacks admin_ui#admin", async () => {
+  it("returns 403 when user lacks admin_ui#admin and is not a scoped team admin", async () => {
+    // Issue #1509: the auth gate now runs AFTER the team document is loaded
+    // so requireTeamMembershipManagementPermission can evaluate scoped team
+    // admin membership. Seed a team where user@example.com is NOT an
+    // owner/admin to assert the deny path. The test still proves Keycloak
+    // mutations never fire before authz fails.
     setDefaultPermissionMock(false);
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     mockGetServerSession.mockResolvedValue(userSession());
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(
+      teamWith({ agents: [], tools: [] })
+    );
+    mockCollections["teams"] = teamsCol;
+
     const { PUT } = await loadRoute();
     setDefaultPermissionMock(false);
 
@@ -205,6 +217,7 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
 
     expect(res.status).toBe(403);
     expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
+    expect(mockWriteOpenFgaTupleDiff).not.toHaveBeenCalled();
   });
 });
 
