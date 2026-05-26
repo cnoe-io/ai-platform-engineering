@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Need the merge-base to compute a meaningful diff. fetch-depth: 0
           # is the safe choice; the validator script only walks file names.
