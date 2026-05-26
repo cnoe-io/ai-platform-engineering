@@ -240,12 +240,12 @@ caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted
 	@echo "Starting CAIPE UI in hot-reload mode (next dev)..."
 	@echo "  - Edits in ui/src trigger sub-second rebuild via next dev"
 	@echo "  - public/ asset changes still need: make caipe-ui-hot (rebuilds image)"
+	@# Bring down the prod-parity sibling first — both bind host port 3000 and
+	@# Keycloak's caipe-ui client only allow-lists localhost:3000/* as a redirect
+	@# URI (see deploy/keycloak/realm-config.json), so the two services are
+	@# mutually exclusive at runtime.
+	@docker compose -f docker-compose.dev.yaml --profile caipe-ui-prod rm -sf caipe-ui-prod 2>/dev/null || true
 	$(DOCKER_COMPOSE_BUILD_ENV) \
-	CAIPE_UI_MODE=hot \
-	CAIPE_UI_BUILD_TARGET=dev \
-	CAIPE_UI_NODE_ENV=development \
-	CAIPE_UI_COMMAND="npm run dev" \
-	CAIPE_UI_IMAGE_SUFFIX=-dev \
 	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
 	@echo ""
 	@echo "Hot-reload UI ready: http://localhost:3000"
@@ -256,16 +256,14 @@ caipe-ui-prod: ## Run CAIPE UI in Docker in prod-parity mode (next build + next 
 	@echo "Starting CAIPE UI in prod-parity mode (next build + next start)..."
 	@echo "  - Source edits will NOT auto-reload — rerun this target to rebuild"
 	@echo "  - Matches the runner stage that ships in the published image"
+	@# Bring down the hot/dev sibling first (port 3000 collision — see comment
+	@# in caipe-ui-hot above and the header block in docker-compose.dev.yaml).
+	@docker compose -f docker-compose.dev.yaml --profile caipe-ui rm -sf caipe-ui 2>/dev/null || true
 	$(DOCKER_COMPOSE_BUILD_ENV) \
-	CAIPE_UI_MODE=prod \
-	CAIPE_UI_BUILD_TARGET=runner \
-	CAIPE_UI_NODE_ENV=production \
-	CAIPE_UI_COMMAND=/app/entrypoint.sh \
-	CAIPE_UI_IMAGE_SUFFIX=-prod \
-	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui-prod up -d --build caipe-ui-prod
 	@echo ""
 	@echo "Prod-parity UI ready: http://localhost:3000"
-	@echo "Stream logs:          docker logs -f caipe-ui"
+	@echo "Stream logs:          docker logs -f caipe-ui-prod"
 	@echo "Switch back to hot reload:  make caipe-ui-hot"
 
 ## ========== Documentation (Docusaurus) ==========
