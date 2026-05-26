@@ -67,8 +67,11 @@ interface TeamMemberDoc {
   added_by: string;
 }
 
+// `_id` is intentionally omitted here so the doc is a valid
+// `OptionalId<TeamDoc>` for `teams.insertOne(team)`. `findOne` results are
+// automatically widened to `WithId<TeamDoc>` by the MongoDB driver, which
+// supplies `_id: ObjectId` when we read `existing._id` below.
 interface TeamDoc {
-  _id?: unknown;
   name: string;
   slug: string;
   description?: string;
