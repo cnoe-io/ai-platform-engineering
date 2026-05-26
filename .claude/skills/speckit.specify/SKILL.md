@@ -44,22 +44,31 @@ Given that feature description, do this:
      - "Create a dashboard for analytics" → "analytics-dashboard"
      - "Fix payment processing timeout bug" → "fix-payment-timeout"
 
-2. **Create the feature branch** by running the script with `--short-name` (and `--json`). The script uses today's date (`YYYY-MM-DD`) as the branch prefix — no numbering needed:
+2. **Confirm branch creation with the user BEFORE running the script.** The script's default behaviour is to `git checkout -b <new-branch>`, which is destructive (it changes the user's checked-out branch and leaves any uncommitted spec edits on a fresh branch the user did not consent to). Some maintainers want a new branch every time; others prefer to keep spec work on the current branch and bundle it with other in-flight changes.
 
-   - Bash example: `{SCRIPT} --json --short-name "user-auth" "Add user authentication"`
+   - Show the user the proposed branch name (e.g. `2026-05-07-user-auth`) and ask whether to create it.
+   - **Phrasing**: `"I'll create a new branch named '<proposed-branch-name>' for this spec. Reply 'no branch' (or 'stay on current branch') if you'd rather keep spec edits on '<current-branch>'."`
+   - Default if the user does not respond / responds ambiguously: create the branch (matches today's behaviour). But if the user has *already* said something like "don't create a new branch" earlier in the session — **honour that without re-asking**.
+   - If the user declines, pass `--no-branch` to the script in the next step. The script will still create the spec folder under `docs/docs/specs/<branch-name>/` and write `spec.md`; only the `git checkout -b` is skipped.
+
+3. **Create the spec folder (and optionally the feature branch)** by running the script with `--short-name` (and `--json`). The script uses today's date (`YYYY-MM-DD`) as the spec folder / branch prefix — no numbering needed:
+
+   - Bash example (branch): `{SCRIPT} --json --short-name "user-auth" "Add user authentication"`
+   - Bash example (no branch): `{SCRIPT} --json --no-branch --short-name "user-auth" "Add user authentication"`
    - PowerShell example: `{SCRIPT} -Json -ShortName "user-auth" "Add user authentication"`
 
    **IMPORTANT**:
    - Do NOT pass `--number` — that flag no longer exists; the prefix is always today's date
    - Always include the JSON flag (`--json` for Bash, `-Json` for PowerShell) so the output can be parsed reliably
+   - Pass `--no-branch` (Bash) if step 2's user confirmation came back negative. (Bash only — PowerShell support is not yet implemented.)
    - You must only ever run this script once per feature
    - The JSON is provided in the terminal as output - always refer to it to get the actual content you're looking for
-   - The JSON output will contain BRANCH_NAME and SPEC_FILE paths (e.g. `2026-05-07-user-auth`)
+   - The JSON output will contain BRANCH_NAME and SPEC_FILE paths (e.g. `2026-05-07-user-auth`). When `--no-branch` was passed, `BRANCH_NAME` is the *would-be* name — the spec folder under `docs/docs/specs/` is named after it, but the user's checked-out branch is unchanged.
    - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot")
 
-3. Load `templates/spec-template.md` to understand required sections.
+4. Load `templates/spec-template.md` to understand required sections.
 
-4. Follow this execution flow:
+5. Follow this execution flow:
 
     1. Parse user description from Input
        If empty: ERROR "No feature description provided"
@@ -85,9 +94,9 @@ Given that feature description, do this:
     7. Identify Key Entities (if data involved)
     8. Return: SUCCESS (spec ready for planning)
 
-5. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
+6. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
 
-6. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
+7. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
 
    a. **Create Spec Quality Checklist**: Generate a checklist file at `FEATURE_DIR/checklists/requirements.md` using the checklist template structure with these validation items:
 
@@ -179,9 +188,9 @@ Given that feature description, do this:
 
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
-7. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
+8. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`). If the user declined a new branch in step 2, explicitly note which branch the spec lives on (e.g. `"Spec written to docs/docs/specs/2026-05-25-foo/spec.md on branch 'main' (no new branch created, per your instruction)."`).
 
-**NOTE:** The script creates and checks out the new branch and initializes the spec file before writing.
+**NOTE:** Unless `--no-branch` was passed in step 3, the script creates and checks out the new branch and initializes the spec file before writing. With `--no-branch`, only the spec folder is created and the caller's current branch is preserved.
 
 ## Quick Guidelines
 

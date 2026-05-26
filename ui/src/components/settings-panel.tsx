@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
 import { isFeatureEnabled } from "@/store/feature-flag-store";
 import { gradientThemes, type GradientThemeId } from "@/lib/gradient-themes";
+import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
 
 // Font size options
 const fontSizes = [
@@ -429,6 +430,11 @@ export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
                 </section>
 
                 {/* Preview Section */}
+                {/* DM default-agent preference (spec FR-019..FR-022). Lives
+                    inside the existing settings panel so it's discoverable
+                    next to other personalization controls. */}
+                <DmAgentPreferencePanel />
+
                 <section>
                   <div className="flex items-center gap-2 mb-3">
                     <Monitor className="h-4 w-4 text-muted-foreground" />

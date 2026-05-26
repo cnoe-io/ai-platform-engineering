@@ -781,16 +781,58 @@ kc_attach_policy_to_scope_permission() {
   POLICY_ID="$3"
   ATTACH_LABEL="${4:-scope permission}"
 
-  PERMISSION_JSON=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" 2>/dev/null || echo "{}")
-  ASSOCIATED_POLICIES_JSON=$(curl -sf -H "${AUTH}" \
-    "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}/associatedPolicies" 2>/dev/null || echo "[]")
-  UPDATED_PERMISSION_JSON=$(PERMISSION_JSON="${PERMISSION_JSON}" ASSOCIATED_POLICIES_JSON="${ASSOCIATED_POLICIES_JSON}" POLICY_ID="${POLICY_ID}" python3 -c '
+  # Why we force AFFIRMATIVE here:
+  #
+  # Several scope-permissions in this realm are SHARED across multiple
+  # clients — most importantly the realm-level `users.impersonate` perm,
+  # which both `caipe-slack-bot` and `caipe-webex-bot` need. Keycloak
+  # creates these scope-permissions with `decisionStrategy=UNANIMOUS`
+  # by default. Once we attach a second per-client policy (e.g. the
+  # Webex bot's policy after the Slack bot's), UNANIMOUS means EVERY
+  # attached policy must vote allow — so the Slack bot's exchange gets
+  # a DENY vote from the Webex bot's `clients=[caipe-webex-bot]` policy
+  # and Keycloak rejects with:
+  #
+  #   {"error":"access_denied","error_description":"Client not allowed
+  #    to exchange"}        (or "...not allowed to impersonate")
+  #
+  # AFFIRMATIVE means any single allow vote is enough, which matches
+  # the "either-bot-may-impersonate" intent these client policies
+  # encode. The caipe-platform OBO-target perm is already AFFIRMATIVE
+  # in fresh realms; we just align everything we touch with that.
+  #
+  # Refs: docs/docs/security/rbac/architecture.md (Component 1) and
+  # the Keycloak Authorization Services guide on scope-based permissions.
+  UPDATED_PERMISSION_JSON=$(PERMISSION_REALM_MANAGEMENT_ID="${PERMISSION_REALM_MANAGEMENT_ID}" \
+    PERMISSION_ID="${PERMISSION_ID}" \
+    KC_URL="${KC_URL}" \
+    REALM="${REALM}" \
+    AUTH_HEADER="${AUTH}" \
+    POLICY_ID="${POLICY_ID}" \
+    python3 - <<'PYEOF' 2>/dev/null
 import json
 import os
+import urllib.request
 
-permission = json.loads(os.environ["PERMISSION_JSON"])
-associated = json.loads(os.environ.get("ASSOCIATED_POLICIES_JSON") or "[]")
+base = (
+    f"{os.environ['KC_URL']}/admin/realms/{os.environ['REALM']}/"
+    f"clients/{os.environ['PERMISSION_REALM_MANAGEMENT_ID']}/"
+    f"authz/resource-server/permission/scope/{os.environ['PERMISSION_ID']}"
+)
+hdrs = {"Authorization": os.environ["AUTH_HEADER"].split(": ", 1)[1]}
+
+
+def _get(url):
+    req = urllib.request.Request(url, headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
+
+
+permission = _get(base) or {}
+associated = _get(f"{base}/associatedPolicies") or []
 policies = []
 for policy_id in permission.get("policies") or []:
     if policy_id not in policies:
@@ -802,13 +844,18 @@ for policy in associated:
 if os.environ["POLICY_ID"] not in policies:
     policies.append(os.environ["POLICY_ID"])
 permission["policies"] = policies
+# See banner comment above: AFFIRMATIVE matches the
+# "any-attached-client-policy-may-pass" intent and prevents the
+# Webex/Slack bot cross-DENY when both share a perm.
+permission["decisionStrategy"] = "AFFIRMATIVE"
 print(json.dumps(permission))
-' 2>/dev/null)
+PYEOF
+)
   if [ -n "${UPDATED_PERMISSION_JSON}" ]; then
     curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
       "${KC_URL}/admin/realms/${REALM}/clients/${PERMISSION_REALM_MANAGEMENT_ID}/authz/resource-server/permission/scope/${PERMISSION_ID}" \
       -d "${UPDATED_PERMISSION_JSON}" >/dev/null \
-      && echo "[init-idp]   Attached policy to ${ATTACH_LABEL} ${PERMISSION_ID}."
+      && echo "[init-idp]   Attached policy to ${ATTACH_LABEL} ${PERMISSION_ID} (AFFIRMATIVE)."
   fi
 }
 

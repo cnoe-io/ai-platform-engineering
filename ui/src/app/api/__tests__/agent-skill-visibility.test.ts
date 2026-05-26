@@ -38,6 +38,20 @@ jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
 }));
 
+// `requireResourcePermission` (added by 098-enterprise-rbac for skill
+// visibility / share gates) calls `checkOpenFgaTuple`. Default-allow so
+// these tests just exercise the route's own visibility validation.
+// `writeOpenFgaTupleDiff` is invoked by `grantSkillsToTeams` for team
+// visibility creates; stub it out so the tests don't touch the real PDP.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+  writeOpenFgaTupleDiff: jest
+    .fn()
+    .mockResolvedValue({ writes: 0, deletes: 0, enabled: false }),
+  writeOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
+  deleteOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
+}));
+
 function createMockCollection() {
   const findReturnValue = {
     project: jest.fn().mockReturnValue({
@@ -67,6 +81,7 @@ function userSession(email = "user@example.com") {
   return {
     user: { email, name: "Test User" },
     role: "user",
+    sub: "user-sub",
   };
 }
 
@@ -74,6 +89,7 @@ function adminSession() {
   return {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
+    sub: "admin-sub",
   };
 }
 

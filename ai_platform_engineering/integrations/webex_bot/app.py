@@ -32,6 +32,12 @@ REASON_WORKSPACE_UNCONFIGURED = "WEBEX_WORKSPACE_UNCONFIGURED"
 REASON_SPACE_TEAM_NOT_FOUND = "WEBEX_SPACE_TEAM_NOT_FOUND"
 REASON_OBO_FAILED = "WEBEX_OBO_FAILED"
 REASON_DISPATCH_ALLOWED = "WEBEX_DISPATCH_ALLOWED"
+# Phase 2 (spec 2026-05-24): the text was a personal bot command
+# (``list`` / ``use`` / ``help`` / ``use default``). The command
+# handler has already replied; we short-circuit BEFORE route +
+# ReBAC so a non-mapped space still gets a useful response and
+# doesn't trip the "space not mapped" deny.
+REASON_COMMAND_HANDLED = "WEBEX_COMMAND_HANDLED"
 
 
 @dataclass(frozen=True)
@@ -45,6 +51,12 @@ class ParsedWebexEvent:
     message_id: Optional[str] = None
     thread_parent_id: Optional[str] = None
     webex_room_id: Optional[str] = None
+    # Phase 2 (spec 2026-05-24): True when the originating Webex room is
+    # a 1:1 direct conversation (``roomType == "direct"``). The DM
+    # dispatch resolver and the ``use <agent>`` command require this
+    # signal because they're personal surfaces — they MUST refuse to
+    # change behavior in a shared group space.
+    is_direct: bool = False
 
 
 @dataclass(frozen=True)
@@ -62,7 +74,7 @@ class WebexMessageResult:
     linking_url: Optional[str] = None
     deny_message: Optional[str] = None
     rebac_reason: Optional[str] = None
-    active_team: Optional[str] = None
+    team_slug: Optional[str] = None
     agent_id: Optional[str] = None
     keycloak_user_id: Optional[str] = None
 
@@ -84,10 +96,12 @@ class TeamResolverProtocol(Protocol):
 
 
 class OboExchangerProtocol(Protocol):
-    async def impersonate(
-        self, keycloak_user_id: str, *, active_team: str
-    ) -> OboToken:
-        """Mint an on-behalf-of token for the given Keycloak user / team."""
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
+        """Mint an on-behalf-of token for the given Keycloak user.
+
+        Phase 2 (spec 2026-05-24): OBO is team-agnostic. Team scope is
+        derived downstream from space context.
+        """
         raise NotImplementedError
 
 
@@ -98,7 +112,7 @@ class RebacCheckerProtocol(Protocol):
         workspace_id: str,
         space_id: str,
         agent_id: str,
-        active_team: Optional[str],
+        team_slug: Optional[str],
         obo_token: str,
     ) -> WebexSpaceRebacDecision:
         """Decide whether the caller may invoke ``agent_id`` in this space."""
@@ -115,6 +129,36 @@ class RouteResolverProtocol(Protocol):
         text: str,
     ) -> WebexRouteResolution:
         """Resolve the agent route to dispatch this message to."""
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class WebexCommandHandled:
+    """Sentinel result returned by a :class:`CommandHandlerProtocol` when a
+    user's message was intercepted as a bot command and already replied to.
+    The runtime gate short-circuits dispatch when this is returned.
+    """
+
+    code: str
+    """Stable machine-readable code (``help``, ``list_ok``, ``use_ok`` …)."""
+
+
+class CommandHandlerProtocol(Protocol):
+    """Protocol for the personal-DM command handler.
+
+    Implementations parse ``parsed.text``, post any reply directly via the
+    Webex API, and return :class:`WebexCommandHandled` when the message
+    was treated as a command. Returning ``None`` means "not a command,
+    fall through to normal route + dispatch".
+    """
+
+    async def maybe_handle(
+        self,
+        *,
+        parsed: ParsedWebexEvent,
+        keycloak_user_id: str,
+        bearer_token: str,
+    ) -> Optional[WebexCommandHandled]:
         raise NotImplementedError
 
 
@@ -215,6 +259,18 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
         event.get("isSelf"),
     )
 
+    # Webex tells us the room type via ``roomType`` on the webhook
+    # payload. ``direct`` means a 1:1 conversation with the bot;
+    # anything else (``group``) means a shared space.
+    raw_room_type = (
+        data.get("roomType")
+        or data.get("room_type")
+        or event.get("roomType")
+        or event.get("room_type")
+        or ""
+    )
+    is_direct = isinstance(raw_room_type, str) and raw_room_type.strip().lower() == "direct"
+
     if not isinstance(person_id, str) or not person_id.strip():
         return None
     if not isinstance(raw_space_id, str) or not raw_space_id.strip():
@@ -242,6 +298,7 @@ def parse_webex_event(event: dict[str, Any]) -> Optional[ParsedWebexEvent]:
             str(thread_parent_id).strip() if isinstance(thread_parent_id, str) else None
         ),
         webex_room_id=public_room_id,
+        is_direct=is_direct,
     )
 
 
@@ -252,7 +309,7 @@ def _deny(
     linking_url: Optional[str] = None,
     rebac_reason: Optional[str] = None,
     keycloak_user_id: Optional[str] = None,
-    active_team: Optional[str] = None,
+    team_slug: Optional[str] = None,
 ) -> WebexMessageResult:
     return WebexMessageResult(
         allowed=False,
@@ -263,7 +320,7 @@ def _deny(
         linking_url=linking_url,
         rebac_reason=rebac_reason,
         keycloak_user_id=keycloak_user_id,
-        active_team=active_team,
+        team_slug=team_slug,
     )
 
 
@@ -277,8 +334,8 @@ def _ignore(reason_code: str) -> WebexMessageResult:
 
 
 class _DefaultOboExchanger:
-    async def impersonate(self, keycloak_user_id: str, *, active_team: str) -> OboToken:
-        return await impersonate_user(keycloak_user_id, active_team=active_team)
+    async def impersonate(self, keycloak_user_id: str) -> OboToken:
+        return await impersonate_user(keycloak_user_id)
 
 
 class _WebexAgentRouteResolver:
@@ -311,6 +368,7 @@ async def handle_webex_message(
     obo_exchanger: OboExchangerProtocol | None = None,
     rebac_checker: RebacCheckerProtocol | None = None,
     route_resolver: RouteResolverProtocol | None = None,
+    command_handler: CommandHandlerProtocol | None = None,
     dispatcher: Optional[DispatchFn] = None,
     bot_person_id: Optional[str] = None,
     tenant_id: str = "default",
@@ -461,15 +519,17 @@ async def handle_webex_message(
             keycloak_user_id=keycloak_user_id,
         )
 
-    active_team = team_resolution.team_slug
+    team_slug = team_resolution.team_slug
 
     try:
-        obo_token = await obo.impersonate(keycloak_user_id, active_team=active_team)
+        # Phase 2 (spec 2026-05-24): OBO is team-agnostic. We still pass
+        # `team_slug` into the ReBAC checker below to enforce the
+        # channel-team binding, but the token itself doesn't carry it.
+        obo_token = await obo.impersonate(keycloak_user_id)
     except (OboExchangeError, ValueError) as exc:
         logger.error(
-            "Webex OBO impersonation failed for user=%s active_team=%s (type=%s)",
+            "Webex OBO impersonation failed for user=%s (type=%s)",
             keycloak_user_id,
-            active_team,
             type(exc).__name__,
         )
         log_webex_authz_decision(
@@ -485,8 +545,45 @@ async def handle_webex_message(
             REASON_OBO_FAILED,
             deny_message=TEAM_SESSION_UNAVAILABLE_MESSAGE,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
+
+    # Phase 2 (spec 2026-05-24): personal-DM commands intercept BEFORE
+    # route resolution so a user in an unmapped 1:1 space can still run
+    # ``help`` / ``list`` / ``use``. The handler posts the ephemeral
+    # reply itself (Webex has no native ephemeral, so it DMs the user
+    # back); we just short-circuit dispatch on the truthy sentinel.
+    if command_handler is not None:
+        try:
+            command_outcome = await command_handler.maybe_handle(
+                parsed=parsed,
+                keycloak_user_id=keycloak_user_id,
+                bearer_token=obo_token.access_token,
+            )
+        except Exception as exc:  # noqa: BLE001 — never fail the gate on cmd errors
+            logger.warning(
+                "Webex command handler raised (type=%s); ignoring and falling through",
+                type(exc).__name__,
+            )
+            command_outcome = None
+        if command_outcome is not None:
+            log_webex_authz_decision(
+                tenant_id=tenant_id,
+                sub=keycloak_user_id,
+                outcome="allow",
+                reason_code=REASON_COMMAND_HANDLED,
+                webex_person_id=parsed.person_id,
+                webex_space_id=parsed.space_id,
+            )
+            return WebexMessageResult(
+                allowed=True,
+                dispatched=False,
+                ignored=False,
+                reason_code=REASON_COMMAND_HANDLED,
+                keycloak_user_id=keycloak_user_id,
+                team_slug=team_slug,
+                agent_id=None,
+            )
 
     route = await routes.resolve_route(
         workspace_id=parsed.workspace_id,
@@ -508,14 +605,14 @@ async def handle_webex_message(
             "WEBEX_ROUTE_DENIED",
             deny_message=route.deny_message,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
 
     rebac_decision = rebac.check_agent_access(
         workspace_id=parsed.workspace_id,
         space_id=parsed.space_id,
         agent_id=agent_id,
-        active_team=active_team,
+        team_slug=team_slug,
         obo_token=obo_token.access_token,
     )
     if not rebac_decision.allowed:
@@ -541,7 +638,7 @@ async def handle_webex_message(
             ),
             rebac_reason=rebac_decision.reason,
             keycloak_user_id=keycloak_user_id,
-            active_team=active_team,
+            team_slug=team_slug,
         )
 
     if dispatcher is not None:
@@ -552,7 +649,7 @@ async def handle_webex_message(
                 "workspace_id": parsed.workspace_id,
                 "text": parsed.text,
                 "keycloak_user_id": keycloak_user_id,
-                "active_team": active_team,
+                "team_slug": team_slug,
                 "agent_id": agent_id,
                 "obo_token": obo_token.access_token,
                 "message_id": parsed.message_id,
@@ -576,6 +673,6 @@ async def handle_webex_message(
         ignored=False,
         reason_code=REASON_DISPATCH_ALLOWED,
         keycloak_user_id=keycloak_user_id,
-        active_team=active_team,
+        team_slug=team_slug,
         agent_id=agent_id,
     )

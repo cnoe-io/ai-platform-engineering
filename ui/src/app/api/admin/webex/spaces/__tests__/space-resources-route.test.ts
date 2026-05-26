@@ -10,9 +10,14 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
-const mockEnsureTeamClientScope = jest.fn();
+// Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
+// space onboarding flow no longer calls `ensureTeamClientScope` or
+// `selectAgentGatewayActiveTeamScope` — team identity is derived
+// from the channel→team mapping at message time, not from a
+// per-team Keycloak client scope. Those mocks have been removed
+// below.
 const mockEnsureWebexBotOboPermissions = jest.fn();
-const mockSelectAgentGatewayActiveTeamScope = jest.fn();
+// (See the Phase 3 comment above the removed mockEnsureTeamClientScope declaration.)
 const mockCallWebexBotAdmin = jest.fn();
 
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
@@ -30,10 +35,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
-  ensureTeamClientScope: (...args: unknown[]) => mockEnsureTeamClientScope(...args),
   ensureWebexBotOboPermissions: (...args: unknown[]) => mockEnsureWebexBotOboPermissions(...args),
-  selectAgentGatewayActiveTeamScope: (...args: unknown[]) =>
-    mockSelectAgentGatewayActiveTeamScope(...args),
   isValidTeamSlug: (slug: string) => /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(slug),
 }));
 
@@ -176,9 +178,9 @@ beforeEach(() => {
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
-  mockEnsureTeamClientScope.mockResolvedValue(undefined);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): no team
+  // client-scope mock to reset — the helper is gone.
   mockEnsureWebexBotOboPermissions.mockResolvedValue(undefined);
-  mockSelectAgentGatewayActiveTeamScope.mockResolvedValue(undefined);
   mockCallWebexBotAdmin.mockResolvedValue({ reloaded: "space" });
   mockCollections[RBAC_COLLECTION_NAMES.webexSpaceGrants] = createMockCollection([]);
 });
@@ -448,9 +450,12 @@ describe("Webex space ReBAC resource APIs", () => {
       agent_id: "agent-sri-demo-agent",
       listen: "all",
     });
-    expect(mockEnsureTeamClientScope).toHaveBeenCalledWith("platform");
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
+    // space onboarding flow no longer touches Keycloak team scopes,
+    // so the `mockEnsureTeamClientScope` and
+    // `mockSelectAgentGatewayActiveTeamScope` assertions were
+    // removed with their helpers. OBO permissions are still wired up.
     expect(mockEnsureWebexBotOboPermissions).toHaveBeenCalled();
-    expect(mockSelectAgentGatewayActiveTeamScope).toHaveBeenCalledWith("platform");
     expect(mockCollections[RBAC_COLLECTION_NAMES.webexSpaceTeamMappings].updateOne).toHaveBeenCalledWith(
       {
         webex_workspace_id: workspaceAlias,

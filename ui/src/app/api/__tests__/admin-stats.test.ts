@@ -49,6 +49,16 @@ jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
 
+// Admin route handlers were retrofitted with the OpenFGA-backed
+// `requireAdminSurfaceManage`/`requireBaselineAdminSurfaceRead` gates from
+// `@/lib/rbac/require-openfga`, which calls `checkOpenFgaTuple` and rejects
+// any session without `sub`. Mock it so tests can drive allow/deny per
+// `tuple.user`.
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz'
 ).checkPermission;
@@ -121,6 +131,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    sub: 'admin-user-sub',
     accessToken: accessTokenWithRoles(['admin']),
   };
 }
@@ -133,6 +144,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    sub: 'regular-user-sub',
     accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
@@ -146,6 +158,12 @@ function resetMocks() {
     allowed: false,
     reason: 'DENY_NO_CAPABILITY',
   });
+  // Default: only `user:admin-user-sub` passes the OpenFGA ReBAC gate.
+  // Tests can override per-case with `mockCheckOpenFgaTuple.mockResolvedValueOnce(...)`.
+  mockCheckOpenFgaTuple.mockReset();
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-user-sub',
+  }));
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -213,7 +231,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   // ────────────────────────────────────────────────────────────────────────
@@ -246,7 +264,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns 403 when MongoDB has admin role but realm_access does not (Mongo fallback NOT honored by RBAC)', async () => {
@@ -266,7 +284,7 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

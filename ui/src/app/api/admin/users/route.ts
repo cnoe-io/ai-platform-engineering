@@ -20,7 +20,7 @@ import {
   type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
 
-type AdminUsersListItem = {
+type AdminUsersListBase = {
   id: string;
   username: string;
   email: string;
@@ -30,11 +30,16 @@ type AdminUsersListItem = {
   attributes: Record<string, string[]>;
   slack_link_status: "linked" | "pending" | "unlinked";
   webex_link_status: "linked" | "unlinked";
+};
+
+type AdminUsersListWithRoles = AdminUsersListBase & {
   roles: string[];
   raw_roles: string[];
   role_classifications: RealmRoleClassification[];
   hidden_role_count: number;
 };
+
+type AdminUsersListItem = AdminUsersListBase | AdminUsersListWithRoles;
 
 function parseBoolParam(v: string | null): boolean | undefined {
   if (v === null || v === "") return undefined;
@@ -138,15 +143,12 @@ async function loadTeamMemberEmails(teamId: string): Promise<Set<string>> {
   return emails;
 }
 
-async function enrichListRow(
+function mapBaseRow(
   u: Record<string, unknown>,
   pendingSlackIds: Set<string>
-): Promise<AdminUsersListItem> {
-  const id = String(u.id ?? "");
-  const roleRows = await listRealmRoleMappingsForUser(id);
-  const curatedRoles = curateRealmRolesForUser(roleRows.map((r) => r.name));
+): AdminUsersListBase {
   return {
-    id,
+    id: String(u.id ?? ""),
     username: String(u.username ?? ""),
     email: String(u.email ?? ""),
     firstName:
@@ -156,6 +158,25 @@ async function enrichListRow(
     attributes: normalizeAttributes(u.attributes),
     slack_link_status: getSlackLinkStatus(u, pendingSlackIds),
     webex_link_status: getWebexLinkStatus(u),
+  };
+}
+
+// Per-user role enrichment is opt-in via `?includeRoles=true`. Each call adds
+// one Keycloak Admin REST round-trip (`/users/{id}/role-mappings/realm`), so
+// with default pageSize=20 we previously fanned out to 20 extra calls per
+// list request. The UI list table does not render role fields; callers that
+// need them (detail panel) use `/api/admin/users/[id]/roles` instead.
+async function enrichListRow(
+  u: Record<string, unknown>,
+  pendingSlackIds: Set<string>,
+  includeRoles: boolean
+): Promise<AdminUsersListItem> {
+  const base = mapBaseRow(u, pendingSlackIds);
+  if (!includeRoles) return base;
+  const roleRows = await listRealmRoleMappingsForUser(base.id);
+  const curatedRoles = curateRealmRolesForUser(roleRows.map((r) => r.name));
+  return {
+    ...base,
     ...curatedRoles,
   };
 }
@@ -198,13 +219,27 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     () => false
   );
 
+  const url = new URL(request.url);
+  // Per-user role enrichment is opt-in. The Users-tab table, the team
+  // typeaheads, the simulation picker, and the ReBAC graph filters do not
+  // render role fields; they should not pay for N extra Keycloak round-trips
+  // per page. Callers that need role data either pass `?includeRoles=true`
+  // or use the per-user `/api/admin/users/[id]/roles` endpoint.
+  const includeRolesRaw = (url.searchParams.get("includeRoles") ?? "").trim().toLowerCase();
+  const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
+
   if (!hasAdminView) {
     const subject = typeof session.sub === "string" ? session.sub : "";
     if (!subject) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
     const pendingSlackIds = await loadPendingSlackIds();
-    const self = await enrichListRow(await getRealmUserById(subject), pendingSlackIds);
+    // Self-scoped fallback always includes roles; cost is one user.
+    const self = await enrichListRow(
+      await getRealmUserById(subject),
+      pendingSlackIds,
+      true
+    );
     return NextResponse.json({
       users: [self],
       total: 1,
@@ -214,7 +249,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     });
   }
 
-  const url = new URL(request.url);
     const search = (url.searchParams.get("search") ?? "").trim() || undefined;
     const role = (url.searchParams.get("role") ?? "").trim() || undefined;
     const team = (url.searchParams.get("team") ?? "").trim() || undefined;
@@ -302,7 +336,9 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         max: pageSize,
       });
       const total = await countRealmUsers({ search, enabled });
-      const users = await Promise.all(raw.map((row) => enrichListRow(row, pendingSlackIds)));
+      const users = await Promise.all(
+        raw.map((row) => enrichListRow(row, pendingSlackIds, includeRoles))
+      );
       return NextResponse.json({
         users,
         total,
@@ -337,7 +373,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       for (const row of batch) {
         if (!(await userMatchesFilters(row, filterOpts))) continue;
         if (matchCount >= skip && pageRows.length < pageSize) {
-        pageRows.push(await enrichListRow(row, pendingSlackIds));
+          pageRows.push(await enrichListRow(row, pendingSlackIds, includeRoles));
         }
         matchCount += 1;
       }

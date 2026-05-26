@@ -10,10 +10,7 @@ import {
   ApiError,
 } from '@/lib/api-middleware';
 import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
-import {
-  ensureTeamClientScope,
-  isValidTeamSlug,
-} from '@/lib/rbac/keycloak-admin';
+import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
 import {
   mongoRoleToOpenFgaRelations,
@@ -166,24 +163,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     const result = await teams.insertOne(team);
 
-    // Materialize the per-team Keycloak client scope BEFORE returning success.
-    // If this fails we delete the Mongo doc so we don't leave a team without a
-    // scope (which would break OBO token-exchange for that team's channels).
-    // We deliberately do NOT swallow the error: the admin needs to see it.
-    try {
-      await ensureTeamClientScope(slug);
-    } catch (err) {
-      console.error(
-        `[Admin] Failed to create Keycloak client scope for team ${slug}; rolling back Mongo insert:`,
-        err
-      );
-      await teams.deleteOne({ _id: result.insertedId });
-      throw new ApiError(
-        "We couldn't finish setting up this team. Please try again. If it still fails, " +
-          'open Security & Policy, run Reconcile now, and retry creating the team.',
-        502
-      );
-    }
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the per-team
+    // Keycloak client scope. Team identity is now derived from the
+    // channel→team mapping at message time, not from a baked-in `active_team`
+    // JWT claim, so the BFF no longer needs to touch Keycloak when a team is
+    // created. The remaining work is OpenFGA tuple sync below.
 
     // Sync OpenFGA + team_membership_sources for every member in the new
     // team. This is the step that the original implementation forgot to do

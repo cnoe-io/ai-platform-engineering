@@ -51,6 +51,15 @@ jest.mock("@/lib/rbac/skill-team-grants", () => ({
   grantSkillsToTeams: (...args: unknown[]) => mockGrantSkillsToTeams(...args),
 }));
 
+// 098-enterprise-rbac added a `requireAdminSurfaceManage` PDP gate via
+// `requireDerivedTuple → checkOpenFgaTuple`. Without OpenFGA configured the
+// gate throws ApiError(503 PDP_UNAVAILABLE), which the test sees as
+// `status: 503`. Mock OpenFGA permissively so the test focuses on the
+// team-grant behaviour.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
 function makeRequest(): Request {
   return new Request("http://localhost/api/skill-hubs/hub-1/refresh", {
     method: "POST",

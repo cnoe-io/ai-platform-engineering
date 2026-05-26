@@ -172,7 +172,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ steps.app-token.outputs.token }}
+          password: ${{ github.token }}
 
       - name: Extract metadata for Docker
         id: meta
@@ -296,7 +296,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ steps.app-token.outputs.token }}
+          password: ${{ github.token }}
 
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'

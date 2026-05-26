@@ -397,6 +397,30 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
       expect(screen.getByTestId('spinner')).toBeInTheDocument();
     });
+
+    it('does not eagerly fetch /api/admin/users during loadAdminData', async () => {
+      // Regression: loadAdminData() used to fetch /api/admin/users in its
+      // Promise.all and then discard the result. With 1000+ realm users this
+      // added several seconds of Keycloak round-trips to the first paint of
+      // every admin tab — even tabs that have nothing to do with users.
+      // UserManagementTab now owns the only first-paint /api/admin/users
+      // call, and only when the Users tab is the active tab.
+      currentSearchParams = new URLSearchParams('cat=settings&tab=settings');
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+      });
+
+      const userListCalls = fetchMock.mock.calls.filter(([url]) => {
+        if (typeof url !== 'string') return false;
+        // Match /api/admin/users and /api/admin/users?... but not
+        // /api/admin/users/{id}/... or /api/admin/users/stats.
+        return /\/api\/admin\/users(\?|$)/.test(url);
+      });
+      expect(userListCalls).toEqual([]);
+    });
   });
 
   describe('Error state', () => {

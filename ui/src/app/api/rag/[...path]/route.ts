@@ -181,9 +181,10 @@ async function getAuthorizedRagContext(
   if (session.org) {
     headers['X-Tenant-Id'] = session.org;
   }
-  // Spec 104: team scope is now carried by the `active_team` JWT claim,
-  // not the X-Team-Id header. The RAG server reads it directly from the
-  // bearer token via its JwtAuthMiddleware.
+  // Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
+  // X-Team-Id header AND the `active_team` JWT claim. RAG derives the
+  // user's team membership from OpenFGA at request time using the
+  // bearer-token subject (see `_kb_cel_context` on the server side).
   return { headers, session, pendingKnowledgeBaseOwnership };
 }
 

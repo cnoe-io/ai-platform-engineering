@@ -12,7 +12,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from '@/lib/api-middleware';
-import { deleteTeamClientScope } from '@/lib/rbac/keycloak-admin';
+import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
 import {
   computeTeamMembershipSyncReport,
@@ -93,7 +93,6 @@ export const PATCH = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
@@ -105,6 +104,13 @@ export const PATCH = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+
+    // Issue #1509: gate edits behind requireTeamMembershipManagementPermission
+    // so scoped team admins (members with role=owner|admin) can rename or
+    // update their own team without holding the platform-wide
+    // `organization:<org>#admin` tuple. Platform admins still bypass via
+    // `admin_ui#admin`.
+    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
 
     const update: Record<string, any> = { updated_at: new Date() };
 
@@ -144,7 +150,6 @@ export const DELETE = withErrorHandler(async (
   if (mongoCheck) return mongoCheck;
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'team', 'manage');
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
@@ -154,6 +159,10 @@ export const DELETE = withErrorHandler(async (
     if (!team) {
       throw new ApiError('Team not found', 404);
     }
+
+    // Issue #1509: scoped team admins can delete their own team. Platform
+    // admins still bypass via `admin_ui#admin`.
+    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
 
     // Remove team references from conversations shared_with_teams
     try {
@@ -168,22 +177,11 @@ export const DELETE = withErrorHandler(async (
 
     await teams.deleteOne({ _id: teamId });
 
-    // Best-effort delete of the per-team Keycloak client scope. We don't
-    // roll the Mongo delete back if this fails — the team is gone, and a
-    // dangling scope only matters next time someone reuses the slug
-    // (`ensureTeamClientScope` will reuse-and-validate the existing scope).
-    // We do log loudly so an operator can clean up.
+    // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Keycloak
+    // per-team client scope no longer exists, so team deletion is a pure
+    // Mongo + OpenFGA operation. The feature was never released, so no
+    // realm has stale `team-<slug>` scopes to clean up.
     const slug = typeof team.slug === 'string' ? team.slug : '';
-    if (slug) {
-      try {
-        await deleteTeamClientScope(slug);
-      } catch (err) {
-        console.error(
-          `[Admin] Team ${params.id} (slug=${slug}) deleted from Mongo but Keycloak scope cleanup failed:`,
-          err
-        );
-      }
-    }
 
     console.log(`[Admin] Team deleted: ${team.name} (${params.id}, slug=${slug}) by ${user.email}`);
 

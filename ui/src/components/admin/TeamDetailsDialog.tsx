@@ -1631,7 +1631,13 @@ export function TeamDetailsDialog({
                   </p>
                 ) : (
                   sortedMembers.map((member) => {
-                    const memberSources = sourcesByMember[member.user_id.toLowerCase()] ?? [];
+                    // Only surface currently-active provenance to operators. Non-active
+                    // rows (status="removed") are an audit-trail artefact: when a user is
+                    // removed and later re-added they otherwise show up next to the active
+                    // badge as a confusing "Manual: Removed" pill alongside "Manual".
+                    // See team-membership-source-store.markTeamMembershipSourceRemoved.
+                    const memberSources = (sourcesByMember[member.user_id.toLowerCase()] ?? [])
+                      .filter((source) => source.status === "active");
                     const syncEntry = syncByMember[member.user_id.toLowerCase()];
                     const syncBadge = syncEntry
                       ? syncBadgeAppearance(syncEntry.status)

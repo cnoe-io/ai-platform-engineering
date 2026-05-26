@@ -14,11 +14,12 @@ from ai_platform_engineering.integrations.webex_bot.utils.webex_rebac import (
 )
 
 
-def test_build_team_member_subject_uses_active_team_slug() -> None:
+def test_build_team_member_subject_uses_team_slug() -> None:
     assert build_team_member_subject("platform-engineering") == (
         "team:platform-engineering#member"
     )
-    assert build_team_member_subject("__personal__") is None
+    # Empty string and None both mean "no team scope" — DM / unmapped space.
+    assert build_team_member_subject("") is None
     assert build_team_member_subject(None) is None
 
 
@@ -39,7 +40,7 @@ def test_space_agent_check_posts_resource_and_subject() -> None:
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
-        active_team="platform-engineering",
+        team_slug="platform-engineering",
         obo_token="obo-token",
     )
 
@@ -71,7 +72,7 @@ def test_space_agent_check_denies_when_space_grant_missing() -> None:
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
-        active_team="platform-engineering",
+        team_slug="platform-engineering",
         obo_token="obo-token",
     )
 
@@ -90,7 +91,7 @@ def test_space_agent_check_fail_closed_on_http_failure() -> None:
             workspace_id="CAIPE-WEBEX",
             space_id="space-abc",
             agent_id="incident-agent",
-            active_team="platform-engineering",
+            team_slug="platform-engineering",
             obo_token="obo-token",
         )
 
@@ -106,7 +107,7 @@ def test_space_agent_check_fail_closed_when_bff_url_unconfigured() -> None:
         workspace_id="CAIPE-WEBEX",
         space_id="space-abc",
         agent_id="incident-agent",
-        active_team="platform-engineering",
+        team_slug="platform-engineering",
         obo_token="obo-token",
     )
     assert decision.allowed is False

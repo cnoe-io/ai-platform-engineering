@@ -25,18 +25,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=server/pyproject.toml,target=pyproject.toml \
     if [ "$VARIANT" = "huggingface" ]; then \
       echo "Installing with huggingface extra (includes PyTorch)..." && \
-      UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev --extra huggingface; \
+      UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev --extra huggingface; \
     else \
       echo "Installing default (slim) variant..." && \
-      UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev; \
+      UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev; \
     fi
 
 COPY server .
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$VARIANT" = "huggingface" ]; then \
-      UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev --extra huggingface; \
+      UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev --extra huggingface; \
     else \
-      UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev; \
+      UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev; \
     fi
 
 # Cleanup step - remove unnecessary files from .venv to reduce image size

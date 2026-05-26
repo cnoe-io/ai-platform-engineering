@@ -1320,6 +1320,8 @@ export function SlackChannelRebacPanel({
         {!selfService && (
         <ConnectorOnboardingWizard
           connectorName="Slack"
+          provider="slack"
+          isAdmin={!selfService}
           itemSingular="channel"
           itemPlural="channels"
           discoveredLabel="bot-member channel"

@@ -17,12 +17,12 @@ WORKDIR /app/dynamic_agents
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev
+    UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev
 
 # Copy source code and install project
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
-    UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev
+    UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev
 
 # Patch langchain_aws ChatBedrock._as_converse to forward base_model_id to
 # ChatBedrockConverse. Without this, switching to the Converse API (e.g. when
