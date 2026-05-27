@@ -475,6 +475,187 @@ async function cleanupStaleConfigDriven(
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * Default "Hello World" dynamic agent provisioned on a fresh install when
+ * no other agents exist. Exported for tests; callers should go through
+ * `bootstrapDefaultDynamicAgentIfEmpty()` so they get the empty-collection
+ * guard.
+ *
+ * Notes on the shape:
+ * - `config_driven: false` so admins can edit or delete it through the
+ *   normal Custom Agents UI. The bootstrap is a one-time seed, not a
+ *   policy lock — operators who want a curated default should add their
+ *   agent to the seed YAML and the bootstrap will then no-op (collection
+ *   no longer empty).
+ * - `model: { id: "", provider: "" }` defers model selection to the
+ *   dynamic-agents backend default. Hard-coding a model here would
+ *   couple bootstrap behavior to a specific deployment.
+ * - All four built-in tools enabled with conservative defaults
+ *   (`fetch_url` allow-list `*`, `sleep.max_seconds: 60`). Lock-down
+ *   environments can tighten these via the UI after first login.
+ */
+export const HELLO_WORLD_AGENT_ID = "hello-world";
+
+function buildHelloWorldAgentDoc(now: string): DynamicAgentConfig {
+  return {
+    _id: HELLO_WORLD_AGENT_ID,
+    name: "Hello World",
+    description:
+      "Default starter agent provisioned automatically when no dynamic agents exist. Has all built-in tools enabled (fetch URL, current time, user info, sleep). Edit or delete via the Custom Agents UI.",
+    system_prompt:
+      "You are Hello World, a friendly default assistant for testing and validating CAIPE. You can fetch web content, tell the current time, look up the signed-in user, and pause briefly when asked. Be concise and helpful.",
+    allowed_tools: {},
+    model: { id: "", provider: "" },
+    visibility: "global",
+    subagents: [],
+    skills: [],
+    builtin_tools: {
+      fetch_url: { enabled: true, allowed_domains: "*" },
+      current_datetime: { enabled: true },
+      user_info: { enabled: true },
+      sleep: { enabled: true, max_seconds: 60 },
+    },
+    enabled: true,
+    owner_id: "system",
+    is_system: false,
+    config_driven: false,
+    created_at: now,
+    updated_at: now,
+  } as DynamicAgentConfig;
+}
+
+/**
+ * Provision the "Hello World" default dynamic agent if and only if the
+ * `dynamic_agents` collection is empty. Idempotent and safe to call on
+ * every startup. Returns `true` when an agent was inserted, `false`
+ * otherwise (already populated, MongoDB unavailable, or insert failed).
+ */
+export async function bootstrapDefaultDynamicAgentIfEmpty(): Promise<boolean> {
+  if (!isMongoDBConfigured) return false;
+
+  const collection =
+    await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const existingCount = await collection.countDocuments({});
+  if (existingCount > 0) return false;
+
+  const doc = buildHelloWorldAgentDoc(new Date().toISOString());
+  // Use insertOne to make the empty-collection invariant explicit. If a
+  // racing seedAgents() inserted something between countDocuments() and
+  // here, the unique _id index would already protect us, but a duplicate
+  // key error would still be reported — that's the right signal.
+  try {
+    await collection.insertOne(doc);
+  } catch (err) {
+    // Duplicate-key races are benign — another caller (or the YAML seed)
+    // beat us to it. Anything else is worth surfacing.
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 11000) {
+      console.log(
+        "[seed-config] default dynamic agent already present (race), skipping",
+      );
+      return false;
+    }
+    throw err;
+  }
+  console.log(
+    `[seed-config] Provisioned default dynamic agent: ${HELLO_WORLD_AGENT_ID}`,
+  );
+  return true;
+}
+
+/**
+ * ID of the bootstrap identity-group-sync rule that gets seeded on a fresh
+ * install when IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=true and no rules exist.
+ * Exposed so admins can recognize the seeded rule in the Admin UI / API and
+ * tests can target it.
+ */
+export const AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID = "auto-create-teams-bootstrap";
+
+const AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR =
+  "system:auto-create-teams-bootstrap";
+
+/**
+ * Build the permissive default identity-group-sync rule. One rule that:
+ * - Matches every group claim via `^(?<team>.+)$` so the captured `team`
+ *   substitutes into the templates verbatim.
+ * - Names and slugs the team after the group itself (`{{team}}`); the slug
+ *   normalizer downstream handles casing and special chars.
+ * - Maps every member to `member` (admins still come from
+ *   BOOTSTRAP_ADMIN_EMAILS — silently promoting from claims would be
+ *   surprising and unsafe).
+ * - Has `auto_create_team: true` so the planner is allowed to create teams.
+ * - Sits at `priority: 1000` (higher numeric priority = lower precedence
+ *   per identity-group-rule-matcher.ts:73) so any admin-authored rule
+ *   wins for groups it cares about.
+ *
+ * Exported for tests; production callers should use the
+ * `bootstrapDefaultIdentityGroupSyncRuleIfEmpty()` wrapper which gates on
+ * the env var and the empty-collection invariant.
+ */
+export function buildAutoCreateTeamsBootstrapRule(now: string) {
+  return {
+    id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
+    provider_id: "oidc-claims",
+    name: "Auto-create teams from OIDC group claims (bootstrap)",
+    priority: 1000,
+    enabled: true,
+    review_status: "enabled" as const,
+    include_patterns: ["^(?<team>.+)$"],
+    exclude_patterns: [],
+    team_name_template: "{{team}}",
+    team_slug_template: "{{team}}",
+    role_map: {},
+    auto_create_team: true,
+    created_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR,
+    created_at: now,
+    updated_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR,
+    updated_at: now,
+  };
+}
+
+/**
+ * Provision the bootstrap identity-group-sync rule if and only if:
+ * 1. `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"` (the same opt-in
+ *    that gates the planner's allowTeamCreation; if you're not opting in,
+ *    we don't pre-create policy on your behalf), AND
+ * 2. The `identity_group_sync_rules` collection is empty (any
+ *    admin-curated rules — even unrelated to oidc-claims — are treated as
+ *    "the operator has taken over policy" and we step out of the way).
+ *
+ * Returns `true` on insert, `false` otherwise. Idempotent. Best-effort —
+ * race-conditioned duplicate keys are logged and swallowed.
+ */
+export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<boolean> {
+  if (process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS !== "true") {
+    return false;
+  }
+  if (!isMongoDBConfigured) return false;
+
+  const collection = await getCollection<{ id: string }>(
+    "identity_group_sync_rules",
+  );
+  const existingCount = await collection.countDocuments({});
+  if (existingCount > 0) return false;
+
+  const rule = buildAutoCreateTeamsBootstrapRule(new Date().toISOString());
+  try {
+    await collection.insertOne(rule as { id: string });
+  } catch (err) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 11000) {
+      console.log(
+        "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+      );
+      return false;
+    }
+    throw err;
+  }
+  console.log(
+    `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any OIDC group claim, role=member)`,
+  );
+  return true;
+}
+
+/**
  * Load and apply seed configuration from YAML.
  *
  * Called at server startup via instrumentation.ts to ensure config-driven
@@ -545,6 +726,45 @@ export async function applySeedConfig(): Promise<void> {
     } catch (err) {
       // Log but don't crash — seeding failure shouldn't prevent startup
       console.error("[seed-config] Failed to apply seed config:", err);
+    }
+  }
+
+  // First-run safety net: if the dynamic_agents collection is still empty
+  // after the YAML seed runs (or if the YAML seed was skipped because
+  // APP_CONFIG_PATH was unset), provision a minimal "Hello World" default
+  // agent so freshly installed environments have something usable in the
+  // Custom Agents UI without operator action. Idempotent: only runs when
+  // collection.countDocuments({}) === 0, so any subsequent admin action
+  // (creating a real agent, deleting Hello World) prevents re-seeding.
+  // Best-effort — failures are logged but don't block startup.
+  if (isMongoDBConfigured) {
+    try {
+      await bootstrapDefaultDynamicAgentIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] default dynamic agent bootstrap threw:",
+        err,
+      );
+    }
+  }
+
+  // First-run safety net for login-time team auto-creation. When
+  // IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=true is set, the auth path forwards
+  // allowTeamCreation=true to the planner — but the planner still requires a
+  // matching identity_group_sync_rules row with auto_create_team=true. Without
+  // any rules, the reconciler bails silently at oidc-claim-reconciler.ts:99,
+  // making the env var look broken. Seed one permissive default rule so the
+  // env var actually works out of the box for fresh installs. Idempotent:
+  // only runs when the rules collection is empty, so admin-curated rules are
+  // never overwritten. Best-effort — failures are logged but don't block startup.
+  if (isMongoDBConfigured) {
+    try {
+      await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] default identity-group-sync rule bootstrap threw:",
+        err,
+      );
     }
   }
 
