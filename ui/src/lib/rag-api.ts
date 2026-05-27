@@ -64,9 +64,7 @@ export interface UserInfo {
   email: string;
   role: string;
   is_authenticated: boolean;
-  groups: string[];
   permissions?: PermissionType[];
-  in_trusted_network: boolean;
 }
 
 /**
@@ -367,8 +365,8 @@ export async function getUserInfo(): Promise<UserInfo> {
     // Convert object like {can_read: true, can_ingest: true, can_delete: true} to array
     // Extract keys where value is true, and remove "can_" prefix
     data.permissions = Object.entries(data.permissions)
-      .filter(([_, value]) => value === true)
-      .map(([key, _]) => key.replace(/^can_/, ''));
+      .filter(([, value]) => value === true)
+      .map(([key]) => key.replace(/^can_/, ''));
     
     console.log('[getUserInfo] ✅ Converted permissions to:', data.permissions);
   }

@@ -24,16 +24,14 @@ import { organizationObjectId } from '@/lib/rbac/organization';
  * RAG API Proxy with JWT Bearer Token Authentication
  *
  * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
- * The RAG server validates the JWT token and fetches user claims (email, groups)
- * from the OIDC userinfo endpoint, caching them in Redis.
+ * The RAG server validates the JWT token and uses the subject for OpenFGA
+ * checks. Static IdP/AD groups are not consumed by RAG authorization.
  *
  * Authentication:
  * - Authorization: Bearer {access_token} (OIDC JWT access token)
  *
- * The RAG server uses the access_token to:
- * 1. Authenticate the request (validate JWT signature, expiry, audience)
- * 2. Fetch user claims from OIDC userinfo endpoint (cached in Redis)
- * 3. Determine user role based on group membership
+ * The RAG server uses the access_token to authenticate the caller and
+ * derive OpenFGA subjects for resource checks.
  *
  * This is the standards-compliant OAuth approach - only the access_token is
  * passed downstream, and user claims are fetched server-side from the
@@ -43,8 +41,9 @@ import { organizationObjectId } from '@/lib/rbac/organization';
  *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
- * RBAC (098): Web UI backend enforces Keycloak AuthZ on `rag` before proxying —
- * GET/POST use `query` (read/search); PUT/DELETE use `admin` (098 matrix).
+ * The Web UI backend enforces coarse RAG access before proxying and
+ * checks object-level OpenFGA relationships where the request identifies
+ * a knowledge base, data source, or MCP tool.
  */
 
 function getRagServerUrl(): string {
@@ -84,6 +83,22 @@ function actionForRagRequest(method: string, pathSegments: string[]): ResourcePe
     return 'read';
   }
   return 'admin';
+}
+
+function resourceTypeForRagRequest(pathSegments: string[]): 'data_source' | 'knowledge_base' {
+  const path = pathSegments.join('/').toLowerCase();
+  if (
+    path === 'v1/query' ||
+    path === 'v1/mcp/invoke' ||
+    path.startsWith('v1/ingest/') ||
+    path === 'v1/datasource' ||
+    path.startsWith('v1/datasource/') ||
+    path === 'v1/datasources' ||
+    path.startsWith('v1/datasources/')
+  ) {
+    return 'data_source';
+  }
+  return 'knowledge_base';
 }
 
 function extractKnowledgeBaseId(
@@ -219,7 +234,11 @@ async function getAuthorizedRagContext(
     };
   } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
-    const target = { type: 'knowledge_base' as const, id: kbId, action: actionForRagRequest(method, pathSegments) };
+    const target = {
+      type: resourceTypeForRagRequest(pathSegments),
+      id: kbId,
+      action: actionForRagRequest(method, pathSegments),
+    };
     await requireResourcePermission(authzSession, target, { bypassForOrgAdmin: true });
   }
 
@@ -304,7 +323,7 @@ async function filterDatasourceListResponse(
     session,
     candidates,
     {
-      type: 'knowledge_base',
+      type: 'data_source',
       action: 'read',
       id: datasourceId,
     },
@@ -371,7 +390,7 @@ async function loadReadableDatasourceIds(
     session,
     candidates,
     {
-      type: 'knowledge_base',
+      type: 'data_source',
       action: 'read',
       id: datasourceId,
     },
@@ -386,7 +405,7 @@ function constrainDatasourceFilter(
   allowedDatasourceIds: string[],
 ): Record<string, unknown> {
   if (allowedDatasourceIds.length === 0) {
-    throw new ApiError('No readable knowledge bases are assigned to this user.', 403, 'knowledge_base#read');
+    throw new ApiError('No readable data sources are assigned to this user.', 403, 'data_source#read');
   }
 
   const filters = isRecord(value.filters) ? { ...value.filters } : {};
@@ -394,7 +413,7 @@ function constrainDatasourceFilter(
 
   if (typeof existing === 'string') {
     if (!allowedDatasourceIds.includes(existing)) {
-      throw new ApiError('You do not have permission to search this data source.', 403, 'knowledge_base#read');
+      throw new ApiError('You do not have permission to search this data source.', 403, 'data_source#read');
     }
     filters.datasource_id = existing;
   } else if (Array.isArray(existing)) {
@@ -403,7 +422,7 @@ function constrainDatasourceFilter(
         typeof candidate === 'string' && allowedDatasourceIds.includes(candidate),
     );
     if (intersection.length === 0) {
-      throw new ApiError('You do not have permission to search these data sources.', 403, 'knowledge_base#read');
+      throw new ApiError('You do not have permission to search these data sources.', 403, 'data_source#read');
     }
     filters.datasource_id = intersection.length === 1 ? intersection[0] : intersection;
   } else {
@@ -551,11 +570,8 @@ export async function POST(
 
     const data = await response.json();
     if (response.ok && pendingKnowledgeBaseOwnership) {
-      // Day-zero behavior: data_source:<id> mirrors knowledge_base:<id>.
-      // Because they share the same id today, granting one without the
-      // other would leave the new `data_source` type empty for the
-      // owner team; reconciling both keeps the BFF's `mcp_tool#can_read`
-      // filter consistent with the legacy `knowledge_base#can_read` check.
+      // KB-backed datasources use the same identifier for data_source and
+      // knowledge_base relationships, so keep both resource graphs aligned.
       // assisted-by Cursor claude-opus-4-7
       await reconcileKnowledgeBaseRelationships(pendingKnowledgeBaseOwnership);
       await reconcileDataSourceRelationships({

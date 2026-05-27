@@ -58,8 +58,7 @@ export type UniversalRebacSubjectType =
   | "slack_channel"
   | "webex_space"
   | "external_group"
-  | "service_account"
-  | "anonymous";
+  | "service_account";
 
 export interface UniversalRebacSubjectRef {
   type: UniversalRebacSubjectType;

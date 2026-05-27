@@ -6,7 +6,7 @@ import { authOptions } from '@/lib/auth-config';
  * User Info API Endpoint - Proxy to RAG Server
  *
  * This endpoint proxies to the RAG server's /v1/user/info endpoint.
- * The RAG server determines role and permissions based on JWT Bearer token.
+ * The RAG server derives identity status from the JWT Bearer token when present.
  * 
  * Authentication:
  * - Authorization: Bearer {access_token} (OIDC JWT access token)
@@ -20,14 +20,14 @@ function getRagServerUrl(): string {
          'http://localhost:9446';
 }
 
-async function getRbacHeaders(): Promise<Record<string, string>> {
+async function getRbacHeaders(): Promise<Record<string, string> | null> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
   try {
     const session = await getServerSession(authOptions);
-    
+
     console.log('[User Info] Session state:', {
       hasSession: !!session,
       hasUser: !!session?.user,
@@ -37,12 +37,11 @@ async function getRbacHeaders(): Promise<Record<string, string>> {
       expiresAt: session?.expiresAt ? new Date((session.expiresAt as number) * 1000).toISOString() : 'N/A'
     });
     
-    // Pass JWT access token as Bearer token
-    // RAG server validates JWT and uses it for authentication
     if (session?.accessToken) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
     } else {
-      console.warn('[User Info] ⚠️  No accessToken in session - RAG server will use trusted network or anonymous');
+      console.warn('[User Info] No accessToken in session; RAG user info requires authentication');
+      return null;
     }
 
   } catch (error) {
@@ -56,6 +55,12 @@ export async function GET() {
   const ragServerUrl = getRagServerUrl();
   const targetUrl = `${ragServerUrl}/v1/user/info`;
   const headers = await getRbacHeaders();
+  if (!headers) {
+    return NextResponse.json(
+      { is_authenticated: false, email: 'unauthenticated', permissions: [] },
+      { status: 401 },
+    );
+  }
 
   // Debug logging
   console.log('[User Info] Request headers:', {
