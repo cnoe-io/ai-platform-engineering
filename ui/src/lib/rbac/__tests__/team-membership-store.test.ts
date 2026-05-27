@@ -41,9 +41,6 @@ function findStub(filter: Record<string, unknown>) {
   const matched = fixtureRows.filter(matcher);
   return {
     toArray: async () => matched,
-    [Symbol.asyncIterator]: async function* () {
-      for (const row of matched) yield row;
-    },
   };
 }
 

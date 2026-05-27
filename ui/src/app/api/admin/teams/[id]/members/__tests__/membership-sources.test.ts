@@ -81,9 +81,13 @@ const TEAM = {
 };
 
 function createMockCollection() {
+  // The cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // The team-admin-guard reader (post 2026-05-26 canonical-membership refactor)
+  // calls toArray() directly without sorting.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -184,6 +188,24 @@ describe("manual membership source preservation", () => {
       members: [...TEAM.members, { user_id: "new@example.com", role: "member" }],
     });
     mockCollections.teams = teamsCol;
+    // Post-canonical-membership: team-admin is recognized via the
+    // canonical team_membership_sources store, not team.members[].
+    const sourcesCol = createMockCollection();
+    sourcesCol.find.mockReturnValue({
+      sort: jest
+        .fn()
+        .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      toArray: jest.fn().mockResolvedValue([
+        {
+          team_slug: "platform",
+          user_email: "team-admin@example.com",
+          relationship: "admin",
+          source_type: "manual",
+          status: "active",
+        },
+      ]),
+    });
+    mockCollections.team_membership_sources = sourcesCol;
     const { POST } = await import("../route");
 
     const response = await POST(
