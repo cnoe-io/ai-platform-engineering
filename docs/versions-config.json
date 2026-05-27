@@ -1,39 +1,19 @@
 {
-  "lastVersion": "0.4.12",
+  "lastVersion": "0.5.0",
   "versions": {
     "current": {
       "label": "main 🚧",
       "path": "next",
       "badge": true
     },
-    "0.4.12": {
-      "label": "0.4.12 (Latest)",
+    "0.5.0": {
+      "label": "0.5.0 (Latest)",
       "path": "",
       "badge": false
     },
-    "0.4.11": {
-      "label": "0.4.11",
-      "path": "0.4.11",
-      "badge": false
-    },
-    "0.4.10": {
-      "label": "0.4.10",
-      "path": "0.4.10",
-      "badge": false
-    },
-    "0.4.9": {
-      "label": "0.4.9",
-      "path": "0.4.9",
-      "badge": false
-    },
-    "0.4.8": {
-      "label": "0.4.8",
-      "path": "0.4.8",
-      "badge": false
-    },
-    "0.3.11": {
-      "label": "0.3.11",
-      "path": "0.3.11",
+    "0.4.12": {
+      "label": "0.4.12",
+      "path": "0.4.12",
       "badge": false
     }
   }

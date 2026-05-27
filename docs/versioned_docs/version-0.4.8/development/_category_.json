@@ -1,9 +1,0 @@
-{
-  "label": "Development",
-  "position": 3,
-  "link": {
-    "type": "generated-index",
-    "description": "Developer guides for building agents and MCP servers"
-  }
-}
-
