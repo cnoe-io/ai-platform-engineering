@@ -6,6 +6,7 @@ import {
   deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
+  deriveKnowledgeBaseSharedTeamGrantsPlan,
   deriveOrganizationMembershipPlan,
   deriveSkillHubTeamGrantPlan,
 } from "../registry";
@@ -282,5 +283,87 @@ describe("admin_surface:rag_datasources admin grant migration", () => {
       invalid_subjects: 1,
     });
     expect(plan.warnings.some((w: string) => w.includes("bad sub with space"))).toBe(true);
+  });
+});
+
+describe("knowledge_base shared-team grants migration", () => {
+  it("plans reader+manager tuples for every (team, kb_id) row", () => {
+    const teamSlugByMongoId = new Map<string, string>([
+      ["team-1", "platform"],
+      ["team-2", "data-eng"],
+    ]);
+    const plan = deriveKnowledgeBaseSharedTeamGrantsPlan(
+      [
+        { team_id: "team-1", kb_ids: ["kb-alpha", "kb-beta"] },
+        { team_id: "team-2", kb_ids: ["kb-alpha"] },
+      ],
+      teamSlugByMongoId,
+    );
+
+    expect(plan.counts).toMatchObject({
+      ownership_rows_scanned: 2,
+      ownership_rows_resolved: 2,
+      teams_touched: 2,
+      tuples_planned: 6,
+    });
+    expect(plan.tuple_writes_planned).toBe(6);
+    expect(plan.tuples).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
+        { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-beta" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-beta" },
+        { user: "team:data-eng#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+        { user: "team:data-eng#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
+      ]),
+    );
+  });
+
+  it("dedupes when two ownership rows reference the same (team, kb_id)", () => {
+    const plan = deriveKnowledgeBaseSharedTeamGrantsPlan(
+      [
+        { team_id: "team-1", kb_ids: ["kb-alpha"] },
+        { team_id: "team-1", kb_ids: ["kb-alpha"] },
+      ],
+      new Map([["team-1", "platform"]]),
+    );
+    expect(plan.tuple_writes_planned).toBe(2);
+  });
+
+  it("warns and skips rows whose team_id cannot be resolved to a slug", () => {
+    const plan = deriveKnowledgeBaseSharedTeamGrantsPlan(
+      [
+        { team_id: "team-1", kb_ids: ["kb-alpha"] },
+        { team_id: "unknown-team", kb_ids: ["kb-beta"] },
+      ],
+      new Map([["team-1", "platform"]]),
+    );
+
+    expect(plan.counts).toMatchObject({
+      ownership_rows_scanned: 2,
+      ownership_rows_resolved: 1,
+      teams_touched: 1,
+      unresolved_teams: 1,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("unknown-team"))).toBe(true);
+  });
+
+  it("skips invalid kb_ids with a warning, keeping the remaining rows", () => {
+    const plan = deriveKnowledgeBaseSharedTeamGrantsPlan(
+      [{ team_id: "team-1", kb_ids: ["kb-good", "bad id with spaces"] }],
+      new Map([["team-1", "platform"]]),
+    );
+    expect(plan.counts).toMatchObject({
+      ownership_rows_resolved: 1,
+      invalid_kb_ids: 1,
+      tuples_planned: 2,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("bad id with spaces"))).toBe(true);
+  });
+
+  it("emits an empty plan when no rows exist", () => {
+    const plan = deriveKnowledgeBaseSharedTeamGrantsPlan([], new Map());
+    expect(plan.tuple_writes_planned).toBe(0);
+    expect(plan.tuples).toEqual([]);
   });
 });

@@ -68,6 +68,14 @@ export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_b
 // it writes the same tuples and OpenFGA no-ops on identical writes.
 export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
   "admin_surface_rag_datasources_admin_grant_v1";
+// PR 3 of the 2026-05-27 fine-grained KB ReBAC plan. Walks every existing
+// `team_kb_ownership` doc and writes the canonical `team:<slug>#member
+// reader knowledge_base:<id>` and `team:<slug>#admin manager
+// knowledge_base:<id>` tuples for every (team, kb) row. Catches up KBs that
+// were granted to a team via the Settings → Knowledge Bases UI before
+// PR 3 wired explicit Share-with-Teams. Idempotent.
+export const KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID =
+  "knowledge_base_shared_team_grants_backfill_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -217,6 +225,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     description:
       "Backfill `user:<sub> manager admin_surface:rag_datasources` for every existing org admin so the org-admin super-grant on KB/Search/Data Sources/Graph/MCP Tools no longer relies solely on OpenFGA model inheritance.",
     confirmation: "MIGRATE admin_surfaces TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_kb_ownership",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Knowledge Base team-share grants backfill",
+    description:
+      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>` and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases before PR 3 of the 2026-05-27 fine-grained KB ReBAC plan keeps its access after the new explicit Share-with-Teams panel ships. Idempotent.",
+    confirmation: "MIGRATE team_kb_ownership TO v2",
     required: true,
     implemented: true,
   },
@@ -1002,6 +1024,102 @@ export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
   };
 }
 
+/**
+ * Backfill team-share grants for every KB ownership record.
+ *
+ * Inputs:
+ *  - `ownershipDocs`: rows from the `team_kb_ownership` Mongo collection.
+ *  - `teamSlugByMongoId`: map from each team's Mongo `_id` (as string) to
+ *    its canonical slug. Rows whose team is unknown (or has no slug yet)
+ *    are skipped with a warning so the migration is safe to re-run after
+ *    a team rename.
+ *
+ * The migration emits the same canonical pair the runtime reconciler
+ * writes (`reader` + `manager`) for every (team, kb_id) row, so PR 3
+ * doesn't have to special-case "first-time install vs. existing
+ * deployment" — both converge on the same OpenFGA state.
+ *
+ * assisted-by Cursor claude-opus-4-7
+ */
+export function deriveKnowledgeBaseSharedTeamGrantsPlan(
+  ownershipDocs: Array<Record<string, unknown>>,
+  teamSlugByMongoId: Map<string, string>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let rowsScanned = 0;
+  let rowsResolved = 0;
+  let invalidKbIds = 0;
+  let unresolvedTeams = 0;
+  const teamsTouched = new Set<string>();
+
+  for (const doc of ownershipDocs) {
+    rowsScanned += 1;
+    const teamId = typeof doc.team_id === "string" ? doc.team_id.trim() : "";
+    if (!teamId) continue;
+    const slug = teamSlugByMongoId.get(teamId);
+    if (!slug || !isOpenFgaId(slug)) {
+      unresolvedTeams += 1;
+      warnings.push(`Skipping team_kb_ownership row with unresolved team_id=${teamId}`);
+      continue;
+    }
+    const kbIdsRaw = Array.isArray(doc.kb_ids) ? doc.kb_ids : [];
+    let perRowResolved = false;
+    for (const candidate of kbIdsRaw) {
+      const kbId = typeof candidate === "string" ? candidate.trim() : "";
+      if (!kbId) continue;
+      if (!isOpenFgaId(kbId)) {
+        invalidKbIds += 1;
+        warnings.push(`Skipping team_kb_ownership kb_id=${candidate} (not a valid OpenFGA id)`);
+        continue;
+      }
+      tuples.push({
+        user: `team:${slug}#member`,
+        relation: "reader",
+        object: `knowledge_base:${kbId}`,
+      });
+      tuples.push({
+        user: `team:${slug}#admin`,
+        relation: "manager",
+        object: `knowledge_base:${kbId}`,
+      });
+      perRowResolved = true;
+    }
+    if (perRowResolved) {
+      rowsResolved += 1;
+      teamsTouched.add(slug);
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_kb_ownership",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      ownership_rows_scanned: rowsScanned,
+      ownership_rows_resolved: rowsResolved,
+      teams_touched: teamsTouched.size,
+      unresolved_teams: unresolvedTeams,
+      invalid_kb_ids: invalidKbIds,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE team_kb_ownership TO v2",
+    tuples: unique,
+  };
+}
+
 type MessagingGrantSurface = {
   migrationId: string;
   schemaArea: string;
@@ -1512,6 +1630,51 @@ async function loadAgentSharedTeamGrantInputs() {
 }
 
 /**
+ * Load every `team_kb_ownership` Mongo doc plus a `teamId → slug` map for
+ * the KB shared-team grants backfill. Skips teams whose Mongo `_id` is
+ * unknown (returned in the migration `warnings` instead of failing the
+ * whole plan, mirroring `deriveMessagingRebacPlan`).
+ *
+ * assisted-by Cursor claude-opus-4-7
+ */
+async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
+  ownershipDocs: Array<Record<string, unknown>>;
+  teamSlugByMongoId: Map<string, string>;
+}> {
+  const [ownershipCollection, teamsCollection] = await Promise.all([
+    getCollection("team_kb_ownership"),
+    getCollection("teams"),
+  ]);
+
+  const ownershipDocs = (await ownershipCollection.find({}).toArray()) as Array<
+    Record<string, unknown>
+  >;
+
+  // Best-effort: only resolve teams that have a slug field. The teams
+  // collection's _id is sometimes an ObjectId and sometimes a string;
+  // we coerce both to string so the lookup is uniform.
+  const teamDocs = (await teamsCollection
+    .find({}, { projection: { _id: 1, slug: 1 } } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  const teamSlugByMongoId = new Map<string, string>();
+  for (const doc of teamDocs) {
+    const idValue = (doc as { _id?: unknown })._id;
+    const slug = typeof doc.slug === "string" ? doc.slug.trim() : "";
+    if (!slug) continue;
+    const idString =
+      typeof idValue === "string"
+        ? idValue
+        : idValue && typeof (idValue as { toString?: () => string }).toString === "function"
+          ? (idValue as { toString: () => string }).toString()
+          : "";
+    if (!idString) continue;
+    teamSlugByMongoId.set(idString, slug);
+  }
+
+  return { ownershipDocs, teamSlugByMongoId };
+}
+
+/**
  * PR 1 of the 2026-05-27 fine-grained KB ReBAC plan. Reads every
  * `user:<sub> admin organization:<key>` tuple from OpenFGA so the
  * `admin_surface_rag_datasources_admin_grant_v1` migration can derive
@@ -2004,6 +2167,11 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID) {
     const subjects = await loadOrgAdminSubjects();
     return deriveAdminSurfaceRagDatasourcesAdminGrantPlan(subjects);
+  }
+  if (migrationId === KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId } =
+      await loadKnowledgeBaseSharedTeamGrantsInputs();
+    return deriveKnowledgeBaseSharedTeamGrantsPlan(ownershipDocs, teamSlugByMongoId);
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
