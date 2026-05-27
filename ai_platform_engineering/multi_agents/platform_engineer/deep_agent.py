@@ -57,7 +57,6 @@ from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
-    get_file_line_count,
     tool_result_to_file,
     wait,
 )
@@ -690,24 +689,6 @@ def create_supervisor_user_info_tool():
 # 3. Return SubAgent dict with {name, description, system_prompt, tools}
 # 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
 
-FILESYSTEM_READ_GUIDANCE = """
-
-## Filesystem Reads
-
-When complete file content matters, call `get_file_line_count(file_path=...)`
-before `read_file`. Use the returned `total_lines` to choose explicit `offset`
-and `limit` values, or paginate deliberately for large files. Do not rely on
-`read_file`'s default limit for content that will be used in downstream actions.
-"""
-
-
-def _with_filesystem_read_guidance(system_prompt: str) -> str:
-    """Append filesystem read guidance to local subagent prompts."""
-    if "## Filesystem Reads" in system_prompt:
-        return system_prompt
-    return system_prompt + FILESYSTEM_READ_GUIDANCE
-
-
 def create_user_input_subagent_def() -> dict:
     """Create the user input collection subagent definition.
 
@@ -724,7 +705,6 @@ def create_user_input_subagent_def() -> dict:
     # Include utility tools for filesystem operations
     tools = [
         response_tool,
-        get_file_line_count,  # Count lines before paginated reads
         tool_result_to_file,  # Save tool output to filesystem
         wait,  # Async sleep for waiting scenarios
     ]
@@ -732,7 +712,7 @@ def create_user_input_subagent_def() -> dict:
     subagent_def = {
         "name": "user_input",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
-        "system_prompt": _with_filesystem_read_guidance(system_prompt),
+        "system_prompt": system_prompt,
         "tools": tools,
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
@@ -784,18 +764,17 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         logger.warning(f"{name}: MCP tools unavailable — subagent will have no domain tools (MCP-only mode)")
 
     # Add utility tools available to all subagents
-    # - get_file_line_count: Count lines before paginated reads
     # - tool_result_to_file: Save tool output to filesystem for downstream agents
     # - wait: Async sleep for polling/waiting scenarios
     # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
-    tools.extend([get_file_line_count, tool_result_to_file, wait])
+    tools.extend([tool_result_to_file, wait])
 
     # Always use the agent's built-in system prompt — it matches what the agent
     # uses in multi-node (standalone) mode and contains rich operational details
     # (tool usage SOPs, account lists, URL patterns, etc.).
     # prompt_config.agent_prompts entries are routing hints for the supervisor,
     # not subagent system prompts.
-    system_prompt = _with_filesystem_read_guidance(agent_instance._get_system_instruction_with_date())
+    system_prompt = agent_instance._get_system_instruction_with_date()
     logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
@@ -880,10 +859,10 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
         tools.extend(gh_tool)
         logger.info(f"{name}: Added gh CLI fallback tool")
 
-    tools.extend([get_file_line_count, tool_result_to_file, wait, terraform_fmt])
+    tools.extend([tool_result_to_file, wait, terraform_fmt])
 
     # Always use the agent's built-in system prompt (matches multi-node mode)
-    system_prompt = _with_filesystem_read_guidance(agent._get_system_instruction_with_date())
+    system_prompt = agent._get_system_instruction_with_date()
     logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
@@ -984,20 +963,19 @@ async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
     except Exception as e:
         logger.warning(f"{name}: Failed to load EKS kubectl tool: {e}")
 
-    tools.extend([get_file_line_count, tool_result_to_file, wait])
+    tools.extend([tool_result_to_file, wait])
 
-    utility_tools = (get_file_line_count, tool_result_to_file, wait)
-    if not any(t for t in tools if t not in utility_tools):
+    if not any(t for t in tools if t not in (tool_result_to_file, wait)):
         logger.error(f"{name}: No domain tools available — check MCP config and USE_AWS_CLI_AS_TOOL")
 
     # Always use the agent's built-in system prompt — it contains dynamically
     # generated account details, profile names, and tool usage patterns from
     # get_system_instruction(). The prompt_config.agent_prompts.aws entry is a
     # routing hint for the supervisor, not an actual subagent system prompt.
-    system_prompt = _with_filesystem_read_guidance(agent._get_system_instruction_with_date())
+    system_prompt = agent._get_system_instruction_with_date()
     logger.info(f"📝 Using built-in system_prompt for {name} subagent (has account/profile details)")
 
-    cli_count = sum(1 for t in tools if t not in utility_tools and t not in mcp_tools)
+    cli_count = sum(1 for t in tools if t not in (tool_result_to_file, wait) and t not in mcp_tools)
     subagent_def = {
         "name": name,
         "description": "AWS: EC2, EKS, S3 resource management",
@@ -1460,8 +1438,6 @@ class PlatformEngineerDeepAgent:
             get_current_date,
             jq,
             yq,
-            # Count lines before paginated reads
-            get_file_line_count,
             # Filesystem utility tool for tool output capture
             tool_result_to_file,
             # Wait tool for polling and async operations
@@ -1646,7 +1622,6 @@ Each todo item's `content` MUST include the agent/tool name in square brackets, 
 
 This format is required so the UI can display agent stickers next to each task.
 """
-        system_prompt = _with_filesystem_read_guidance(system_prompt)
 
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
 
