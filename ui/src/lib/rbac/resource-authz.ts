@@ -3,6 +3,7 @@ import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
 import { openFgaResourceObject } from "./openfga-resource-ids";
+import { organizationObjectId } from "./organization";
 
 export type ResourcePermissionAction =
   | "list"
@@ -37,8 +38,46 @@ export interface ResourcePermissionOptions {
   /**
    * @deprecated OpenFGA is the PDP for resource checks. This option is retained
    * for source compatibility with older call sites but no longer bypasses checks.
+   * Use `bypassForOrgAdmin` to explicitly opt into the org-admin super-grant.
    */
   allowAdminBypass?: boolean;
+  /**
+   * When true, the resource-permission helpers short-circuit to allow if the
+   * caller holds `user:<sub> can_manage organization:<caipeOrgKey>` in OpenFGA.
+   *
+   * This is the documented super-grant for org admins on the KB / Search /
+   * Data Sources / Graph / MCP Tools surfaces (PR 1 of the fine-grained RAG
+   * ReBAC plan). It is OFF by default; call sites must explicitly opt in so
+   * the bypass is auditable in code review.
+   *
+   * Set the env var `RAG_ADMIN_BYPASS_DISABLED=true` to force the bypass off
+   * everywhere as a kill switch (the helper falls back to pure per-resource
+   * OpenFGA checks).
+   */
+  bypassForOrgAdmin?: boolean;
+}
+
+function isOrgAdminBypassKillSwitchEnabled(): boolean {
+  const raw = process.env.RAG_ADMIN_BYPASS_DISABLED;
+  if (!raw) return false;
+  return raw === "1" || raw.trim().toLowerCase() === "true";
+}
+
+async function isOrgAdmin(
+  subject: string,
+  check: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>,
+): Promise<boolean> {
+  if (isOrgAdminBypassKillSwitchEnabled()) return false;
+  try {
+    const result = await check({
+      user: subject,
+      relation: "can_manage",
+      object: organizationObjectId(),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
 }
 
 export function openFgaRelationForResourceAction(action: ResourcePermissionAction): string {
@@ -98,12 +137,17 @@ export async function requireResourcePermission(
     );
   }
 
+  const check = options.check ?? checkOpenFgaTuple;
+
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, check))) {
+    return;
+  }
+
   const tuple: OpenFgaTupleKey = {
     user: subject,
     relation: openFgaRelationForResourceAction(target.action),
     object: resourceObject(target.type, target.id),
   };
-  const check = options.check ?? checkOpenFgaTuple;
   const result = await check(tuple);
   if (!result.allowed) {
     throw new ApiError(
@@ -130,6 +174,11 @@ export async function filterResourcesByPermission<T>(
   if (!subject) return [];
 
   const check = options.check ?? checkOpenFgaTuple;
+
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, check))) {
+    return [...resources];
+  }
+
   const decisions: Array<T | null> = await Promise.all(
     resources.map(async (resource) => {
       try {

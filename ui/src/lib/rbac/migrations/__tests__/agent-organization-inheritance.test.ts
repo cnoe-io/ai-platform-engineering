@@ -3,6 +3,7 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 import {
+  deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
   deriveOrganizationMembershipPlan,
@@ -214,5 +215,72 @@ describe("skill hub team grant migration", () => {
         after: { user: "team:sre#member", relation: "user", object: "skill:hub-hub-one-debug" },
       },
     ]);
+  });
+});
+
+describe("admin_surface:rag_datasources admin grant migration", () => {
+  it("writes manager tuples for every org admin and dedupes repeated subjects", () => {
+    const plan = deriveAdminSurfaceRagDatasourcesAdminGrantPlan([
+      "admin-one",
+      "admin-two",
+      "admin-one", // duplicate
+      "  admin-three  ", // whitespace
+    ]);
+
+    expect(plan.counts).toMatchObject({
+      admins_scanned: 4,
+      admins_resolved: 3,
+      tuples_planned: 3,
+      invalid_subjects: 0,
+    });
+    expect(plan.tuple_writes_planned).toBe(3);
+    expect(plan.sample_diffs).toEqual([
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_rag_datasources_admin_grant_v1:0",
+        before: {},
+        after: {
+          user: "user:admin-one",
+          relation: "manager",
+          object: "admin_surface:rag_datasources",
+        },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_rag_datasources_admin_grant_v1:1",
+        before: {},
+        after: {
+          user: "user:admin-two",
+          relation: "manager",
+          object: "admin_surface:rag_datasources",
+        },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_rag_datasources_admin_grant_v1:2",
+        before: {},
+        after: {
+          user: "user:admin-three",
+          relation: "manager",
+          object: "admin_surface:rag_datasources",
+        },
+      },
+    ]);
+  });
+
+  it("warns and skips subjects that fail OpenFGA id validation", () => {
+    const plan = deriveAdminSurfaceRagDatasourcesAdminGrantPlan([
+      "valid-sub",
+      "bad sub with space",
+      "",
+    ]);
+
+    expect(plan.counts).toMatchObject({
+      admins_scanned: 3,
+      admins_resolved: 1,
+      tuples_planned: 1,
+      invalid_subjects: 1,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("bad sub with space"))).toBe(true);
   });
 });
