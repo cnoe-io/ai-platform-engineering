@@ -186,6 +186,7 @@ def _build_context_editing(params: dict[str, Any]) -> ContextEditingMiddleware:
                 keep=params.get("keep", 3),
             ),
         ],
+        token_count_method="model",
     )
 
 
