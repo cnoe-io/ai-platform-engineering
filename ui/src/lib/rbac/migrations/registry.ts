@@ -56,7 +56,7 @@ export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
 // canonical team-member/team-admin tuple pair for every resolved slug.
 // Idempotent — re-running it is safe and a no-op when nothing changed.
 export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_backfill_v1";
-// assisted-by Cursor claude-opus-4-7
+// assisted-by Cursor Claude:claude-opus-4-7
 // PR 1 of the fine-grained KB ReBAC plan (2026-05-27).
 // Adds `rag_datasources` to PRIVILEGED_ADMIN_SURFACES, but every
 // previously-bootstrapped org-admin in OpenFGA still lacks the matching
@@ -76,6 +76,26 @@ export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
 // PR 3 wired explicit Share-with-Teams. Idempotent.
 export const KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID =
   "knowledge_base_shared_team_grants_backfill_v1";
+// `data_source_grants_backfill_v1` mirrors every existing
+// `knowledge_base:<id>` tuple in OpenFGA as a `data_source:<id>`
+// tuple, so day-zero behavior of "if you can read the KB you can read
+// its data source" is preserved when PR 4 introduces the new type.
+// Strictly additive — no deletes are ever planned by this migration.
+// See [docs/docs/security/rbac/architecture.md] for the policy and
+// PR 4 of the 2026-05-27 fine-grained KB ReBAC plan for the rollout
+// sequence.
+// assisted-by Cursor claude-opus-4-7
+export const DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID =
+  "data_source_grants_backfill_v1";
+// `mcp_tool_grants_backfill_v1` walks Mongo `team_rag_tools` and
+// writes `team:<slug>#member reader mcp_tool:<tool_id>` (plus the
+// matching `user` relation, mirroring `mcp_server` invokers). For
+// teams without an explicit owner team it's a no-op — admins keep
+// access via the `organization#admin → manager` model edge documented
+// in [deploy/openfga/model.fga].
+// assisted-by Cursor claude-opus-4-7
+export const MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID =
+  "mcp_tool_grants_backfill_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -239,6 +259,34 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     description:
       "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>` and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases before PR 3 of the 2026-05-27 fine-grained KB ReBAC plan keeps its access after the new explicit Share-with-Teams panel ships. Idempotent.",
     confirmation: "MIGRATE team_kb_ownership TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "openfga_tuples",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "data_source grants backfill",
+    description:
+      "Mirrors every existing `knowledge_base:<id>` tuple in OpenFGA as a parallel `data_source:<id>` tuple. Preserves day-zero behavior — anyone who can read the KB can read its data source — without requiring users to re-share their KBs after PR 4 of the 2026-05-27 fine-grained KB ReBAC plan introduces the new `data_source` type. Strictly additive.",
+    confirmation: "MIGRATE openfga_tuples TO data_source_v1",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_rag_tools",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "mcp_tool grants backfill",
+    description:
+      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter introduced in PR 4 of the 2026-05-27 fine-grained KB ReBAC plan. Idempotent.",
+    confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
     required: true,
     implemented: true,
   },
@@ -969,8 +1017,6 @@ export function deriveAgentSharedTeamGrantsPlan(
  *
  * Idempotent: re-running this migration writes the same tuples; OpenFGA's
  * tuple store no-ops on identical writes.
- *
- * assisted-by Cursor claude-opus-4-7
  */
 export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
   adminSubjects: string[],
@@ -1038,8 +1084,6 @@ export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
  * writes (`reader` + `manager`) for every (team, kb_id) row, so PR 3
  * doesn't have to special-case "first-time install vs. existing
  * deployment" — both converge on the same OpenFGA state.
- *
- * assisted-by Cursor claude-opus-4-7
  */
 export function deriveKnowledgeBaseSharedTeamGrantsPlan(
   ownershipDocs: Array<Record<string, unknown>>,
@@ -1116,6 +1160,170 @@ export function deriveKnowledgeBaseSharedTeamGrantsPlan(
     })),
     tuple_writes_planned: unique.length,
     confirmation: "MIGRATE team_kb_ownership TO v2",
+    tuples: unique,
+  };
+}
+
+/**
+ * Mirror existing `knowledge_base:<id>` tuples as `data_source:<id>`
+ * tuples so day-zero behavior of "if you can read the KB you can read
+ * its data source" is preserved when PR 4 introduces the new
+ * `data_source` type.
+ *
+ * Input: every OpenFGA tuple whose `object` starts with
+ * `knowledge_base:`. The deriver does not deduplicate against existing
+ * `data_source:` tuples because write-by-tuple is already idempotent
+ * in OpenFGA (writing the same tuple twice is a no-op), and the
+ * migration runner runs `unique` filtering anyway. Only tuples whose
+ * relation is one of the team-share relations (`reader`, `manager`,
+ * `ingestor`, `owner`) are mirrored — `can_*` computed relations
+ * never appear as written tuples so they're safe to ignore.
+ *
+ * Caller-supplied tuples must already be valid OpenFGA tuple keys;
+ * this deriver does no validation beyond the relation allow-list.
+ */
+export function deriveDataSourceGrantsBackfillPlan(
+  knowledgeBaseTuples: ReadonlyArray<OpenFgaTupleKey>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let scanned = 0;
+  let mirrored = 0;
+  const MIRRORABLE_RELATIONS = new Set([
+    "owner",
+    "reader",
+    "ingestor",
+    "manager",
+  ]);
+
+  for (const tuple of knowledgeBaseTuples) {
+    scanned += 1;
+    if (!tuple.object?.startsWith("knowledge_base:")) continue;
+    if (!MIRRORABLE_RELATIONS.has(tuple.relation)) continue;
+    const id = tuple.object.slice("knowledge_base:".length);
+    if (!id || !isOpenFgaId(id)) {
+      warnings.push(`Skipping knowledge_base tuple with invalid id: ${tuple.object}`);
+      continue;
+    }
+    tuples.push({
+      user: tuple.user,
+      relation: tuple.relation,
+      object: `data_source:${id}`,
+    });
+    mirrored += 1;
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "openfga_tuples",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      tuples_scanned: scanned,
+      tuples_mirrored: mirrored,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE openfga_tuples TO data_source_v1",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill `mcp_tool:<tool_id>` grants for every Mongo `team_rag_tools`
+ * row. Mirrors the runtime reconciler used by
+ * `reconcileMcpToolRelationships`: the owner team's members get
+ * `reader` + `user`, the owner team's admins get `manager`.
+ *
+ * Inputs:
+ *  - `ownershipDocs`: rows from the `team_rag_tools` collection. Each
+ *    is expected to have a `team_id` (Mongo id of the owning team)
+ *    and a `tool_ids` array of `tool_id` strings, mirroring the
+ *    `team_kb_ownership` schema.
+ *  - `teamSlugByMongoId`: same `_id → slug` map as the KB backfill.
+ *
+ * Rows whose team is unknown or whose tool_id is not OpenFGA-safe are
+ * skipped with a warning.
+ */
+export function deriveMcpToolGrantsBackfillPlan(
+  ownershipDocs: Array<Record<string, unknown>>,
+  teamSlugByMongoId: Map<string, string>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let rowsScanned = 0;
+  let rowsResolved = 0;
+  let invalidToolIds = 0;
+  let unresolvedTeams = 0;
+  const teamsTouched = new Set<string>();
+
+  for (const doc of ownershipDocs) {
+    rowsScanned += 1;
+    const teamId = typeof doc.team_id === "string" ? doc.team_id.trim() : "";
+    if (!teamId) continue;
+    const slug = teamSlugByMongoId.get(teamId);
+    if (!slug || !isOpenFgaId(slug)) {
+      unresolvedTeams += 1;
+      warnings.push(`Skipping team_rag_tools row with unresolved team_id=${teamId}`);
+      continue;
+    }
+    const toolIdsRaw = Array.isArray(doc.tool_ids) ? doc.tool_ids : [];
+    let perRowResolved = false;
+    for (const candidate of toolIdsRaw) {
+      const toolId = typeof candidate === "string" ? candidate.trim() : "";
+      if (!toolId) continue;
+      if (!isOpenFgaId(toolId)) {
+        invalidToolIds += 1;
+        warnings.push(`Skipping team_rag_tools tool_id=${candidate} (not a valid OpenFGA id)`);
+        continue;
+      }
+      const object = `mcp_tool:${toolId}`;
+      tuples.push({ user: `team:${slug}#member`, relation: "reader", object });
+      tuples.push({ user: `team:${slug}#member`, relation: "user", object });
+      tuples.push({ user: `team:${slug}#admin`, relation: "manager", object });
+      perRowResolved = true;
+    }
+    if (perRowResolved) {
+      rowsResolved += 1;
+      teamsTouched.add(slug);
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_rag_tools",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      ownership_rows_scanned: rowsScanned,
+      ownership_rows_resolved: rowsResolved,
+      teams_touched: teamsTouched.size,
+      unresolved_teams: unresolvedTeams,
+      invalid_tool_ids: invalidToolIds,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
     tuples: unique,
   };
 }
@@ -1629,13 +1837,16 @@ async function loadAgentSharedTeamGrantInputs() {
   return { agentDocs, teamDocs };
 }
 
+// assisted-by Cursor Claude:claude-opus-4-7
+// PR 1 of the fine-grained KB ReBAC plan: walk the existing OpenFGA
+// `user:<sub> admin organization:<key>` tuples to discover every
+// previously-bootstrapped org admin subject. Pages through the store
+// because some deployments have thousands of users.
 /**
  * Load every `team_kb_ownership` Mongo doc plus a `teamId → slug` map for
  * the KB shared-team grants backfill. Skips teams whose Mongo `_id` is
  * unknown (returned in the migration `warnings` instead of failing the
  * whole plan, mirroring `deriveMessagingRebacPlan`).
- *
- * assisted-by Cursor claude-opus-4-7
  */
 async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
   ownershipDocs: Array<Record<string, unknown>>;
@@ -1675,14 +1886,71 @@ async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
 }
 
 /**
- * PR 1 of the 2026-05-27 fine-grained KB ReBAC plan. Reads every
- * `user:<sub> admin organization:<key>` tuple from OpenFGA so the
- * `admin_surface_rag_datasources_admin_grant_v1` migration can derive
- * the `manager admin_surface:rag_datasources` tuples for every existing
- * org admin.
+ * Read every existing `knowledge_base:*` tuple from OpenFGA. Used by
+ * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set
+ * is computed from the source of truth instead of Mongo. Iterates
+ * the OpenFGA `read` API in pages until `continuationToken` is empty
+ * so we don't blow up memory on large stores.
  *
- * assisted-by Cursor claude-opus-4-7
+ * Failures (OpenFGA unreachable, model not loaded) bubble up so the
+ * migration runner can surface the underlying error rather than
+ * silently writing 0 tuples.
  */
+async function loadKnowledgeBaseTuples(): Promise<OpenFgaTupleKey[]> {
+  const collected: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      tuple: { user: "", relation: "", object: "knowledge_base:" },
+      continuationToken,
+    });
+    for (const entry of page.tuples) {
+      collected.push(entry.key);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return collected;
+}
+
+/**
+ * Load every `team_rag_tools` Mongo doc plus a `teamId → slug` map
+ * for the MCP tool grants backfill, mirroring
+ * `loadKnowledgeBaseSharedTeamGrantsInputs`.
+ */
+async function loadMcpToolGrantsBackfillInputs(): Promise<{
+  ownershipDocs: Array<Record<string, unknown>>;
+  teamSlugByMongoId: Map<string, string>;
+}> {
+  const [ownershipCollection, teamsCollection] = await Promise.all([
+    getCollection("team_rag_tools"),
+    getCollection("teams"),
+  ]);
+
+  const ownershipDocs = (await ownershipCollection.find({}).toArray()) as Array<
+    Record<string, unknown>
+  >;
+
+  const teamDocs = (await teamsCollection
+    .find({}, { projection: { _id: 1, slug: 1 } } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  const teamSlugByMongoId = new Map<string, string>();
+  for (const doc of teamDocs) {
+    const idValue = (doc as { _id?: unknown })._id;
+    const slug = typeof doc.slug === "string" ? doc.slug.trim() : "";
+    if (!slug) continue;
+    const idString =
+      typeof idValue === "string"
+        ? idValue
+        : idValue && typeof (idValue as { toString?: () => string }).toString === "function"
+          ? (idValue as { toString: () => string }).toString()
+          : "";
+    if (!idString) continue;
+    teamSlugByMongoId.set(idString, slug);
+  }
+
+  return { ownershipDocs, teamSlugByMongoId };
+}
+
 async function loadOrgAdminSubjects(): Promise<string[]> {
   const subjects = new Set<string>();
   const organizationObject = `organization:${caipeOrgKey()}`;
@@ -2172,6 +2440,14 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     const { ownershipDocs, teamSlugByMongoId } =
       await loadKnowledgeBaseSharedTeamGrantsInputs();
     return deriveKnowledgeBaseSharedTeamGrantsPlan(ownershipDocs, teamSlugByMongoId);
+  }
+  if (migrationId === DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID) {
+    const tuples = await loadKnowledgeBaseTuples();
+    return deriveDataSourceGrantsBackfillPlan(tuples);
+  }
+  if (migrationId === MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId } = await loadMcpToolGrantsBackfillInputs();
+    return deriveMcpToolGrantsBackfillPlan(ownershipDocs, teamSlugByMongoId);
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
